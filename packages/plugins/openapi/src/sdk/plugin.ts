@@ -1078,10 +1078,24 @@ export const openApiPlugin = definePlugin(
                   )
                 : null;
 
+              // RFC 6749 §5.2 terminal error codes — the AS has told us
+              // the stored grant is unusable, so no amount of retries
+              // will recover. Surface these as `reauthRequired: true`
+              // so the SDK translates to `ConnectionReauthRequiredError`
+              // at the caller and the UI prompts sign-in.
+              const REAUTH_REQUIRED_ERRORS = new Set([
+                "invalid_grant",
+                "invalid_client",
+                "unauthorized_client",
+              ]);
+
               const toRefreshError = (err: OAuth2Error) =>
                 new ConnectionRefreshError({
                   connectionId: input.connectionId,
                   message: err.message,
+                  reauthRequired: err.error
+                    ? REAUTH_REQUIRED_ERRORS.has(err.error)
+                    : false,
                   cause: err,
                 });
 
@@ -1094,10 +1108,16 @@ export const openApiPlugin = definePlugin(
                   })
                 : (() => {
                     if (input.refreshToken === null) {
+                      // No refresh token stored — we cannot call the
+                      // token endpoint at all. This is the RFC 6749
+                      // §4.1 "must re-consent" case, modelled as a
+                      // reauth-required refresh failure so callers
+                      // hit the same UI path as an `invalid_grant`.
                       return Effect.fail(
                         new OAuth2Error({
                           message:
                             "authorizationCode connection has no refresh token",
+                          error: "invalid_grant",
                         }),
                       );
                     }

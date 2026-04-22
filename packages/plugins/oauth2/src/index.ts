@@ -22,6 +22,13 @@ import { Data, Effect, ParseResult, Schema } from "effect";
 
 export class OAuth2Error extends Data.TaggedError("OAuth2Error")<{
   readonly message: string;
+  /**
+   * RFC 6749 §5.2 error code, when the token endpoint returned one
+   * (`invalid_grant`, `invalid_client`, `unauthorized_client`, ...).
+   * Callers use this to distinguish terminal failures (a refresh token
+   * the AS no longer honours → re-auth required) from transient ones.
+   */
+  readonly error?: string;
   readonly cause?: unknown;
 }> {}
 
@@ -104,8 +111,11 @@ export const buildAuthorizationUrl = (input: BuildAuthorizationUrlInput): string
 // Token endpoint response parsing
 // ---------------------------------------------------------------------------
 
-const oauth2Error = (message: string, cause?: unknown): OAuth2Error =>
-  new OAuth2Error({ message, cause });
+const oauth2Error = (
+  message: string,
+  cause?: unknown,
+  error?: string,
+): OAuth2Error => new OAuth2Error({ message, cause, error });
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -213,7 +223,13 @@ export const decodeTokenResponse = (
       );
       const description =
         envelope.error_description ?? envelope.error ?? `status ${response.status}`;
-      return yield* Effect.fail(oauth2Error(`OAuth token exchange failed: ${description}`));
+      return yield* Effect.fail(
+        oauth2Error(
+          `OAuth token exchange failed: ${description}`,
+          undefined,
+          envelope.error,
+        ),
+      );
     }
 
     return yield* decodeSuccessBody(record).pipe(

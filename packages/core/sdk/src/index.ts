@@ -42,6 +42,7 @@ export {
   ConnectionNotFoundError,
   ConnectionProviderNotRegisteredError,
   ConnectionRefreshNotSupportedError,
+  ConnectionReauthRequiredError,
   type ExecutorError,
 } from "./errors";
 

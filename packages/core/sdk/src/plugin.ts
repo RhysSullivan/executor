@@ -30,6 +30,7 @@ import type {
 import type {
   ConnectionNotFoundError,
   ConnectionProviderNotRegisteredError,
+  ConnectionReauthRequiredError,
   ConnectionRefreshNotSupportedError,
   SecretOwnedByConnectionError,
 } from "./errors";
@@ -193,6 +194,7 @@ export interface PluginCtx<TStore = unknown> {
       | ConnectionNotFoundError
       | ConnectionProviderNotRegisteredError
       | ConnectionRefreshNotSupportedError
+      | ConnectionReauthRequiredError
       | ConnectionRefreshError
       | StorageFailure
     >;

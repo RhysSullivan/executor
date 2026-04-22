@@ -1,4 +1,4 @@
-import { Effect, FiberRef, Option, Schema } from "effect";
+import { Deferred, Effect, FiberRef, Option, Schema } from "effect";
 import {
   StorageError,
   typedAdapter,
@@ -41,6 +41,7 @@ import {
 import {
   ConnectionNotFoundError,
   ConnectionProviderNotRegisteredError,
+  ConnectionReauthRequiredError,
   ConnectionRefreshNotSupportedError,
   NoHandlerError,
   PluginNotLoadedError,
@@ -219,6 +220,7 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
       | ConnectionNotFoundError
       | ConnectionProviderNotRegisteredError
       | ConnectionRefreshNotSupportedError
+      | ConnectionReauthRequiredError
       | ConnectionRefreshError
       | StorageFailure
     >;
@@ -603,6 +605,25 @@ export const createExecutor = <
     // Connection providers keyed by `provider.key` — drive the refresh
     // lifecycle for connection-owned tokens.
     const connectionProviders = new Map<string, ConnectionProvider>();
+    // In-flight refresh dedup. `connectionsAccessToken` stamps a
+    // `Deferred` here before calling the provider's `refresh`; parallel
+    // callers that walk in while a refresh is still running observe
+    // the same Deferred and await its resolution instead of hitting
+    // the AS a second time. The map is mutated under a semaphore so
+    // check-or-register is atomic under fiber interleavings.
+    const refreshInFlight = new Map<
+      string,
+      Deferred.Deferred<
+        string,
+        | ConnectionNotFoundError
+        | ConnectionProviderNotRegisteredError
+        | ConnectionRefreshNotSupportedError
+        | ConnectionReauthRequiredError
+        | ConnectionRefreshError
+        | StorageFailure
+      >
+    >();
+    const refreshInFlightLock = Effect.unsafeMakeSemaphore(1);
     const extensions: Record<string, object> = {};
 
     // ------------------------------------------------------------------
@@ -1389,21 +1410,106 @@ export const createExecutor = <
         );
       });
 
+    // Typed error union that `connectionsAccessToken` and every helper
+    // that participates in a refresh returns. Pulled out into a type
+    // alias because it has to match the Deferred's channel exactly —
+    // otherwise concurrent waiters and the leader diverge on the error
+    // type.
+    type AccessTokenError =
+      | ConnectionNotFoundError
+      | ConnectionProviderNotRegisteredError
+      | ConnectionRefreshNotSupportedError
+      | ConnectionReauthRequiredError
+      | ConnectionRefreshError
+      | StorageFailure;
+
+    // The actual work of a single refresh cycle, factored out so the
+    // concurrency gate (`connectionsAccessToken`) stays readable. Runs
+    // for the fiber that wins the `refreshInFlight` race.
+    const performRefresh = (
+      ref: ConnectionRef,
+    ): Effect.Effect<string, AccessTokenError> =>
+      Effect.gen(function* () {
+        const provider = connectionProviders.get(ref.provider);
+        if (!provider) {
+          return yield* Effect.fail(
+            new ConnectionProviderNotRegisteredError({
+              provider: ref.provider,
+              connectionId: ref.id,
+            }),
+          );
+        }
+        if (!provider.refresh) {
+          return yield* Effect.fail(
+            new ConnectionRefreshNotSupportedError({
+              connectionId: ref.id,
+              provider: ref.provider,
+            }),
+          );
+        }
+
+        const refreshTokenValue = ref.refreshTokenSecretId
+          ? yield* secretsGet(ref.refreshTokenSecretId as unknown as string)
+          : null;
+
+        // RFC 6749 §5.2 `invalid_grant` (and anything else the
+        // provider tags with `reauthRequired`) is terminal — the
+        // stored refresh token can't recover. Translate into the
+        // caller-visible "re-authenticate" error so the UI can
+        // prompt sign-in instead of silently retrying.
+        const rawResult = yield* Effect.either(
+          provider.refresh({
+            connectionId: ref.id,
+            scopeId: ref.scopeId,
+            kind: ref.kind,
+            identityLabel: ref.identityLabel,
+            refreshToken: refreshTokenValue,
+            providerState: ref.providerState,
+            oauthScope: ref.oauthScope,
+          }),
+        );
+        if (rawResult._tag === "Left") {
+          const err = rawResult.left;
+          if (err.reauthRequired) {
+            return yield* Effect.fail(
+              new ConnectionReauthRequiredError({
+                connectionId: err.connectionId,
+                provider: ref.provider,
+                message: err.message,
+              }),
+            );
+          }
+          return yield* Effect.fail(err);
+        }
+        const result = rawResult.right;
+
+        yield* connectionsUpdateTokens({
+          id: ref.id,
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          expiresAt: result.expiresAt,
+          oauthScope: result.oauthScope,
+          providerState: result.providerState,
+        } as UpdateConnectionTokensInput);
+
+        return result.accessToken;
+      });
+
     // accessToken(id) — the single surface plugins use at invoke time.
     // Resolves the backing secret, checks expiry, calls the provider's
     // refresh handler if we're inside the skew window. New tokens are
     // written back through the same provider and the connection row is
     // patched with the new expiry.
+    //
+    // Concurrent invokes on an expired token all share one refresh.
+    // The fiber that wins the `refreshInFlightLock` race registers a
+    // Deferred and performs the refresh; every other concurrent caller
+    // observes the Deferred and awaits its completion. The Deferred is
+    // pulled out of the map before the refresh result resolves so
+    // later invokes don't reuse a completed slot.
     const connectionsAccessToken = (
       id: string,
-    ): Effect.Effect<
-      string,
-      | ConnectionNotFoundError
-      | ConnectionProviderNotRegisteredError
-      | ConnectionRefreshNotSupportedError
-      | ConnectionRefreshError
-      | StorageFailure
-    > =>
+    ): Effect.Effect<string, AccessTokenError> =>
       Effect.gen(function* () {
         const row = yield* findInnermostConnectionRow(id);
         if (!row) {
@@ -1429,48 +1535,45 @@ export const createExecutor = <
           // hard-failure, same behavior as if `expires_at` had passed.
         }
 
-        const provider = connectionProviders.get(ref.provider);
-        if (!provider) {
-          return yield* Effect.fail(
-            new ConnectionProviderNotRegisteredError({
-              provider: ref.provider,
-              connectionId: ref.id,
-            }),
-          );
+        // Concurrency gate. `action` either returns the fresh access
+        // token (this fiber did the refresh) or the already-running
+        // Deferred that another fiber stamped into the map (this fiber
+        // piggybacks on their refresh).
+        const action = yield* refreshInFlightLock.withPermits(1)(
+          Effect.gen(function* () {
+            const existing = refreshInFlight.get(id);
+            if (existing) {
+              return {
+                kind: "await" as const,
+                deferred: existing,
+              };
+            }
+            const deferred = yield* Deferred.make<string, AccessTokenError>();
+            refreshInFlight.set(id, deferred);
+            return { kind: "lead" as const, deferred };
+          }),
+        );
+
+        if (action.kind === "await") {
+          return yield* action.deferred;
         }
-        if (!provider.refresh) {
-          return yield* Effect.fail(
-            new ConnectionRefreshNotSupportedError({
-              connectionId: ref.id,
-              provider: ref.provider,
-            }),
-          );
-        }
 
-        const refreshTokenValue = ref.refreshTokenSecretId
-          ? yield* secretsGet(ref.refreshTokenSecretId as unknown as string)
-          : null;
-
-        const result = yield* provider.refresh({
-          connectionId: ref.id,
-          scopeId: ref.scopeId,
-          kind: ref.kind,
-          identityLabel: ref.identityLabel,
-          refreshToken: refreshTokenValue,
-          providerState: ref.providerState,
-          oauthScope: ref.oauthScope,
-        });
-
-        yield* connectionsUpdateTokens({
-          id: ref.id,
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          expiresAt: result.expiresAt,
-          oauthScope: result.oauthScope,
-          providerState: result.providerState,
-        } as UpdateConnectionTokensInput);
-
-        return result.accessToken;
+        // Leader path: run the refresh, pipe the outcome into the
+        // Deferred (so waiters wake up), and then clear the map slot
+        // regardless of success or failure. Keeping clear+complete in
+        // the same `onExit` avoids a window where a late waiter sees
+        // the Deferred after it's been completed but before it's been
+        // evicted.
+        return yield* performRefresh(ref).pipe(
+          Effect.onExit((exit) =>
+            refreshInFlightLock.withPermits(1)(
+              Effect.gen(function* () {
+                refreshInFlight.delete(id);
+                yield* Deferred.done(action.deferred, exit);
+              }),
+            ),
+          ),
+        );
       });
 
     const connectionsListForCtx = () => connectionsList();

@@ -100,6 +100,15 @@ export class ConnectionRefreshError extends Data.TaggedError(
 )<{
   readonly connectionId: ConnectionId;
   readonly message: string;
+  /**
+   * Set by providers when the refresh failed in a way that the stored
+   * refresh token cannot recover from (RFC 6749 §5.2 `invalid_grant`
+   * — the AS has revoked the grant, the user changed their password,
+   * the refresh token rotated out from under us, ...). The SDK
+   * translates this into a `ConnectionReauthRequiredError` so callers
+   * can prompt the user to sign in again instead of silently retrying.
+   */
+  readonly reauthRequired?: boolean;
   readonly cause?: unknown;
 }> {}
 

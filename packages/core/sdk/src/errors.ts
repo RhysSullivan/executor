@@ -111,6 +111,24 @@ export class ConnectionRefreshNotSupportedError extends Schema.TaggedError<Conne
   },
 ) {}
 
+/**
+ * Raised by `connections.accessToken(id)` when the provider's refresh
+ * handler reported that the stored refresh token is permanently
+ * invalid (RFC 6749 §5.2 `invalid_grant` and friends). The caller —
+ * typically a tool invocation — surfaces this so the UI can prompt the
+ * user to sign in again. Distinct from `ConnectionRefreshError` so
+ * "the network flaked, retry later" and "the grant is dead, re-auth"
+ * don't collapse into one error tag at the plugin boundary.
+ */
+export class ConnectionReauthRequiredError extends Schema.TaggedError<ConnectionReauthRequiredError>()(
+  "ConnectionReauthRequiredError",
+  {
+    connectionId: ConnectionId,
+    provider: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
 // ---------------------------------------------------------------------------
 // Union type for convenience in signatures.
 // ---------------------------------------------------------------------------
@@ -127,4 +145,5 @@ export type ExecutorError =
   | SecretOwnedByConnectionError
   | ConnectionNotFoundError
   | ConnectionProviderNotRegisteredError
-  | ConnectionRefreshNotSupportedError;
+  | ConnectionRefreshNotSupportedError
+  | ConnectionReauthRequiredError;
