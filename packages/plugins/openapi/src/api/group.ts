@@ -64,19 +64,16 @@ const AddSpecResponse = Schema.Struct({
 
 // Shared identity fields for both OAuth2 flows.
 //
-// `sourceId` (namespace) pins the resulting Connection id to a stable
-// per-source value so repeated sign-ins refresh an existing row instead
-// of minting a fresh UUID every click. For `clientCredentials`, one
-// connection per source is shared org-wide (the grant is app-level —
-// RFC 6749 §4.4 — and has no user identity). For `authorizationCode`,
-// the SDK prefixes with the innermost scope so the row still lives in
-// the per-user scope but is stable across repeat sign-ins by the same
-// user on the same source.
+// `sourceId` (namespace) pins the resulting Connection *name* to a
+// stable per-source value so repeated sign-ins refresh an existing
+// row per scope instead of spawning a fresh UUID every click. Both
+// flows write at the innermost executor scope by default (per-user
+// row, per-user token), which preserves per-user credentials via
+// scope-stacked secret shadowing.
 //
-// `tokenScope` is ignored for `clientCredentials`; the SDK uses the
-// outermost executor scope so every user in the org resolves the same
-// row. For `authorizationCode` it still defaults to the innermost
-// scope in the executor's stack.
+// `tokenScope` defaults to `ctx.scopes[0].id` (innermost). Callers
+// can override — e.g. an admin writing an org-wide shared connection
+// — and the SDK validates that the target is in the executor's stack.
 const StartOAuthIdentityFields = {
   displayName: Schema.String,
   securitySchemeName: Schema.String,

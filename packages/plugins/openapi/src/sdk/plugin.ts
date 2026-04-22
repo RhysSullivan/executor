@@ -115,20 +115,25 @@ interface StartOAuthIdentity {
   readonly scopes: readonly string[];
   /**
    * Source (namespace) the resulting Connection will back. Used to
-   * mint a stable Connection id so repeat sign-ins refresh a single
-   * row instead of spawning a fresh UUID every click:
+   * mint a stable Connection *name* so repeat sign-ins refresh a
+   * single row per scope instead of spawning a fresh UUID every click:
    *
-   *   clientCredentials → `openapi-oauth2-app-${sourceId}` at the
-   *     outermost executor scope (the grant is app-level — RFC 6749
-   *     §4.4 — so every user in the org shares one row).
-   *   authorizationCode → `openapi-oauth2-user-${sourceId}` at the
-   *     innermost scope (per-user consent → per-user row, still
-   *     stable across repeat sign-ins).
+   *   clientCredentials → `openapi-oauth2-app-${sourceId}`
+   *   authorizationCode → `openapi-oauth2-user-${sourceId}`
+   *
+   * The resulting Connection is written at the innermost executor
+   * scope so per-user credentials (secrets shadowed at user scope via
+   * `ctx.secrets.get`'s scope-stacked resolution) and per-user consent
+   * (authorizationCode) both produce per-user rows. Because
+   * `findInnermostConnectionRow` resolves by id across the caller's
+   * stack, the single `source.oauth2.connectionId` string on a shared
+   * org source still lets every user reach their own physical row.
    */
   readonly sourceId: string;
-  /** Executor scope that will own an `authorizationCode` Connection
-   *  (and its backing token secrets). Defaults to `ctx.scopes[0].id`.
-   *  Ignored for `clientCredentials`. */
+  /** Executor scope that will own the resulting Connection (and its
+   *  backing token secrets). Defaults to `ctx.scopes[0].id`. Callers
+   *  can override to write at a different stack scope (e.g. an admin
+   *  writing an org-wide shared connection). */
   readonly tokenScope?: string;
 }
 
@@ -566,12 +571,13 @@ export const openApiPlugin = definePlugin(
             Effect.gen(function* () {
               const scopesArray = [...input.scopes];
               // Innermost = user scope in a stacked [user, org] executor.
-              // Outermost = org. clientCredentials is app-level so every
-              // user in the org must resolve the *same* connection row,
-              // which means writing it at the outermost scope and using
-              // a stable, source-derived id (see StartOAuthIdentity).
+              // Both flows write at the innermost scope so per-user
+              // credentials (secrets shadowed at user scope) and per-user
+              // authorization codes each produce a per-user connection
+              // row. `source.oauth2.connectionId` is a single *name* —
+              // `findInnermostConnectionRow` walks each caller's stack
+              // to resolve the right physical row.
               const innermostScope = ctx.scopes[0]!.id as string;
-              const outermostScope = ctx.scopes.at(-1)!.id as string;
 
               const clientId = yield* ctx.secrets.get(input.clientIdSecretId).pipe(
                 Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
@@ -610,13 +616,19 @@ export const openApiPlugin = definePlugin(
                   ),
                 );
 
-                // Stable id + outermost scope. `connections.create` is
-                // delete-then-insert on `(id, scope_id)`, so repeat
-                // sign-ins refresh a single row rather than leak UUIDs.
-                // tokenScope is intentionally ignored here: an app-level
-                // grant landing in a per-user scope is a multi-user bug.
+                // Stable id, per-user scope. The id is a *name* — the
+                // same string across every user — and each user's stack
+                // resolves it to their own physical row via
+                // `findInnermostConnectionRow`. That's what lets the
+                // shared org-scoped source carry a single
+                // `oauth2.connectionId` string while still supporting
+                // per-user credentials (via scope-stacked secret
+                // shadowing) and per-user tokens. `connections.create`
+                // is delete-then-insert on `(id, scope_id)`, so each
+                // user's repeat sign-ins refresh a single row rather
+                // than accumulate UUIDs.
                 const connectionId = `openapi-oauth2-app-${input.sourceId}`;
-                const connectionScope = outermostScope;
+                const connectionScope = input.tokenScope ?? innermostScope;
                 const expiresAt =
                   typeof tokenResponse.expires_in === "number"
                     ? Date.now() + tokenResponse.expires_in * 1000
