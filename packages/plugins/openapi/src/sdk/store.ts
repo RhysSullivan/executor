@@ -119,6 +119,7 @@ export type StoredSourceSchemaType = typeof StoredSourceSchema.Type;
 export interface StoredOperation {
   readonly toolId: string;
   readonly sourceId: string;
+  readonly scopeId: string;
   readonly binding: OperationBinding;
 }
 
@@ -202,7 +203,6 @@ export interface OpenapiStore {
 
   readonly listOperationsBySource: (
     sourceId: string,
-    scope: string,
   ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
 
   readonly removeSource: (
@@ -255,6 +255,7 @@ export const makeDefaultOpenapiStore = ({
   const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
     toolId: row.id as string,
     sourceId: row.source_id as string,
+    scopeId: row.scope_id as string,
     binding: decodeBinding(
       typeof row.binding === "string" ? JSON.parse(row.binding) : row.binding,
     ),
@@ -388,14 +389,11 @@ export const makeDefaultOpenapiStore = ({
         })
         .pipe(Effect.map((row) => (row ? rowToOperation(row) : null))),
 
-    listOperationsBySource: (sourceId, scope) =>
+    listOperationsBySource: (sourceId) =>
       adapter
         .findMany({
           model: "openapi_operation",
-          where: [
-            { field: "source_id", value: sourceId },
-            { field: "scope_id", value: scope },
-          ],
+          where: [{ field: "source_id", value: sourceId }],
         })
         .pipe(Effect.map((rows) => rows.map(rowToOperation))),
 

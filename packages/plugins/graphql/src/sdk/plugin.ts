@@ -366,6 +366,7 @@ export const graphqlPlugin = definePlugin(
               const storedOps: StoredOperation[] = prepared.map((p) => ({
                 toolId: `${namespace}.${p.toolPath}`,
                 sourceId: namespace,
+                scopeId: config.scope,
                 binding: p.binding,
               }));
 
@@ -527,22 +528,19 @@ export const graphqlPlugin = definePlugin(
           // toolRows for a single (plugin_id, source_id) group can still
           // straddle multiple scopes when the source is shadowed (e.g. an
           // org-level GraphQL source plus a per-user override that
-          // re-registers the same tool ids). Run one listOperationsBySource
-          // per distinct scope so each lookup pins {source_id, scope_id}
-          // and we don't fall through to the wrong scope's bindings.
-          const scopes = new Set<string>();
-          for (const row of toolRows as readonly ToolRow[]) {
-            scopes.add(row.scope_id as string);
-          }
+          // re-registers the same tool ids). One query returns every op
+          // row in the caller's stack (the scoped adapter pins
+          // `scope_id IN (stack)`); partition by `op.scopeId` so each
+          // tool row resolves against its own scope's binding.
+          const ops = yield* ctx.storage.listOperationsBySource(sourceId);
           const byScope = new Map<string, Map<string, OperationBinding>>();
-          for (const scope of scopes) {
-            const ops = yield* ctx.storage.listOperationsBySource(
-              sourceId,
-              scope,
-            );
-            const byId = new Map<string, OperationBinding>();
-            for (const op of ops) byId.set(op.toolId, op.binding);
-            byScope.set(scope, byId);
+          for (const op of ops) {
+            let byId = byScope.get(op.scopeId);
+            if (!byId) {
+              byId = new Map<string, OperationBinding>();
+              byScope.set(op.scopeId, byId);
+            }
+            byId.set(op.toolId, op.binding);
           }
 
           const out: Record<string, ToolAnnotations> = {};
