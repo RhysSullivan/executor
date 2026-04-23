@@ -947,7 +947,6 @@ export const openApiPlugin = definePlugin(
                       id: ConnectionId.make(connectionId),
                       scope: ScopeId.make(connectionScope),
                       provider: OPENAPI_OAUTH2_PROVIDER_KEY,
-                      kind: "app",
                       identityLabel: input.displayName,
                       accessToken: new TokenMaterial({
                         secretId: SecretId.make(`${connectionId}.access_token`),
@@ -1119,7 +1118,6 @@ export const openApiPlugin = definePlugin(
                       id: ConnectionId.make(session.connectionId),
                       scope: ScopeId.make(session.tokenScope),
                       provider: OPENAPI_OAUTH2_PROVIDER_KEY,
-                      kind: "user",
                       identityLabel: session.displayName,
                       accessToken: new TokenMaterial({
                         secretId: SecretId.make(session.accessTokenSecretId),

@@ -69,7 +69,6 @@ export const connection = pgTable("connection", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
   provider: text('provider').notNull(),
-  kind: text('kind').notNull(),
   identity_label: text('identity_label'),
   access_token_secret_id: text('access_token_secret_id').notNull(),
   refresh_token_secret_id: text('refresh_token_secret_id'),

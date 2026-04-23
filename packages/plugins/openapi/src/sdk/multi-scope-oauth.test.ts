@@ -308,7 +308,6 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
           (c) => c.id === aliceAuth.connectionId,
         );
         expect(aliceConn?.scopeId as unknown as string).toBe("user-alice");
-        expect(aliceConn?.kind).toBe("user");
 
         const bobConnections = yield* bobExec.connections.list();
         const bobConn = bobConnections.find(

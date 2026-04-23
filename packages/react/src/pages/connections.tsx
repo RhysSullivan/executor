@@ -8,7 +8,6 @@ import {
 } from "../api/optimistic";
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { useScope } from "../hooks/use-scope";
-import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import {
   CardStack,
@@ -51,7 +50,6 @@ function ConnectionRow(props: {
     id: string;
     provider: string;
     identityLabel: string | null;
-    kind: "user" | "app";
   };
   onRemove: () => void;
 }) {
@@ -72,7 +70,6 @@ function ConnectionRow(props: {
         </CardStackEntryDescription>
       </CardStackEntryContent>
       <CardStackEntryActions>
-        <Badge variant="outline">{connection.kind}</Badge>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -176,7 +173,6 @@ export function ConnectionsPage() {
                         id: c.id,
                         provider: c.provider,
                         identityLabel: c.identityLabel,
-                        kind: c.kind,
                       }}
                       onRemove={() => handleRemove(c.id)}
                     />

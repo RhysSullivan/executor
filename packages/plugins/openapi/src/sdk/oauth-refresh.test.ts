@@ -213,7 +213,6 @@ const seedExpiredConnection = (
         id: ConnectionId.make(connectionId),
         scope: scopeId,
         provider: "openapi:oauth2",
-        kind: "user",
         identityLabel: "Alice",
         accessToken: new TokenMaterial({
           secretId: SecretId.make(`${connectionId}.access_token`),
