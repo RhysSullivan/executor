@@ -11,7 +11,7 @@
 //     generation, encode/decode all happen in storage-core
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Effect, Schedule } from "effect";
 import {
   and,
   asc,
@@ -297,15 +297,48 @@ const classifyError = (
   });
 };
 
+// Hyperdrive (Cloudflare's Postgres pooler) periodically hands out a
+// stale pooled connection that drops the write mid-query. Drizzle
+// surfaces this as a driver error we classify into a StorageError whose
+// message contains "Network connection lost" or "CONNECTION_CLOSED".
+// Retrying on a fresh pooled connection almost always succeeds, so we
+// retry transient errors twice with short exponential backoff. Unique
+// violations and anything else fail fast.
+export const isTransientStorageError = (err: StorageFailure): boolean => {
+  if (err._tag !== "StorageError") return false;
+  const msg = err.message;
+  return (
+    msg.includes("Network connection lost") ||
+    msg.includes("CONNECTION_CLOSED") ||
+    msg.includes("Connection terminated") ||
+    msg.includes("ECONNRESET")
+  );
+};
+
+const transientRetrySchedule = Schedule.exponential("50 millis");
+
+const withTransientRetry = <T>(
+  effect: Effect.Effect<T, StorageFailure>,
+): Effect.Effect<T, StorageFailure> =>
+  effect.pipe(
+    Effect.retry({
+      while: isTransientStorageError,
+      times: 2,
+      schedule: transientRetrySchedule,
+    }),
+  );
+
 const runPromise = <T>(
   op: string,
   fn: () => Promise<T>,
   model?: string,
 ): Effect.Effect<T, StorageFailure> =>
-  Effect.tryPromise({
-    try: fn,
-    catch: (cause) => classifyError(op, model, cause),
-  });
+  withTransientRetry(
+    Effect.tryPromise({
+      try: fn,
+      catch: (cause) => classifyError(op, model, cause),
+    }),
+  );
 
 // ---------------------------------------------------------------------------
 // withReturning — mirrors better-auth's helper. sqlite + pg support
