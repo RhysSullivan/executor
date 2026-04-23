@@ -346,11 +346,10 @@ export default function AddOpenApiSource(props: {
                 ) || null
               : null,
           clientIdSlot: oauth2ClientIdSlot(selectedOAuth2Preset.securitySchemeName),
-          clientSecretSlot:
-            selectedOAuth2Preset.flow === "clientCredentials" ||
-              oauth2ClientSecretSecretId
-              ? oauth2ClientSecretSlot(selectedOAuth2Preset.securitySchemeName)
-              : null,
+          // Authorization-code specs can still be confidential clients
+          // (Spotify is one example). Persist the slot even when the value is
+          // deferred so the edit screen can collect the secret later.
+          clientSecretSlot: oauth2ClientSecretSlot(selectedOAuth2Preset.securitySchemeName),
           connectionSlot: oauth2ConnectionSlot(selectedOAuth2Preset.securitySchemeName),
           scopes: [...oauth2SelectedScopes],
         })

@@ -42,6 +42,7 @@ import {
   OPENAPI_OAUTH_POPUP_NAME,
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
+import { oauth2ClientSecretSlot } from "../sdk/store";
 import type { OpenApiSourceBindingValue } from "../sdk/types";
 
 type SlotDef =
@@ -66,6 +67,11 @@ const slugify = (value: string): string =>
 
 const bindingSecretId = (sourceId: string, slot: string, scopeId: string): string =>
   `source-binding-${slugify(sourceId)}-${slugify(slot)}-${slugify(scopeId)}`;
+
+const effectiveClientSecretSlot = (oauth2: {
+  readonly securitySchemeName: string;
+  readonly clientSecretSlot: string | null;
+}): string => oauth2.clientSecretSlot ?? oauth2ClientSecretSlot(oauth2.securitySchemeName);
 
 const exactBindingForScope = (
   rows: readonly {
@@ -189,18 +195,21 @@ export default function EditOpenApiSource(props: {
       });
     }
     if (source.config.oauth2) {
+      const clientSecretSlot = effectiveClientSecretSlot(source.config.oauth2);
       slots.push({
         kind: "secret",
         slot: source.config.oauth2.clientIdSlot,
         label: "Client ID",
       });
-      if (source.config.oauth2.clientSecretSlot) {
-        slots.push({
-          kind: "secret",
-          slot: source.config.oauth2.clientSecretSlot,
-          label: "Client Secret",
-        });
-      }
+      slots.push({
+        kind: "secret",
+        slot: clientSecretSlot,
+        label: "Client Secret",
+        hint:
+          source.config.oauth2.flow === "authorizationCode"
+            ? "Optional for public PKCE clients"
+            : undefined,
+      });
       slots.push({
         kind: "oauth2",
         slot: source.config.oauth2.connectionSlot,
@@ -333,14 +342,13 @@ export default function EditOpenApiSource(props: {
       targetScope,
       scopeRanks,
     );
-    const clientSecretBinding = oauth2.clientSecretSlot
-      ? effectiveBindingForScope(
-          bindingRows,
-          oauth2.clientSecretSlot,
-          targetScope,
-          scopeRanks,
-        )
-      : null;
+    const clientSecretSlot = effectiveClientSecretSlot(oauth2);
+    const clientSecretBinding = effectiveBindingForScope(
+      bindingRows,
+      clientSecretSlot,
+      targetScope,
+      scopeRanks,
+    );
     if (!clientIdBinding || !isSecretBindingValue(clientIdBinding.value)) {
       setError("Client ID must be bound before connecting");
       return;
