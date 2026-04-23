@@ -10,7 +10,12 @@ import {
 } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
 import { StoredSourceSchema } from "../sdk/store";
-import { OAuth2Auth } from "../sdk/types";
+import {
+  OAuth2Auth,
+  OAuth2SourceConfig,
+  OpenApiSourceBindingInput,
+  OpenApiSourceBindingRef,
+} from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -18,6 +23,7 @@ import { OAuth2Auth } from "../sdk/types";
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
+const sourceScopeIdParam = HttpApiSchema.param("sourceScopeId", ScopeId);
 
 // ---------------------------------------------------------------------------
 // Payloads
@@ -29,7 +35,7 @@ const AddSpecPayload = Schema.Struct({
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-  oauth2: Schema.optional(OAuth2Auth),
+  oauth2: Schema.optional(Schema.Union(OAuth2Auth, OAuth2SourceConfig)),
 });
 
 const PreviewSpecPayload = Schema.Struct({
@@ -42,11 +48,18 @@ const UpdateSourcePayload = Schema.Struct({
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
   // Set after a successful re-authenticate to refresh the source's
   // stored OAuth2 metadata.
-  oauth2: Schema.optional(OAuth2Auth),
+  oauth2: Schema.optional(Schema.Union(OAuth2Auth, OAuth2SourceConfig)),
 });
 
 const UpdateSourceResponse = Schema.Struct({
   updated: Schema.Boolean,
+});
+
+const RemoveBindingPayload = Schema.Struct({
+  sourceId: Schema.String,
+  sourceScope: ScopeId,
+  slot: Schema.String,
+  scope: ScopeId,
 });
 
 // ---------------------------------------------------------------------------
@@ -170,6 +183,22 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
       .addSuccess(UpdateSourceResponse),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "listSourceBindings",
+    )`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}/base/${sourceScopeIdParam}/bindings`
+      .addSuccess(Schema.Array(OpenApiSourceBindingRef)),
+  )
+  .add(
+    HttpApiEndpoint.post("setSourceBinding")`/scopes/${scopeIdParam}/openapi/source-bindings`
+      .setPayload(OpenApiSourceBindingInput)
+      .addSuccess(OpenApiSourceBindingRef),
+  )
+  .add(
+    HttpApiEndpoint.post("removeSourceBinding")`/scopes/${scopeIdParam}/openapi/source-bindings/remove`
+      .setPayload(RemoveBindingPayload)
+      .addSuccess(Schema.Struct({ removed: Schema.Boolean })),
   )
   .add(
     HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/openapi/oauth/start`

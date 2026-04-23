@@ -69,7 +69,6 @@ export const connection = sqliteTable("connection", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
   provider: text('provider').notNull(),
-  kind: text('kind').notNull(),
   identity_label: text('identity_label'),
   access_token_secret_id: text('access_token_secret_id').notNull(),
   refresh_token_secret_id: text('refresh_token_secret_id'),
@@ -108,6 +107,22 @@ export const openapi_operation = sqliteTable("openapi_operation", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("openapi_operation_scope_id_idx").on(table.scope_id),
   index("openapi_operation_source_id_idx").on(table.source_id),
+]);
+
+export const openapi_source_binding = sqliteTable("openapi_source_binding", {
+  id: text('id').primaryKey(),
+  source_id: text('source_id').notNull(),
+  source_scope_id: text('source_scope_id').notNull(),
+  target_scope_id: text('target_scope_id').notNull(),
+  slot: text('slot').notNull(),
+  value: text('value', { mode: "json" }).notNull(),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [
+  index("openapi_source_binding_source_id_idx").on(table.source_id),
+  index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
+  index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
+  index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
 export const openapi_oauth_session = sqliteTable("openapi_oauth_session", {
@@ -208,13 +223,5 @@ export const graphql_operation = sqliteTable("graphql_operation", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_operation_scope_id_idx").on(table.scope_id),
   index("graphql_operation_source_id_idx").on(table.source_id),
-]);
-
-export const blob = sqliteTable("blob", {
-  namespace: text('namespace').notNull(),
-  key: text('key').notNull(),
-  value: text('value').notNull(),
-}, (table) => [
-  primaryKey({ columns: [table.namespace, table.key] }),
 ]);
 

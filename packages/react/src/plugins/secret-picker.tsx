@@ -68,7 +68,7 @@ export function SecretPicker(props: {
       <Popover open={open} onOpenChange={setOpen} modal={false}>
         <PopoverAnchor asChild>
           <Input
-            value={open ? query : selected ? selected.name : ""}
+            value={open ? query : selected ? selected.name : (value ?? "")}
             onChange={(event: ChangeEvent<HTMLInputElement>) => {
               setQuery(event.target.value);
               if (!open) setOpen(true);

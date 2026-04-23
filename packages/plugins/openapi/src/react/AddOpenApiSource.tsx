@@ -3,8 +3,9 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
 import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
+import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
 
-import { useScope } from "@executor/react/api/scope-context";
+import { useScope, useUserScope } from "@executor/react/api/scope-context";
 import {
   connectionWriteKeys,
   sourceWriteKeys,
@@ -16,6 +17,10 @@ import {
 // Invalidate both so the source-detail page opens into its connected
 // state without a refresh.
 const addSpecWriteKeys = [
+  ...sourceWriteKeys,
+  ...connectionWriteKeys,
+] as const;
+const bindingWriteKeys = [
   ...sourceWriteKeys,
   ...connectionWriteKeys,
 ] as const;
@@ -60,12 +65,20 @@ import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import {
   addOpenApiSpec,
   previewOpenApiSpec,
+  setOpenApiSourceBinding,
   startOpenApiOAuth,
 } from "./atoms";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
 import {
+  headerBindingSlot,
+  oauth2ClientIdSlot,
+  oauth2ClientSecretSlot,
+  oauth2ConnectionSlot,
+} from "../sdk/store";
+import {
+  ConfiguredHeaderBinding,
   OAuth2Auth,
-  type HeaderValue,
+  OAuth2SourceConfig,
   type ServerInfo,
   type ServerVariable,
 } from "../sdk/types";
@@ -219,9 +232,11 @@ export default function AddOpenApiSource(props: {
   const [addError, setAddError] = useState<string | null>(null);
 
   const scopeId = useScope();
+  const userScope = useUserScope();
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
   const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
@@ -273,18 +288,20 @@ export default function AddOpenApiSource(props: {
     return out;
   };
 
-  const allHeaders: Record<string, HeaderValue> = {};
+  const configuredHeaders: Record<string, ConfiguredHeaderBinding> = {};
+  const headerBindings: Array<{ slot: string; secretId: string }> = [];
   for (const ch of customHeaders) {
-    if (ch.name.trim() && ch.secretId) {
-      allHeaders[ch.name.trim()] = {
-        secretId: ch.secretId,
-        ...(ch.prefix ? { prefix: ch.prefix } : {}),
-      };
+    if (!ch.name.trim()) continue;
+    const slot = headerBindingSlot(ch.name.trim());
+    configuredHeaders[ch.name.trim()] = new ConfiguredHeaderBinding({
+      kind: "binding",
+      slot,
+      prefix: ch.prefix,
+    });
+    if (ch.secretId) {
+      headerBindings.push({ slot, secretId: ch.secretId });
     }
   }
-  const hasHeaders = Object.keys(allHeaders).length > 0;
-
-  const customHeadersValid = customHeaders.every((ch) => ch.name.trim() && ch.secretId);
 
   const oauth2Presets: readonly OAuth2Preset[] = preview?.oauth2Presets ?? [];
   const oauth2RedirectUrl =
@@ -314,24 +331,32 @@ export default function AddOpenApiSource(props: {
       ? oauth2AuthState.auth
       : null;
 
-  // OAuth is "ready to save" without completing the flow as long as we have
-  // enough metadata to run sign-in later: a preset, a client id secret, and —
-  // for clientCredentials — a client secret. Each user signs in via
-  // OpenApiSignInButton on the source detail page; innermost-wins scope
-  // shadowing resolves tokens per-user at invoke time.
-  const oauth2DeferrableReady =
-    selectedOAuth2Preset !== null &&
-    oauth2ClientIdSecretId !== null &&
-    (selectedOAuth2Preset.flow !== "clientCredentials" ||
-      oauth2ClientSecretSecretId !== null);
-  const oauth2Ready =
-    strategy.kind !== "oauth2" || oauth2Auth !== null || oauth2DeferrableReady;
+  const configuredOAuth2 =
+    strategy.kind === "oauth2" && selectedOAuth2Preset
+      ? new OAuth2SourceConfig({
+          kind: "oauth2",
+          securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+          flow: selectedOAuth2Preset.flow,
+          tokenUrl: resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl),
+          authorizationUrl:
+            selectedOAuth2Preset.flow === "authorizationCode"
+              ? resolveOAuthUrl(
+                  Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+                  resolvedBaseUrl,
+                ) || null
+              : null,
+          clientIdSlot: oauth2ClientIdSlot(selectedOAuth2Preset.securitySchemeName),
+          // Authorization-code specs can still be confidential clients
+          // (Spotify is one example). Persist the slot even when the value is
+          // deferred so the edit screen can collect the secret later.
+          clientSecretSlot: oauth2ClientSecretSlot(selectedOAuth2Preset.securitySchemeName),
+          connectionSlot: oauth2ConnectionSlot(selectedOAuth2Preset.securitySchemeName),
+          scopes: [...oauth2SelectedScopes],
+        })
+      : null;
+  const hasHeaders = Object.keys(configuredHeaders).length > 0;
 
-  const canAdd =
-    preview !== null &&
-    resolvedBaseUrl.length > 0 &&
-    (customHeaders.length === 0 || customHeadersValid) &&
-    oauth2Ready;
+  const canAdd = preview !== null && resolvedBaseUrl.length > 0;
 
   // ---- Handlers ----
 
@@ -591,55 +616,95 @@ export default function AddOpenApiSource(props: {
       kind: "openapi",
       url: resolvedBaseUrl || undefined,
     });
-    // If the user picked oauth2 but didn't complete sign-in, persist a
-    // deferred OAuth2Auth with the same stable connection id sign-in will
-    // later create. The source config stays stable before and after auth.
-    let oauth2ToSave: OAuth2Auth | null = oauth2Auth;
-    if (
-      !oauth2ToSave &&
-      strategy.kind === "oauth2" &&
-      selectedOAuth2Preset &&
-      oauth2ClientIdSecretId
-    ) {
-      const tokenUrl = resolveOAuthUrl(
-        selectedOAuth2Preset.tokenUrl,
-        resolvedBaseUrl,
-      );
-      const authorizationUrl =
-        selectedOAuth2Preset.flow === "authorizationCode"
-          ? resolveOAuthUrl(
-              Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
-              resolvedBaseUrl,
-            ) || null
-          : null;
-      oauth2ToSave = new OAuth2Auth({
-        kind: "oauth2",
-        connectionId: openApiOAuthConnectionId(
-          namespace,
-          selectedOAuth2Preset.flow,
-        ),
-        securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-        flow: selectedOAuth2Preset.flow,
-        tokenUrl,
-        authorizationUrl,
-        clientIdSecretId: oauth2ClientIdSecretId,
-        clientSecretSecretId: oauth2ClientSecretSecretId,
-        scopes: [...oauth2SelectedScopes],
-      });
-    }
     try {
-      await doAdd({
+      const result = await doAdd({
         path: { scopeId },
         payload: {
           spec: specUrl,
           name: identity.name.trim() || undefined,
           namespace: slugifyNamespace(identity.namespace) || undefined,
           baseUrl: resolvedBaseUrl || undefined,
-          ...(hasHeaders ? { headers: allHeaders } : {}),
-          ...(oauth2ToSave ? { oauth2: oauth2ToSave } : {}),
+          ...(hasHeaders ? { headers: configuredHeaders } : {}),
+          ...(configuredOAuth2 ? { oauth2: configuredOAuth2 } : {}),
         },
         reactivityKeys: addSpecWriteKeys,
       });
+
+      const sourceId = result.namespace;
+      const sourceScope = ScopeId.make(scopeId);
+      const bindingScope = ScopeId.make(userScope);
+
+      for (const binding of headerBindings) {
+        await doSetBinding({
+          path: { scopeId },
+          payload: {
+            sourceId,
+            sourceScope,
+            scope: bindingScope,
+            slot: binding.slot,
+            value: {
+              kind: "secret",
+              secretId: SecretId.make(binding.secretId),
+            },
+          },
+          reactivityKeys: bindingWriteKeys,
+        });
+      }
+
+      if (configuredOAuth2 && oauth2ClientIdSecretId) {
+        await doSetBinding({
+          path: { scopeId },
+          payload: {
+            sourceId,
+            sourceScope,
+            scope: bindingScope,
+            slot: configuredOAuth2.clientIdSlot,
+            value: {
+              kind: "secret",
+              secretId: SecretId.make(oauth2ClientIdSecretId),
+            },
+          },
+          reactivityKeys: bindingWriteKeys,
+        });
+      }
+
+      if (
+        configuredOAuth2?.clientSecretSlot &&
+        oauth2ClientSecretSecretId
+      ) {
+        await doSetBinding({
+          path: { scopeId },
+          payload: {
+            sourceId,
+            sourceScope,
+            scope: bindingScope,
+            slot: configuredOAuth2.clientSecretSlot,
+            value: {
+              kind: "secret",
+              secretId: SecretId.make(oauth2ClientSecretSecretId),
+            },
+          },
+          reactivityKeys: bindingWriteKeys,
+        });
+      }
+
+      if (configuredOAuth2 && oauth2Auth) {
+        await doSetBinding({
+          path: { scopeId },
+          payload: {
+            sourceId,
+            sourceScope,
+            scope: bindingScope,
+            slot: configuredOAuth2.connectionSlot,
+            value: {
+              kind: "connection",
+              connectionId: ConnectionId.make(oauth2Auth.connectionId),
+            },
+          },
+          reactivityKeys: bindingWriteKeys,
+        });
+      }
+
       props.onComplete();
     } catch (e) {
       setAddError(e instanceof Error ? e.message : "Failed to add source");
@@ -956,6 +1021,7 @@ export default function AddOpenApiSource(props: {
                 onHeadersChange={handleHeadersChange}
                 existingSecrets={secretList}
                 sourceName={identity.name}
+                writeScope={userScope}
               />
             )}
 
@@ -985,6 +1051,7 @@ export default function AddOpenApiSource(props: {
                     secrets={secretList}
                     sourceName={identity.name}
                     secretLabel="Client ID"
+                    writeScope={userScope}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -1003,6 +1070,7 @@ export default function AddOpenApiSource(props: {
                     secrets={secretList}
                     sourceName={identity.name}
                     secretLabel="Client Secret"
+                    writeScope={userScope}
                   />
                 </div>
                 <div className="space-y-1.5">

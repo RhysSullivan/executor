@@ -523,7 +523,6 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
                 id: ConnectionId.make(session.connectionId),
                 scope: ScopeId.make(session.tokenScope),
                 provider: GOOGLE_DISCOVERY_OAUTH2_PROVIDER_KEY,
-                kind: "user",
                 identityLabel: session.name,
                 accessToken: new TokenMaterial({
                   secretId: SecretId.make(`${session.connectionId}.access_token`),

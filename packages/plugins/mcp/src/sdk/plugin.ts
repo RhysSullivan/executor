@@ -1014,7 +1014,6 @@ export const mcpPlugin = definePlugin(
                       id: ConnectionId.make(session.connectionId),
                       scope: ScopeId.make(session.tokenScope),
                       provider: MCP_OAUTH2_PROVIDER_KEY,
-                      kind: "user",
                       identityLabel: derivedLabel,
                       accessToken: new TokenMaterial({
                         secretId: SecretId.make(

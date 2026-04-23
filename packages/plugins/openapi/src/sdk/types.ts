@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // Branded IDs
@@ -145,6 +146,58 @@ export const HeaderValue = Schema.Union(
 );
 export type HeaderValue = typeof HeaderValue.Type;
 
+export class ConfiguredHeaderBinding extends Schema.Class<ConfiguredHeaderBinding>(
+  "OpenApiConfiguredHeaderBinding",
+)({
+  kind: Schema.Literal("binding"),
+  slot: Schema.String,
+  prefix: Schema.optional(Schema.String),
+}) {}
+
+export const ConfiguredHeaderValue = Schema.Union(
+  Schema.String,
+  ConfiguredHeaderBinding,
+);
+export type ConfiguredHeaderValue = typeof ConfiguredHeaderValue.Type;
+
+export const OpenApiSourceBindingValue = Schema.Union(
+  Schema.Struct({
+    kind: Schema.Literal("secret"),
+    secretId: SecretId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("connection"),
+    connectionId: ConnectionId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("text"),
+    text: Schema.String,
+  }),
+);
+export type OpenApiSourceBindingValue = typeof OpenApiSourceBindingValue.Type;
+
+export class OpenApiSourceBindingInput extends Schema.Class<OpenApiSourceBindingInput>(
+  "OpenApiSourceBindingInput",
+)({
+  sourceId: Schema.String,
+  sourceScope: ScopeId,
+  scope: ScopeId,
+  slot: Schema.String,
+  value: OpenApiSourceBindingValue,
+}) {}
+
+export class OpenApiSourceBindingRef extends Schema.Class<OpenApiSourceBindingRef>(
+  "OpenApiSourceBindingRef",
+)({
+  sourceId: Schema.String,
+  sourceScopeId: ScopeId,
+  scopeId: ScopeId,
+  slot: Schema.String,
+  value: OpenApiSourceBindingValue,
+  createdAt: Schema.DateFromNumber,
+  updatedAt: Schema.DateFromNumber,
+}) {}
+
 // ---------------------------------------------------------------------------
 // OAuth2 auth — points at the Connection that owns live tokens, and also
 // carries enough API-level config to kick off a fresh sign-in from the
@@ -198,6 +251,20 @@ export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
   /** OAuth scopes requested on sign-in. Stored as a static list so the
    *  sign-in button can re-request the same capabilities without having
    *  to re-derive them from the OpenAPI spec. */
+  scopes: Schema.Array(Schema.String),
+}) {}
+
+export class OAuth2SourceConfig extends Schema.Class<OAuth2SourceConfig>(
+  "OpenApiOAuth2SourceConfig",
+)({
+  kind: Schema.Literal("oauth2"),
+  securitySchemeName: Schema.String,
+  flow: OAuth2Flow,
+  tokenUrl: Schema.String,
+  authorizationUrl: Schema.NullOr(Schema.String),
+  clientIdSlot: Schema.String,
+  clientSecretSlot: Schema.NullOr(Schema.String),
+  connectionSlot: Schema.String,
   scopes: Schema.Array(Schema.String),
 }) {}
 

@@ -279,6 +279,7 @@ export const collectSchemas = (
 
 const rowToSource = (row: SourceRow): Source => ({
   id: row.id,
+  scopeId: row.scope_id,
   kind: row.kind,
   name: row.name,
   url: row.url ?? undefined,
@@ -294,6 +295,7 @@ const staticDeclToSource = (
   pluginId: string,
 ): Source => ({
   id: decl.id,
+  scopeId: undefined,
   kind: decl.kind,
   name: decl.name,
   url: decl.url,
@@ -1011,7 +1013,6 @@ export const createExecutor = <
         id: ConnectionId.make(row.id as string),
         scopeId: ScopeId.make(row.scope_id as string),
         provider: row.provider as string,
-        kind: (row.kind as "user" | "app") ?? "user",
         identityLabel: (row.identity_label as string | null | undefined) ?? null,
         accessTokenSecretId: SecretId.make(row.access_token_secret_id as string),
         refreshTokenSecretId:
@@ -1223,7 +1224,6 @@ export const createExecutor = <
                 id: input.id as string,
                 scope_id: input.scope as string,
                 provider: input.provider,
-                kind: input.kind,
                 identity_label: input.identityLabel ?? undefined,
                 access_token_secret_id: input.accessToken.secretId as string,
                 refresh_token_secret_id:
@@ -1241,7 +1241,6 @@ export const createExecutor = <
               id: input.id,
               scopeId: input.scope,
               provider: input.provider,
-              kind: input.kind,
               identityLabel: input.identityLabel,
               accessTokenSecretId: input.accessToken.secretId,
               refreshTokenSecretId:
@@ -1461,7 +1460,6 @@ export const createExecutor = <
           provider.refresh({
             connectionId: ref.id,
             scopeId: ref.scopeId,
-            kind: ref.kind,
             identityLabel: ref.identityLabel,
             refreshToken: refreshTokenValue,
             providerState: ref.providerState,

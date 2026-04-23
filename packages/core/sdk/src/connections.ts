@@ -21,9 +21,6 @@ export const ConnectionProviderState = Schema.Record({
 });
 export type ConnectionProviderState = typeof ConnectionProviderState.Type;
 
-export const ConnectionKind = Schema.Literal("user", "app");
-export type ConnectionKind = typeof ConnectionKind.Type;
-
 // ---------------------------------------------------------------------------
 // ConnectionRef — metadata projection returned from `ctx.connections.list`
 // / `executor.connections.list`. Holds token secret ids (so a plugin can
@@ -34,7 +31,6 @@ export class ConnectionRef extends Schema.Class<ConnectionRef>("ConnectionRef")(
   id: ConnectionId,
   scopeId: ScopeId,
   provider: Schema.String,
-  kind: ConnectionKind,
   identityLabel: Schema.NullOr(Schema.String),
   accessTokenSecretId: SecretId,
   refreshTokenSecretId: Schema.NullOr(SecretId),
@@ -75,11 +71,10 @@ export class CreateConnectionInput extends Schema.Class<CreateConnectionInput>(
 )({
   id: ConnectionId,
   /** Executor scope id that will own this connection + its backing
-   *  secrets. Usually the innermost (per-user) scope for user
-   *  sign-ins, or an org scope for shared installs. */
+   *  secrets. This is the sharing boundary: a user scope is personal,
+   *  an org/workspace scope is shared with descendants. */
   scope: ScopeId,
   provider: Schema.String,
-  kind: ConnectionKind,
   identityLabel: Schema.NullOr(Schema.String),
   accessToken: TokenMaterial,
   refreshToken: Schema.NullOr(TokenMaterial),
@@ -122,7 +117,6 @@ export class ConnectionRefreshError extends Data.TaggedError(
 export interface ConnectionRefreshInput {
   readonly connectionId: ConnectionId;
   readonly scopeId: ScopeId;
-  readonly kind: ConnectionKind;
   readonly identityLabel: string | null;
   /** Resolved refresh token value, or null if the connection has none. */
   readonly refreshToken: string | null;

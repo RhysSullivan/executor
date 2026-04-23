@@ -69,7 +69,6 @@ export const connection = pgTable("connection", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
   provider: text('provider').notNull(),
-  kind: text('kind').notNull(),
   identity_label: text('identity_label'),
   access_token_secret_id: text('access_token_secret_id').notNull(),
   refresh_token_secret_id: text('refresh_token_secret_id'),
@@ -97,6 +96,23 @@ export const openapi_source = pgTable("openapi_source", {
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("openapi_source_scope_id_idx").on(table.scope_id),
+]);
+
+export const openapi_source_binding = pgTable("openapi_source_binding", {
+  id: text('id').notNull(),
+  source_id: text('source_id').notNull(),
+  source_scope_id: text('source_scope_id').notNull(),
+  target_scope_id: text('target_scope_id').notNull(),
+  slot: text('slot').notNull(),
+  value: jsonb('value').notNull(),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.id] }),
+  index("openapi_source_binding_source_id_idx").on(table.source_id),
+  index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
+  index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
+  index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
 export const openapi_operation = pgTable("openapi_operation", {
@@ -197,5 +213,3 @@ export const blob = pgTable("blob", {
 }, (table) => [
   primaryKey({ columns: [table.namespace, table.key] }),
 ]);
-
-

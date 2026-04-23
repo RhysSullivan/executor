@@ -128,10 +128,6 @@ export const coreSchema = {
        *  is `${pluginId}:${kind}` (e.g. `openapi:oauth2`, `mcp:oauth2`,
        *  `google-discovery:google`). Mirrors `secret.provider`. */
       provider: { type: "string", required: true, index: true },
-      /** "user" = per-person sign-in; "app" = app-level client-credentials
-       *  style install. Affects UI copy only; the SDK treats both the
-       *  same for refresh. */
-      kind: { type: "string", required: true },
       /** Display label shown in the Connections UI. Usually the account
        *  email / handle / org name the user signed in as. */
       identity_label: { type: "string", required: false },

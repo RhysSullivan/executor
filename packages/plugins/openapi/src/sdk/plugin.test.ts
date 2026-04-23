@@ -657,11 +657,37 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
         const stored = yield* executor.openapi.getSource("deferred", TEST_SCOPE);
         expect(stored).not.toBeNull();
-        expect(stored?.config.oauth2?.connectionId).toBe(
-          "openapi-oauth2-pending-deferred",
-        );
-        expect(stored?.config.oauth2?.clientIdSecretId).toBe("acme-client-id");
         expect(stored?.config.oauth2?.flow).toBe("authorizationCode");
+        expect(stored?.config.oauth2?.connectionSlot).toBe("oauth2:oauth2:connection");
+        expect(stored?.config.oauth2?.clientIdSlot).toBe("oauth2:oauth2:client-id");
+
+        const clientIdBinding = yield* executor.openapi
+          .listSourceBindings("deferred", TEST_SCOPE)
+          .pipe(
+            Effect.map((bindings) =>
+              bindings.find(
+                (binding) => binding.slot === stored!.config.oauth2!.clientIdSlot,
+              ) ?? null,
+            ),
+          );
+        expect(clientIdBinding?.value).toEqual({
+          kind: "secret",
+          secretId: SecretId.make("acme-client-id"),
+        });
+
+        const connectionBinding = yield* executor.openapi
+          .listSourceBindings("deferred", TEST_SCOPE)
+          .pipe(
+            Effect.map((bindings) =>
+              bindings.find(
+                (binding) => binding.slot === stored!.config.oauth2!.connectionSlot,
+              ) ?? null,
+            ),
+          );
+        expect(connectionBinding?.value).toEqual({
+          kind: "connection",
+          connectionId: "openapi-oauth2-pending-deferred",
+        });
 
         // Tools should be listed even without a live connection; invocation
         // is what requires the token, not registration.

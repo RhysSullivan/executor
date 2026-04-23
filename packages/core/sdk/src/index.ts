@@ -80,7 +80,6 @@ export {
 // Connections
 export {
   ConnectionRef,
-  ConnectionKind,
   ConnectionProviderState,
   CreateConnectionInput,
   UpdateConnectionTokensInput,

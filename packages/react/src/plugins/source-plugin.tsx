@@ -72,6 +72,8 @@ export interface SourcePlugin {
    */
   readonly summary?: ComponentType<{
     readonly sourceId: string;
+    readonly variant?: "badge" | "panel";
+    readonly onAction?: () => void;
   }>;
 
   /**

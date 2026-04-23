@@ -6,6 +6,7 @@ import { runOAuthCallback } from "@executor/plugin-oauth2/http";
 import { addGroup, capture, InternalError } from "@executor/api";
 import { OpenApiOAuthError } from "../sdk/errors";
 import type {
+  ConfiguredHeaderValue,
   OpenApiPluginExtension,
   HeaderValue,
   OpenApiUpdateSourceInput,
@@ -69,7 +70,9 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           name: payload.name,
           baseUrl: payload.baseUrl,
           namespace: payload.namespace,
-          headers: payload.headers as Record<string, HeaderValue> | undefined,
+          headers: payload.headers as
+            | Record<string, HeaderValue | ConfiguredHeaderValue>
+            | undefined,
           oauth2: payload.oauth2,
         });
         return {
@@ -90,10 +93,36 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         yield* ext.updateSource(path.namespace, path.scopeId, {
           name: payload.name,
           baseUrl: payload.baseUrl,
-          headers: payload.headers as Record<string, HeaderValue> | undefined,
+          headers: payload.headers as
+            | Record<string, HeaderValue | ConfiguredHeaderValue>
+            | undefined,
           oauth2: payload.oauth2,
         } as OpenApiUpdateSourceInput);
         return { updated: true };
+      })),
+    )
+    .handle("listSourceBindings", ({ path }) =>
+      capture(Effect.gen(function* () {
+        const ext = yield* OpenApiExtensionService;
+        return yield* ext.listSourceBindings(path.namespace, path.sourceScopeId);
+      })),
+    )
+    .handle("setSourceBinding", ({ payload }) =>
+      capture(Effect.gen(function* () {
+        const ext = yield* OpenApiExtensionService;
+        return yield* ext.setSourceBinding(payload);
+      })),
+    )
+    .handle("removeSourceBinding", ({ payload }) =>
+      capture(Effect.gen(function* () {
+        const ext = yield* OpenApiExtensionService;
+        yield* ext.removeSourceBinding(
+          payload.sourceId,
+          payload.sourceScope,
+          payload.slot,
+          payload.scope,
+        );
+        return { removed: true };
       })),
     )
     .handle("startOAuth", ({ payload }) =>

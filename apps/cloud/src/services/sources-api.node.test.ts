@@ -8,9 +8,13 @@ import { Effect } from "effect";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { ScopeId } from "@executor/sdk";
+import { ScopeId, SecretId } from "@executor/sdk";
 
-import { asOrg } from "./__test-harness__/api-harness";
+import {
+  asOrg,
+  asUser,
+  testUserOrgScopeId,
+} from "./__test-harness__/api-harness";
 
 const MINIMAL_OPENAPI_SPEC = JSON.stringify({
   openapi: "3.0.0",
@@ -159,6 +163,149 @@ describe("sources api (HTTP)", () => {
       );
       expect(fetched?.name).toBe("Renamed API");
       expect(fetched?.config.baseUrl).toBe("https://override.example.com");
+    }),
+  );
+
+  it.effect("per-user source bindings isolate personal credentials over HTTP", () =>
+    Effect.gen(function* () {
+      const orgId = `org_${crypto.randomUUID()}`;
+      const aliceId = `user_${crypto.randomUUID().slice(0, 8)}`;
+      const bobId = `user_${crypto.randomUUID().slice(0, 8)}`;
+      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const aliceScope = testUserOrgScopeId(aliceId, orgId);
+      const bobScope = testUserOrgScopeId(bobId, orgId);
+
+      yield* asOrg(orgId, (client) =>
+        client.openapi.addSpec({
+          path: { scopeId: ScopeId.make(orgId) },
+          payload: {
+            spec: MINIMAL_OPENAPI_SPEC,
+            namespace,
+            headers: {
+              Authorization: {
+                kind: "binding",
+                slot: "auth:personal-token",
+                prefix: "Bearer ",
+              },
+            },
+          },
+        }),
+      );
+
+      yield* asUser(aliceId, orgId, (client) =>
+        Effect.gen(function* () {
+          yield* client.secrets.set({
+            path: { scopeId: ScopeId.make(aliceScope) },
+            payload: {
+              id: SecretId.make("alice_pat"),
+              name: "Alice PAT",
+              value: "alice-secret",
+            },
+          });
+          yield* client.openapi.setSourceBinding({
+            path: { scopeId: ScopeId.make(aliceScope) },
+            payload: {
+              sourceId: namespace,
+              sourceScope: ScopeId.make(orgId),
+              scope: ScopeId.make(aliceScope),
+              slot: "auth:personal-token",
+              value: {
+                kind: "secret",
+                secretId: SecretId.make("alice_pat"),
+              },
+            },
+          });
+        }),
+      );
+
+      yield* asUser(bobId, orgId, (client) =>
+        Effect.gen(function* () {
+          yield* client.secrets.set({
+            path: { scopeId: ScopeId.make(bobScope) },
+            payload: {
+              id: SecretId.make("bob_pat"),
+              name: "Bob PAT",
+              value: "bob-secret",
+            },
+          });
+          yield* client.openapi.setSourceBinding({
+            path: { scopeId: ScopeId.make(bobScope) },
+            payload: {
+              sourceId: namespace,
+              sourceScope: ScopeId.make(orgId),
+              scope: ScopeId.make(bobScope),
+              slot: "auth:personal-token",
+              value: {
+                kind: "secret",
+                secretId: SecretId.make("bob_pat"),
+              },
+            },
+          });
+        }),
+      );
+
+      const aliceBindings = yield* asUser(aliceId, orgId, (client) =>
+        client.openapi.listSourceBindings({
+          path: {
+            scopeId: ScopeId.make(aliceScope),
+            namespace,
+            sourceScopeId: ScopeId.make(orgId),
+          },
+        }),
+      );
+      expect(aliceBindings).toContainEqual(
+        expect.objectContaining({
+          scopeId: ScopeId.make(aliceScope),
+          slot: "auth:personal-token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("alice_pat"),
+          },
+        }),
+      );
+      expect(
+        aliceBindings.some(
+          (binding) =>
+            binding.slot === "auth:personal-token" &&
+            binding.value.kind === "secret" &&
+            binding.value.secretId === SecretId.make("bob_pat"),
+        ),
+      ).toBe(false);
+
+      const bobBindings = yield* asUser(bobId, orgId, (client) =>
+        client.openapi.listSourceBindings({
+          path: {
+            scopeId: ScopeId.make(bobScope),
+            namespace,
+            sourceScopeId: ScopeId.make(orgId),
+          },
+        }),
+      );
+      expect(bobBindings).toContainEqual(
+        expect.objectContaining({
+          scopeId: ScopeId.make(bobScope),
+          slot: "auth:personal-token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("bob_pat"),
+          },
+        }),
+      );
+      expect(
+        bobBindings.some(
+          (binding) =>
+            binding.slot === "auth:personal-token" &&
+            binding.value.kind === "secret" &&
+            binding.value.secretId === SecretId.make("alice_pat"),
+        ),
+      ).toBe(false);
+
+      const sources = yield* asOrg(orgId, (client) =>
+        client.sources.list({ path: { scopeId: ScopeId.make(orgId) } }),
+      );
+      expect(sources.find((source) => source.id === namespace)?.scopeId).toBe(
+        ScopeId.make(orgId),
+      );
     }),
   );
 

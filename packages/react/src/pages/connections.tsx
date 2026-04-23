@@ -7,7 +7,7 @@ import {
   usePendingConnectionRemovals,
 } from "../api/optimistic";
 import { connectionWriteKeys } from "../api/reactivity-keys";
-import { useScope } from "../hooks/use-scope";
+import { useScope, useScopeStack } from "../hooks/use-scope";
 import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import {
@@ -42,6 +42,16 @@ const providerDisplayNames: Record<string, string> = {
 const displayProvider = (provider: string): string =>
   providerDisplayNames[provider] ?? provider;
 
+const connectionScopeLabel = (
+  scopeId: string,
+  stack: readonly { readonly id: string; readonly name: string }[],
+) => {
+  const index = stack.findIndex((entry) => entry.id === scopeId);
+  if (index === 0) return "Personal";
+  if (index > 0) return stack[index]?.name ?? "Shared";
+  return "Scoped";
+};
+
 // ---------------------------------------------------------------------------
 // Connection row
 // ---------------------------------------------------------------------------
@@ -49,13 +59,15 @@ const displayProvider = (provider: string): string =>
 function ConnectionRow(props: {
   connection: {
     id: string;
+    scopeId: string;
     provider: string;
     identityLabel: string | null;
-    kind: "user" | "app";
   };
+  scopeStack: readonly { readonly id: string; readonly name: string }[];
   onRemove: () => void;
 }) {
   const { connection } = props;
+  const scopeLabel = connectionScopeLabel(connection.scopeId, props.scopeStack);
   const displayLabel =
     connection.identityLabel && connection.identityLabel.length > 0
       ? connection.identityLabel
@@ -72,7 +84,7 @@ function ConnectionRow(props: {
         </CardStackEntryDescription>
       </CardStackEntryContent>
       <CardStackEntryActions>
-        <Badge variant="outline">{connection.kind}</Badge>
+        <Badge variant="outline">{scopeLabel}</Badge>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -107,6 +119,7 @@ function ConnectionRow(props: {
 
 export function ConnectionsPage() {
   const scopeId = useScope();
+  const scopeStack = useScopeStack();
   const connections = useConnectionsWithPendingRemovals(scopeId);
   const { beginRemove } = usePendingConnectionRemovals();
   const doRemove = useAtomSet(removeConnection, { mode: "promise" });
@@ -174,10 +187,11 @@ export function ConnectionsPage() {
                       key={c.id}
                       connection={{
                         id: c.id,
+                        scopeId: c.scopeId,
                         provider: c.provider,
                         identityLabel: c.identityLabel,
-                        kind: c.kind,
                       }}
+                      scopeStack={scopeStack}
                       onRemove={() => handleRemove(c.id)}
                     />
                   ))
