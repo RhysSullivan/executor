@@ -12,6 +12,7 @@ import {
   sourceWriteKeys,
 } from "@executor/react/api/reactivity-keys";
 import { Button } from "@executor/react/components/button";
+import { CopyButton } from "@executor/react/components/copy-button";
 import {
   CardStack,
   CardStackContent,
@@ -157,6 +158,10 @@ export default function EditOpenApiSource(props: {
     Result.isSuccess(bindingsResult) ? bindingsResult.value : [];
   const connections =
     Result.isSuccess(connectionsResult) ? connectionsResult.value : [];
+  const oauth2RedirectUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
+      : OPENAPI_OAUTH_CALLBACK_PATH;
 
   const [name, setName] = useState(source?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(source?.config.baseUrl ?? "");
@@ -623,54 +628,67 @@ export default function EditOpenApiSource(props: {
             })}
 
           {source.config.oauth2 && (
-            <CardStackEntryField label="OAuth Connection">
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">
-                  {(() => {
-                    const exact = exactBindingForScope(
-                      bindingRows,
-                      source.config.oauth2!.connectionSlot,
-                      activeCredentialScopeId,
-                    );
-                    const binding =
-                      exact ??
-                      effectiveBindingForScope(
+            <>
+              <CardStackEntryField label="Redirect URL">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1 rounded-md border border-border bg-background/50 px-2.5 py-1.5 font-mono text-[11px]">
+                    <span className="truncate flex-1 text-foreground">{oauth2RedirectUrl}</span>
+                    <CopyButton value={oauth2RedirectUrl} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Add this to your OAuth app&apos;s allowed redirects.
+                  </p>
+                </div>
+              </CardStackEntryField>
+              <CardStackEntryField label="OAuth Connection">
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">
+                    {(() => {
+                      const exact = exactBindingForScope(
                         bindingRows,
                         source.config.oauth2!.connectionSlot,
                         activeCredentialScopeId,
-                        scopeRanks,
                       );
-                    if (binding && isConnectionBindingValue(binding.value)) {
-                      const connectionId = binding.value.connectionId;
-                      const connection = connections.find((entry) => entry.id === connectionId);
-                      return connection
-                        ? binding.scopeId === activeCredentialScopeId
-                          ? `Connected in ${activeCredentialScopeLabel.toLowerCase()} as ${
-                              connection.identityLabel ?? connection.id
-                            }`
-                          : `Using organization connection ${
-                              connection.identityLabel ?? connection.id
-                            }`
-                        : binding.scopeId === activeCredentialScopeId
-                          ? `Connection saved in ${activeCredentialScopeLabel.toLowerCase()}`
-                          : "Using organization connection"
+                      const binding =
+                        exact ??
+                        effectiveBindingForScope(
+                          bindingRows,
+                          source.config.oauth2!.connectionSlot,
+                          activeCredentialScopeId,
+                          scopeRanks,
+                        );
+                      if (binding && isConnectionBindingValue(binding.value)) {
+                        const connectionId = binding.value.connectionId;
+                        const connection = connections.find((entry) => entry.id === connectionId);
+                        return connection
+                          ? binding.scopeId === activeCredentialScopeId
+                            ? `Connected in ${activeCredentialScopeLabel.toLowerCase()} as ${
+                                connection.identityLabel ?? connection.id
+                              }`
+                            : `Using organization connection ${
+                                connection.identityLabel ?? connection.id
+                              }`
+                          : binding.scopeId === activeCredentialScopeId
+                            ? `Connection saved in ${activeCredentialScopeLabel.toLowerCase()}`
+                            : "Using organization connection"
+                      }
+                      return `No ${activeCredentialScopeLabel.toLowerCase()} connection`;
+                    })()}
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => void connectOAuth(activeCredentialScopeId)}
+                    disabled={
+                      busyKey === `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`
                     }
-                    return `No ${activeCredentialScopeLabel.toLowerCase()} connection`;
-                  })()}
+                  >
+                    {busyKey === `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`
+                      ? "Connecting…"
+                      : "Connect"}
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => void connectOAuth(activeCredentialScopeId)}
-                  disabled={
-                    busyKey === `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`
-                  }
-                >
-                  {busyKey === `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`
-                    ? "Connecting…"
-                    : "Connect"}
-                </Button>
-              </div>
-            </CardStackEntryField>
+              </CardStackEntryField>
+            </>
           )}
         </CardStackContent>
       </CardStack>
