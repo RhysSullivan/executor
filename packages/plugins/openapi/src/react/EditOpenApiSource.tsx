@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 
 import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
@@ -165,13 +165,14 @@ export default function EditOpenApiSource(props: {
 
   const [name, setName] = useState(source?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(source?.config.baseUrl ?? "");
-  const [saving, setSaving] = useState(false);
+  const [sourceSaveState, setSourceSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loadedSourceKey, setLoadedSourceKey] = useState<string | null>(null);
   const [selectedCredentialScope, setSelectedCredentialScope] = useState<string>(
     userScope !== sourceScopeId ? userScope : sourceScopeId,
   );
+  const sourceSaveSeq = useRef(0);
 
   useEffect(() => {
     if (!source) return;
@@ -179,12 +180,65 @@ export default function EditOpenApiSource(props: {
     if (loadedSourceKey === sourceKey) return;
     setName(source.name);
     setBaseUrl(source.config.baseUrl ?? "");
+    setSourceSaveState("idle");
     setLoadedSourceKey(sourceKey);
   }, [loadedSourceKey, source, sourceScopeId]);
 
   useEffect(() => {
     setSelectedCredentialScope(userScope !== sourceScopeId ? userScope : sourceScopeId);
   }, [sourceScopeId, userScope]);
+
+  useEffect(() => {
+    if (!source) return;
+    const sourceKey = `${sourceScopeId}:${source.namespace}`;
+    if (loadedSourceKey !== sourceKey) return;
+
+    const nextName = name.trim();
+    const nextBaseUrl = baseUrl.trim();
+    const currentName = source.name;
+    const currentBaseUrl = source.config.baseUrl ?? "";
+    if ((nextName || currentName) === currentName && nextBaseUrl === currentBaseUrl) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      const seq = ++sourceSaveSeq.current;
+      setSourceSaveState("saving");
+      setError(null);
+      void doUpdate({
+        path: { scopeId: ScopeId.make(sourceScopeId), namespace: props.sourceId },
+        payload: {
+          name: nextName || undefined,
+          baseUrl: nextBaseUrl || undefined,
+          headers: source.config.headers,
+          oauth2: source.config.oauth2,
+        },
+        reactivityKeys: openApiWriteKeys,
+      })
+        .then(() => {
+          if (sourceSaveSeq.current !== seq) return;
+          setSourceSaveState("saved");
+          window.setTimeout(() => {
+            if (sourceSaveSeq.current === seq) setSourceSaveState("idle");
+          }, 1600);
+        })
+        .catch((e: unknown) => {
+          if (sourceSaveSeq.current !== seq) return;
+          setSourceSaveState("idle");
+          setError(e instanceof Error ? e.message : "Failed to save source details");
+        });
+    }, 600);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    baseUrl,
+    doUpdate,
+    loadedSourceKey,
+    name,
+    props.sourceId,
+    source,
+    sourceScopeId,
+  ]);
 
   const secretSlots = useMemo(() => {
     if (!source) return [] as SlotDef[];
@@ -249,28 +303,6 @@ export default function EditOpenApiSource(props: {
       </div>
     );
   }
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await doUpdate({
-        path: { scopeId: ScopeId.make(sourceScopeId), namespace: props.sourceId },
-        payload: {
-          name: name.trim() || undefined,
-          baseUrl: baseUrl.trim() || undefined,
-          headers: source.config.headers,
-          oauth2: source.config.oauth2,
-        },
-        reactivityKeys: openApiWriteKeys,
-      });
-      props.onSave();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update source");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const setSecretBinding = async (
     targetScope: ScopeId,
@@ -494,6 +526,19 @@ export default function EditOpenApiSource(props: {
 
       <CardStack>
         <CardStackContent className="border-t-0">
+          <CardStackEntry>
+            <CardStackEntryContent>
+              <CardStackEntryTitle>Source Details</CardStackEntryTitle>
+              <CardStackEntryDescription>
+                Name and base URL save automatically.
+              </CardStackEntryDescription>
+            </CardStackEntryContent>
+            {sourceSaveState !== "idle" && (
+              <span className="text-xs text-muted-foreground">
+                {sourceSaveState === "saving" ? "Saving…" : "Saved"}
+              </span>
+            )}
+          </CardStackEntry>
           <CardStackEntryField label="Name">
             <Input value={name} onChange={(e) => setName((e.target as HTMLInputElement).value)} />
           </CardStackEntryField>
@@ -699,12 +744,9 @@ export default function EditOpenApiSource(props: {
         </div>
       )}
 
-      <div className="flex items-center justify-between border-t border-border pt-4">
+      <div className="flex items-center justify-start border-t border-border pt-4">
         <Button variant="ghost" onClick={props.onSave}>
           Back
-        </Button>
-        <Button onClick={() => void handleSave()} disabled={saving}>
-          {saving ? "Saving…" : "Save source settings"}
         </Button>
       </div>
     </div>
