@@ -592,11 +592,20 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
       const scopes = new Set<string>();
       for (const row of toolRows) scopes.add(row.scope_id as string);
-      const byScope = new Map<string, ReadonlyMap<string, GoogleDiscoveryMethodBinding>>();
-      for (const scope of scopes) {
-        const bindings = yield* typedCtx.storage.getBindingsForSource(sourceId, scope);
-        byScope.set(scope, bindings);
-      }
+      // One getBindingsForSource per scope is independent storage
+      // work; run them in parallel so a shadowed source doesn't
+      // serialise two ~200ms reads back-to-back in the caller's
+      // `executor.tools.list.annotations` span.
+      const entries = yield* Effect.forEach(
+        [...scopes],
+        (scope) =>
+          Effect.gen(function* () {
+            const bindings = yield* typedCtx.storage.getBindingsForSource(sourceId, scope);
+            return [scope, bindings] as const;
+          }),
+        { concurrency: "unbounded" },
+      );
+      const byScope = new Map<string, ReadonlyMap<string, GoogleDiscoveryMethodBinding>>(entries);
       const out: Record<string, ToolAnnotations> = {};
       for (const row of toolRows) {
         const binding = byScope.get(row.scope_id as string)?.get(row.id);

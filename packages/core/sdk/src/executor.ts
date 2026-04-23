@@ -1844,18 +1844,30 @@ export const createExecutor = <
           else groups.set(key, [row]);
         }
 
-        for (const [key, groupRows] of groups) {
-          const [pluginId, sourceId] = key.split("\u0000") as [
-            string,
-            string,
-          ];
-          const runtime = runtimes.get(pluginId);
-          if (!runtime?.plugin.resolveAnnotations) continue;
-          const map = yield* runtime.plugin.resolveAnnotations({
-            ctx: runtime.ctx,
-            sourceId,
-            toolRows: groupRows,
-          });
+        // Each (plugin_id, source_id) group is an independent DB read,
+        // so fan them out concurrently. Yielding them serially stacks
+        // ~200-300ms storage round-trips end-to-end and dominates the
+        // `executor.tools.list.annotations` span.
+        const maps = yield* Effect.forEach(
+          [...groups],
+          ([key, groupRows]) =>
+            Effect.gen(function* () {
+              const [pluginId, sourceId] = key.split("\u0000") as [
+                string,
+                string,
+              ];
+              const runtime = runtimes.get(pluginId);
+              if (!runtime?.plugin.resolveAnnotations) return undefined;
+              return yield* runtime.plugin.resolveAnnotations({
+                ctx: runtime.ctx,
+                sourceId,
+                toolRows: groupRows,
+              });
+            }),
+          { concurrency: "unbounded" },
+        );
+        for (const map of maps) {
+          if (!map) continue;
           for (const [toolId, annotations] of Object.entries(map)) {
             result.set(toolId, annotations);
           }

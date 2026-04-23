@@ -1017,13 +1017,22 @@ export const openApiPlugin = definePlugin(
           for (const row of toolRows as readonly ToolRow[]) {
             scopes.add(row.scope_id as string);
           }
-          const byScope = new Map<string, Map<string, OperationBinding>>();
-          for (const scope of scopes) {
-            const ops = yield* ctx.storage.listOperationsBySource(sourceId, scope);
-            const byId = new Map<string, OperationBinding>();
-            for (const op of ops) byId.set(op.toolId, op.binding);
-            byScope.set(scope, byId);
-          }
+          // One listOperationsBySource per scope is independent storage
+          // work; run them in parallel so a shadowed source doesn't
+          // serialise two ~200ms reads back-to-back in the caller's
+          // `executor.tools.list.annotations` span.
+          const entries = yield* Effect.forEach(
+            [...scopes],
+            (scope) =>
+              Effect.gen(function* () {
+                const ops = yield* ctx.storage.listOperationsBySource(sourceId, scope);
+                const byId = new Map<string, OperationBinding>();
+                for (const op of ops) byId.set(op.toolId, op.binding);
+                return [scope, byId] as const;
+              }),
+            { concurrency: "unbounded" },
+          );
+          const byScope = new Map<string, Map<string, OperationBinding>>(entries);
 
           const out: Record<string, ToolAnnotations> = {};
           for (const row of toolRows as readonly ToolRow[]) {
