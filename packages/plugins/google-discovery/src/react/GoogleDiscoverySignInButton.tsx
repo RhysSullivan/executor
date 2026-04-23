@@ -82,7 +82,6 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
           clientSecretSecretId: oauth2.clientSecretSecretId,
           redirectUrl,
           scopes: [...oauth2.scopes],
-          connectionId: oauth2.connectionId,
         },
       });
 

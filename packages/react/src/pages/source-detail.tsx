@@ -57,7 +57,7 @@ export function SourceDetailPage(props: {
   const canEdit = sourceData ? (sourceData.canEdit ?? false) : false;
 
   // Find the plugin edit component based on source kind
-  const sourcePlugin = useMemo(() => {
+  const editPlugin = useMemo(() => {
     if (!sourceData || !sourcePlugins) return null;
     return sourcePlugins.find((p) => p.key === sourceData.kind) ?? null;
   }, [sourceData, sourcePlugins]);
@@ -127,13 +127,13 @@ export function SourceDetailPage(props: {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {sourcePlugin?.signIn && !editing && (
+          {editPlugin?.signIn && !editing && (
             <Suspense fallback={null}>
-              <sourcePlugin.signIn sourceId={namespace} />
+              <editPlugin.signIn sourceId={namespace} />
             </Suspense>
           )}
 
-          {canEdit && sourcePlugin && !editing && (
+          {canEdit && editPlugin && !editing && (
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               Edit
             </Button>
@@ -192,58 +192,46 @@ export function SourceDetailPage(props: {
       </div>
 
       {/* Edit view */}
-      {editing && sourcePlugin ? (
+      {editing && editPlugin ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-2xl px-6 py-8">
             <Suspense fallback={<EditFormSkeleton />}>
-              <sourcePlugin.edit sourceId={namespace} onSave={handleEditSave} />
+              <editPlugin.edit sourceId={namespace} onSave={handleEditSave} />
             </Suspense>
           </div>
         </div>
       ) : (
-        <>
-          {sourcePlugin?.credentials && (
-            <div className="shrink-0 border-b border-border/60 bg-muted/10 px-4 py-4">
-              <div className="mx-auto max-w-3xl">
-                <Suspense fallback={null}>
-                  <sourcePlugin.credentials sourceId={namespace} />
-                </Suspense>
+        /* Content -- split pane */
+        Result.match(tools, {
+          onInitial: () => <SourceDetailSkeleton />,
+          onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
+          onSuccess: () => (
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              {/* Left: tool tree */}
+              <div className="flex w-72 shrink-0 flex-col border-r border-border/60 lg:w-80 xl:w-[22rem]">
+                <ToolTree
+                  tools={sourceTools}
+                  selectedToolId={selectedToolId}
+                  onSelect={setSelectedToolId}
+                />
+              </div>
+
+              {/* Right: tool detail */}
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                {selectedTool ? (
+                  <ToolDetail
+                    toolId={selectedTool.id}
+                    toolName={selectedTool.name}
+                    toolDescription={selectedTool.description}
+                    scopeId={scopeId}
+                  />
+                ) : (
+                  <ToolDetailEmpty hasTools={sourceTools.length > 0} />
+                )}
               </div>
             </div>
-          )}
-
-          {/* Content -- split pane */}
-          {Result.match(tools, {
-            onInitial: () => <SourceDetailSkeleton />,
-            onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
-            onSuccess: () => (
-              <div className="flex min-h-0 flex-1 overflow-hidden">
-                {/* Left: tool tree */}
-                <div className="flex w-72 shrink-0 flex-col border-r border-border/60 lg:w-80 xl:w-[22rem]">
-                  <ToolTree
-                    tools={sourceTools}
-                    selectedToolId={selectedToolId}
-                    onSelect={setSelectedToolId}
-                  />
-                </div>
-
-                {/* Right: tool detail */}
-                <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                  {selectedTool ? (
-                    <ToolDetail
-                      toolId={selectedTool.id}
-                      toolName={selectedTool.name}
-                      toolDescription={selectedTool.description}
-                      scopeId={scopeId}
-                    />
-                  ) : (
-                    <ToolDetailEmpty hasTools={sourceTools.length > 0} />
-                  )}
-                </div>
-              </div>
-            ),
-          })}
-        </>
+          ),
+        })
       )}
     </div>
   );

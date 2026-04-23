@@ -77,7 +77,6 @@ const StartOAuthPayload = Schema.Struct({
   clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   redirectUrl: Schema.String,
   scopes: Schema.optional(Schema.Array(Schema.String)),
-  connectionId: Schema.optional(Schema.String),
   /** Optional executor scope that will own the resulting Connection. */
   tokenScope: Schema.optional(Schema.String),
 });

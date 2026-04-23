@@ -96,8 +96,6 @@ export interface GoogleDiscoveryOAuthStartInput {
   readonly clientSecretSecretId?: string | null;
   readonly redirectUrl: string;
   readonly scopes?: readonly string[];
-  /** Stable logical connection id for the shared source auth pointer. */
-  readonly connectionId?: string;
   /** Executor scope that will own the resulting Connection + its backing
    *  secrets. Defaults to `ctx.scopes[0].id` (innermost / per-user). */
   readonly tokenScope?: string;
@@ -433,8 +431,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
         const sessionId = randomUUID();
         const codeVerifier = createPkceCodeVerifier();
         const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
-        const connectionId =
-          input.connectionId ?? `google-discovery-oauth2-${randomUUID()}`;
+        const connectionId = `google-discovery-oauth2-${randomUUID()}`;
         yield* ctx.storage.putOAuthSession(sessionId, ctx.scopes[0]!.id as string, {
           discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
           name: input.name,

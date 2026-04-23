@@ -289,14 +289,12 @@ describe("Google Discovery plugin", () => {
         }) as typeof fetch);
 
         try {
-          const stableConnectionId = "google-discovery-oauth2-drive";
           const started = yield* executor.googleDiscovery.startOAuth({
             name: "Google Drive",
             discoveryUrl: handle.discoveryUrl,
             clientIdSecretId: "google-client-id",
             clientSecretSecretId: "google-client-secret",
             redirectUrl: "http://localhost/callback",
-            connectionId: stableConnectionId,
           });
 
           const auth = yield* executor.googleDiscovery.completeOAuth({
@@ -305,7 +303,7 @@ describe("Google Discovery plugin", () => {
           });
 
           expect(auth.kind).toBe("oauth2");
-          expect(auth.connectionId).toBe(stableConnectionId);
+          expect(auth.connectionId).toMatch(/^google-discovery-oauth2-/);
 
           // Tokens live on the SDK connection — resolving via
           // ctx.connections.accessToken returns the minted value.

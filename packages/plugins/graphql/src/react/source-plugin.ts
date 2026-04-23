@@ -7,7 +7,6 @@ export const graphqlSourcePlugin: SourcePlugin = {
   label: "GraphQL",
   add: lazy(() => import("./AddGraphqlSource")),
   edit: lazy(() => import("./EditGraphqlSource")),
-  credentials: lazy(() => import("./GraphqlCredentials")),
   summary: lazy(() => import("./GraphqlSourceSummary")),
   presets: graphqlPresets,
 };

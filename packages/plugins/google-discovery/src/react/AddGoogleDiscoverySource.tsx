@@ -88,11 +88,6 @@ function InlineCreateSecret(props: {
     }
   };
 
-  const handleUseReferenceOnly = () => {
-    if (!secretId.trim()) return;
-    props.onCreated(secretId.trim());
-  };
-
   return (
     <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-2.5">
       <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
@@ -132,14 +127,6 @@ function InlineCreateSecret(props: {
       <div className="flex justify-end gap-1.5 pt-0.5">
         <Button variant="outline" size="xs" onClick={props.onCancel}>
           Cancel
-        </Button>
-        <Button
-          variant="outline"
-          size="xs"
-          onClick={handleUseReferenceOnly}
-          disabled={!secretId.trim() || saving}
-        >
-          Use ID only
         </Button>
         <Button
           size="xs"
@@ -391,8 +378,6 @@ type GoogleOAuthPopupResult = OAuthPopupResult<OAuthAuth>;
 
 const OAUTH_RESULT_CHANNEL = "executor:google-discovery-oauth-result";
 const OAUTH_POPUP_NAME = "google-discovery-oauth";
-const googleDiscoveryOAuthConnectionId = (namespaceSlug: string): string =>
-  `google-discovery-oauth2-${namespaceSlug || "default"}`;
 
 export default function AddGoogleDiscoverySource(props: {
   readonly onComplete: () => void;
@@ -511,8 +496,6 @@ export default function AddGoogleDiscoverySource(props: {
     setStartingOAuth(true);
     setError(null);
     try {
-      const namespaceSlug =
-        slugifyNamespace(identity.namespace) || slugifyNamespace(probe.name) || "google";
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
@@ -522,7 +505,6 @@ export default function AddGoogleDiscoverySource(props: {
           clientSecretSecretId,
           redirectUrl: `${window.location.origin}/api/google-discovery/oauth/callback`,
           scopes: probe.scopes,
-          connectionId: googleDiscoveryOAuthConnectionId(namespaceSlug),
         },
       });
 
@@ -583,17 +565,13 @@ export default function AddGoogleDiscoverySource(props: {
           discoveryUrl: discoveryUrl.trim(),
           namespace: slugifyNamespace(identity.namespace) || undefined,
           auth:
-            authKind === "oauth2" && clientIdSecretId
+            authKind === "oauth2" && oauthAuth
               ? {
                   kind: "oauth2" as const,
-                  connectionId:
-                    oauthAuth?.connectionId ??
-                    googleDiscoveryOAuthConnectionId(
-                      slugifyNamespace(identity.namespace) || slugifyNamespace(probe.name) || "google",
-                    ),
-                  clientIdSecretId: oauthAuth?.clientIdSecretId ?? clientIdSecretId,
-                  clientSecretSecretId: oauthAuth?.clientSecretSecretId ?? clientSecretSecretId ?? null,
-                  scopes: oauthAuth?.scopes ?? [...probe.scopes],
+                  connectionId: oauthAuth.connectionId,
+                  clientIdSecretId: oauthAuth.clientIdSecretId,
+                  clientSecretSecretId: oauthAuth.clientSecretSecretId,
+                  scopes: oauthAuth.scopes,
                 }
               : { kind: "none" as const },
         },
@@ -606,22 +584,10 @@ export default function AddGoogleDiscoverySource(props: {
     } finally {
       placeholder.done();
     }
-  }, [
-    probe,
-    doAdd,
-    identity,
-    discoveryUrl,
-    authKind,
-    oauthAuth,
-    props,
-    scopeId,
-    beginAdd,
-    clientIdSecretId,
-    clientSecretSecretId,
-  ]);
+  }, [probe, doAdd, identity, discoveryUrl, authKind, oauthAuth, props, scopeId, beginAdd]);
 
   const addDisabled =
-    !probe || adding || (authKind === "oauth2" && (!canUseOAuth || clientIdSecretId === null));
+    !probe || adding || (authKind === "oauth2" && (!canUseOAuth || oauthAuth === null));
 
   return (
     <div className="flex flex-1 flex-col gap-6">

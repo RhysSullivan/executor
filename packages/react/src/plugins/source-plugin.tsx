@@ -87,17 +87,6 @@ export interface SourcePlugin {
     readonly sourceId: string;
   }>;
 
-  /**
-   * Optional per-user credential binding surface.
-   * Rendered on the source detail page outside the shared source edit form.
-   *
-   * Use this for user-scoped API keys, bearer tokens, client credentials,
-   * and similar values that should shadow a shared source definition.
-   */
-  readonly credentials?: ComponentType<{
-    readonly sourceId: string;
-  }>;
-
   /** Curated presets shown on the sources page for quick-add */
   readonly presets?: readonly SourcePreset[];
 }

@@ -77,9 +77,8 @@ export const GoogleDiscoveryAuth = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
-    /** Stable logical connection id; resolve via `ctx.connections.accessToken(id)`.
-     *  Multiple scopes can own the same id, so shared sources resolve
-     *  per-user via the executor's innermost-wins lookup. */
+    /** Connection id; resolve via `ctx.connections.accessToken(id)`.
+     *  Rewritten on sign-in to point at the freshly minted connection. */
     connectionId: Schema.String,
     /** Secret id holding the OAuth client_id. */
     clientIdSecretId: Schema.String,
