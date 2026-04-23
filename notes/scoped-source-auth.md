@@ -83,13 +83,19 @@ Scoped auth material lives in OpenAPI-owned rows:
 openapi_source_binding {
   source_id
   source_scope_id
-  scope_id
+  target_scope_id
   slot
   value: { kind: "secret", secretId }
        | { kind: "connection", connectionId }
        | { kind: "text", text }
 }
 ```
+
+The storage column is intentionally `target_scope_id`, not `scope_id`.
+This keeps the table out of the SDK scoped-adapter convention, because a
+source owner must be able to clean up all bindings for that source even
+when some bindings target descendant user scopes. OpenAPI still filters
+and validates visibility manually against the active scope stack.
 
 OpenAPI resolves bindings across the current scope stack. The plugin then
 uses its typed source config to decide how the resolved material is
@@ -192,7 +198,7 @@ Shape:
 plugin scoped config/policy rows:
   source_id
   source_scope_id
-  scope_id
+  target_scope_id // or another plugin-owned scope field, not core magic
   typed plugin policy fields
 
 plugin.resolveAnnotations(tool, scopeStack):

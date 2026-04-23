@@ -59,7 +59,12 @@ export const openapiSchema = defineSchema({
       id: { type: "string", required: true },
       source_id: { type: "string", required: true, index: true },
       source_scope_id: { type: "string", required: true, index: true },
-      scope_id: { type: "string", required: true, index: true },
+      // Intentionally NOT named `scope_id`: this row is visible across
+      // scope stacks and is filtered manually by source/target scope.
+      // The target scope is credential ownership data, not adapter row
+      // ownership. Source owners must be able to delete all descendant
+      // bindings when a shared source is removed.
+      target_scope_id: { type: "string", required: true, index: true },
       slot: { type: "string", required: true, index: true },
       value: { type: "json", required: true },
       created_at: { type: "date", required: true },
@@ -382,7 +387,7 @@ export const makeDefaultOpenapiStore = ({
     new OpenApiSourceBindingRef({
       sourceId: row.source_id as string,
       sourceScopeId: ScopeId.make(row.source_scope_id as string),
-      scopeId: ScopeId.make(row.scope_id as string),
+      scopeId: ScopeId.make(row.target_scope_id as string),
       slot: row.slot as string,
       value: decodeSourceBindingValue(asJsonObject(row.value)),
       createdAt:
@@ -715,10 +720,11 @@ export const makeDefaultOpenapiStore = ({
           ],
         });
         return rows
-          .filter((row) => scopeRank(row.scope_id as string) <= sourceScopeRank)
+          .filter((row) => scopeRank(row.target_scope_id as string) <= sourceScopeRank)
           .sort(
             (a, b) =>
-              scopeRank(a.scope_id as string) - scopeRank(b.scope_id as string),
+              scopeRank(a.target_scope_id as string) -
+              scopeRank(b.target_scope_id as string),
           )
           .map(rowToSourceBinding);
       }),
@@ -740,10 +746,14 @@ export const makeDefaultOpenapiStore = ({
         });
         const sourceScopeRank = scopeRank(sourceScope);
         const row = rows
-          .filter((candidate) => scopeRank(candidate.scope_id as string) <= sourceScopeRank)
+          .filter(
+            (candidate) =>
+              scopeRank(candidate.target_scope_id as string) <= sourceScopeRank,
+          )
           .sort(
             (a, b) =>
-              scopeRank(a.scope_id as string) - scopeRank(b.scope_id as string),
+              scopeRank(a.target_scope_id as string) -
+              scopeRank(b.target_scope_id as string),
           )[0];
         return row ? rowToSourceBinding(row) : null;
       }),
@@ -772,7 +782,7 @@ export const makeDefaultOpenapiStore = ({
             id,
             source_id: input.sourceId,
             source_scope_id: input.sourceScope as string,
-            scope_id: input.scope as string,
+            target_scope_id: input.scope as string,
             slot: input.slot,
             value: encodeSourceBindingValue(input.value) as unknown as Record<string, unknown>,
             created_at: now,

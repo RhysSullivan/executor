@@ -415,4 +415,195 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         expect(bobResult.data?.authorization).toBe("Bearer bob-vercel-token");
       }),
   );
+
+  it.effect(
+    "source binding precedence falls back to shared auth and source deletion clears descendant bindings",
+    () =>
+      Effect.gen(function* () {
+        const secretStore = new Map<string, string>();
+        const key = (scope: string, id: string) => `${scope}\u0000${id}`;
+        const memoryProvider: SecretProvider = {
+          key: "memory",
+          writable: true,
+          get: (id, scope) =>
+            Effect.sync(() => secretStore.get(key(scope, id)) ?? null),
+          set: (id, value, scope) =>
+            Effect.sync(() => {
+              secretStore.set(key(scope, id), value);
+            }),
+          delete: (id, scope) =>
+            Effect.sync(() => secretStore.delete(key(scope, id))),
+        };
+        const memorySecretsPlugin = definePlugin(() => ({
+          id: "memory-secrets" as const,
+          storage: () => ({}),
+          secretProviders: [memoryProvider],
+        }));
+
+        const httpClient = yield* HttpClient.HttpClient;
+        const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+        const plugins = [
+          openApiPlugin({ httpClientLayer: clientLayer }),
+          memorySecretsPlugin(),
+        ] as const;
+
+        const schema = collectSchemas(plugins);
+        const adapter = makeMemoryAdapter({ schema });
+        const blobs = makeInMemoryBlobStore();
+
+        const now = new Date();
+        const orgScope = new Scope({
+          id: ScopeId.make("org"),
+          name: "acme-org",
+          createdAt: now,
+        });
+        const aliceScope = new Scope({
+          id: ScopeId.make("user-alice"),
+          name: "alice",
+          createdAt: now,
+        });
+
+        const adminExec = yield* createExecutor({
+          scopes: [orgScope],
+          adapter,
+          blobs,
+          plugins,
+        });
+        const aliceExec = yield* createExecutor({
+          scopes: [aliceScope, orgScope],
+          adapter,
+          blobs,
+          plugins,
+        });
+
+        yield* adminExec.openapi.addSpec({
+          spec: specJson,
+          scope: orgScope.id as string,
+          namespace: "vercel",
+          baseUrl: "",
+          headers: {
+            Authorization: new ConfiguredHeaderBinding({
+              kind: "binding",
+              slot: "auth:token",
+              prefix: "Bearer ",
+            }),
+          },
+        });
+
+        yield* adminExec.secrets.set(
+          new SetSecretInput({
+            id: SecretId.make("org_vercel_pat"),
+            scope: orgScope.id,
+            name: "Org Vercel PAT",
+            value: "org-token",
+          }),
+        );
+        yield* adminExec.openapi.setSourceBinding(
+          new OpenApiSourceBindingInput({
+            sourceId: "vercel",
+            sourceScope: orgScope.id,
+            scope: orgScope.id,
+            slot: "auth:token",
+            value: {
+              kind: "secret",
+              secretId: SecretId.make("org_vercel_pat"),
+            },
+          }),
+        );
+
+        const sharedResult = (yield* aliceExec.tools.invoke(
+          "vercel.projects.list",
+          {},
+          autoApprove,
+        )) as { data: { authorization?: string } | null; error: unknown };
+        expect(sharedResult.error).toBeNull();
+        expect(sharedResult.data?.authorization).toBe("Bearer org-token");
+
+        yield* aliceExec.secrets.set(
+          new SetSecretInput({
+            id: SecretId.make("alice_vercel_pat"),
+            scope: aliceScope.id,
+            name: "Alice Vercel PAT",
+            value: "alice-token",
+          }),
+        );
+        yield* aliceExec.openapi.setSourceBinding(
+          new OpenApiSourceBindingInput({
+            sourceId: "vercel",
+            sourceScope: orgScope.id,
+            scope: aliceScope.id,
+            slot: "auth:token",
+            value: {
+              kind: "secret",
+              secretId: SecretId.make("alice_vercel_pat"),
+            },
+          }),
+        );
+
+        const overrideResult = (yield* aliceExec.tools.invoke(
+          "vercel.projects.list",
+          {},
+          autoApprove,
+        )) as { data: { authorization?: string } | null; error: unknown };
+        expect(overrideResult.error).toBeNull();
+        expect(overrideResult.data?.authorization).toBe("Bearer alice-token");
+
+        yield* aliceExec.openapi.removeSourceBinding(
+          "vercel",
+          orgScope.id as string,
+          "auth:token",
+          aliceScope.id as string,
+        );
+
+        const fallbackResult = (yield* aliceExec.tools.invoke(
+          "vercel.projects.list",
+          {},
+          autoApprove,
+        )) as { data: { authorization?: string } | null; error: unknown };
+        expect(fallbackResult.error).toBeNull();
+        expect(fallbackResult.data?.authorization).toBe("Bearer org-token");
+
+        yield* aliceExec.openapi.setSourceBinding(
+          new OpenApiSourceBindingInput({
+            sourceId: "vercel",
+            sourceScope: orgScope.id,
+            scope: aliceScope.id,
+            slot: "auth:token",
+            value: {
+              kind: "secret",
+              secretId: SecretId.make("alice_vercel_pat"),
+            },
+          }),
+        );
+
+        yield* adminExec.openapi.removeSpec("vercel", orgScope.id as string);
+        yield* adminExec.openapi.addSpec({
+          spec: specJson,
+          scope: orgScope.id as string,
+          namespace: "vercel",
+          baseUrl: "",
+          headers: {
+            Authorization: new ConfiguredHeaderBinding({
+              kind: "binding",
+              slot: "auth:token",
+              prefix: "Bearer ",
+            }),
+          },
+        });
+
+        const bindingsAfterReadd = yield* aliceExec.openapi.listSourceBindings(
+          "vercel",
+          orgScope.id as string,
+        );
+        expect(bindingsAfterReadd).toEqual([]);
+
+        const error = yield* Effect.flip(
+          aliceExec.tools.invoke("vercel.projects.list", {}, autoApprove),
+        );
+        expect((error as { _tag: string })._tag).toBe("ToolInvocationError");
+        expect((error as { message: string }).message).toContain(
+          'Missing binding for header "Authorization"',
+        );
+      }),
+  );
 });
