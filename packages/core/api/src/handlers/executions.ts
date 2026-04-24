@@ -8,10 +8,15 @@ import { capture, captureEngineError } from "@executor/api";
 
 export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions", (handlers) =>
   handlers
-    .handle("execute", ({ payload }) =>
+    .handle("execute", ({ payload, headers }) =>
       capture(Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
-        const outcome = yield* captureEngineError(engine.executeWithPause(payload.code));
+        const triggerKind = headers["x-executor-trigger"] ?? "http";
+        const outcome = yield* captureEngineError(
+          engine.executeWithPause(payload.code, {
+            trigger: { kind: triggerKind },
+          }),
+        );
 
         if (outcome.status === "completed") {
           const formatted = formatExecuteResult(outcome.result);

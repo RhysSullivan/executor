@@ -394,6 +394,7 @@ const executeCode = (input: {
       payload: {
         code: input.code,
       },
+      headers: { "x-executor-trigger": "cli" },
     });
 
     if (response.status === "paused") {
