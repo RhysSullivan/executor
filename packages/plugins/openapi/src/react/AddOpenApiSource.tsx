@@ -88,7 +88,7 @@ import {
 
 export const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
 export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
-export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/openapi/oauth/callback";
+export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 
 const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
   let out = url;
