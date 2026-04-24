@@ -56,7 +56,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
         });
         return {
           toolCount: result.toolCount,
-          namespace: payload.namespace ?? "graphql",
+          namespace: result.namespace,
         };
       })),
     )

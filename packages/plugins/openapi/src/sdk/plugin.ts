@@ -458,9 +458,50 @@ const canonicalizeOAuth2 = (
   };
 };
 
+interface EffectiveSourceConfig {
+  readonly config: SourceConfig;
+  readonly headersSource: StoredSource;
+  readonly oauth2Source: StoredSource;
+}
+
 const resolveEffectiveSourceConfig = (
+  ctx: PluginCtx<OpenapiStore>,
   base: StoredSource,
-): Effect.Effect<SourceConfig, never> => Effect.succeed(base.config);
+): Effect.Effect<EffectiveSourceConfig, StorageFailure> =>
+  Effect.gen(function* () {
+    const rank = new Map(ctx.scopes.map((scope, index) => [scope.id as string, index] as const));
+    const baseRank = rank.get(base.scope) ?? Infinity;
+    const fallback = (yield* ctx.storage.listSources())
+      .filter((source) => source.namespace === base.namespace)
+      .filter((source) => (rank.get(source.scope) ?? Infinity) > baseRank)
+      .sort(
+        (a, b) =>
+          (rank.get(a.scope) ?? Infinity) -
+          (rank.get(b.scope) ?? Infinity),
+      )[0];
+
+    if (!fallback) {
+      return {
+        config: base.config,
+        headersSource: base,
+        oauth2Source: base,
+      };
+    }
+
+    const hasBaseHeaders = Object.keys(base.config.headers ?? {}).length > 0;
+    return {
+      config: {
+        ...base.config,
+        sourceUrl: base.config.sourceUrl ?? fallback.config.sourceUrl,
+        baseUrl: base.config.baseUrl || fallback.config.baseUrl,
+        namespace: base.config.namespace ?? fallback.config.namespace,
+        headers: hasBaseHeaders ? base.config.headers : fallback.config.headers,
+        oauth2: base.config.oauth2 ?? fallback.config.oauth2,
+      },
+      headersSource: hasBaseHeaders ? base : fallback,
+      oauth2Source: base.config.oauth2 ? base : fallback,
+    };
+  });
 
 const resolveConfiguredHeaders = (
   ctx: PluginCtx<OpenapiStore>,
@@ -741,8 +782,9 @@ export const openApiPlugin = definePlugin(
       Effect.gen(function* () {
         const existing = yield* ctx.storage.getSource(sourceId, scope);
         if (!existing) return;
-        const resolvedConfig = yield* resolveEffectiveSourceConfig(existing);
-        const sourceUrl = existing.config.sourceUrl;
+        const effective = yield* resolveEffectiveSourceConfig(ctx, existing);
+        const resolvedConfig = effective.config;
+        const sourceUrl = resolvedConfig.sourceUrl;
         if (!sourceUrl) return;
         const specText = yield* resolveSpecText(sourceUrl).pipe(
           Effect.provide(httpClientLayer),
@@ -754,8 +796,8 @@ export const openApiPlugin = definePlugin(
           name: existing.name,
           baseUrl: resolvedConfig.baseUrl,
           namespace: existing.namespace,
-          headers: resolvedConfig.headers,
-          oauth2: resolvedConfig.oauth2,
+          headers: existing.config.headers,
+          oauth2: existing.config.oauth2,
         });
       });
 
@@ -819,10 +861,10 @@ export const openApiPlugin = definePlugin(
             Effect.gen(function* () {
               const source = yield* ctx.storage.getSource(namespace, scope);
               if (!source) return null;
-              const config = yield* resolveEffectiveSourceConfig(source);
+              const effective = yield* resolveEffectiveSourceConfig(ctx, source);
               return {
                 ...source,
-                config,
+                config: effective.config,
               };
             }),
 
@@ -1246,12 +1288,13 @@ export const openApiPlugin = definePlugin(
             );
           }
 
-          const config = yield* resolveEffectiveSourceConfig(source);
+          const effective = yield* resolveEffectiveSourceConfig(ctx, source);
+          const config = effective.config;
           const resolvedHeaders = yield* resolveConfiguredHeaders(ctx, {
             sourceId: op.sourceId,
-            sourceScope: toolScope,
+            sourceScope: effective.headersSource.scope,
             headers: config.headers ?? {},
-            legacyHeaders: source.legacy?.headers,
+            legacyHeaders: effective.headersSource.legacy?.headers,
           }).pipe(
             Effect.mapError((err) => new Error(err.message)),
           );
@@ -1263,9 +1306,9 @@ export const openApiPlugin = definePlugin(
           if (config.oauth2) {
             const connectionId = yield* resolveOAuthConnectionId(ctx, {
               sourceId: op.sourceId,
-              sourceScope: toolScope,
+              sourceScope: effective.oauth2Source.scope,
               oauth2: config.oauth2,
-              legacyOAuth2: source.legacy?.oauth2,
+              legacyOAuth2: effective.oauth2Source.legacy?.oauth2,
             });
             if (!connectionId) {
               return yield* Effect.fail(

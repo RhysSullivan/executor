@@ -98,6 +98,7 @@ describe("graphqlPlugin", () => {
         namespace: "test_api",
       });
       expect(result.toolCount).toBe(2);
+      expect(result.namespace).toBe("test_api");
 
       const tools = yield* executor.tools.list();
       const ids = tools.map((t) => t.id);
@@ -249,7 +250,7 @@ describe("graphqlPlugin", () => {
         introspectionJson,
         namespace: "via_static",
       });
-      expect(result).toEqual({ toolCount: 2 });
+      expect(result).toEqual({ toolCount: 2, namespace: "via_static" });
 
       const tools = yield* executor.tools.list();
       expect(

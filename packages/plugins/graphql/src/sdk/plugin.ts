@@ -95,7 +95,10 @@ export interface GraphqlPluginExtension {
   /** Add a GraphQL endpoint and register its operations as tools */
   readonly addSource: (
     config: GraphqlSourceConfig,
-  ) => Effect.Effect<{ readonly toolCount: number }, GraphqlExtensionFailure>;
+  ) => Effect.Effect<
+    { readonly toolCount: number; readonly namespace: string },
+    GraphqlExtensionFailure
+  >;
 
   /** Remove all tools from a previously added GraphQL source by namespace.
    *  `scope` pins the cleanup to the exact row — without it a shadowed
@@ -411,7 +414,6 @@ export const graphqlPlugin = definePlugin(
                     )
                   : Effect.void,
               ),
-              Effect.map(({ toolCount }) => ({ toolCount })),
             ),
 
           removeSource: (namespace, scope) =>

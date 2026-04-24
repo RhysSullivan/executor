@@ -606,4 +606,176 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         );
       }),
   );
+
+  it.effect("user-scope source shadows inherit the org baseUrl", () =>
+    Effect.gen(function* () {
+      const memorySecretsPlugin = definePlugin(() => ({
+        id: "memory-secrets" as const,
+        storage: () => ({}),
+        secretProviders: [],
+      }));
+
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+      const plugins = [
+        openApiPlugin({ httpClientLayer: clientLayer }),
+        memorySecretsPlugin(),
+      ] as const;
+
+      const schema = collectSchemas(plugins);
+      const adapter = makeMemoryAdapter({ schema });
+      const blobs = makeInMemoryBlobStore();
+      const now = new Date();
+      const orgScope = new Scope({
+        id: ScopeId.make("org"),
+        name: "acme-org",
+        createdAt: now,
+      });
+      const aliceScope = new Scope({
+        id: ScopeId.make("user-alice"),
+        name: "alice",
+        createdAt: now,
+      });
+
+      const adminExec = yield* createExecutor({
+        scopes: [orgScope],
+        adapter,
+        blobs,
+        plugins,
+      });
+      const aliceExec = yield* createExecutor({
+        scopes: [aliceScope, orgScope],
+        adapter,
+        blobs,
+        plugins,
+      });
+
+      yield* adminExec.openapi.addSpec({
+        spec: specJson,
+        scope: orgScope.id as string,
+        namespace: "vercel",
+        baseUrl: "https://api.vercel.example",
+      });
+
+      yield* aliceExec.openapi.addSpec({
+        spec: specJson,
+        scope: aliceScope.id as string,
+        namespace: "vercel",
+      });
+
+      const source = yield* aliceExec.openapi.getSource(
+        "vercel",
+        aliceScope.id as string,
+      );
+      expect(source?.scope).toBe(aliceScope.id);
+      expect(source?.config.baseUrl).toBe("https://api.vercel.example");
+    }),
+  );
+
+  it.effect("user-scope source shadows resolve inherited org bindings at the org source scope", () =>
+    Effect.gen(function* () {
+      const secretStore = new Map<string, string>();
+      const key = (scope: string, id: string) => `${scope}\u0000${id}`;
+      const memoryProvider: SecretProvider = {
+        key: "memory",
+        writable: true,
+        get: (id, scope) =>
+          Effect.sync(() => secretStore.get(key(scope, id)) ?? null),
+        set: (id, value, scope) =>
+          Effect.sync(() => {
+            secretStore.set(key(scope, id), value);
+          }),
+        delete: (id, scope) =>
+          Effect.sync(() => secretStore.delete(key(scope, id))),
+      };
+      const memorySecretsPlugin = definePlugin(() => ({
+        id: "memory-secrets" as const,
+        storage: () => ({}),
+        secretProviders: [memoryProvider],
+      }));
+
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+      const plugins = [
+        openApiPlugin({ httpClientLayer: clientLayer }),
+        memorySecretsPlugin(),
+      ] as const;
+
+      const schema = collectSchemas(plugins);
+      const adapter = makeMemoryAdapter({ schema });
+      const blobs = makeInMemoryBlobStore();
+      const now = new Date();
+      const orgScope = new Scope({
+        id: ScopeId.make("org"),
+        name: "acme-org",
+        createdAt: now,
+      });
+      const aliceScope = new Scope({
+        id: ScopeId.make("user-alice"),
+        name: "alice",
+        createdAt: now,
+      });
+
+      const adminExec = yield* createExecutor({
+        scopes: [orgScope],
+        adapter,
+        blobs,
+        plugins,
+      });
+      const aliceExec = yield* createExecutor({
+        scopes: [aliceScope, orgScope],
+        adapter,
+        blobs,
+        plugins,
+      });
+
+      yield* adminExec.openapi.addSpec({
+        spec: specJson,
+        scope: orgScope.id as string,
+        namespace: "vercel",
+        baseUrl: "",
+        headers: {
+          Authorization: new ConfiguredHeaderBinding({
+            kind: "binding",
+            slot: "auth:token",
+            prefix: "Bearer ",
+          }),
+        },
+      });
+      yield* aliceExec.openapi.addSpec({
+        spec: specJson,
+        scope: aliceScope.id as string,
+        namespace: "vercel",
+      });
+
+      yield* aliceExec.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("alice_vercel_pat"),
+          scope: aliceScope.id,
+          name: "Alice Vercel PAT",
+          value: "alice-token",
+        }),
+      );
+      yield* aliceExec.openapi.setSourceBinding(
+        new OpenApiSourceBindingInput({
+          sourceId: "vercel",
+          sourceScope: orgScope.id,
+          scope: aliceScope.id,
+          slot: "auth:token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("alice_vercel_pat"),
+          },
+        }),
+      );
+
+      const result = (yield* aliceExec.tools.invoke(
+        "vercel.projects.list",
+        {},
+        autoApprove,
+      )) as { data: { authorization?: string } | null; error: unknown };
+      expect(result.error).toBeNull();
+      expect(result.data?.authorization).toBe("Bearer alice-token");
+    }),
+  );
 });
