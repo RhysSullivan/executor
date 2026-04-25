@@ -53,6 +53,8 @@ import {
 } from "./invoke";
 import { resolveBaseUrl } from "./openapi-utils";
 import { previewSpec, SpecPreview } from "./preview";
+import { toStaticSkill } from "@executor/plugin-skills";
+import { openapiSkills } from "./skills";
 import {
   makeDefaultOpenapiStore,
   openapiSchema,
@@ -1262,6 +1264,11 @@ export const openApiPlugin = definePlugin(
                   scope: ctx.scopes.at(-1)!.id as string,
                 }),
             },
+            // Skills ship under the same sourceId as the tools they
+            // document so `tools.list({ sourceId: "openapi" })` returns
+            // the playbook next to the operations. toStaticSkill keeps
+            // the on-the-wire shape identical to the global skillsPlugin.
+            ...openapiSkills.map(toStaticSkill),
           ],
         },
       ],
