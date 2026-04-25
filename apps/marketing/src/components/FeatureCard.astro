@@ -1,0 +1,31 @@
+---
+interface Props {
+  title: string
+  description: string
+  subtitle?: string
+  subtitleColor?: string
+}
+const { title, description, subtitle, subtitleColor } = Astro.props
+---
+
+<section class="py-12 px-6">
+  <div class="@container max-w-[1200px] mx-auto">
+    {subtitle && (
+      <span
+        class="text-[13px] font-semibold tracking-[0.04em] uppercase mb-4 block"
+        style={subtitleColor ? `color: ${subtitleColor}` : undefined}
+      >
+        {subtitle}
+      </span>
+    )}
+    <div class="ring-border @4xl:grid-cols-2 @max-4xl:divide-y @4xl:divide-x bg-card/50 relative grid overflow-hidden rounded-2xl border border-transparent shadow-md shadow-black/5 ring-1">
+      <div class="px-8 py-8">
+        <h3 class="text-balance font-semibold">{title}</h3>
+        <p class="text-muted-foreground mt-3">{description}</p>
+      </div>
+      <div class="flex items-center justify-center px-8 py-8">
+        <slot />
+      </div>
+    </div>
+  </div>
+</section>
