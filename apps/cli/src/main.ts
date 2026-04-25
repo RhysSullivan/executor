@@ -566,9 +566,32 @@ const runDaemonSession = (input: {
 // Stdio MCP session
 // ---------------------------------------------------------------------------
 
+const withStdoutReroutedToStderr = async <A>(body: () => Promise<A>): Promise<A> => {
+  const originalWrite = process.stdout.write;
+  const originalLog = console.log;
+  const originalInfo = console.info;
+  const originalDebug = console.debug;
+  const stderrWrite = process.stderr.write.bind(process.stderr);
+
+  process.stdout.write = ((...args: Parameters<typeof process.stdout.write>) =>
+    stderrWrite(...args)) as typeof process.stdout.write;
+  console.log = console.error.bind(console);
+  console.info = console.error.bind(console);
+  console.debug = console.error.bind(console);
+
+  try {
+    return await body();
+  } finally {
+    process.stdout.write = originalWrite;
+    console.log = originalLog;
+    console.info = originalInfo;
+    console.debug = originalDebug;
+  }
+};
+
 const runStdioMcpSession = () =>
   Effect.gen(function* () {
-    const executor = yield* Effect.promise(() => getExecutor());
+    const executor = yield* Effect.promise(() => withStdoutReroutedToStderr(() => getExecutor()));
     yield* Effect.promise(() =>
       runMcpStdioServer({ executor, codeExecutor: makeQuickJsExecutor() }),
     );
