@@ -53,6 +53,13 @@ const tableExists = (sqlite: Database, name: string): boolean => {
   return row !== null && row !== undefined;
 };
 
+const columnExists = (sqlite: Database, table: string, column: string): boolean => {
+  const columns = sqlite
+    .prepare(`PRAGMA table_info('${table.replaceAll("'", "''")}')`)
+    .all() as ReadonlyArray<{ readonly name: string }>;
+  return columns.some((c) => c.name === column);
+};
+
 type SecretRow = { id: string; owned_by_connection_id: string | null };
 
 /** Shared: re-parent the pointed-to secret ids to the new connection,
@@ -133,20 +140,30 @@ const insertConnectionRow = (
     providerState: unknown;
   },
 ): void => {
-  const stmt = sqlite.prepare(
-    `INSERT INTO connection (
-       id, scope_id, provider, kind, identity_label,
-       access_token_secret_id, refresh_token_secret_id,
-       expires_at, scope, provider_state,
-       created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  const hasKind = columnExists(sqlite, "connection", "kind");
+  const stmt = hasKind
+    ? sqlite.prepare(
+        `INSERT INTO connection (
+           id, scope_id, provider, kind, identity_label,
+           access_token_secret_id, refresh_token_secret_id,
+           expires_at, scope, provider_state,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+    : sqlite.prepare(
+        `INSERT INTO connection (
+           id, scope_id, provider, identity_label,
+           access_token_secret_id, refresh_token_secret_id,
+           expires_at, scope, provider_state,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
   const now = Date.now();
-  stmt.run(
+  const values = [
     params.id,
     params.scopeId,
     params.provider,
-    "user",
+    ...(hasKind ? ["user"] : []),
     params.identityLabel,
     params.accessTokenSecretId,
     params.refreshTokenSecretId,
@@ -155,7 +172,8 @@ const insertConnectionRow = (
     JSON.stringify(params.providerState),
     now,
     now,
-  );
+  ];
+  stmt.run(...values);
 };
 
 // ---------------------------------------------------------------------------

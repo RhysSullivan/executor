@@ -795,8 +795,8 @@ export const openApiPlugin = definePlugin(
           name: existing.name,
           baseUrl: resolvedConfig.baseUrl,
           namespace: existing.namespace,
-          headers: existing.config.headers,
-          oauth2: existing.config.oauth2,
+          headers: existing.legacy?.headers ?? existing.config.headers,
+          oauth2: existing.legacy?.oauth2 ?? existing.config.oauth2,
         });
       });
 
@@ -872,9 +872,17 @@ export const openApiPlugin = definePlugin(
               const existing = yield* ctx.storage.getSource(namespace, scope);
               if (!existing) return;
               const canonicalHeaders =
-                input.headers !== undefined ? canonicalizeHeaders(input.headers) : null;
+                input.headers !== undefined
+                  ? canonicalizeHeaders(input.headers)
+                  : existing.legacy?.headers
+                    ? canonicalizeHeaders(existing.legacy.headers)
+                    : null;
               const canonicalOAuth2 =
-                input.oauth2 !== undefined ? canonicalizeOAuth2(input.oauth2) : null;
+                input.oauth2 !== undefined
+                  ? canonicalizeOAuth2(input.oauth2)
+                  : existing.legacy?.oauth2
+                    ? canonicalizeOAuth2(existing.legacy.oauth2)
+                    : null;
               yield* ctx.storage.updateSourceMeta(namespace, scope, {
                 name: input.name?.trim() || undefined,
                 baseUrl: input.baseUrl,

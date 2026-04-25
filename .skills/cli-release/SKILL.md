@@ -26,7 +26,9 @@ Does **not** ship in the CLI:
 
 - Prior convention in this repo uses **`patch`** bumps for feature-heavy releases (see `.changeset/executor-1.4.6-beta.md` for precedent). Don't push back on patch unless there are genuine SemVer-breaking API changes to a library consumer surface.
 - Breaking CLI UX changes (removed flags, changed argv shape) have historically still been `patch` bumps. Follow the owner's call — ask, don't assume `minor`.
-- Only `apps/cli/package.json` version should move during Version Packages PRs. `@executor-js/*` library packages have their own publish path.
+- Normal release/patch PRs must add a `.changeset/*.md` file with frontmatter like `"executor": patch`. Do **not** directly bump `apps/cli/package.json` or `bun.lock` in a feature/fix PR.
+- Only the Changesets-generated `Version Packages` PR should move `apps/cli/package.json`. If a normal PR directly changes that version, merging it to `main` can make `.github/workflows/release.yml` tag the commit and dispatch `publish-executor-package.yml`, causing an immediate CLI publish.
+- `@executor-js/*` library packages have their own publish path.
 
 ## Release notes: curated, not auto-generated
 
