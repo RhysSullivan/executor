@@ -93,6 +93,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
             const detailPath = `/sources/${s.id}`;
             const active =
               props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
+            const isBuiltIn = s.kind === "built-in";
             return (
               <Link
                 key={s.id}
@@ -106,8 +107,17 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
                 ].join(" ")}
               >
-                <SourceFavicon url={s.url} />
-                <span className="flex-1 truncate">{s.name}</span>
+                {isBuiltIn ? (
+                  <span
+                    aria-hidden
+                    className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                  >
+                    Ξ
+                  </span>
+                ) : (
+                  <SourceFavicon url={s.url} />
+                )}
+                <span className="flex-1 truncate">{isBuiltIn ? "Executor" : s.name}</span>
                 <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
                   {s.kind}
                 </span>
