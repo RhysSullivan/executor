@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as SecretsRouteImport } from './routes/secrets'
+import { Route as RunsRouteImport } from './routes/runs'
 import { Route as OrgRouteImport } from './routes/org'
 import { Route as ConnectionsRouteImport } from './routes/connections'
 import { Route as BillingRouteImport } from './routes/billing'
@@ -27,6 +28,11 @@ const ToolsRoute = ToolsRouteImport.update({
 const SecretsRoute = SecretsRouteImport.update({
   id: '/secrets',
   path: '/secrets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RunsRoute = RunsRouteImport.update({
+  id: '/runs',
+  path: '/runs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgRoute = OrgRouteImport.update({
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/billing': typeof BillingRoute
   '/connections': typeof ConnectionsRoute
   '/org': typeof OrgRoute
+  '/runs': typeof RunsRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
   '/billing/plans': typeof BillingPlansRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/billing': typeof BillingRoute
   '/connections': typeof ConnectionsRoute
   '/org': typeof OrgRoute
+  '/runs': typeof RunsRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
   '/billing/plans': typeof BillingPlansRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/billing': typeof BillingRoute
   '/connections': typeof ConnectionsRoute
   '/org': typeof OrgRoute
+  '/runs': typeof RunsRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
   '/billing_/plans': typeof BillingPlansRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/connections'
     | '/org'
+    | '/runs'
     | '/secrets'
     | '/tools'
     | '/billing/plans'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/connections'
     | '/org'
+    | '/runs'
     | '/secrets'
     | '/tools'
     | '/billing/plans'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/connections'
     | '/org'
+    | '/runs'
     | '/secrets'
     | '/tools'
     | '/billing_/plans'
@@ -140,6 +152,7 @@ export interface RootRouteChildren {
   BillingRoute: typeof BillingRoute
   ConnectionsRoute: typeof ConnectionsRoute
   OrgRoute: typeof OrgRoute
+  RunsRoute: typeof RunsRoute
   SecretsRoute: typeof SecretsRoute
   ToolsRoute: typeof ToolsRoute
   BillingPlansRoute: typeof BillingPlansRoute
@@ -161,6 +174,13 @@ declare module '@tanstack/react-router' {
       path: '/secrets'
       fullPath: '/secrets'
       preLoaderRoute: typeof SecretsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/runs': {
+      id: '/runs'
+      path: '/runs'
+      fullPath: '/runs'
+      preLoaderRoute: typeof RunsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/org': {
@@ -220,6 +240,7 @@ const rootRouteChildren: RootRouteChildren = {
   BillingRoute: BillingRoute,
   ConnectionsRoute: ConnectionsRoute,
   OrgRoute: OrgRoute,
+  RunsRoute: RunsRoute,
   SecretsRoute: SecretsRoute,
   ToolsRoute: ToolsRoute,
   BillingPlansRoute: BillingPlansRoute,

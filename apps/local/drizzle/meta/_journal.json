@@ -29,6 +29,13 @@
       "when": 1776976132767,
       "tag": "0003_little_silk_fever",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1777044230384,
+      "tag": "0004_fancy_red_wolf",
+      "breakpoints": true
     }
   ]
 }

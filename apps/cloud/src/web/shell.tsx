@@ -360,6 +360,7 @@ function UserFooter() {
 function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
+  const isRuns = props.pathname === "/runs";
   const isConnections = props.pathname === "/connections";
   const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
   const isOrg = props.pathname === "/org";
@@ -378,6 +379,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
         <NavItem to="/connections" label="Connections" active={isConnections} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
+        <NavItem to="/runs" label="Runs" active={isRuns} onNavigate={props.onNavigate} />
         <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 
