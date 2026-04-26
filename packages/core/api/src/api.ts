@@ -6,6 +6,7 @@ import { SourcesApi } from "./sources/api";
 import { SecretsApi } from "./secrets/api";
 import { ConnectionsApi } from "./connections/api";
 import { ExecutionsApi } from "./executions/api";
+import { MetricsApi } from "./metrics/api";
 import { ScopeApi } from "./scope/api";
 
 export const CoreExecutorApi = HttpApi.make("executor")
@@ -14,6 +15,7 @@ export const CoreExecutorApi = HttpApi.make("executor")
   .add(SecretsApi)
   .add(ConnectionsApi)
   .add(ExecutionsApi)
+  .add(MetricsApi)
   .add(ScopeApi)
   .annotateContext(
     OpenApi.annotations({

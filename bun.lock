@@ -134,6 +134,7 @@
       "version": "1.4.4",
       "dependencies": {
         "@effect-atom/atom-react": "^0.5.0",
+        "@effect/opentelemetry": "^0.63.0",
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
         "@executor/api": "workspace:*",

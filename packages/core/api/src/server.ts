@@ -6,4 +6,5 @@ export {
   SecretsHandlers,
   ScopeHandlers,
   ExecutionsHandlers,
+  MetricsHandlers,
 } from "./handlers";

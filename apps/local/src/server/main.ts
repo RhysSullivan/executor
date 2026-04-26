@@ -35,6 +35,7 @@ import {
 import { getExecutor } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 import { ErrorCaptureLive } from "./observability";
+import { startMetricsExport } from "./telemetry";
 
 // ---------------------------------------------------------------------------
 // Local server API — core + all plugin groups
@@ -90,6 +91,11 @@ const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const executor = await getExecutor();
   const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
+
+  // Boot the OTLP metrics exporter if `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
+  // is set. No-op otherwise — the in-process metric registry still
+  // accumulates counters/histograms for `GET /api/metrics`.
+  await Effect.runPromise(startMetricsExport());
 
   // Handlers wrap their own bodies with `capture(...)` — the edge
   // translation lives per-handler, not at service construction.

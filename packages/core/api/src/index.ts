@@ -4,6 +4,7 @@ export { SourcesApi } from "./sources/api";
 export { SecretsApi } from "./secrets/api";
 export { ConnectionsApi } from "./connections/api";
 export { ExecutionsApi } from "./executions/api";
+export { MetricsApi } from "./metrics/api";
 export { ScopeApi } from "./scope/api";
 export {
   InternalError,
