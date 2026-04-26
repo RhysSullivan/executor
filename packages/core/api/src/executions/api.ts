@@ -11,6 +11,16 @@ const ExecuteRequest = Schema.Struct({
   code: Schema.String,
 });
 
+/**
+ * Optional header naming the surface that triggered this execution —
+ * `"cli"`, `"http"`, `"mcp"`, etc. Persisted on the execution row so
+ * the runs UI can facet by trigger kind. Defaults to `"http"` when
+ * absent.
+ */
+const ExecuteHeaders = Schema.Struct({
+  "x-executor-trigger": Schema.optional(Schema.String),
+});
+
 const CompletedResult = Schema.Struct({
   status: Schema.Literal("completed"),
   text: Schema.String,
@@ -55,6 +65,7 @@ export class ExecutionsApi extends HttpApiGroup.make("executions")
   .add(
     HttpApiEndpoint.post("execute")`/executions`
       .setPayload(ExecuteRequest)
+      .setHeaders(ExecuteHeaders)
       .addSuccess(ExecuteResponse),
   )
   .add(
