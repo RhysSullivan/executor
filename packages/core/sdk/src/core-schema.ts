@@ -148,6 +148,75 @@ export const coreSchema = {
       updated_at: { type: "date", required: true },
     },
   },
+  // Execution history — one row per `engine.execute()` /
+  // `engine.executeWithPause()`. Captures the submitted code, final
+  // status/result, and trigger metadata. Tool calls and interactions
+  // link back via `execution_id`.
+  execution: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      status: { type: "string", required: true, index: true },
+      code: { type: "string", required: true },
+      result_json: { type: "string", required: false },
+      error_text: { type: "string", required: false },
+      logs_json: { type: "string", required: false },
+      /** Epoch ms — the point the engine accepted the code. */
+      started_at: { type: "number", required: false },
+      /** Epoch ms — the point the engine reached a terminal status. */
+      completed_at: { type: "number", required: false },
+      /** Free-form trigger kind attributed by the host — `"cli"`,
+       *  `"http"`, `"mcp"`, etc. Null when the host didn't attribute
+       *  one. Indexed so filter facets scan fast. */
+      trigger_kind: { type: "string", required: false, index: true },
+      /** Opaque host-owned JSON for per-trigger details. */
+      trigger_meta_json: { type: "string", required: false },
+      tool_call_count: { type: "number", required: true, defaultValue: 0 },
+      created_at: { type: "date", required: true, index: true },
+      updated_at: { type: "date", required: true },
+    },
+  },
+  // Per-execution interaction rows — elicitation requests and their
+  // resolutions. A pending row is the hook the runs UI uses to render
+  // the "waiting for input" state; once resolved, `response_json`
+  // captures the user's answer for replay / auditing.
+  execution_interaction: {
+    fields: {
+      id: { type: "string", required: true },
+      execution_id: { type: "string", required: true, index: true },
+      status: { type: "string", required: true, index: true },
+      kind: { type: "string", required: true },
+      purpose: { type: "string", required: false },
+      payload_json: { type: "string", required: false },
+      response_json: { type: "string", required: false },
+      /** Stores sensitive per-response data (e.g. raw form values) that
+       *  should not be replayed in the public interaction log. */
+      response_private_json: { type: "string", required: false },
+      created_at: { type: "date", required: true },
+      updated_at: { type: "date", required: true },
+    },
+  },
+  // Per-execution tool-call rows — one per `executor.tools.invoke` that
+  // ran inside the sandboxed execution. Used to build the tool-call
+  // timeline shown in the runs UI.
+  execution_tool_call: {
+    fields: {
+      id: { type: "string", required: true },
+      execution_id: { type: "string", required: true, index: true },
+      status: { type: "string", required: true },
+      /** Dotted tool path (e.g. `github.issues.create`). Indexed so the
+       *  facets query in the runs UI resolves without a table scan. */
+      tool_path: { type: "string", required: true, index: true },
+      /** First path segment, pre-computed for cheap faceting. */
+      namespace: { type: "string", required: false, index: true },
+      args_json: { type: "string", required: false },
+      result_json: { type: "string", required: false },
+      error_text: { type: "string", required: false },
+      started_at: { type: "number", required: true },
+      completed_at: { type: "number", required: false },
+      duration_ms: { type: "number", required: false },
+    },
+  },
 } as const satisfies DBSchema;
 
 export type CoreSchema = typeof coreSchema;
@@ -173,6 +242,21 @@ export type SecretRow = InferDBFieldsOutput<CoreSchema["secret"]["fields"]> &
 
 export type ConnectionRow = InferDBFieldsOutput<
   CoreSchema["connection"]["fields"]
+> &
+  Record<string, unknown>;
+
+export type ExecutionRow = InferDBFieldsOutput<
+  CoreSchema["execution"]["fields"]
+> &
+  Record<string, unknown>;
+
+export type ExecutionInteractionRow = InferDBFieldsOutput<
+  CoreSchema["execution_interaction"]["fields"]
+> &
+  Record<string, unknown>;
+
+export type ExecutionToolCallRow = InferDBFieldsOutput<
+  CoreSchema["execution_tool_call"]["fields"]
 > &
   Record<string, unknown>;
 
