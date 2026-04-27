@@ -29,6 +29,7 @@ import {
   runInDurableObject,
   SELF,
 } from "cloudflare:test";
+import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { makeTestBearer } from "./test-bearer";
@@ -39,7 +40,7 @@ import { makeTestBearer } from "./test-bearer";
 
 const BASE = "https://test-resource.example.com";
 const MCP_URL = `${BASE}/mcp`;
-const OAUTH_RESOURCE_URL = `${BASE}/.well-known/oauth-protected-resource`;
+const OAUTH_RESOURCE_URL = `${BASE}/.well-known/oauth-protected-resource/mcp`;
 
 const JSON_AND_SSE = "application/json, text/event-stream";
 const CONTENT_TYPE_JSON = "application/json";
@@ -167,7 +168,7 @@ describe("/.well-known/oauth-protected-resource", () => {
 
     const body = (await response.json()) as Record<string, unknown>;
     expect(body).toEqual({
-      resource: "https://test-resource.example.com",
+      resource: "https://test-resource.example.com/mcp",
       authorization_servers: ["https://test-authkit.example.com"],
       bearer_methods_supported: ["header"],
       scopes_supported: [],
@@ -186,7 +187,7 @@ describe("/mcp unauthorized", () => {
     const wwwAuth = response.headers.get("www-authenticate") ?? "";
     expect(wwwAuth).toContain("Bearer resource_metadata=");
     expect(wwwAuth).toContain(
-      "https://test-resource.example.com/.well-known/oauth-protected-resource",
+      "https://test-resource.example.com/.well-known/oauth-protected-resource/mcp",
     );
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });
@@ -270,6 +271,42 @@ describe("/mcp notification responses", () => {
     expect(notificationResponse.headers.get("content-type")).toBeNull();
     expect(await notificationResponse.text()).toBe("");
   });
+});
+
+describe("/mcp session restore", () => {
+  it("restores an initialized SDK transport from durable storage", async () => {
+    const orgId = nextOrgId();
+    await seedOrg(orgId);
+
+    const initializeResponse = await mcpPost({
+      bearer: makeTestBearer(nextAccountId(), orgId),
+      body: INITIALIZE_REQUEST,
+    });
+    expect(initializeResponse.status).toBe(200);
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    const ns = env.MCP_SESSION;
+    const stub = ns.get(ns.idFromString(sessionId!));
+    await runInDurableObject(stub, async (instance) => {
+      await Effect.runPromise(
+        (instance as unknown as { closeRuntime: () => Effect.Effect<void> }).closeRuntime(),
+      );
+    });
+
+    const response = await mcpPost({
+      bearer: makeTestBearer(nextAccountId(), orgId),
+      sessionId,
+      body: TOOLS_LIST_REQUEST,
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      readonly jsonrpc: string;
+      readonly result?: { readonly tools?: ReadonlyArray<{ readonly name: string }> };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.result?.tools?.some((tool) => tool.name === "execute")).toBe(true);
+  }, 15_000);
 });
 
 describe("McpSessionDO alarm lifecycle", () => {
