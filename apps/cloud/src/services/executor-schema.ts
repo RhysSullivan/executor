@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, integer, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const source = pgTable("source", {
   id: text('id').notNull(),
@@ -197,4 +197,15 @@ export const workos_vault_metadata = pgTable("workos_vault_metadata", {
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("workos_vault_metadata_scope_id_idx").on(table.scope_id),
+]);
+
+// Blob store table — hand-appended. BlobStore is a separate storage
+// abstraction from DBSchema, so the CLI doesn't generate it. Keep in
+// sync with @executor/storage-postgres's BlobStore implementation.
+export const blob = pgTable("blob", {
+  namespace: text('namespace').notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.namespace, table.key] }),
 ]);
