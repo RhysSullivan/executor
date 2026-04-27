@@ -94,29 +94,31 @@ export const McpAuthLive = Layer.succeed(McpAuth, {
         yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_bearer" });
         return null;
       }
-      try {
-        const { payload } = yield* Effect.promise(() =>
+      const verified = yield* Effect.either(
+        Effect.promise(() =>
           jwtVerify(authHeader.slice(BEARER_PREFIX.length), jwks, {
             issuer: AUTHKIT_DOMAIN,
           }),
-        ).pipe(Effect.withSpan("mcp.auth.jwt_verify"));
-        if (!payload.sub) {
-          yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
-          return null;
-        }
-        const token = {
-          accountId: payload.sub,
-          organizationId: (payload.org_id as string | undefined) ?? null,
-        };
-        yield* Effect.annotateCurrentSpan({
-          "mcp.auth.outcome": "verified",
-          "mcp.auth.has_organization": !!token.organizationId,
-        });
-        return token;
-      } catch {
+        ).pipe(Effect.withSpan("mcp.auth.jwt_verify")),
+      );
+      if (verified._tag === "Left") {
         yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "invalid" });
         return null;
       }
+      const { payload } = verified.right;
+      if (!payload.sub) {
+        yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
+        return null;
+      }
+      const token = {
+        accountId: payload.sub,
+        organizationId: (payload.org_id as string | undefined) ?? null,
+      };
+      yield* Effect.annotateCurrentSpan({
+        "mcp.auth.outcome": "verified",
+        "mcp.auth.has_organization": !!token.organizationId,
+      });
+      return token;
     }).pipe(Effect.withSpan("mcp.auth.verify_bearer")),
 });
 
