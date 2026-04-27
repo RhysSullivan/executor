@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
+import type * as Cause from "effect/Cause";
 
 import { FormElicitation, ToolId, UrlElicitation } from "@executor/sdk";
 import type { ExecutionEngine, ExecutionResult } from "@executor/execution";
@@ -14,12 +15,16 @@ import { createExecutorMcpServer } from "./server";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const makeStubEngine = (overrides: {
-  execute?: ExecutionEngine["execute"];
-  executeWithPause?: ExecutionEngine["executeWithPause"];
-  resume?: ExecutionEngine["resume"];
+class TestExecutionError extends Data.TaggedError("TestExecutionError")<{
+  readonly message: string;
+}> {}
+
+const makeStubEngine = <E extends Cause.YieldableError = never>(overrides: {
+  execute?: ExecutionEngine<E>["execute"];
+  executeWithPause?: ExecutionEngine<E>["executeWithPause"];
+  resume?: ExecutionEngine<E>["resume"];
   description?: string;
-}): ExecutionEngine => ({
+}): ExecutionEngine<E> => ({
   execute: overrides.execute ?? (() => Effect.succeed({ result: "default" })),
   executeWithPause:
     overrides.executeWithPause ??
@@ -29,8 +34,8 @@ const makeStubEngine = (overrides: {
 });
 
 /** Connect a real MCP Client to our executor MCP server over in-memory transports. */
-const withClient = async (
-  engine: ExecutionEngine,
+const withClient = async <E extends Cause.YieldableError>(
+  engine: ExecutionEngine<E>,
   capabilities: ClientCapabilities,
   fn: (client: Client) => Promise<void>,
 ) => {
@@ -107,6 +112,44 @@ describe("MCP host server — client with elicitation", () => {
       });
       expect(result.content).toEqual([{ type: "text", text: "ran: 1+1" }]);
       expect(result.isError).toBeFalsy();
+    });
+  });
+
+  it("execute tool resolves failed engine effects as MCP error results", async () => {
+    const engine = makeStubEngine({
+      execute: () => Effect.fail(new TestExecutionError({ message: "Unexpected token ':'" })),
+    });
+
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      const result = await client.callTool({
+        name: "execute",
+        arguments: { code: "const x: any = 1;" },
+      });
+      expect(textOf(result)).toBe("Error: Unexpected token ':'");
+      expect(result.structuredContent).toEqual({
+        status: "error",
+        error: "Unexpected token ':'",
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  it("execute tool hides defect details in MCP error results", async () => {
+    const engine = makeStubEngine({
+      execute: () => Effect.die(new Error("secret internal detail")),
+    });
+
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      const result = await client.callTool({
+        name: "execute",
+        arguments: { code: "run" },
+      });
+      expect(textOf(result)).toBe("Error: Tool execution failed");
+      expect(result.structuredContent).toEqual({
+        status: "error",
+        error: "Tool execution failed",
+      });
+      expect(result.isError).toBe(true);
     });
   });
 
