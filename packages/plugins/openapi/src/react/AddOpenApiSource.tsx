@@ -95,7 +95,7 @@ const substituteUrlVariables = (url: string, values: Record<string, string>): st
   return out;
 };
 
-const openApiOAuthConnectionId = (
+export const openApiOAuthConnectionId = (
   namespaceSlug: string,
   flow: OAuth2Preset["flow"],
 ): string =>

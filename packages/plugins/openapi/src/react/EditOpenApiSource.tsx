@@ -41,6 +41,7 @@ import {
   OPENAPI_OAUTH_CALLBACK_PATH,
   OPENAPI_OAUTH_CHANNEL,
   OPENAPI_OAUTH_POPUP_NAME,
+  openApiOAuthConnectionId,
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
 import { oauth2ClientSecretSlot } from "../sdk/store";
@@ -393,9 +394,7 @@ export default function EditOpenApiSource(props: {
     const connectionId =
       existingConnection && isConnectionBindingValue(existingConnection.value)
         ? existingConnection.value.connectionId
-        : ConnectionId.make(
-            `openapi-oauth-${slugify(props.sourceId)}-${slugify(oauth2.securitySchemeName)}-${slugify(targetScope)}`,
-          );
+        : ConnectionId.make(openApiOAuthConnectionId(props.sourceId, oauth2.flow));
 
     setBusyKey(`${targetScope}:${oauth2.connectionSlot}:connect`);
     setError(null);
