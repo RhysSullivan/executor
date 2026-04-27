@@ -19,12 +19,6 @@ const toHttpResponseError = (error: unknown): HttpResponseError =>
 
 export const isServerError = (error: unknown): boolean => toHttpResponseError(error).status >= 500;
 
-export const toErrorResponse = (error: unknown): Response => {
-  const mapped = toHttpResponseError(error);
-  if (mapped.status >= 500) Sentry.captureException(error);
-  return Response.json({ error: mapped.message, code: mapped.code }, { status: mapped.status });
-};
-
 export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpServerResponse => {
   const mapped = toHttpResponseError(error);
   if (mapped.status >= 500) {

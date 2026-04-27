@@ -83,8 +83,6 @@ const DomainVerificationLinkResponse = Schema.Struct({
 
 const domainIdParam = HttpApiSchema.param("domainId", Schema.String);
 
-export { OrgMember, OrgMembersResponse };
-
 export class OrgApi extends HttpApiGroup.make("org")
   .add(
     HttpApiEndpoint.get("listMembers")`/org/members`
