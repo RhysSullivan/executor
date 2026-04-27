@@ -17,6 +17,7 @@ import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
+import { ErrorMessage } from "@executor/react/components/error-message";
 
 // ---------------------------------------------------------------------------
 // Editable header entry
@@ -170,11 +171,7 @@ function RemoteEditForm(props: {
         </Button>
       </section>
 
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-sm text-destructive">{error}</p>
-        </div>
-      )}
+      {error && <ErrorMessage message={error} />}
 
       <div className="flex items-center justify-between border-t border-border pt-4">
         <Button variant="ghost" onClick={props.onSave}>

@@ -24,6 +24,7 @@ import { FieldLabel } from "@executor/react/components/field";
 import { Input } from "@executor/react/components/input";
 import { Badge } from "@executor/react/components/badge";
 import type { StoredGraphqlSource } from "../sdk/store";
+import { ErrorMessage } from "@executor/react/components/error-message";
 
 // UI only needs the fields the API exposes; `scope` on the SDK interface
 // isn't part of the HTTP response.
@@ -131,11 +132,7 @@ function EditForm(props: {
         />
       </section>
 
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-sm text-destructive">{error}</p>
-        </div>
-      )}
+      {error && <ErrorMessage message={error} />}
 
       <div className="flex items-center justify-between border-t border-border pt-4">
         <Button variant="ghost" onClick={props.onSave}>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { authWriteKeys } from "@executor/react/api/reactivity-keys";
+import { ErrorMessage } from "@executor/react/components/error-message";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 
@@ -82,11 +83,7 @@ export function CreateOrganizationFields(props: {
         />
       </div>
 
-      {props.error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-sm text-destructive">{props.error}</p>
-        </div>
-      )}
+      {props.error && <ErrorMessage message={props.error} />}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
+import { oauthRedirectUrl, openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
 
 import { useScope, useUserScope } from "@executor/react/api/scope-context";
@@ -39,6 +39,7 @@ import {
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { Button } from "@executor/react/components/button";
 import { CopyButton } from "@executor/react/components/copy-button";
+import { ErrorMessage } from "@executor/react/components/error-message";
 import {
   CardStack,
   CardStackContent,
@@ -86,6 +87,7 @@ import {
 export const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
 export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
 export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/openapi/oauth/callback";
+export const openApiOAuthRedirectUrl = (): string => oauthRedirectUrl(OPENAPI_OAUTH_CALLBACK_PATH);
 
 const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
   let out = url;
@@ -304,10 +306,7 @@ export default function AddOpenApiSource(props: {
   }
 
   const oauth2Presets: readonly OAuth2Preset[] = preview?.oauth2Presets ?? [];
-  const oauth2RedirectUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
-      : OPENAPI_OAUTH_CALLBACK_PATH;
+  const oauth2RedirectUrl = openApiOAuthRedirectUrl();
   // Stable source id derivation. Matches the value `handleAdd` sends as
   // `namespace`, and is also the default credential key when the user
   // does not provide a more explicit shared connection id.
@@ -794,11 +793,7 @@ export default function AddOpenApiSource(props: {
         </CardStack>
       ) : null}
 
-      {analyzeError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-[12px] text-destructive">{analyzeError}</p>
-        </div>
-      )}
+      {analyzeError && <ErrorMessage message={analyzeError} small />}
 
       {/* ── Everything below appears after analysis ── */}
       {preview && (
@@ -1158,11 +1153,7 @@ export default function AddOpenApiSource(props: {
           </section>
 
           {/* Add error */}
-          {addError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-[12px] text-destructive">{addError}</p>
-            </div>
-          )}
+          {addError && <ErrorMessage message={addError} small />}
         </>
       )}
 

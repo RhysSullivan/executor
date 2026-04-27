@@ -17,12 +17,7 @@ import {
 import { Button } from "../components/button";
 import { Input } from "../components/input";
 import { Label } from "../components/label";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../components/dropdown-menu";
+import { KebabRemoveMenu } from "../components/entry-actions-menu";
 import {
   Select,
   SelectContent,
@@ -41,6 +36,7 @@ import {
   CardStackHeader,
 } from "../components/card-stack";
 import { Badge } from "../components/badge";
+import { ErrorMessage } from "@executor/react/components/error-message";
 
 type SecretStorageOption = {
   readonly label: string;
@@ -198,11 +194,7 @@ function AddSecretDialog(props: {
             )}
           </div>
 
-          {error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-sm text-destructive">{error}</p>
-            </div>
-          )}
+          {error && <ErrorMessage message={error} />}
         </div>
 
         <DialogFooter>
@@ -244,29 +236,7 @@ function SecretRow(props: {
       </CardStackEntryContent>
       <CardStackEntryActions>
         {showProvider && secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 opacity-0 transition-opacity group-hover/card-stack-entry:opacity-100 group-focus-within/card-stack-entry:opacity-100 data-[state=open]:opacity-100"
-            >
-              <svg viewBox="0 0 16 16" className="size-3">
-                <circle cx="8" cy="3" r="1.2" fill="currentColor" />
-                <circle cx="8" cy="8" r="1.2" fill="currentColor" />
-                <circle cx="8" cy="13" r="1.2" fill="currentColor" />
-              </svg>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive text-sm"
-              onClick={props.onRemove}
-            >
-              Remove secret
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <KebabRemoveMenu label="Remove secret" onRemove={props.onRemove} />
       </CardStackEntryActions>
     </CardStackEntry>
   );
@@ -356,11 +326,7 @@ export function SecretsPage(props: {
               <p className="text-sm text-muted-foreground">Loading secrets…</p>
             </div>
           ),
-          onFailure: () => (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load secrets</p>
-            </div>
-          ),
+          onFailure: () => <ErrorMessage message="Failed to load secrets" spacious />,
           onSuccess: ({ value }) => (
             <CardStack>
               <CardStackHeader>Secrets</CardStackHeader>

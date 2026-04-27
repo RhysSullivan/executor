@@ -21,6 +21,7 @@ import {
 import { Button } from "@executor/react/components/button";
 import { Badge } from "@executor/react/components/badge";
 import { CopyButton } from "@executor/react/components/copy-button";
+import { ErrorMessage } from "@executor/react/components/error-message";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import {
@@ -273,11 +274,7 @@ function OrgPage() {
                 ))}
               </div>
             ),
-            onFailure: () => (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-                <p className="text-sm text-destructive">Failed to load domains</p>
-              </div>
-            ),
+            onFailure: () => <ErrorMessage message="Failed to load domains" spacious />,
             onSuccess: ({ value }) => {
               if (value.domains.length === 0) {
                 return (
@@ -326,11 +323,7 @@ function OrgPage() {
               ))}
             </div>
           ),
-          onFailure: () => (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load members</p>
-            </div>
-          ),
+          onFailure: () => <ErrorMessage message="Failed to load members" spacious />,
           onSuccess: ({ value }) => {
             const members = value.members;
             const filtered = search
@@ -677,11 +670,7 @@ function InviteDialog(props: {
             </div>
           )}
 
-          {state.status === "error" && state.error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-sm text-destructive">{state.error}</p>
-            </div>
-          )}
+          {state.status === "error" && state.error && <ErrorMessage message={state.error} />}
         </div>
 
         <DialogFooter>

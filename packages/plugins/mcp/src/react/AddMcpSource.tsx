@@ -3,6 +3,7 @@ import { useAtomSet } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
+import { ErrorMessage } from "@executor/react/components/error-message";
 import {
   CardStack,
   CardStackContent,
@@ -964,9 +965,7 @@ export default function AddMcpSource(props: {
           {/* Error (OAuth / add source). Probe errors show inline on the field. */}
           {otherError && (
             <div className="space-y-2">
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-                <p className="text-[12px] text-destructive">{otherError}</p>
-              </div>
+              <ErrorMessage message={otherError} small />
               <Button
                 variant="outline"
                 size="sm"
@@ -1046,11 +1045,7 @@ export default function AddMcpSource(props: {
           />
 
           {/* Stdio error */}
-          {stdioError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-[12px] text-destructive">{stdioError}</p>
-            </div>
-          )}
+          {stdioError && <ErrorMessage message={stdioError} small />}
 
           <FloatActions>
             <Button variant="ghost" onClick={props.onCancel} disabled={stdioAdding}>

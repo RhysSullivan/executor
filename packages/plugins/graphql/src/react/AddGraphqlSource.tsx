@@ -14,6 +14,7 @@ import {
 } from "@executor/react/plugins/source-identity";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { Button } from "@executor/react/components/button";
+import { ErrorMessage } from "@executor/react/components/error-message";
 import {
   CardStack,
   CardStackContent,
@@ -137,11 +138,7 @@ export default function AddGraphqlSource(props: {
       </section>
 
       {/* Error */}
-      {addError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-[12px] text-destructive">{addError}</p>
-        </div>
-      )}
+      {addError && <ErrorMessage message={addError} small />}
 
       <FloatActions>
         <Button variant="ghost" onClick={props.onCancel} disabled={adding}>

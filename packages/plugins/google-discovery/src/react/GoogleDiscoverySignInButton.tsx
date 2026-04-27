@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
+import { oauthPopupFailureHandlers, oauthRedirectUrl, openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { connectionsAtom } from "@executor/react/api/atoms";
@@ -61,10 +61,7 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
     connections !== null &&
     connections.some((c) => c.id === oauth2.connectionId);
 
-  const redirectUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}${CALLBACK_PATH}`
-      : CALLBACK_PATH;
+  const redirectUrl = oauthRedirectUrl(CALLBACK_PATH);
 
   const handleSignIn = useCallback(async () => {
     if (!oauth2 || !source) return;
@@ -118,16 +115,7 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
             );
           }
         },
-        onClosed: () => {
-          cleanupRef.current = null;
-          setBusy(false);
-          setError("Sign-in cancelled — popup was closed before completing the flow.");
-        },
-        onOpenFailed: () => {
-          cleanupRef.current = null;
-          setBusy(false);
-          setError("Sign-in popup was blocked by the browser");
-        },
+        ...oauthPopupFailureHandlers({ cleanupRef, setBusy, setError }),
       });
     } catch (e) {
       setBusy(false);

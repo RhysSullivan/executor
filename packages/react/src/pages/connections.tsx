@@ -9,7 +9,8 @@ import {
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { useScope, useScopeStack } from "../hooks/use-scope";
 import { Badge } from "../components/badge";
-import { Button } from "../components/button";
+import { ErrorMessage } from "../components/error-message";
+import { KebabRemoveMenu } from "../components/entry-actions-menu";
 import {
   CardStack,
   CardStackContent,
@@ -20,13 +21,6 @@ import {
   CardStackEntryTitle,
   CardStackHeader,
 } from "../components/card-stack";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../components/dropdown-menu";
-
 // ---------------------------------------------------------------------------
 // Provider display
 // ---------------------------------------------------------------------------
@@ -85,29 +79,7 @@ function ConnectionRow(props: {
       </CardStackEntryContent>
       <CardStackEntryActions>
         <Badge variant="outline">{scopeLabel}</Badge>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 opacity-0 transition-opacity group-hover/card-stack-entry:opacity-100 group-focus-within/card-stack-entry:opacity-100 data-[state=open]:opacity-100"
-            >
-              <svg viewBox="0 0 16 16" className="size-3">
-                <circle cx="8" cy="3" r="1.2" fill="currentColor" />
-                <circle cx="8" cy="8" r="1.2" fill="currentColor" />
-                <circle cx="8" cy="13" r="1.2" fill="currentColor" />
-              </svg>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive text-sm"
-              onClick={props.onRemove}
-            >
-              Remove
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <KebabRemoveMenu label="Remove" onRemove={props.onRemove} />
       </CardStackEntryActions>
     </CardStackEntry>
   );
@@ -161,13 +133,7 @@ export function ConnectionsPage() {
               </p>
             </div>
           ),
-          onFailure: () => (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">
-                Failed to load connections
-              </p>
-            </div>
-          ),
+          onFailure: () => <ErrorMessage message="Failed to load connections" spacious />,
           onSuccess: ({ value }) => (
             <CardStack>
               <CardStackHeader>Connections</CardStackHeader>

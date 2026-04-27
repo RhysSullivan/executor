@@ -18,6 +18,26 @@ export type { OAuthPopupResult } from "./popup-types";
 
 export const isOAuthPopupResult = sharedIsOAuthPopupResult;
 
+export const oauthRedirectUrl = (callbackPath: string): string =>
+  typeof window !== "undefined" ? `${window.location.origin}${callbackPath}` : callbackPath;
+
+export const oauthPopupFailureHandlers = (input: {
+  readonly cleanupRef: { current: (() => void) | null };
+  readonly setBusy: (busy: boolean) => void;
+  readonly setError: (error: string) => void;
+}) => ({
+  onClosed: () => {
+    input.cleanupRef.current = null;
+    input.setBusy(false);
+    input.setError("Sign-in cancelled — popup was closed before completing the flow.");
+  },
+  onOpenFailed: () => {
+    input.cleanupRef.current = null;
+    input.setBusy(false);
+    input.setError("Sign-in popup was blocked by the browser");
+  },
+});
+
 // ---------------------------------------------------------------------------
 // openOAuthPopup
 // ---------------------------------------------------------------------------

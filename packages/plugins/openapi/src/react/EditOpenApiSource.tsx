@@ -38,13 +38,14 @@ import {
   updateOpenApiSource,
 } from "./atoms";
 import {
-  OPENAPI_OAUTH_CALLBACK_PATH,
   OPENAPI_OAUTH_CHANNEL,
   OPENAPI_OAUTH_POPUP_NAME,
+  openApiOAuthRedirectUrl,
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
 import { oauth2ClientSecretSlot } from "../sdk/store";
 import type { OpenApiSourceBindingValue } from "../sdk/types";
+import { ErrorMessage } from "@executor/react/components/error-message";
 
 type SlotDef =
   | {
@@ -158,10 +159,7 @@ export default function EditOpenApiSource(props: {
     Result.isSuccess(bindingsResult) ? bindingsResult.value : [];
   const connections =
     Result.isSuccess(connectionsResult) ? connectionsResult.value : [];
-  const oauth2RedirectUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
-      : OPENAPI_OAUTH_CALLBACK_PATH;
+  const oauth2RedirectUrl = openApiOAuthRedirectUrl();
 
   const [name, setName] = useState(source?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(source?.config.baseUrl ?? "");
@@ -442,10 +440,7 @@ export default function EditOpenApiSource(props: {
         oauth2.authorizationUrl ?? "",
         source.config.baseUrl ?? "",
       );
-      const redirectUrl =
-        typeof window !== "undefined"
-          ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
-          : OPENAPI_OAUTH_CALLBACK_PATH;
+      const redirectUrl = openApiOAuthRedirectUrl();
       const response = await doStartOAuth({
         path: { scopeId: displayScope },
         payload: {
@@ -746,11 +741,7 @@ export default function EditOpenApiSource(props: {
         </CardStackContent>
       </CardStack>
 
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-sm text-destructive">{error}</p>
-        </div>
-      )}
+      {error && <ErrorMessage message={error} />}
 
       <div className="flex items-center justify-start border-t border-border pt-4">
         <Button variant="ghost" onClick={props.onSave}>
