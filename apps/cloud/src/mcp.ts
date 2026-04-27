@@ -17,7 +17,7 @@
 import { env } from "cloudflare:workers";
 import { HttpApp, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import * as Sentry from "@sentry/cloudflare";
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 import { TelemetryLive } from "./services/telemetry";
@@ -43,7 +43,12 @@ const CORS_PREFLIGHT_HEADERS = {
   "access-control-expose-headers": "mcp-session-id",
 } as const;
 
-const WWW_AUTHENTICATE = `Bearer resource_metadata="${RESOURCE_ORIGIN}/.well-known/oauth-protected-resource"`;
+const MCP_PATH = "/mcp";
+const PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource/mcp";
+const PROTECTED_RESOURCE_METADATA_URL = `${RESOURCE_ORIGIN}${PROTECTED_RESOURCE_METADATA_PATH}`;
+const RESOURCE_URL = `${RESOURCE_ORIGIN}${MCP_PATH}`;
+
+const WWW_AUTHENTICATE = `Bearer resource_metadata="${PROTECTED_RESOURCE_METADATA_URL}"`;
 
 // ---------------------------------------------------------------------------
 // Response helpers
@@ -86,6 +91,19 @@ export class McpAuth extends Context.Tag("@executor/cloud/McpAuth")<
   }
 >() {}
 
+export class McpJwtVerificationError extends Data.TaggedError("McpJwtVerificationError")<{
+  readonly cause: unknown;
+}> {}
+
+const verifyJwt = (token: string) =>
+  Effect.tryPromise({
+    try: () =>
+      jwtVerify(token, jwks, {
+        issuer: AUTHKIT_DOMAIN,
+      }),
+    catch: (cause) => new McpJwtVerificationError({ cause }),
+  }).pipe(Effect.withSpan("mcp.auth.jwt_verify"));
+
 export const McpAuthLive = Layer.succeed(McpAuth, {
   verifyBearer: (request) =>
     Effect.gen(function* () {
@@ -94,18 +112,16 @@ export const McpAuthLive = Layer.succeed(McpAuth, {
         yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_bearer" });
         return null;
       }
-      const verified = yield* Effect.either(
-        Effect.promise(() =>
-          jwtVerify(authHeader.slice(BEARER_PREFIX.length), jwks, {
-            issuer: AUTHKIT_DOMAIN,
+      const verified = yield* verifyJwt(authHeader.slice(BEARER_PREFIX.length)).pipe(
+        Effect.catchTag("McpJwtVerificationError", () =>
+          Effect.gen(function* () {
+            yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "invalid" });
+            return null;
           }),
-        ).pipe(Effect.withSpan("mcp.auth.jwt_verify")),
+        ),
       );
-      if (verified._tag === "Left") {
-        yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "invalid" });
-        return null;
-      }
-      const { payload } = verified.right;
+      if (!verified) return null;
+      const { payload } = verified;
       if (!payload.sub) {
         yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
         return null;
@@ -336,7 +352,7 @@ const annotateMcpRequest = (
 
 const protectedResourceMetadata = Effect.sync(() =>
   jsonResponse({
-    resource: RESOURCE_ORIGIN,
+    resource: RESOURCE_URL,
     authorization_servers: [AUTHKIT_DOMAIN],
     bearer_methods_supported: ["header"],
     scopes_supported: [],
@@ -528,6 +544,17 @@ const withPropagationHeaders = (
   return new Request(request, { headers });
 };
 
+const withMcpResponseHeaders = (response: Response): Response => {
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", "*");
+  headers.set("access-control-expose-headers", "mcp-session-id");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
 /**
  * Forward a request to an existing session DO. Wrapping the DO's `Response`
  * with `HttpServerResponse.raw` lets streaming bodies (SSE) pass through
@@ -550,7 +577,7 @@ const forwardToExistingSession = (request: Request, sessionId: string, peek: boo
       }),
     );
     const annotated = peek ? yield* peekAndAnnotate(raw) : raw;
-    return HttpServerResponse.raw(annotated);
+    return HttpServerResponse.raw(withMcpResponseHeaders(annotated));
   });
 
 const dispatchPost = (request: Request, token: VerifiedToken) =>
@@ -585,7 +612,7 @@ const dispatchPost = (request: Request, token: VerifiedToken) =>
       }),
     );
     const annotated = yield* peekAndAnnotate(raw);
-    return HttpServerResponse.raw(annotated);
+    return HttpServerResponse.raw(withMcpResponseHeaders(annotated));
   });
 
 const dispatchGet = (request: Request) => {
@@ -615,8 +642,8 @@ type McpRoute = "mcp" | "oauth-protected-resource" | "oauth-authorization-server
  * points.
  */
 export const classifyMcpPath = (pathname: string): McpRoute => {
-  if (pathname === "/mcp") return "mcp";
-  if (pathname === "/.well-known/oauth-protected-resource") return "oauth-protected-resource";
+  if (pathname === MCP_PATH) return "mcp";
+  if (pathname === PROTECTED_RESOURCE_METADATA_PATH) return "oauth-protected-resource";
   if (pathname === "/.well-known/oauth-authorization-server") return "oauth-authorization-server";
   return null;
 };

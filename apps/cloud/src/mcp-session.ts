@@ -9,7 +9,7 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer";
 import type * as Tracer from "effect/Tracer";
 import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { WorkerTransport, type TransportState } from "agents/mcp";
+import type { TransportState } from "agents/mcp";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
@@ -27,6 +27,10 @@ import { UserStoreService } from "./auth/context";
 import { resolveOrganization } from "./auth/resolve-organization";
 import { DbService, combinedSchema, resolveConnectionString } from "./services/db";
 import { makeExecutionStack } from "./services/execution-stack";
+import {
+  makeMcpWorkerTransport,
+  type McpWorkerTransport,
+} from "./services/mcp-worker-transport";
 import { DoTelemetryLive } from "./services/telemetry";
 
 // ---------------------------------------------------------------------------
@@ -187,7 +191,7 @@ const resolveSessionMeta = Effect.fn("McpSessionDO.resolveSessionMeta")(function
 export class McpSessionDO extends DurableObject {
   private readonly instanceCreatedAt = Date.now();
   private mcpServer: McpServer | null = null;
-  private transport: WorkerTransport | null = null;
+  private transport: McpWorkerTransport | null = null;
   private initialized = false;
   private lastActivityMs = 0;
   private dbHandle: DbHandle | null = null;
@@ -291,14 +295,12 @@ export class McpSessionDO extends DurableObject {
         parentSpan: () => self.currentRequestSpan ?? undefined,
         debug: env.EXECUTOR_MCP_DEBUG === "true",
       }).pipe(Effect.withSpan("McpSessionDO.createExecutorMcpServer"));
-      const transport = new WorkerTransport({
+      const transport = yield* makeMcpWorkerTransport({
         sessionIdGenerator: () => self.ctx.id.toString(),
         storage: self.makeStorage(),
         enableJsonResponse: options.enableJsonResponse,
       });
-      yield* Effect.promise(() => mcpServer.connect(transport)).pipe(
-        Effect.withSpan("McpSessionDO.transport.connect"),
-      );
+      yield* transport.connect(mcpServer);
       return { mcpServer, transport };
     }).pipe(
       Effect.withSpan("McpSessionDO.createRuntime"),
@@ -308,17 +310,19 @@ export class McpSessionDO extends DurableObject {
 
   private closeRuntime(): Effect.Effect<void> {
     const self = this;
-    return Effect.promise(async () => {
+    return Effect.gen(function* () {
       if (self.transport) {
-        await self.transport.close().catch(() => undefined);
+        yield* self.transport.close();
         self.transport = null;
       }
       if (self.mcpServer) {
-        await self.mcpServer.close().catch(() => undefined);
+        const mcpServer = self.mcpServer;
+        yield* Effect.promise(() => mcpServer.close().catch(() => undefined));
         self.mcpServer = null;
       }
       if (self.dbHandle) {
-        await self.dbHandle.end();
+        const dbHandle = self.dbHandle;
+        yield* Effect.promise(() => dbHandle.end());
         self.dbHandle = null;
       }
       self.initialized = false;
@@ -522,7 +526,7 @@ export class McpSessionDO extends DurableObject {
       yield* Effect.promise(() => self.markActivity()).pipe(
         Effect.withSpan("McpSessionDO.markActivity"),
       );
-      const response = yield* Effect.promise(() => transport.handleRequest(request)).pipe(
+      const response = yield* transport.handleRequest(request).pipe(
         Effect.withSpan("McpSessionDO.transport.handleRequest", {
           attributes: {
             "mcp.request.method": request.method,

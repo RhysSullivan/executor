@@ -327,6 +327,38 @@ const connectClient = async (
 // ---------------------------------------------------------------------------
 
 layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it) => {
+  it.effect("returns 401 for malformed bearer tokens through the production auth layer", () =>
+    Effect.gen(function* () {
+      const { baseUrl } = yield* Worker;
+      const response = yield* Effect.promise(() =>
+        fetch(new URL("/__test__/real-auth-mcp", baseUrl), {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            authorization: "Bearer bogus",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "mcp-miniflare-invalid-bearer", version: "0" },
+            },
+          }),
+        }),
+      );
+      expect(response.status).toBe(401);
+      expect(response.headers.get("www-authenticate") ?? "").toContain(
+        "https://test-resource.example.com/.well-known/oauth-protected-resource/mcp",
+      );
+      const body = yield* Effect.promise(() => response.json());
+      expect(body).toEqual({ error: "unauthorized" });
+    }), 30_000,
+  );
+
   it.effect("completes the initialize handshake via SDK", () =>
     Effect.gen(function* () {
       const { baseUrl, seedOrg } = yield* Worker;
