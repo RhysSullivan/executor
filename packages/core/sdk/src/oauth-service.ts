@@ -887,6 +887,7 @@ export const makeOAuth2Service = (
     Effect.gen(function* () {
       const md = payload.authorizationServerMetadata as {
         token_endpoint: string;
+        issuer?: string;
       };
       const ci = payload.clientInformation as {
         client_id: string;
@@ -895,6 +896,7 @@ export const makeOAuth2Service = (
       };
       const tokens = yield* exchangeAuthorizationCode({
         tokenUrl: md.token_endpoint,
+        issuerUrl: md.issuer,
         clientId: ci.client_id,
         clientSecret: ci.client_secret ?? undefined,
         redirectUrl,
@@ -950,6 +952,7 @@ export const makeOAuth2Service = (
 
       const tokens = yield* exchangeAuthorizationCode({
         tokenUrl: payload.tokenEndpoint,
+        issuerUrl: new URL(payload.authorizationEndpoint).origin,
         clientId,
         clientSecret: clientSecret ?? undefined,
         redirectUrl,

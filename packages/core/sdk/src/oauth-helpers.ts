@@ -211,6 +211,7 @@ const tokenResponseFrom = (
 
 export type ExchangeAuthorizationCodeInput = {
   readonly tokenUrl: string;
+  readonly issuerUrl?: string | null;
   readonly clientId: string;
   readonly clientSecret?: string | null;
   readonly redirectUrl: string;
@@ -225,7 +226,9 @@ export const exchangeAuthorizationCode = (
 ): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
   Effect.tryPromise({
     try: async () => {
-      const as = asFromTokenUrl(input.tokenUrl);
+      const as = input.issuerUrl
+        ? { ...asFromTokenUrl(input.tokenUrl), issuer: input.issuerUrl }
+        : asFromTokenUrl(input.tokenUrl);
       const client: oauth.Client = { client_id: input.clientId };
       const clientAuth = pickClientAuth(
         input.clientSecret,

@@ -135,6 +135,12 @@ const captureFetch = (response: Response): { calls: FetchArgs[] } => {
 
 const originalFetch = globalThis.fetch;
 
+const jwtPart = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+
+const unsignedJwt = (claims: Record<string, unknown>): string =>
+  `${jwtPart({ alg: "RS256", typ: "JWT" })}.${jwtPart(claims)}.sig`;
+
 describe("exchangeAuthorizationCode", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -191,6 +197,32 @@ describe("exchangeAuthorizationCode", () => {
     const body = calls[0]!.init.body as URLSearchParams;
     expect(body.get("client_id")).toBe("cid");
     expect(body.has("client_secret")).toBe(false);
+  });
+
+  it("validates ID tokens against an explicit issuer when token host differs", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt({
+          iss: "https://accounts.google.com",
+          aud: "cid",
+          sub: "user-1",
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          iat: Math.floor(Date.now() / 1000),
+        }),
+      }),
+    );
+    const result = await Effect.runPromise(
+      exchangeAuthorizationCode({
+        tokenUrl: "https://oauth2.googleapis.com/token",
+        issuerUrl: "https://accounts.google.com",
+        clientId: "cid",
+        redirectUrl: "https://app.example.com/cb",
+        codeVerifier: "verifier",
+        code: "abc",
+      }),
+    );
+    expect(result.access_token).toBe("tok");
   });
 
   it("uses HTTP Basic auth when clientAuth=basic (Stripe-style)", async () => {
