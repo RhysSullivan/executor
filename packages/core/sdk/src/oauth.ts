@@ -211,6 +211,8 @@ export interface OAuthStartInput {
   /** Which plugin is initiating the flow. Persisted on the session +
    *  stamped on the minted Connection's identity label for UI. */
   readonly pluginId: string;
+  /** Optional human label for the minted Connection, e.g. "Spotify OAuth". */
+  readonly identityLabel?: string;
 }
 
 export interface OAuthStartResult {

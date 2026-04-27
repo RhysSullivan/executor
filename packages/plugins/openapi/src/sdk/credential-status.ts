@@ -1,4 +1,4 @@
-import type { ScopeId } from "@executor/sdk";
+import type { ConnectionId, ScopeId } from "@executor/sdk";
 
 import { oauth2ClientSecretSlot } from "./store";
 import type { ConfiguredHeaderValue, OpenApiSourceBindingValue } from "./types";
@@ -55,7 +55,14 @@ const hasConnectionBinding = (
   slot: string,
   targetScope: ScopeId,
   ranks: ReadonlyMap<string, number>,
-) => effectiveBindingForScope(rows, slot, targetScope, ranks)?.value.kind === "connection";
+  liveConnectionIds?: ReadonlySet<string>,
+) => {
+  const binding = effectiveBindingForScope(rows, slot, targetScope, ranks);
+  if (binding?.value.kind !== "connection") return false;
+  return liveConnectionIds
+    ? liveConnectionIds.has(binding.value.connectionId as string)
+    : true;
+};
 
 const effectiveClientSecretSlot = (oauth2: {
   readonly securitySchemeName: string;
@@ -67,8 +74,17 @@ export function missingCredentialLabels(
   bindings: readonly BindingRowForCredentialStatus[],
   targetScope: ScopeId,
   ranks: ReadonlyMap<string, number>,
+  options?: {
+    readonly liveConnectionIds?: ReadonlySet<string> | readonly ConnectionId[];
+  },
 ): string[] {
   const missing: string[] = [];
+  const rawLiveConnectionIds = options?.liveConnectionIds;
+  const liveConnectionIds = rawLiveConnectionIds
+    ? rawLiveConnectionIds instanceof Set
+      ? rawLiveConnectionIds
+      : new Set([...rawLiveConnectionIds].map((id) => id as string))
+    : undefined;
 
   for (const [headerName, value] of Object.entries(source.config.headers ?? {})) {
     if (typeof value === "string") continue;
@@ -89,7 +105,15 @@ export function missingCredentialLabels(
     missing.push("Client Secret");
   }
 
-  if (!hasConnectionBinding(bindings, oauth2.connectionSlot, targetScope, ranks)) {
+  if (
+    !hasConnectionBinding(
+      bindings,
+      oauth2.connectionSlot,
+      targetScope,
+      ranks,
+      liveConnectionIds,
+    )
+  ) {
     missing.push(
       oauth2.flow === "clientCredentials" ? "OAuth client connection" : "OAuth sign-in",
     );

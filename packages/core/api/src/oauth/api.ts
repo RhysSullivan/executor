@@ -69,6 +69,8 @@ const StartPayload = Schema.Struct({
   /** Which plugin is initiating the flow. Persisted on the session +
    *  stamped on the minted Connection's identity-label prefix. */
   pluginId: Schema.String,
+  /** Human label for the minted Connection. */
+  identityLabel: Schema.optional(Schema.String),
 });
 
 const StartResponse = Schema.Struct({

@@ -100,6 +100,7 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
           endpoint: source.config.discoveryUrl,
           redirectUrl,
           connectionId,
+          identityLabel: `${source.name.trim() || props.sourceId} OAuth`,
           strategy: {
             kind: "authorization-code",
             authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,

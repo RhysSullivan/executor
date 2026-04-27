@@ -1407,7 +1407,16 @@ export const createExecutor = <
             );
             for (const secret of owned) {
               yield* Effect.all(
-                deleters.map((p) => p.delete(secret.id as string, scope)),
+                deleters.map((p) =>
+                  p.delete(secret.id as string, scope).pipe(
+                    Effect.catchAllCause((cause) =>
+                      Effect.logWarning(
+                        `Failed to delete connection-owned secret from provider ${p.key}`,
+                        cause,
+                      ).pipe(Effect.as(false)),
+                    ),
+                  ),
+                ),
                 { concurrency: "unbounded" },
               );
             }

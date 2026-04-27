@@ -88,6 +88,13 @@ export default function OpenApiSourceSummary(props: {
   }
 
   const bindings = Result.isSuccess(bindingsResult) ? bindingsResult.value : [];
+  if (oauth2 && !connectionsLoaded) {
+    return props.variant === "panel" ? null : <CheckingCredentialsBadge />;
+  }
+  const connections = Result.isSuccess(connectionsResult) ? connectionsResult.value : [];
+  const liveConnectionIds = new Set(
+    connections.map((connection) => connection.id as string),
+  );
   const scopeRanks = new Map(
     scopeStack.map((scope, index) => [scope.id as string, index] as const),
   );
@@ -97,6 +104,7 @@ export default function OpenApiSourceSummary(props: {
     bindings,
     credentialTargetScope,
     scopeRanks,
+    { liveConnectionIds },
   );
 
   if (props.variant === "panel") {
@@ -125,8 +133,6 @@ export default function OpenApiSourceSummary(props: {
   if (missing.length > 0) return <NeedsCredentialsBadge />;
 
   if (!oauth2) return null;
-  if (!connectionsLoaded) return <CheckingCredentialsBadge />;
-  const connections = connectionsResult.value;
   const connectionBinding = effectiveBindingForScope(
     bindings,
     oauth2.connectionSlot,

@@ -394,6 +394,7 @@ export default function AddMcpSource(props: {
           connectionId,
           strategy: { kind: "dynamic-dcr" },
           pluginId: "mcp",
+          identityLabel: `${remoteIdentity.name.trim() || probe?.serverName || probe?.name || "MCP"} OAuth`,
         },
       });
       if (result.authorizationUrl === null) {
@@ -443,7 +444,7 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to start OAuth",
       });
     }
-  }, [state.url, scopeId, doStartOAuth, remoteIdentity.namespace, probe?.namespace]);
+  }, [state.url, scopeId, doStartOAuth, remoteIdentity, probe]);
 
   const handleCancelOAuth = useCallback(() => {
     oauthCleanup.current?.();

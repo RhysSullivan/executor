@@ -59,14 +59,26 @@ const allSlots = [
 describe("OpenAPI credential status", () => {
   it("treats personal bindings as satisfying the user's credential status for an org source", () => {
     expect(
-      missingCredentialLabels(source, bindings(userScope, allSlots), userScope, scopeRanks),
+      missingCredentialLabels(source, bindings(userScope, allSlots), userScope, scopeRanks, {
+        liveConnectionIds: [ConnectionId.make("user-connection")],
+      }),
     ).toEqual([]);
   });
 
   it("falls back to shared org bindings when the user has no personal override", () => {
     expect(
-      missingCredentialLabels(source, bindings(orgScope, allSlots), userScope, scopeRanks),
+      missingCredentialLabels(source, bindings(orgScope, allSlots), userScope, scopeRanks, {
+        liveConnectionIds: [ConnectionId.make("org-connection")],
+      }),
     ).toEqual([]);
+  });
+
+  it("treats a stale connection binding as missing OAuth credentials", () => {
+    expect(
+      missingCredentialLabels(source, bindings(userScope, allSlots), userScope, scopeRanks, {
+        liveConnectionIds: [],
+      }),
+    ).toEqual(["OAuth client connection"]);
   });
 
   it("does not treat personal bindings as satisfying org-level credential status", () => {

@@ -1,5 +1,6 @@
 import { useAtomSet, Result } from "@effect-atom/atom-react";
 import { ConnectionId } from "@executor/sdk";
+import { toast } from "sonner";
 
 import { removeConnection } from "../api/atoms";
 import {
@@ -131,9 +132,9 @@ export function ConnectionsPage() {
         path: { scopeId, connectionId: ConnectionId.make(connectionId) },
         reactivityKeys: connectionWriteKeys,
       });
-    } catch {
+    } catch (e) {
       pending.undo();
-      // TODO: toast
+      toast.error(e instanceof Error ? e.message : "Failed to remove connection");
     }
   };
 

@@ -84,6 +84,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
           connectionId,
           strategy: { kind: "dynamic-dcr" },
           pluginId: "mcp",
+          identityLabel: `${source.name.trim() || source.namespace || "MCP"} OAuth`,
         },
       });
       if (response.authorizationUrl === null) {

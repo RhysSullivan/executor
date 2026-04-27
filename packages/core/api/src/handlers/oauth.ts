@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
-import { Cause, Effect } from "effect";
+import { Effect } from "effect";
 
 import { runOAuthCallback } from "../oauth-popup";
 import {
@@ -56,6 +56,7 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
             tokenScope,
             strategy: payload.strategy as OAuthStrategy,
             pluginId: payload.pluginId,
+            identityLabel: payload.identityLabel,
           });
         }),
       ),
@@ -94,10 +95,11 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
                 code: code ?? undefined,
                 error: error ?? undefined,
               }).pipe(
-                Effect.catchAllCause((cause) =>
-                  Effect.fail(
-                    new Error(toPopupErrorMessage(Cause.squash(cause))),
-                  ),
+                Effect.tapErrorCause((cause) =>
+                  Effect.logError("OAuth callback completion failed", cause),
+                ),
+                Effect.catchAllCause(() =>
+                  Effect.fail(new Error("Authentication failed")),
                 ),
               ),
             urlParams,

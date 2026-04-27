@@ -109,6 +109,7 @@ const OAuthClientInformationJson = Schema.Record({
 
 const DynamicDcrSessionPayload = Schema.Struct({
   kind: Schema.Literal("dynamic-dcr"),
+  identityLabel: Schema.NullOr(Schema.String),
   codeVerifier: Schema.String,
   authorizationServerUrl: Schema.String,
   authorizationServerMetadataUrl: Schema.String,
@@ -123,6 +124,7 @@ const DynamicDcrSessionPayload = Schema.Struct({
 
 const AuthorizationCodeSessionPayload = Schema.Struct({
   kind: Schema.Literal("authorization-code"),
+  identityLabel: Schema.NullOr(Schema.String),
   codeVerifier: Schema.String,
   authorizationEndpoint: Schema.String,
   tokenEndpoint: Schema.String,
@@ -285,6 +287,22 @@ export interface OAuthServiceDeps {
 const defaultSessionId = (): string =>
   `oauth2_session_${Math.random().toString(36).slice(2, 12)}_${Date.now().toString(36)}`;
 
+const secretIdPart = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "oauth";
+
+const oauthSecretId = (
+  connectionId: string,
+  suffix: "access-token" | "refresh-token" | "client-secret",
+): string => {
+  const base = secretIdPart(connectionId);
+  const readable = base.length <= 48 ? base : base.slice(0, 40);
+  return `oauth2-${readable}-${suffix}`;
+};
+
 // ---------------------------------------------------------------------------
 // Service factory
 // ---------------------------------------------------------------------------
@@ -444,6 +462,7 @@ export const makeOAuth2Service = (
 
       const payload: OAuthSessionPayload = {
         kind: "dynamic-dcr",
+        identityLabel: input.identityLabel ?? null,
         codeVerifier: started.codeVerifier,
         authorizationServerUrl: started.state.authorizationServerUrl,
         authorizationServerMetadataUrl:
@@ -516,6 +535,7 @@ export const makeOAuth2Service = (
 
       const payload: OAuthSessionPayload = {
         kind: "authorization-code",
+        identityLabel: input.identityLabel ?? null,
         codeVerifier,
         authorizationEndpoint: strategy.authorizationEndpoint,
         tokenEndpoint: strategy.tokenEndpoint,
@@ -593,9 +613,9 @@ export const makeOAuth2Service = (
             id: ConnectionId.make(input.connectionId),
             scope: ScopeId.make(input.tokenScope),
             provider: OAUTH2_PROVIDER_KEY,
-            identityLabel: safeHostname(input.endpoint),
+            identityLabel: input.identityLabel ?? safeHostname(input.endpoint),
             accessToken: new TokenMaterial({
-              secretId: SecretId.make(`${input.connectionId}.access_token`),
+              secretId: SecretId.make(oauthSecretId(input.connectionId, "access-token")),
               name: "OAuth Access Token",
               value: tokens.access_token,
             }),
@@ -744,7 +764,7 @@ export const makeOAuth2Service = (
         if (typeof clientSecret !== "string" || clientSecret.length === 0) {
           return Effect.succeed(null);
         }
-        const secretId = `${connectionId}.client_secret`;
+        const secretId = oauthSecretId(connectionId, "client-secret");
         return deps
           .secretsSet(
             new SetSecretInput({
@@ -803,16 +823,16 @@ export const makeOAuth2Service = (
             scope: ScopeId.make(tokenScope),
             provider: OAUTH2_PROVIDER_KEY,
             identityLabel: safeHostname(
-              exchangeResult.endpointForDisplay ?? endpoint,
+              payload.identityLabel ?? exchangeResult.endpointForDisplay ?? endpoint,
             ),
             accessToken: new TokenMaterial({
-              secretId: SecretId.make(`${connectionId}.access_token`),
+              secretId: SecretId.make(oauthSecretId(connectionId, "access-token")),
               name: "OAuth Access Token",
               value: exchangeResult.tokens.access_token,
             }),
             refreshToken: exchangeResult.tokens.refresh_token
               ? new TokenMaterial({
-                  secretId: SecretId.make(`${connectionId}.refresh_token`),
+                  secretId: SecretId.make(oauthSecretId(connectionId, "refresh-token")),
                   name: "OAuth Refresh Token",
                   value: exchangeResult.tokens.refresh_token,
                 })

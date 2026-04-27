@@ -560,9 +560,13 @@ const resolveOAuthConnectionId = (
       params.oauth2.connectionSlot,
     );
     if (binding?.value.kind === "connection") {
-      return binding.value.connectionId as string;
+      const connectionId = binding.value.connectionId as string;
+      const connection = yield* ctx.connections.get(connectionId);
+      return connection ? connectionId : null;
     }
-    return params.legacyOAuth2?.connectionId ?? null;
+    if (!params.legacyOAuth2?.connectionId) return null;
+    const legacyConnection = yield* ctx.connections.get(params.legacyOAuth2.connectionId);
+    return legacyConnection ? params.legacyOAuth2.connectionId : null;
   });
 
 // ---------------------------------------------------------------------------
@@ -893,6 +897,7 @@ export const openApiPlugin = definePlugin(
                     connectionId,
                     tokenScope,
                     pluginId: "openapi",
+                    identityLabel: `${input.displayName} OAuth`,
                     strategy: {
                       kind: "client-credentials",
                       tokenEndpoint: input.tokenUrl,
@@ -948,6 +953,7 @@ export const openApiPlugin = definePlugin(
                   connectionId,
                   tokenScope,
                   pluginId: "openapi",
+                  identityLabel: `${input.displayName} OAuth`,
                   strategy: {
                     kind: "authorization-code",
                     authorizationEndpoint: input.authorizationUrl,

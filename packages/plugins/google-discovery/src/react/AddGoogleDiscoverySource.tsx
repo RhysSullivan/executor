@@ -537,6 +537,7 @@ export default function AddGoogleDiscoverySource(props: {
           endpoint: discoveryUrl.trim(),
           redirectUrl,
           connectionId,
+          identityLabel: `${identity.name.trim() || probe.title || probe.name} OAuth`,
           strategy: {
             kind: "authorization-code",
             authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
@@ -597,6 +598,7 @@ export default function AddGoogleDiscoverySource(props: {
     doStartOAuth,
     scopeId,
     discoveryUrl,
+    identity.name,
     clientIdSecretId,
     clientSecretSecretId,
     resolvedNamespace,
