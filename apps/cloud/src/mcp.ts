@@ -432,6 +432,17 @@ const rpcResponseAttrs = (payload: JsonRpcErrorBody | null): Record<string, unkn
 
 const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
   Effect.gen(function* () {
+    if (response.status === 202) {
+      // MCP Streamable HTTP accepts notification-only POSTs with 202 and no body.
+      const headers = new Headers(response.headers);
+      headers.delete("content-type");
+      headers.delete("content-length");
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
     if (!response.body) return response;
     // The DO returns a streaming SSE Response (POST responses aren't
     // `enableJsonResponse`'d in prod), so `response.text()` blocks on the

@@ -23,7 +23,12 @@
 // MCP session coverage lives in `mcp-miniflare.e2e.node.test.ts`.
 // ---------------------------------------------------------------------------
 
-import { env, SELF } from "cloudflare:test";
+import {
+  env,
+  runDurableObjectAlarm,
+  runInDurableObject,
+  SELF,
+} from "cloudflare:test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { makeTestBearer } from "./test-bearer";
@@ -38,6 +43,10 @@ const OAUTH_RESOURCE_URL = `${BASE}/.well-known/oauth-protected-resource`;
 
 const JSON_AND_SSE = "application/json, text/event-stream";
 const CONTENT_TYPE_JSON = "application/json";
+const HEARTBEAT_MS = 30 * 1000;
+const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
+const SESSION_META_KEY = "session-meta";
+const LAST_ACTIVITY_KEY = "last-activity-ms";
 
 const INITIALIZE_REQUEST = {
   jsonrpc: "2.0" as const,
@@ -55,6 +64,11 @@ const TOOLS_LIST_REQUEST = {
   id: 2,
   method: "tools/list",
   params: {},
+};
+
+const INITIALIZED_NOTIFICATION = {
+  jsonrpc: "2.0" as const,
+  method: "notifications/initialized",
 };
 
 const nextOrgId = (() => {
@@ -90,6 +104,15 @@ const mcpPost = (init: McpPostInit): Promise<Response> => {
     headers,
     body: JSON.stringify(init.body),
   });
+};
+
+const seedOrg = async (id: string, name = "MCP Flow Org"): Promise<void> => {
+  const response = await SELF.fetch(`${BASE}/__test__/seed-org`, {
+    method: "POST",
+    headers: { "content-type": CONTENT_TYPE_JSON },
+    body: JSON.stringify({ id, name }),
+  });
+  expect(response.status).toBe(204);
 };
 
 // ---------------------------------------------------------------------------
@@ -221,5 +244,94 @@ describe("/mcp unknown session id", () => {
     expect(body.jsonrpc).toBe("2.0");
     expect(body.error.code).toBe(-32001);
     expect(body.error.message).toMatch(/timed out/i);
+  });
+});
+
+describe("/mcp notification responses", () => {
+  it("returns 202 with an empty body for notifications/initialized", async () => {
+    const orgId = nextOrgId();
+    await seedOrg(orgId);
+
+    const initializeResponse = await mcpPost({
+      bearer: makeTestBearer(nextAccountId(), orgId),
+      body: INITIALIZE_REQUEST,
+    });
+    expect(initializeResponse.status).toBe(200);
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    const notificationResponse = await mcpPost({
+      bearer: makeTestBearer(nextAccountId(), orgId),
+      sessionId,
+      body: INITIALIZED_NOTIFICATION,
+    });
+
+    expect(notificationResponse.status).toBe(202);
+    expect(notificationResponse.headers.get("content-type")).toBeNull();
+    expect(await notificationResponse.text()).toBe("");
+  });
+});
+
+describe("McpSessionDO alarm lifecycle", () => {
+  it("keeps a recently active session after a cold-started alarm", async () => {
+    const stub = env.MCP_SESSION.get(env.MCP_SESSION.newUniqueId());
+    const sessionMeta = {
+      organizationId: "org_alarm_recent",
+      organizationName: "Alarm Recent",
+      userId: "user_alarm_recent",
+    };
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      const now = Date.now();
+      await state.storage.put(SESSION_META_KEY, sessionMeta);
+      await state.storage.put(LAST_ACTIVITY_KEY, now);
+      await state.storage.setAlarm(now - 1);
+    });
+    await runInDurableObject(stub, (instance) => {
+      (instance as unknown as { lastActivityMs: number }).lastActivityMs = 0;
+    });
+
+    await expect(runDurableObjectAlarm(stub)).resolves.toBe(true);
+
+    const stored = await runInDurableObject(stub, async (_instance, state) => ({
+      sessionMeta: await state.storage.get(SESSION_META_KEY),
+      lastActivity: await state.storage.get<number>(LAST_ACTIVITY_KEY),
+      alarm: await state.storage.getAlarm(),
+    }));
+
+    expect(stored.sessionMeta).toEqual(sessionMeta);
+    expect(stored.lastActivity).toBeGreaterThan(Date.now() - SESSION_TIMEOUT_MS);
+    expect(stored.alarm).toBeGreaterThan(Date.now());
+    expect(stored.alarm).toBeLessThanOrEqual(Date.now() + HEARTBEAT_MS + 1_000);
+  });
+
+  it("clears an expired session after a cold-started alarm", async () => {
+    const stub = env.MCP_SESSION.get(env.MCP_SESSION.newUniqueId());
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      const now = Date.now();
+      await state.storage.put(SESSION_META_KEY, {
+        organizationId: "org_alarm_expired",
+        organizationName: "Alarm Expired",
+        userId: "user_alarm_expired",
+      });
+      await state.storage.put(LAST_ACTIVITY_KEY, now - SESSION_TIMEOUT_MS - 1_000);
+      await state.storage.setAlarm(now - 1);
+    });
+    await runInDurableObject(stub, (instance) => {
+      (instance as unknown as { lastActivityMs: number }).lastActivityMs = 0;
+    });
+
+    await runDurableObjectAlarm(stub);
+
+    const stored = await runInDurableObject(stub, async (_instance, state) => ({
+      sessionMeta: await state.storage.get(SESSION_META_KEY),
+      lastActivity: await state.storage.get(LAST_ACTIVITY_KEY),
+      alarm: await state.storage.getAlarm(),
+    }));
+
+    expect(stored.sessionMeta).toBeUndefined();
+    expect(stored.lastActivity).toBeUndefined();
+    expect(stored.alarm).toBeNull();
   });
 });

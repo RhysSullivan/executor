@@ -50,6 +50,7 @@ const LONG_LIVED_DB_IDLE_TIMEOUT_SECONDS = 5;
 const LONG_LIVED_DB_MAX_LIFETIME_SECONDS = 120;
 const TRANSPORT_STATE_KEY = "transport";
 const SESSION_META_KEY = "session-meta";
+const LAST_ACTIVITY_KEY = "last-activity-ms";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -131,6 +132,8 @@ const makeDbHandle = (options: {
     idle_timeout: options.idleTimeout,
     max_lifetime: options.maxLifetime,
     connect_timeout: 10,
+    fetch_types: false,
+    prepare: true,
     onnotice: () => undefined,
   });
   return {
@@ -224,6 +227,21 @@ export class McpSessionDO extends DurableObject {
     await this.ctx.storage.put(SESSION_META_KEY, sessionMeta);
   }
 
+  private async markActivity(now = Date.now()): Promise<void> {
+    this.lastActivityMs = now;
+    await Promise.all([
+      this.ctx.storage.put(LAST_ACTIVITY_KEY, now),
+      this.ctx.storage.setAlarm(now + HEARTBEAT_MS),
+    ]);
+  }
+
+  private async loadLastActivity(): Promise<number> {
+    if (this.lastActivityMs > 0) return this.lastActivityMs;
+    const stored = await this.ctx.storage.get<number>(LAST_ACTIVITY_KEY);
+    this.lastActivityMs = stored ?? 0;
+    return this.lastActivityMs;
+  }
+
   private entryAttrs(methodEnteredAt: number): Record<string, unknown> {
     const now = Date.now();
     return {
@@ -244,6 +262,8 @@ export class McpSessionDO extends DurableObject {
       await Promise.all([
         this.ctx.storage.delete(TRANSPORT_STATE_KEY).catch(() => false),
         this.ctx.storage.delete(SESSION_META_KEY).catch(() => false),
+        this.ctx.storage.delete(LAST_ACTIVITY_KEY).catch(() => false),
+        this.ctx.storage.deleteAlarm().catch(() => undefined),
       ]);
     }).pipe(Effect.withSpan("mcp.session.clear_state"));
   }
@@ -329,9 +349,8 @@ export class McpSessionDO extends DurableObject {
       self.mcpServer = runtime.mcpServer;
       self.transport = runtime.transport;
       self.initialized = true;
-      self.lastActivityMs = Date.now();
-      yield* Effect.promise(() => self.ctx.storage.setAlarm(Date.now() + HEARTBEAT_MS)).pipe(
-        Effect.withSpan("McpSessionDO.setAlarm"),
+      yield* Effect.promise(() => self.markActivity()).pipe(
+        Effect.withSpan("McpSessionDO.markActivity"),
       );
       yield* Effect.annotateCurrentSpan({
         "mcp.session.restore.outcome": "restored",
@@ -413,10 +432,8 @@ export class McpSessionDO extends DurableObject {
       self.transport = runtime.transport;
 
       self.initialized = true;
-      self.lastActivityMs = Date.now();
-
-      yield* Effect.promise(() => self.ctx.storage.setAlarm(Date.now() + HEARTBEAT_MS)).pipe(
-        Effect.withSpan("McpSessionDO.setAlarm"),
+      yield* Effect.promise(() => self.markActivity()).pipe(
+        Effect.withSpan("McpSessionDO.markActivity"),
       );
     }).pipe(
       Effect.tapErrorCause((cause) =>
@@ -499,10 +516,12 @@ export class McpSessionDO extends DurableObject {
       });
     }
 
-    this.lastActivityMs = Date.now();
     const transport = this.transport;
     const self = this;
     return Effect.gen(function* () {
+      yield* Effect.promise(() => self.markActivity()).pipe(
+        Effect.withSpan("McpSessionDO.markActivity"),
+      );
       const response = yield* Effect.promise(() => transport.handleRequest(request)).pipe(
         Effect.withSpan("McpSessionDO.transport.handleRequest", {
           attributes: {
@@ -543,7 +562,8 @@ export class McpSessionDO extends DurableObject {
   }
 
   private async runAlarm(): Promise<void> {
-    const idleMs = Date.now() - this.lastActivityMs;
+    const lastActivityMs = await this.loadLastActivity();
+    const idleMs = Date.now() - lastActivityMs;
     if (idleMs >= SESSION_TIMEOUT_MS) {
       await this.cleanup();
       return;
