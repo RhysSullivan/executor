@@ -128,6 +128,8 @@ export {
   type Elicit,
   definePlugin,
   defineSchema,
+  providerStateCodec,
+  resolveOAuthClientSecrets,
 } from "./plugin";
 
 // Executor

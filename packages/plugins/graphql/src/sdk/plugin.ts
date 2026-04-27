@@ -24,7 +24,7 @@ import {
   type IntrospectionField,
   type IntrospectionTypeRef,
 } from "./introspect";
-import { extract } from "./extract";
+import { extract, formatTypeRef, unwrapTypeName } from "./extract";
 import { GraphqlExtractionError, GraphqlIntrospectionError } from "./errors";
 import { invokeWithLayer, resolveHeaders } from "./invoke";
 import {
@@ -140,23 +140,6 @@ const namespaceFromEndpoint = (endpoint: string): string => {
   } catch {
     return "graphql";
   }
-};
-
-const formatTypeRef = (ref: IntrospectionTypeRef): string => {
-  switch (ref.kind) {
-    case "NON_NULL":
-      return ref.ofType ? `${formatTypeRef(ref.ofType)}!` : "Unknown!";
-    case "LIST":
-      return ref.ofType ? `[${formatTypeRef(ref.ofType)}]` : "[Unknown]";
-    default:
-      return ref.name ?? "Unknown";
-  }
-};
-
-const unwrapTypeName = (ref: IntrospectionTypeRef): string => {
-  if (ref.name) return ref.name;
-  if (ref.ofType) return unwrapTypeName(ref.ofType);
-  return "Unknown";
 };
 
 const buildSelectionSet = (

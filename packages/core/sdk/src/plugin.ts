@@ -1,4 +1,4 @@
-import type { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type {
   DBAdapter,
   DBSchema,
@@ -7,10 +7,10 @@ import type {
 } from "@executor/storage-core";
 
 import type { PluginBlobStore } from "./blob";
+import { ConnectionRefreshError } from "./connections";
 import type {
   ConnectionProvider,
   ConnectionRef,
-  ConnectionRefreshError,
   CreateConnectionInput,
   UpdateConnectionTokensInput,
 } from "./connections";
@@ -34,6 +34,7 @@ import type {
   ConnectionRefreshNotSupportedError,
   SecretOwnedByConnectionError,
 } from "./errors";
+import type { ConnectionId } from "./ids";
 import type { Scope } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
@@ -79,6 +80,53 @@ export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
 // ---------------------------------------------------------------------------
 
 export const defineSchema = <const S extends DBSchema>(schema: S): S => schema;
+
+export const providerStateCodec = <A, I>(schema: Schema.Schema<A, I, never>) => {
+  const encode = Schema.encodeSync(schema);
+  return {
+    decode: Schema.decodeUnknownSync(schema),
+    toRecord: (state: A): Record<string, unknown> =>
+      encode(state) as unknown as Record<string, unknown>,
+  } as const;
+};
+
+export const resolveOAuthClientSecrets = (input: {
+  readonly ctx: Pick<PluginCtx, "secrets">;
+  readonly connectionId: ConnectionId;
+  readonly clientIdSecretId: string;
+  readonly clientSecretSecretId: string | null;
+}) =>
+  Effect.gen(function* () {
+    const clientId = yield* input.ctx.secrets.get(input.clientIdSecretId).pipe(
+      Effect.mapError(
+        (err) =>
+          new ConnectionRefreshError({
+            connectionId: input.connectionId,
+            message: `Failed to resolve client id secret: ${err.message}`,
+            cause: err,
+          }),
+      ),
+    );
+    if (clientId === null) {
+      return yield* new ConnectionRefreshError({
+        connectionId: input.connectionId,
+        message: `Missing client id secret: ${input.clientIdSecretId}`,
+      });
+    }
+    const clientSecret = input.clientSecretSecretId
+      ? yield* input.ctx.secrets.get(input.clientSecretSecretId).pipe(
+          Effect.mapError(
+            (err) =>
+              new ConnectionRefreshError({
+                connectionId: input.connectionId,
+                message: `Failed to resolve client secret: ${err.message}`,
+                cause: err,
+              }),
+          ),
+        )
+      : null;
+    return { clientId, clientSecret } as const;
+  });
 
 // ---------------------------------------------------------------------------
 // Elicit — suspends the fiber, calls the invoke-time elicitation

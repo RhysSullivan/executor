@@ -20,7 +20,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Unwrap NON_NULL / LIST wrappers to get the leaf type name */
-const unwrapTypeName = (ref: IntrospectionTypeRef): string => {
+export const unwrapTypeName = (ref: IntrospectionTypeRef): string => {
   if (ref.name) return ref.name;
   if (ref.ofType) return unwrapTypeName(ref.ofType);
   return "Unknown";
@@ -164,7 +164,7 @@ const buildInputSchema = (
 };
 
 /** Format a type ref back to GraphQL type notation (e.g. "[String!]!") */
-const formatTypeRef = (ref: IntrospectionTypeRef): string => {
+export const formatTypeRef = (ref: IntrospectionTypeRef): string => {
   switch (ref.kind) {
     case "NON_NULL":
       return ref.ofType ? `${formatTypeRef(ref.ofType)}!` : "Unknown!";

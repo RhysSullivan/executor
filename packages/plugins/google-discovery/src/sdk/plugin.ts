@@ -17,6 +17,8 @@ import {
   SourceDetectionResult,
   TokenMaterial,
   definePlugin,
+  providerStateCodec,
+  resolveOAuthClientSecrets,
   type ConnectionProvider,
   type ConnectionRefreshInput,
   type ConnectionRefreshResult,
@@ -258,13 +260,8 @@ const OAuth2ProviderState = Schema.Struct({
 });
 type OAuth2ProviderState = typeof OAuth2ProviderState.Type;
 
-const encodeProviderState = Schema.encodeSync(OAuth2ProviderState);
-const decodeProviderState = Schema.decodeUnknownSync(OAuth2ProviderState);
-
-const toProviderStateRecord = (
-  state: OAuth2ProviderState,
-): Record<string, unknown> =>
-  encodeProviderState(state) as unknown as Record<string, unknown>;
+const { decode: decodeProviderState, toRecord: toProviderStateRecord } =
+  providerStateCodec(OAuth2ProviderState);
 
 // ---------------------------------------------------------------------------
 // Register a parsed manifest against the executor core + plugin storage.
@@ -714,35 +711,12 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
             });
           }
 
-          const clientId = yield* ctx.secrets.get(state.clientIdSecretId).pipe(
-            Effect.mapError(
-              (err) =>
-                new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message: `Failed to resolve client id secret: ${err.message}`,
-                  cause: err,
-                }),
-            ),
-          );
-          if (clientId === null) {
-            return yield* new ConnectionRefreshError({
-              connectionId: input.connectionId,
-              message: `Missing client id secret: ${state.clientIdSecretId}`,
-            });
-          }
-
-          const clientSecret = state.clientSecretSecretId
-            ? yield* ctx.secrets.get(state.clientSecretSecretId).pipe(
-                Effect.mapError(
-                  (err) =>
-                    new ConnectionRefreshError({
-                      connectionId: input.connectionId,
-                      message: `Failed to resolve client secret: ${err.message}`,
-                      cause: err,
-                    }),
-                ),
-              )
-            : null;
+          const { clientId, clientSecret } = yield* resolveOAuthClientSecrets({
+            ctx,
+            connectionId: input.connectionId,
+            clientIdSecretId: state.clientIdSecretId,
+            clientSecretSecretId: state.clientSecretSecretId,
+          });
 
           const tokenResponse: OAuth2TokenResponse = yield* refreshAccessToken({
             tokenUrl: GOOGLE_TOKEN_URL,

@@ -20,6 +20,7 @@ import {
   SourceDetectionResult,
   TokenMaterial,
   definePlugin,
+  providerStateCodec,
   type ConnectionProvider,
   type ConnectionRefreshInput,
   type ConnectionRefreshResult,
@@ -316,13 +317,8 @@ const OAuth2ProviderState = Schema.Struct({
 });
 type OAuth2ProviderState = typeof OAuth2ProviderState.Type;
 
-const encodeProviderState = Schema.encodeSync(OAuth2ProviderState);
-const decodeProviderState = Schema.decodeUnknownSync(OAuth2ProviderState);
-
-const toProviderStateRecord = (
-  state: OAuth2ProviderState,
-): Record<string, unknown> =>
-  encodeProviderState(state) as unknown as Record<string, unknown>;
+const { decode: decodeProviderState, toRecord: toProviderStateRecord } =
+  providerStateCodec(OAuth2ProviderState);
 
 const remoteConnectionError = (message: string) =>
   new McpConnectionError({ transport: "remote", message });
