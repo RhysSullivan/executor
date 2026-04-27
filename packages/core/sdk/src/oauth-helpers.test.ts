@@ -355,6 +355,30 @@ describe("refreshAccessToken", () => {
     const body = calls[0]!.init.body as URLSearchParams;
     expect(body.has("scope")).toBe(false);
   });
+
+  it("validates refreshed ID tokens against an explicit issuer", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt({
+          iss: "https://accounts.google.com",
+          aud: "cid",
+          sub: "user-1",
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          iat: Math.floor(Date.now() / 1000),
+        }),
+      }),
+    );
+    const result = await Effect.runPromise(
+      refreshAccessToken({
+        tokenUrl: "https://oauth2.googleapis.com/token",
+        issuerUrl: "https://accounts.google.com",
+        clientId: "cid",
+        refreshToken: "old",
+      }),
+    );
+    expect(result.access_token).toBe("tok2");
+  });
 });
 
 // ---------------------------------------------------------------------------

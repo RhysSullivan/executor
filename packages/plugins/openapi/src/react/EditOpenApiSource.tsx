@@ -6,6 +6,7 @@ import {
   type OAuthPopupResult,
 } from "@executor/react/api/oauth-popup";
 import {
+  cancelOAuth,
   connectionsAtom,
   sourceAtom,
 } from "@executor/react/api/atoms";
@@ -44,6 +45,7 @@ import {
   OPENAPI_OAUTH_CALLBACK_PATH,
   OPENAPI_OAUTH_CHANNEL,
   OPENAPI_OAUTH_POPUP_NAME,
+  inferOAuthIssuerUrl,
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
 import { oauth2ClientSecretSlot } from "../sdk/store";
@@ -172,6 +174,7 @@ export default function EditOpenApiSource(props: {
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
 
   const source =
     Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
@@ -471,6 +474,7 @@ export default function EditOpenApiSource(props: {
         oauth2.authorizationUrl ?? "",
         source.config.baseUrl ?? "",
       );
+      const issuerUrl = oauth2.issuerUrl ?? inferOAuthIssuerUrl(authorizationUrl);
       const redirectUrl =
         typeof window !== "undefined"
           ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
@@ -485,6 +489,7 @@ export default function EditOpenApiSource(props: {
           securitySchemeName: oauth2.securitySchemeName,
           flow: "authorizationCode",
           authorizationUrl,
+          issuerUrl,
           tokenUrl,
           redirectUrl,
           clientIdSecretId: clientIdBinding.value.secretId,
@@ -533,10 +538,18 @@ export default function EditOpenApiSource(props: {
           }
         },
         onClosed: () => {
+          void doCancelOAuth({
+            path: { scopeId: targetScope },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setPendingOAuthConnection(null);
           setBusyKey(null);
         },
         onOpenFailed: () => {
+          void doCancelOAuth({
+            path: { scopeId: targetScope },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setError("OAuth popup was blocked by the browser");
           setPendingOAuthConnection(null);
           setBusyKey(null);

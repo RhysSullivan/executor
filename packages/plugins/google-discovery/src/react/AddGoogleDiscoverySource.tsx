@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
 import {
+  cancelOAuth,
   secretsAtom,
   setSecret,
   startOAuth,
@@ -445,6 +446,7 @@ export default function AddGoogleDiscoverySource(props: {
   const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
   const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
   const secrets = useAtomValue(secretsAtom(scopeId));
   const { beginAdd } = usePendingSources();
 
@@ -520,6 +522,7 @@ export default function AddGoogleDiscoverySource(props: {
   }, [discoveryUrl, probe]);
 
   const oauthCleanup = useRef<(() => void) | null>(null);
+  const oauthSessionId = useRef<string | null>(null);
 
   const handleStartOAuth = useCallback(async () => {
     if (!probe || !clientIdSecretId) return;
@@ -542,6 +545,7 @@ export default function AddGoogleDiscoverySource(props: {
             kind: "authorization-code",
             authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
             tokenEndpoint: GOOGLE_TOKEN_URL,
+            issuerUrl: "https://accounts.google.com",
             clientIdSecretId,
             clientSecretSecretId,
             scopes,
@@ -557,6 +561,7 @@ export default function AddGoogleDiscoverySource(props: {
         return;
       }
 
+      oauthSessionId.current = response.sessionId;
       oauthCleanup.current = openOAuthPopup<CompletionPayload>({
         url: response.authorizationUrl,
         popupName: OAUTH_POPUP_NAME,
@@ -564,6 +569,7 @@ export default function AddGoogleDiscoverySource(props: {
         expectedSessionId: response.sessionId,
         onResult: (result: OAuthPopupResult<CompletionPayload>) => {
           oauthCleanup.current = null;
+          oauthSessionId.current = null;
           setStartingOAuth(false);
           if (result.ok) {
             setOauthAuth({
@@ -580,11 +586,21 @@ export default function AddGoogleDiscoverySource(props: {
         },
         onOpenFailed: () => {
           oauthCleanup.current = null;
+          oauthSessionId.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setStartingOAuth(false);
           setError("OAuth popup was blocked");
         },
         onClosed: () => {
           oauthCleanup.current = null;
+          oauthSessionId.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setStartingOAuth(false);
           setError("OAuth cancelled: popup was closed before completing the flow.");
         },
@@ -596,6 +612,7 @@ export default function AddGoogleDiscoverySource(props: {
   }, [
     probe,
     doStartOAuth,
+    doCancelOAuth,
     scopeId,
     discoveryUrl,
     identity.name,
@@ -605,10 +622,17 @@ export default function AddGoogleDiscoverySource(props: {
   ]);
 
   const handleCancelOAuth = useCallback(() => {
+    const sessionId = oauthSessionId.current;
+    if (sessionId) {
+      void doCancelOAuth({ path: { scopeId }, payload: { sessionId } }).catch(
+        () => undefined,
+      );
+    }
     oauthCleanup.current?.();
     oauthCleanup.current = null;
+    oauthSessionId.current = null;
     setStartingOAuth(false);
-  }, []);
+  }, [doCancelOAuth, scopeId]);
 
   const handleAdd = useCallback(async () => {
     if (!probe) return;

@@ -150,6 +150,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           securitySchemeName: payload.securitySchemeName,
           authorizationUrl: payload.authorizationUrl,
           tokenUrl: payload.tokenUrl,
+          issuerUrl: payload.issuerUrl ?? null,
           redirectUrl: payload.redirectUrl,
           clientIdSecretId: payload.clientIdSecretId,
           clientSecretSecretId: payload.clientSecretSecretId ?? null,

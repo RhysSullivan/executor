@@ -144,6 +144,7 @@ export interface StartAuthorizationCodeOAuthInput extends StartOAuthIdentity {
   readonly flow: "authorizationCode";
   readonly authorizationUrl: string;
   readonly tokenUrl: string;
+  readonly issuerUrl?: string | null;
   readonly redirectUrl: string;
   readonly clientSecretSecretId?: string | null;
 }
@@ -958,6 +959,7 @@ export const openApiPlugin = definePlugin(
                     kind: "authorization-code",
                     authorizationEndpoint: input.authorizationUrl,
                     tokenEndpoint: input.tokenUrl,
+                    issuerUrl: input.issuerUrl ?? null,
                     clientIdSecretId: input.clientIdSecretId,
                     clientSecretSecretId: input.clientSecretSecretId ?? null,
                     scopes: scopesArray,

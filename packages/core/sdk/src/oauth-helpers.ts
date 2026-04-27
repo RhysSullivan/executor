@@ -153,6 +153,14 @@ const asFromTokenUrl = (tokenUrl: string): oauth.AuthorizationServer => {
   };
 };
 
+const asFromTokenUrlAndIssuer = (
+  tokenUrl: string,
+  issuerUrl: string | null | undefined,
+): oauth.AuthorizationServer => {
+  const as = asFromTokenUrl(tokenUrl);
+  return issuerUrl ? { ...as, issuer: issuerUrl } : as;
+};
+
 const isLoopbackHttpUrl = (value: string): boolean => {
   try {
     const url = new URL(value);
@@ -226,9 +234,7 @@ export const exchangeAuthorizationCode = (
 ): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
   Effect.tryPromise({
     try: async () => {
-      const as = input.issuerUrl
-        ? { ...asFromTokenUrl(input.tokenUrl), issuer: input.issuerUrl }
-        : asFromTokenUrl(input.tokenUrl);
+      const as = asFromTokenUrlAndIssuer(input.tokenUrl, input.issuerUrl);
       const client: oauth.Client = { client_id: input.clientId };
       const clientAuth = pickClientAuth(
         input.clientSecret,
@@ -314,6 +320,7 @@ export const exchangeClientCredentials = (
 
 export type RefreshAccessTokenInput = {
   readonly tokenUrl: string;
+  readonly issuerUrl?: string | null;
   readonly clientId: string;
   readonly clientSecret?: string | null;
   readonly refreshToken: string;
@@ -328,7 +335,7 @@ export const refreshAccessToken = (
 ): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
   Effect.tryPromise({
     try: async () => {
-      const as = asFromTokenUrl(input.tokenUrl);
+      const as = asFromTokenUrlAndIssuer(input.tokenUrl, input.issuerUrl);
       const client: oauth.Client = { client_id: input.clientId };
       const clientAuth = pickClientAuth(
         input.clientSecret,

@@ -8,6 +8,7 @@ import {
   ScopeId,
   SecretId,
 } from "@executor/sdk";
+import { cancelOAuth } from "@executor/react/api/atoms";
 
 import {
   openOAuthPopup,
@@ -133,6 +134,14 @@ export function resolveOAuthUrl(url: string, baseUrl: string): string {
   }
 }
 
+export function inferOAuthIssuerUrl(authorizationUrl: string): string | null {
+  try {
+    return new URL(authorizationUrl).origin;
+  } catch {
+    return null;
+  }
+}
+
 type StrategySelection =
   | { readonly kind: "none" }
   | { readonly kind: "custom" }
@@ -234,6 +243,7 @@ export default function AddOpenApiSource(props: {
   const [startingOAuth, setStartingOAuth] = useState(false);
   const [oauth2Error, setOauth2Error] = useState<string | null>(null);
   const oauthCleanup = useRef<(() => void) | null>(null);
+  const oauthSessionId = useRef<string | null>(null);
 
   // Submit
   const [adding, setAdding] = useState(false);
@@ -244,6 +254,7 @@ export default function AddOpenApiSource(props: {
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
   const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
@@ -517,6 +528,7 @@ export default function AddOpenApiSource(props: {
         Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
         resolvedBaseUrl,
       );
+      const issuerUrl = inferOAuthIssuerUrl(authorizationUrl);
 
       const response = await doStartOAuth({
         path: { scopeId },
@@ -530,6 +542,7 @@ export default function AddOpenApiSource(props: {
           securitySchemeName: selectedOAuth2Preset.securitySchemeName,
           flow: "authorizationCode",
           authorizationUrl,
+          issuerUrl,
           tokenUrl,
           redirectUrl: oauth2RedirectUrl,
           clientIdSecretId: oauth2ClientIdSecretId,
@@ -544,6 +557,7 @@ export default function AddOpenApiSource(props: {
         return;
       }
 
+      oauthSessionId.current = response.sessionId;
       oauthCleanup.current = openOAuthPopup<{ connectionId: string }>({
         url: response.authorizationUrl,
         popupName: OPENAPI_OAUTH_POPUP_NAME,
@@ -551,6 +565,7 @@ export default function AddOpenApiSource(props: {
         expectedSessionId: response.sessionId,
         onResult: (result: OAuthPopupResult<{ connectionId: string }>) => {
           oauthCleanup.current = null;
+          oauthSessionId.current = null;
           setStartingOAuth(false);
           if (result.ok) {
             setOauth2AuthState({
@@ -562,6 +577,7 @@ export default function AddOpenApiSource(props: {
                 flow: "authorizationCode",
                 tokenUrl,
                 authorizationUrl,
+                issuerUrl,
                 clientIdSecretId: oauth2ClientIdSecretId,
                 clientSecretSecretId: oauth2ClientSecretSecretId,
                 scopes: [...oauth2SelectedScopes],
@@ -575,11 +591,21 @@ export default function AddOpenApiSource(props: {
         onClosed: () => {
           // User closed the popup without completing the flow.
           oauthCleanup.current = null;
+          oauthSessionId.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setStartingOAuth(false);
           setOauth2Error("OAuth cancelled — popup was closed before completing the flow.");
         },
         onOpenFailed: () => {
           oauthCleanup.current = null;
+          oauthSessionId.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setStartingOAuth(false);
           setOauth2Error("OAuth popup was blocked by the browser");
         },
@@ -597,6 +623,7 @@ export default function AddOpenApiSource(props: {
     resolvedBaseUrl,
     preview,
     doStartOAuth,
+    doCancelOAuth,
     scopeId,
     identity.name,
     resolvedSourceId,
@@ -604,11 +631,18 @@ export default function AddOpenApiSource(props: {
   ]);
 
   const handleCancelOAuth2 = useCallback(() => {
+    const sessionId = oauthSessionId.current;
+    if (sessionId) {
+      void doCancelOAuth({ path: { scopeId }, payload: { sessionId } }).catch(
+        () => undefined,
+      );
+    }
     oauthCleanup.current?.();
     oauthCleanup.current = null;
+    oauthSessionId.current = null;
     setStartingOAuth(false);
     setOauth2Error(null);
-  }, []);
+  }, [doCancelOAuth, scopeId]);
 
   useEffect(() => () => oauthCleanup.current?.(), []);
 

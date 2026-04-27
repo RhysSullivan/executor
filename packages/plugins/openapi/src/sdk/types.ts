@@ -243,6 +243,10 @@ export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
   /** Absolute authorization endpoint URL. Only used for authorizationCode
    *  flows; clientCredentials has no user consent step. */
   authorizationUrl: Schema.NullOr(Schema.String),
+  /** Expected issuer for ID token validation. Defaults to authorization origin. */
+  issuerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
+    default: () => null,
+  }),
   /** Secret id holding the OAuth client_id. */
   clientIdSecretId: Schema.String,
   /** Secret id holding the OAuth client_secret. Optional for public
@@ -262,6 +266,9 @@ export class OAuth2SourceConfig extends Schema.Class<OAuth2SourceConfig>(
   flow: OAuth2Flow,
   tokenUrl: Schema.String,
   authorizationUrl: Schema.NullOr(Schema.String),
+  issuerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
+    default: () => null,
+  }),
   clientIdSlot: Schema.String,
   clientSecretSlot: Schema.NullOr(Schema.String),
   connectionSlot: Schema.String,

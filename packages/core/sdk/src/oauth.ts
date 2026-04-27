@@ -54,6 +54,10 @@ export const OAuthAuthorizationCodeStrategy = Schema.Struct({
   kind: Schema.Literal("authorization-code"),
   authorizationEndpoint: Schema.String,
   tokenEndpoint: Schema.String,
+  /** Expected authorization-server issuer for ID token validation. Some
+   *  providers use a token endpoint host that differs from issuer, or a
+   *  path-scoped issuer such as Okta custom authorization servers. */
+  issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
   /** Secret id holding the `client_id`. Using a secret row rather than
    *  an inline string so the value lives at the scope where the caller
    *  configured it and shadowing behaves consistently. */
@@ -116,6 +120,7 @@ export const OAuthProviderState = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("dynamic-dcr"),
     tokenEndpoint: Schema.String,
+    issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     authorizationServerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     authorizationServerMetadataUrl: Schema.NullOr(Schema.String),
     /** DCR-minted client_id. Embedded inline (not a secret) — DCR
@@ -129,6 +134,7 @@ export const OAuthProviderState = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("authorization-code"),
     tokenEndpoint: Schema.String,
+    issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     clientIdSecretId: Schema.String,
     clientSecretSecretId: Schema.NullOr(Schema.String),
     clientAuth: Schema.Literal("body", "basic"),
@@ -309,6 +315,7 @@ export interface OAuthService {
    *  user cancels the popup or the source is deleted mid-onboarding. */
   readonly cancel: (
     sessionId: string,
+    tokenScope?: string,
   ) => Effect.Effect<void, StorageFailure>;
 }
 

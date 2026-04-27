@@ -3,7 +3,7 @@ import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { connectionsAtom, startOAuth } from "@executor/react/api/atoms";
+import { cancelOAuth, connectionsAtom, startOAuth } from "@executor/react/api/atoms";
 import {
   openOAuthPopup,
   type OAuthPopupResult,
@@ -42,6 +42,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
   const sourceResult = useAtomValue(mcpSourceAtom(scopeId, props.sourceId));
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
   const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
 
   const [busy, setBusy] = useState(false);
@@ -123,11 +124,19 @@ export default function McpSignInButton(props: { sourceId: string }) {
         },
         onClosed: () => {
           cleanupRef.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setBusy(false);
           setError("Sign-in cancelled — popup was closed before completing the flow.");
         },
         onOpenFailed: () => {
           cleanupRef.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setBusy(false);
           setError("Sign-in popup was blocked by the browser");
         },
@@ -136,7 +145,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
       setBusy(false);
       setError(e instanceof Error ? e.message : "Failed to start sign-in");
     }
-  }, [remote, oauth2, source, scopeId, props.sourceId, redirectUrl, doStartOAuth, doUpdate]);
+  }, [remote, oauth2, source, scopeId, props.sourceId, redirectUrl, doStartOAuth, doCancelOAuth, doUpdate]);
 
   if (!oauth2) return null;
 

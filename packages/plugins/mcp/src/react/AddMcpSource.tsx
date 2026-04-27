@@ -37,7 +37,7 @@ import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picke
 type RemoteAuthMode = "none" | "header" | "oauth2";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
-import { startOAuth } from "@executor/react/api/atoms";
+import { cancelOAuth, startOAuth } from "@executor/react/api/atoms";
 import {
   openOAuthPopup,
   type OAuthPopupResult,
@@ -290,6 +290,7 @@ export default function AddMcpSource(props: {
   const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
   const doAdd = useAtomSet(addMcpSource, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
@@ -427,6 +428,10 @@ export default function AddMcpSource(props: {
         },
         onClosed: () => {
           oauthCleanup.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: result.sessionId },
+          }).catch(() => undefined);
           dispatch({
             type: "oauth-fail",
             error:
@@ -435,6 +440,10 @@ export default function AddMcpSource(props: {
         },
         onOpenFailed: () => {
           oauthCleanup.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: result.sessionId },
+          }).catch(() => undefined);
           dispatch({ type: "oauth-fail", error: "OAuth popup was blocked" });
         },
       });
@@ -444,13 +453,19 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to start OAuth",
       });
     }
-  }, [state.url, scopeId, doStartOAuth, remoteIdentity, probe]);
+  }, [state.url, scopeId, doStartOAuth, doCancelOAuth, remoteIdentity, probe]);
 
   const handleCancelOAuth = useCallback(() => {
+    if (state.step === "oauth-waiting") {
+      void doCancelOAuth({
+        path: { scopeId },
+        payload: { sessionId: state.sessionId },
+      }).catch(() => undefined);
+    }
     oauthCleanup.current?.();
     oauthCleanup.current = null;
     dispatch({ type: "oauth-cancelled" });
-  }, []);
+  }, [doCancelOAuth, scopeId, state]);
 
   const handleAddRemote = useCallback(async () => {
     if (!probe) return;

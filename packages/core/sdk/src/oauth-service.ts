@@ -128,6 +128,9 @@ const AuthorizationCodeSessionPayload = Schema.Struct({
   codeVerifier: Schema.String,
   authorizationEndpoint: Schema.String,
   tokenEndpoint: Schema.String,
+  issuerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
+    default: () => null,
+  }),
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
   scopes: Schema.Array(Schema.String),
@@ -160,6 +163,15 @@ const stringArray = (value: unknown): readonly string[] =>
     ? value.filter((scope): scope is string => typeof scope === "string")
     : [];
 
+const originOrNull = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
 const decodeProviderState = (value: unknown): OAuthProviderState => {
   const raw = coerceJson(value);
   const record =
@@ -171,6 +183,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
       return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
         kind: "authorization-code",
         tokenEndpoint: record.tokenUrl,
+        issuerUrl: originOrNull(record.authorizationEndpoint),
         clientIdSecretId: record.clientIdSecretId,
         clientSecretSecretId: record.clientSecretSecretId ?? null,
         clientAuth: "body",
@@ -200,6 +213,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
     return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
       kind: "authorization-code",
       tokenEndpoint: "https://oauth2.googleapis.com/token",
+      issuerUrl: "https://accounts.google.com",
       clientIdSecretId: record.clientIdSecretId,
       clientSecretSecretId: record.clientSecretSecretId ?? null,
       clientAuth: "body",
@@ -229,6 +243,14 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
             ? ((record.authorizationServerMetadata as Record<string, unknown>)
                 .token_endpoint as string)
             : "",
+      issuerUrl:
+        record.authorizationServerMetadata &&
+        typeof record.authorizationServerMetadata === "object" &&
+        typeof (record.authorizationServerMetadata as Record<string, unknown>).issuer ===
+          "string"
+          ? ((record.authorizationServerMetadata as Record<string, unknown>)
+              .issuer as string)
+          : null,
       authorizationServerUrl:
         typeof record.authorizationServerUrl === "string"
           ? record.authorizationServerUrl
@@ -302,6 +324,15 @@ const oauthSecretId = (
   const readable = base.length <= 48 ? base : base.slice(0, 40);
   return `oauth2-${readable}-${suffix}`;
 };
+
+const scopedSessionId = (scopeId: string, sessionId: string): string =>
+  `${sessionId}_${secretIdPart(scopeId).slice(0, 24)}`;
+
+const terminalRefreshErrors = new Set([
+  "invalid_grant",
+  "invalid_client",
+  "unauthorized_client",
+]);
 
 // ---------------------------------------------------------------------------
 // Service factory
@@ -438,7 +469,7 @@ export const makeOAuth2Service = (
         ),
       );
 
-      const sessionId = newSessionId();
+      const sessionId = scopedSessionId(input.tokenScope, newSessionId());
 
       // beginDynamicAuthorization returns an authorizationUrl already
       // signed with whatever `state` we passed. We need the session id
@@ -516,7 +547,7 @@ export const makeOAuth2Service = (
         );
       }
 
-      const sessionId = newSessionId();
+      const sessionId = scopedSessionId(input.tokenScope, newSessionId());
       const codeVerifier = createPkceCodeVerifier();
       const codeChallenge = yield* Effect.promise(() =>
         createPkceCodeChallenge(codeVerifier),
@@ -539,6 +570,7 @@ export const makeOAuth2Service = (
         codeVerifier,
         authorizationEndpoint: strategy.authorizationEndpoint,
         tokenEndpoint: strategy.tokenEndpoint,
+        issuerUrl: strategy.issuerUrl ?? new URL(strategy.authorizationEndpoint).origin,
         clientIdSecretId: strategy.clientIdSecretId,
         clientSecretSecretId: strategy.clientSecretSecretId,
         scopes: [...strategy.scopes],
@@ -692,22 +724,6 @@ export const makeOAuth2Service = (
     OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure
   > =>
     Effect.gen(function* () {
-      if (input.error) {
-        return yield* Effect.fail(
-          new OAuthCompleteError({
-            message: `Authorization server returned error: ${input.error}`,
-            code: input.error,
-          }),
-        );
-      }
-      if (!input.code) {
-        return yield* Effect.fail(
-          new OAuthCompleteError({
-            message: "Missing authorization code",
-          }),
-        );
-      }
-
       const row = yield* deps.adapter.findOne({
         model: "oauth2_session",
         where: [{ field: "id", value: input.state }],
@@ -717,12 +733,35 @@ export const makeOAuth2Service = (
           new OAuthSessionNotFoundError({ sessionId: input.state }),
         );
       }
+
+      const deleteSession = deps.adapter.delete({
+        model: "oauth2_session",
+        where: [
+          { field: "id", value: input.state },
+          { field: "scope_id", value: row.scope_id as string },
+        ],
+      });
+
+      if (input.error) {
+        yield* deleteSession;
+        return yield* Effect.fail(
+          new OAuthCompleteError({
+            message: `Authorization server returned error: ${input.error}`,
+            code: input.error,
+          }),
+        );
+      }
+      if (!input.code) {
+        yield* deleteSession;
+        return yield* Effect.fail(
+          new OAuthCompleteError({
+            message: "Missing authorization code",
+          }),
+        );
+      }
       const expiresAt = Number(row.expires_at as number | bigint);
       if (expiresAt <= now()) {
-        yield* deps.adapter.delete({
-          model: "oauth2_session",
-          where: [{ field: "id", value: input.state }],
-        });
+        yield* deleteSession;
         return yield* Effect.fail(
           new OAuthCompleteError({
             message: "OAuth session expired",
@@ -750,7 +789,7 @@ export const makeOAuth2Service = (
               redirectUrl,
             );
         }
-      })();
+      })().pipe(Effect.tapError(() => deleteSession));
 
       const connectionExpiresAt =
         typeof exchangeResult.tokens.expires_in === "number"
@@ -794,6 +833,9 @@ export const makeOAuth2Service = (
               tokenEndpoint: (payload.authorizationServerMetadata as {
                 token_endpoint: string;
               }).token_endpoint,
+              issuerUrl:
+                (payload.authorizationServerMetadata as { issuer?: string }).issuer ??
+                null,
               authorizationServerUrl: payload.authorizationServerUrl,
               authorizationServerMetadataUrl:
                 payload.authorizationServerMetadataUrl,
@@ -810,6 +852,7 @@ export const makeOAuth2Service = (
           : {
               kind: "authorization-code",
               tokenEndpoint: payload.tokenEndpoint,
+              issuerUrl: payload.issuerUrl,
               clientIdSecretId: payload.clientIdSecretId,
               clientSecretSecretId: payload.clientSecretSecretId,
               clientAuth: payload.clientAuth,
@@ -856,10 +899,7 @@ export const makeOAuth2Service = (
           ),
         );
 
-      yield* deps.adapter.delete({
-        model: "oauth2_session",
-        where: [{ field: "id", value: input.state }],
-      });
+      yield* deleteSession;
 
       return {
         connectionId,
@@ -952,7 +992,7 @@ export const makeOAuth2Service = (
 
       const tokens = yield* exchangeAuthorizationCode({
         tokenUrl: payload.tokenEndpoint,
-        issuerUrl: new URL(payload.authorizationEndpoint).origin,
+        issuerUrl: payload.issuerUrl,
         clientId,
         clientSecret: clientSecret ?? undefined,
         redirectUrl,
@@ -976,9 +1016,19 @@ export const makeOAuth2Service = (
     });
 
   const cancel = (sessionId: string): Effect.Effect<void, StorageFailure> =>
-    deps.adapter.delete({
-      model: "oauth2_session",
-      where: [{ field: "id", value: sessionId }],
+    Effect.gen(function* () {
+      const row = yield* deps.adapter.findOne({
+        model: "oauth2_session",
+        where: [{ field: "id", value: sessionId }],
+      });
+      if (!row) return;
+      yield* deps.adapter.delete({
+        model: "oauth2_session",
+        where: [
+          { field: "id", value: sessionId },
+          { field: "scope_id", value: row.scope_id as string },
+        ],
+      });
     });
 
   // -------------------------------------------------------------------
@@ -1159,6 +1209,10 @@ export const makeOAuth2Service = (
             })
           : refreshAccessToken({
               tokenUrl: tokenEndpoint,
+              issuerUrl:
+                state.kind === "dynamic-dcr" || state.kind === "authorization-code"
+                  ? (state.issuerUrl ?? undefined)
+                  : undefined,
               clientId,
               clientSecret: clientSecret ?? undefined,
               refreshToken: input.refreshToken!,
@@ -1169,8 +1223,10 @@ export const makeOAuth2Service = (
               new ConnectionRefreshError({
                 connectionId: input.connectionId,
                 message: `OAuth refresh failed: ${err.message}`,
-                // RFC 6749 §5.2 invalid_grant ⇒ refresh token revoked.
-                reauthRequired: err.error === "invalid_grant",
+                // Terminal RFC 6749 §5.2 errors mean retrying won't heal it.
+                reauthRequired: err.error
+                  ? terminalRefreshErrors.has(err.error)
+                  : false,
 
               }),
           ),

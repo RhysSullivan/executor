@@ -103,6 +103,7 @@ const StartOAuthPayload = Schema.Union(
     ...StartOAuthIdentityFields,
     flow: Schema.Literal("authorizationCode"),
     authorizationUrl: Schema.String,
+    issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     redirectUrl: Schema.String,
     clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   }),
