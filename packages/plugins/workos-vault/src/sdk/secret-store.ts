@@ -238,6 +238,7 @@ const loadSecretObject = (
 ): Effect.Effect<WorkOSVaultObject | null, WorkOSVaultClientError, never> =>
   client.readObjectByName(secretObjectName(prefix, scopeId, secretId)).pipe(
     Effect.catchAll((error) => {
+      if (isStatusError(error, 400)) return Effect.succeed(null);
       if (!isStatusError(error, 404)) return Effect.fail(error);
 
       const encodedName = secretObjectName(prefix, scopeId, secretId);

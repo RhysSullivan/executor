@@ -64,6 +64,7 @@ const makeMetadata = (
 const makeFakeClient = (options?: {
   readonly conflictOnNextSecretUpdate?: boolean;
   readonly rejectNamesWithColon?: boolean;
+  readonly rejectReadNamesLongerThan?: number;
 }): WorkOSVaultClient => {
   const objects = new Map<string, WorkOSVaultObject>();
   let sequence = 0;
@@ -104,6 +105,12 @@ const makeFakeClient = (options?: {
 
     readObjectByName: async (name: string) => {
       if (options?.rejectNamesWithColon && name.includes(":")) {
+        throw new FakeInvalidRequestError(`Invalid object name "${name}"`);
+      }
+      if (
+        options?.rejectReadNamesLongerThan !== undefined &&
+        name.length > options.rejectReadNamesLongerThan
+      ) {
         throw new FakeInvalidRequestError(`Invalid object name "${name}"`);
       }
       const object = objects.get(name);
@@ -256,6 +263,29 @@ describe("WorkOS Vault secret provider", () => {
       yield* executor.secrets.remove("remove-me");
 
       expect(yield* executor.secrets.get("remove-me")).toBeNull();
+      expect(yield* executor.secrets.list()).toHaveLength(0);
+    }),
+  );
+
+  it.effect("treats invalid Vault object names as missing during removal", () =>
+    Effect.gen(function* () {
+      const client = makeFakeClient({ rejectReadNamesLongerThan: 80 });
+      const executor = yield* makeExecutor(client);
+      const longSecretId = SecretId.make(
+        "openapi-oauth-dealcloud-api-oauth2-user-org-user-01kp6xm1zpvqvtpj77f0yv4eax.access_token",
+      );
+
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: longSecretId,
+          scope: ScopeId.make("test-scope"),
+          name: "Long connection token",
+          value: "token",
+        }),
+      );
+
+      yield* executor.secrets.remove(longSecretId);
+
       expect(yield* executor.secrets.list()).toHaveLength(0);
     }),
   );

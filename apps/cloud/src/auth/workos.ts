@@ -78,11 +78,12 @@ const make = Effect.gen(function* () {
     });
 
   return {
-    getAuthorizationUrl: (redirectUri: string) =>
+    getAuthorizationUrl: (redirectUri: string, state?: string) =>
       workos.userManagement.getAuthorizationUrl({
         provider: "authkit",
         redirectUri,
         clientId,
+        ...(state ? { state } : {}),
       }),
 
     authenticateWithCode: (code: string) =>

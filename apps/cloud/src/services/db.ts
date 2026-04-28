@@ -55,6 +55,8 @@ const makeSql = (): Sql =>
     idle_timeout: 0,
     max_lifetime: 60,
     connect_timeout: 10,
+    fetch_types: false,
+    prepare: true,
     onnotice: () => undefined,
   });
 

@@ -1,4 +1,5 @@
-import { Effect, Match, Runtime } from "effect";
+import { Effect, Match, Option, Runtime } from "effect";
+import * as Cause from "effect/Cause";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
   jsonSchemaValidator,
@@ -14,7 +15,6 @@ import type {
   ElicitationContext,
   ElicitationRequest,
 } from "@executor/sdk";
-import type * as Cause from "effect/Cause";
 import type * as Tracer from "effect/Tracer";
 import {
   createExecutionEngine,
@@ -224,6 +224,28 @@ const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>):
   structuredContent: formatted.structured,
 });
 
+const formatFailureMessage = (value: unknown): string | null => {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "object" && value !== null && "message" in value) {
+    const message = (value as { readonly message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) return message;
+  }
+  if (typeof value === "string" && value.length > 0) return value;
+  return null;
+};
+
+const toMcpFailureResult = (cause: Cause.Cause<unknown>): McpToolResult => {
+  const failure = Cause.failureOption(cause);
+  const text = Option.isSome(failure)
+    ? (formatFailureMessage(failure.value) ?? "Tool execution failed")
+    : "Tool execution failed";
+  return {
+    content: [{ type: "text", text: `Error: ${text}` }],
+    structuredContent: { status: "error", error: text },
+    isError: true,
+  };
+};
+
 const parseJsonContent = (raw: string): Record<string, unknown> | undefined => {
   if (raw === "{}") return undefined;
   let parsed: unknown;
@@ -274,6 +296,14 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
       const parent = resolveParentSpan();
       return parent ? Effect.withParentSpan(effect, parent) : effect;
     };
+    const runToolEffect = <EffE>(effect: Effect.Effect<McpToolResult, EffE>) =>
+      Runtime.runPromise(runtime)(
+        anchor(effect).pipe(
+          Effect.catchAllCause((cause) =>
+            Effect.succeed(toMcpFailureResult(cause)),
+          ),
+        ),
+      );
 
     const server = yield* Effect.sync(
       () =>
@@ -374,7 +404,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           description,
           inputSchema: { code: z.string().trim().min(1) },
         },
-        ({ code }) => Runtime.runPromise(runtime)(anchor(executeCode(code))),
+        ({ code }) => runToolEffect(executeCode(code)),
       ),
     ).pipe(
       Effect.withSpan("mcp.host.register_tool", {
@@ -402,9 +432,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           },
         },
         ({ executionId, action, content: rawContent }) =>
-          Runtime.runPromise(runtime)(
-            anchor(resumeExecution(executionId, action, parseJsonContent(rawContent))),
-          ),
+          runToolEffect(resumeExecution(executionId, action, parseJsonContent(rawContent))),
       ),
     ).pipe(
       Effect.withSpan("mcp.host.register_tool", {
