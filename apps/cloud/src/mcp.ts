@@ -21,11 +21,7 @@ import { Context, Effect, Either, Layer, Option, Schema } from "effect";
 import { createRemoteJWKSet } from "jose";
 
 import { TelemetryLive } from "./services/telemetry";
-import {
-  McpJwtVerificationError,
-  verifyMcpAccessToken,
-  type VerifiedToken,
-} from "./mcp-auth";
+import { verifyMcpAccessToken, type VerifiedToken } from "./mcp-auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -121,30 +117,33 @@ const verifyJwt = (token: string) =>
 
 export const McpAuthLive = Layer.succeed(McpAuth, {
   verifyBearer: Effect.fn("mcp.auth.verify_bearer")(function* (request) {
-      const authHeader = request.headers.get("authorization");
-      if (!authHeader?.startsWith(BEARER_PREFIX)) {
-        yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_bearer" });
-        return null;
-      }
-      const verified = yield* verifyJwt(authHeader.slice(BEARER_PREFIX.length)).pipe(
-        Effect.catchTag("McpJwtVerificationError", () =>
-          Effect.gen(function* () {
-            yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "invalid" });
-            return null;
-          }),
-        ),
-      );
-      if (!verified) return null;
-      if (!verified.accountId) {
-        yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
-        return null;
-      }
-      yield* Effect.annotateCurrentSpan({
-        "mcp.auth.outcome": "verified",
-        "mcp.auth.has_organization": !!verified.organizationId,
-      });
-      return verified;
-    }),
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader?.startsWith(BEARER_PREFIX)) {
+      yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_bearer" });
+      return null;
+    }
+    const verified = yield* verifyJwt(authHeader.slice(BEARER_PREFIX.length)).pipe(
+      Effect.catchTag("McpJwtVerificationError", (error) =>
+        Effect.gen(function* () {
+          yield* Effect.annotateCurrentSpan({
+            "mcp.auth.outcome": "invalid",
+            "mcp.auth.invalid_reason": error.reason,
+          });
+          return null;
+        }),
+      ),
+    );
+    if (!verified) return null;
+    if (!verified.accountId) {
+      yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
+      return null;
+    }
+    yield* Effect.annotateCurrentSpan({
+      "mcp.auth.outcome": "verified",
+      "mcp.auth.has_organization": !!verified.organizationId,
+    });
+    return verified;
+  }),
 });
 
 // ---------------------------------------------------------------------------
@@ -270,7 +269,9 @@ const methodAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
           ...(init.clientInfo?.name && { "mcp.client.name": init.clientInfo.name }),
           ...(init.clientInfo?.version && { "mcp.client.version": init.clientInfo.version }),
           ...(init.clientInfo?.title && { "mcp.client.title": init.clientInfo.title }),
-          "mcp.client.capability.keys": Object.keys(init.capabilities ?? {}).sort().join(","),
+          "mcp.client.capability.keys": Object.keys(init.capabilities ?? {})
+            .sort()
+            .join(","),
         }),
       });
     case "tools/call":
@@ -408,6 +409,16 @@ type JsonRpcErrorBody = {
   };
 };
 
+const responseBodyShape = (body: string): string => {
+  const trimmed = body.trimStart();
+  if (!trimmed) return "empty";
+  if (trimmed.startsWith("{")) return "json-object";
+  if (trimmed.startsWith("[")) return "json-array";
+  if (trimmed.startsWith("event:") || trimmed.startsWith("data:")) return "sse";
+  if (trimmed.startsWith("<")) return "html-or-xml";
+  return "other";
+};
+
 const parseFirstJsonRpc = (contentType: string, body: string): JsonRpcErrorBody | null => {
   if (!body) return null;
   try {
@@ -457,8 +468,16 @@ const rpcResponseAttrs = (payload: JsonRpcErrorBody | null): Record<string, unkn
 
 const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
   Effect.gen(function* () {
+    const contentType = response.headers.get("content-type") ?? "";
     if (response.status === 202) {
       // MCP Streamable HTTP accepts notification-only POSTs with 202 and no body.
+      yield* Effect.annotateCurrentSpan({
+        "mcp.response.status_code": response.status,
+        "mcp.response.content_type": contentType,
+        "mcp.response.body.shape": "empty",
+        "mcp.response.body.length": 0,
+        "mcp.response.jsonrpc.detected": false,
+      });
       const headers = new Headers(response.headers);
       headers.delete("content-type");
       headers.delete("content-length");
@@ -468,9 +487,18 @@ const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
         headers,
       });
     }
-    if (!response.body) return response;
-    // The DO returns a streaming SSE Response (POST responses aren't
-    // `enableJsonResponse`'d in prod), so `response.text()` blocks on the
+    if (!response.body) {
+      yield* Effect.annotateCurrentSpan({
+        "mcp.response.status_code": response.status,
+        "mcp.response.content_type": contentType,
+        "mcp.response.body.shape": "empty",
+        "mcp.response.body.length": 0,
+        "mcp.response.jsonrpc.detected": false,
+      });
+      return response;
+    }
+    // The DO can return a streaming SSE response for older in-memory
+    // sessions, so `response.text()` blocks on the
     // entire downstream execution — RPC into the dynamic Worker, tool
     // invocations back to the host, result serialisation. Carving this
     // into its own span pins "worker drain time" on the trace so you can
@@ -478,12 +506,19 @@ const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
     const text = yield* Effect.promise(() => response.text()).pipe(
       Effect.withSpan("mcp.peek_response", {
         attributes: {
-          "http.response.content_type": response.headers.get("content-type") ?? "",
+          "http.response.content_type": contentType,
           "http.response.status_code": response.status,
         },
       }),
     );
-    const payload = parseFirstJsonRpc(response.headers.get("content-type") ?? "", text);
+    const payload = parseFirstJsonRpc(contentType, text);
+    yield* Effect.annotateCurrentSpan({
+      "mcp.response.status_code": response.status,
+      "mcp.response.content_type": contentType,
+      "mcp.response.body.length": text.length,
+      "mcp.response.body.shape": responseBodyShape(text),
+      "mcp.response.jsonrpc.detected": payload?.jsonrpc === "2.0",
+    });
     const attrs = rpcResponseAttrs(payload);
     if (Object.keys(attrs).length > 0) {
       yield* Effect.annotateCurrentSpan(attrs);
@@ -527,9 +562,7 @@ const currentTraceparent = Effect.map(Effect.currentSpan, (span) => {
   return `00-${span.traceId}-${span.spanId}-${flags}`;
 }).pipe(Effect.orElseSucceed(() => undefined));
 
-const currentPropagationHeaders = (
-  request: Request,
-): Effect.Effect<IncomingPropagationHeaders> =>
+const currentPropagationHeaders = (request: Request): Effect.Effect<IncomingPropagationHeaders> =>
   Effect.map(currentTraceparent, (traceparent) => ({
     traceparent,
     tracestate: request.headers.get("tracestate") ?? undefined,
@@ -644,7 +677,8 @@ const dispatchPost = (request: Request, token: VerifiedToken) =>
 
 const dispatchGet = (request: Request, token: VerifiedToken) => {
   const sessionId = request.headers.get("mcp-session-id");
-  if (!sessionId) return Effect.succeed(jsonRpcError(400, -32000, "mcp-session-id header required for SSE"));
+  if (!sessionId)
+    return Effect.succeed(jsonRpcError(400, -32000, "mcp-session-id header required for SSE"));
   return forwardToExistingSession(request, sessionId, false, token);
 };
 

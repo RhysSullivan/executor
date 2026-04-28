@@ -1,5 +1,6 @@
-import { Effect, Data } from "effect";
+import { Data, Effect } from "effect";
 import { jwtVerify, type JWTVerifyGetKey } from "jose";
+import { JWTExpired } from "jose/errors";
 
 export type VerifiedToken = {
   /** The WorkOS account ID (user ID). */
@@ -10,6 +11,7 @@ export type VerifiedToken = {
 
 export class McpJwtVerificationError extends Data.TaggedError("McpJwtVerificationError")<{
   readonly cause: unknown;
+  readonly reason: "expired" | "invalid";
 }> {}
 
 export const verifyMcpAccessToken = Effect.fn("mcp.auth.jwt_verify")(function* (
@@ -26,7 +28,11 @@ export const verifyMcpAccessToken = Effect.fn("mcp.auth.jwt_verify")(function* (
         issuer: options.issuer,
         ...(options.audience ? { audience: options.audience } : {}),
       }),
-    catch: (cause) => new McpJwtVerificationError({ cause }),
+    catch: (cause) =>
+      new McpJwtVerificationError({
+        cause,
+        reason: cause instanceof JWTExpired ? "expired" : "invalid",
+      }),
   });
 
   if (!payload.sub) return null;

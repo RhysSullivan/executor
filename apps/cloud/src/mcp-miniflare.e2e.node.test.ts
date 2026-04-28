@@ -478,6 +478,8 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
       expect(handleSpan.attributes["mcp.request.method"]).toBeDefined();
       // 200 for normal POSTs, 202 for notifications/initialized.
       expect([200, 202]).toContain(handleSpan.attributes["mcp.response.status_code"]);
+      expect(handleSpan.attributes["mcp.response.content_type"]).toEqual(expect.any(String));
+      expect(handleSpan.attributes["mcp.transport.enable_json_response"]).toBe(true);
 
       // init runs once per new session and should appear on the initialize POST.
       yield* Effect.promise(() =>

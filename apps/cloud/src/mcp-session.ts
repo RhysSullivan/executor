@@ -27,10 +27,7 @@ import { UserStoreService } from "./auth/context";
 import { resolveOrganization } from "./auth/resolve-organization";
 import { DbService, combinedSchema, resolveConnectionString } from "./services/db";
 import { makeExecutionStack } from "./services/execution-stack";
-import {
-  makeMcpWorkerTransport,
-  type McpWorkerTransport,
-} from "./services/mcp-worker-transport";
+import { makeMcpWorkerTransport, type McpWorkerTransport } from "./services/mcp-worker-transport";
 import { DoTelemetryLive } from "./services/telemetry";
 
 // ---------------------------------------------------------------------------
@@ -171,23 +168,22 @@ const makeResolveOrganizationServices = (dbHandle: DbHandle) => {
 // child span from the outer `McpSessionDO.init` / `McpSessionDO.handleRequest`
 // trace. Tracer comes from the outermost `Effect.provide(DoTelemetryLive)`
 // at the DO method boundary.
-const makeSessionServices = (dbHandle: DbHandle) =>
-  makeResolveOrganizationServices(dbHandle);
+const makeSessionServices = (dbHandle: DbHandle) => makeResolveOrganizationServices(dbHandle);
 
 const resolveSessionMeta = Effect.fn("McpSessionDO.resolveSessionMeta")(function* (
   organizationId: string,
   userId: string,
 ) {
-    const org = yield* resolveOrganization(organizationId);
-    if (!org) {
-      return yield* new OrganizationNotFoundError({ organizationId });
-    }
-    return {
-      organizationId: org.id,
-      organizationName: org.name,
-      userId,
-    } satisfies SessionMeta;
-  });
+  const org = yield* resolveOrganization(organizationId);
+  if (!org) {
+    return yield* new OrganizationNotFoundError({ organizationId });
+  }
+  return {
+    organizationId: org.id,
+    organizationName: org.name,
+    userId,
+  } satisfies SessionMeta;
+});
 
 // ---------------------------------------------------------------------------
 // Durable Object
@@ -201,6 +197,7 @@ export class McpSessionDO extends DurableObject {
   private lastActivityMs = 0;
   private dbHandle: DbHandle | null = null;
   private sessionMeta: SessionMeta | null = null;
+  private transportJsonResponseMode: boolean | null = null;
   // Updated at the start of each `handleRequest` so the host-mcp server's
   // `parentSpan` getter — invoked by the MCP SDK's deferred tool callbacks
   // after `transport.handleRequest()` has already returned its streaming
@@ -268,6 +265,7 @@ export class McpSessionDO extends DurableObject {
       this.sessionMeta = null;
       this.initialized = false;
       this.lastActivityMs = 0;
+      this.transportJsonResponseMode = null;
 
       await Promise.all([
         this.ctx.storage.delete(TRANSPORT_STATE_KEY).catch(() => false),
@@ -306,6 +304,7 @@ export class McpSessionDO extends DurableObject {
         storage: self.makeStorage(),
         enableJsonResponse: options.enableJsonResponse,
       });
+      self.transportJsonResponseMode = options.enableJsonResponse ?? false;
       yield* transport.connect(mcpServer);
       return { mcpServer, transport };
     }).pipe(
@@ -332,12 +331,11 @@ export class McpSessionDO extends DurableObject {
         self.dbHandle = null;
       }
       self.initialized = false;
+      self.transportJsonResponseMode = null;
     }).pipe(Effect.orDie);
   }
 
-  private restoreRuntimeFromStorage(
-    request: Request,
-  ): Effect.Effect<"restored" | "missing_meta"> {
+  private restoreRuntimeFromStorage(request: Request): Effect.Effect<"restored" | "missing_meta"> {
     const self = this;
     return Effect.gen(function* () {
       if (self.initialized && self.transport) return "restored" as const;
@@ -385,8 +383,7 @@ export class McpSessionDO extends DurableObject {
       const accountId = request.headers.get(INTERNAL_ACCOUNT_ID_HEADER);
       const organizationId = request.headers.get(INTERNAL_ORGANIZATION_ID_HEADER);
       const matches =
-        accountId === sessionMeta.userId &&
-        organizationId === sessionMeta.organizationId;
+        accountId === sessionMeta.userId && organizationId === sessionMeta.organizationId;
 
       yield* Effect.annotateCurrentSpan({
         "mcp.session.owner_match": matches,
@@ -401,10 +398,9 @@ export class McpSessionDO extends DurableObject {
     return Effect.gen(function* () {
       const dbHandle = makeEphemeralDb();
       try {
-        const sessionMeta = yield* resolveSessionMeta(
-          token.organizationId,
-          token.userId,
-        ).pipe(Effect.provide(makeResolveOrganizationServices(dbHandle)));
+        const sessionMeta = yield* resolveSessionMeta(token.organizationId, token.userId).pipe(
+          Effect.provide(makeResolveOrganizationServices(dbHandle)),
+        );
         yield* Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
           Effect.withSpan("mcp.session.save_meta"),
         );
@@ -507,6 +503,8 @@ export class McpSessionDO extends DurableObject {
         Effect.tap((response) =>
           Effect.annotateCurrentSpan({
             "mcp.response.status_code": response.status,
+            "mcp.response.content_type": response.headers.get("content-type") ?? "",
+            "mcp.transport.enable_json_response": self.transportJsonResponseMode ?? false,
           }),
         ),
         Effect.ensuring(
@@ -563,20 +561,18 @@ export class McpSessionDO extends DurableObject {
         Effect.withSpan("McpSessionDO.transport.handleRequest", {
           attributes: {
             "mcp.request.method": request.method,
-            "mcp.request.content_type":
-              request.headers.get("content-type") ?? "",
-            "mcp.request.content_length":
-              request.headers.get("content-length") ?? "",
+            "mcp.request.content_type": request.headers.get("content-type") ?? "",
+            "mcp.request.content_length": request.headers.get("content-length") ?? "",
           },
         }),
       );
       yield* Effect.annotateCurrentSpan({
         "mcp.response.status_code": response.status,
+        "mcp.response.content_type": response.headers.get("content-type") ?? "",
+        "mcp.transport.enable_json_response": self.transportJsonResponseMode ?? false,
       });
       if (request.method === "DELETE") {
-        yield* Effect.promise(() => self.cleanup()).pipe(
-          Effect.withSpan("mcp.session.cleanup"),
-        );
+        yield* Effect.promise(() => self.cleanup()).pipe(Effect.withSpan("mcp.session.cleanup"));
       }
       return response;
     }).pipe(
