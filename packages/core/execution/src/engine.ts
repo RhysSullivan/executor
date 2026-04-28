@@ -1,12 +1,15 @@
-import { Deferred, Effect, Fiber, Ref } from "effect";
+import { Cause as EffectCause, Deferred, Effect, Fiber, Ref } from "effect";
 import type * as Cause from "effect/Cause";
 
-import type {
-  Executor,
-  InvokeOptions,
-  ElicitationResponse,
-  ElicitationHandler,
-  ElicitationContext,
+import {
+  ExecutionId,
+  ExecutionInteractionId,
+  ExecutionToolCallId,
+  type ElicitationContext,
+  type ElicitationHandler,
+  type ElicitationResponse,
+  type Executor,
+  type InvokeOptions,
 } from "@executor/sdk";
 import { CodeExecutionError } from "@executor/codemode-core";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
@@ -40,11 +43,19 @@ export type PausedExecution = {
   readonly elicitationContext: ElicitationContext;
 };
 
+/** Trigger metadata — what surface started this run. Persisted on the
+ *  execution row; filter facets in the runs UI read from it. */
+export type ExecutionTrigger = {
+  readonly kind: string;
+  readonly meta?: Record<string, unknown>;
+};
+
 /** Internal representation with Effect runtime state for pause/resume. */
 type InternalPausedExecution<E> = PausedExecution & {
   readonly response: Deferred.Deferred<typeof ElicitationResponse.Type>;
   readonly fiber: Fiber.Fiber<ExecuteResult, E>;
   readonly pauseSignalRef: Ref.Ref<Deferred.Deferred<InternalPausedExecution<E>>>;
+  readonly interactionId: ExecutionInteractionId;
 };
 
 export type ResumeResponse = {
@@ -134,6 +145,56 @@ export const formatPausedExecution = (
       },
     },
   };
+};
+
+// ---------------------------------------------------------------------------
+// Recording helpers — serialize payloads for the execution_* tables
+// without throwing on cyclic/unserializable values.
+// ---------------------------------------------------------------------------
+
+/** Best-effort wrapper for execution-history writes. Absorbs both typed
+ *  failures AND defects (e.g. a backend adapter that throws synchronously
+ *  for an unknown model before the app-level Drizzle schema has been
+ *  migrated), so bookkeeping can never fail a tool call or a user
+ *  execution. A caller that wants to know about these errors should
+ *  inspect Axiom spans or add their own tracer. */
+const silent = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<void> =>
+  effect.pipe(Effect.catchAllCause(() => Effect.void));
+
+const safeStringify = (value: unknown): string => {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const formatErrorMessage = (err: unknown): string => {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "message" in err &&
+    typeof (err as { message: unknown }).message === "string"
+  ) {
+    return (err as { message: string }).message;
+  }
+  return safeStringify(err);
+};
+
+const formatCauseMessage = (cause: Cause.Cause<unknown>): string =>
+  formatErrorMessage(EffectCause.squash(cause));
+
+const serializeElicitationRequest = (ctx: ElicitationContext) => {
+  const req = ctx.request;
+  return req._tag === "UrlElicitation"
+    ? { kind: "url", message: req.message, url: req.url }
+    : {
+        kind: "form",
+        message: req.message,
+        requestedSchema: req.requestedSchema,
+      };
 };
 
 // ---------------------------------------------------------------------------
@@ -286,7 +347,10 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
    */
   readonly execute: (
     code: string,
-    options: { readonly onElicitation: ElicitationHandler },
+    options: {
+      readonly onElicitation: ElicitationHandler;
+      readonly trigger?: ExecutionTrigger;
+    },
   ) => Effect.Effect<ExecuteResult, E>;
 
   /**
@@ -294,7 +358,10 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
    * Use this when the host doesn't support inline elicitation.
    * Returns either a completed result or a paused execution that can be resumed.
    */
-  readonly executeWithPause: (code: string) => Effect.Effect<ExecutionResult, E>;
+  readonly executeWithPause: (
+    code: string,
+    options?: { readonly trigger?: ExecutionTrigger },
+  ) => Effect.Effect<ExecutionResult, E>;
 
   /**
    * Resume a paused execution. Returns a completed result, a new pause, or
@@ -318,19 +385,136 @@ export const createExecutionEngine = <
 ): ExecutionEngine<E> => {
   const { executor, codeExecutor } = config;
   const pausedExecutions = new Map<string, InternalPausedExecution<E>>();
-  let nextId = 0;
+  /** Tracks the running tool-call counter per active execution. Carries
+   *  across pause/resume: the fiber keeps the same counter ref even
+   *  though the Ref itself lives in the engine closure. */
+  const toolCallCounters = new Map<string, Ref.Ref<number>>();
+
+  const newExecutionId = (): ExecutionId =>
+    ExecutionId.make(crypto.randomUUID());
+  const newInteractionId = (): ExecutionInteractionId =>
+    ExecutionInteractionId.make(crypto.randomUUID());
+  const newToolCallId = (): ExecutionToolCallId =>
+    ExecutionToolCallId.make(crypto.randomUUID());
+
+  const ownerScopeId = () => executor.scopes[0]!.id;
+
+  /** Wrap a SandboxToolInvoker so every `invoke` records a
+   *  `execution_tool_call` row (running → completed|failed). Storage
+   *  failures are swallowed so the tool call itself can never fail
+   *  from a bookkeeping error. */
+  const makeRecordingInvoker = (
+    inner: SandboxToolInvoker,
+    executionId: ExecutionId,
+    counter: Ref.Ref<number>,
+  ): SandboxToolInvoker => ({
+    invoke: ({ path, args }) =>
+      Effect.gen(function* () {
+        const callId = newToolCallId();
+        const startedAt = Date.now();
+        yield* executor.executions
+          .recordToolCall({
+            id: callId,
+            executionId,
+            toolPath: path,
+            argsJson: args === undefined ? undefined : safeStringify(args),
+            startedAt,
+          })
+          .pipe(silent);
+        yield* Ref.update(counter, (n) => n + 1);
+
+        return yield* inner.invoke({ path, args }).pipe(
+          Effect.tap((result) =>
+            executor.executions
+              .finishToolCall(callId, {
+                status: "completed",
+                resultJson: result === undefined ? null : safeStringify(result),
+                completedAt: Date.now(),
+                durationMs: Date.now() - startedAt,
+              })
+              .pipe(silent),
+          ),
+          Effect.tapError((err) =>
+            executor.executions
+              .finishToolCall(callId, {
+                status: "failed",
+                errorText: formatErrorMessage(err),
+                completedAt: Date.now(),
+                durationMs: Date.now() - startedAt,
+              })
+              .pipe(silent),
+          ),
+        );
+      }),
+  });
+
+  /** Common post-run update. Runs once per execution on the Exit of
+   *  the code-executor fiber — writes final status, result/error,
+   *  logs, tool-call count, and completedAt. Ignores storage errors. */
+  const persistTerminalState = (
+    executionId: ExecutionId,
+    exit:
+      | { readonly _tag: "Success"; readonly result: ExecuteResult }
+      | { readonly _tag: "Failure"; readonly cause: Cause.Cause<unknown> },
+    counter: Ref.Ref<number>,
+  ): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const toolCallCount = yield* Ref.get(counter);
+      const completedAt = Date.now();
+
+      if (exit._tag === "Success") {
+        const { result } = exit;
+        const hadError = Boolean(result.error);
+        yield* executor.executions
+          .update(executionId, {
+            status: hadError ? "failed" : "completed",
+            resultJson:
+              result.result === undefined ? null : safeStringify(result.result),
+            errorText: result.error ?? null,
+            logsJson:
+              result.logs && result.logs.length > 0
+                ? safeStringify(result.logs)
+                : null,
+            completedAt,
+            toolCallCount,
+          })
+          .pipe(silent);
+        return;
+      }
+
+      yield* executor.executions
+        .update(executionId, {
+          status: "failed",
+          errorText: formatCauseMessage(exit.cause),
+          completedAt,
+          toolCallCount,
+        })
+        .pipe(silent);
+    });
 
   /**
    * Race a running fiber against a pause signal. Returns when either
    * the fiber completes or an elicitation handler fires (whichever
    * comes first). Re-used by both executeWithPause and resume.
+   *
+   * On fiber completion (success or failure) we finalize the
+   * execution row here so persistence happens exactly once per run
+   * regardless of whether the caller pauses first.
    */
   const awaitCompletionOrPause = (
     fiber: Fiber.Fiber<ExecuteResult, E>,
     pauseSignal: Deferred.Deferred<InternalPausedExecution<E>>,
+    executionId: ExecutionId,
+    counter: Ref.Ref<number>,
   ): Effect.Effect<ExecutionResult, E> =>
     Effect.race(
       Fiber.join(fiber).pipe(
+        Effect.tap((result) =>
+          persistTerminalState(executionId, { _tag: "Success", result }, counter),
+        ),
+        Effect.tapErrorCause((cause) =>
+          persistTerminalState(executionId, { _tag: "Failure", cause }, counter),
+        ),
         Effect.map((result): ExecutionResult => ({ status: "completed", result })),
       ),
       Deferred.await(pauseSignal).pipe(
@@ -344,11 +528,32 @@ export const createExecutionEngine = <
    * The sandbox is forked as a daemon because paused executions can outlive the
    * caller scope that returned the first pause, such as an HTTP request handler.
    */
-  const startPausableExecution = Effect.fn("mcp.execute")(function* (code: string) {
+  const startPausableExecution = Effect.fn("mcp.execute")(function* (
+    code: string,
+    options?: { readonly trigger?: ExecutionTrigger },
+  ) {
     yield* Effect.annotateCurrentSpan({
       "mcp.execute.mode": "pausable",
       "mcp.execute.code_length": code.length,
     });
+
+    const executionId = newExecutionId();
+    const counter = yield* Ref.make(0);
+    toolCallCounters.set(executionId, counter);
+
+    yield* executor.executions
+      .create({
+        id: executionId,
+        scopeId: ownerScopeId(),
+        status: "running",
+        code,
+        startedAt: Date.now(),
+        triggerKind: options?.trigger?.kind,
+        triggerMetaJson: options?.trigger?.meta
+          ? safeStringify(options.trigger.meta)
+          : undefined,
+      })
+      .pipe(silent);
 
     // Ref holds the current pause signal. The elicitation handler reads
     // it each time it fires, so resume() can swap in a fresh Deferred
@@ -361,16 +566,31 @@ export const createExecutionEngine = <
     const elicitationHandler: ElicitationHandler = (ctx) =>
       Effect.gen(function* () {
         const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
-        const id = `exec_${++nextId}`;
+        const interactionId = newInteractionId();
+
+        yield* executor.executions
+          .update(executionId, { status: "waiting_for_interaction" })
+          .pipe(silent);
+        yield* executor.executions
+          .recordInteraction({
+            id: interactionId,
+            executionId,
+            status: "pending",
+            kind: ctx.request._tag,
+            purpose: ctx.request.message,
+            payloadJson: safeStringify(serializeElicitationRequest(ctx)),
+          })
+          .pipe(silent);
 
         const paused: InternalPausedExecution<E> = {
-          id,
+          id: executionId,
           elicitationContext: ctx,
           response: responseDeferred,
           fiber: fiber!,
           pauseSignalRef,
+          interactionId,
         };
-        pausedExecutions.set(id, paused);
+        pausedExecutions.set(executionId, paused);
 
         const currentSignal = yield* Ref.get(pauseSignalRef);
         yield* Deferred.succeed(currentSignal, paused);
@@ -379,13 +599,19 @@ export const createExecutionEngine = <
         return yield* Deferred.await(responseDeferred);
       });
 
-    const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
+    const fullInvoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
+    const invoker = makeRecordingInvoker(fullInvoker, executionId, counter);
     fiber = yield* Effect.forkDaemon(
       codeExecutor.execute(code, invoker).pipe(Effect.withSpan("executor.code.exec")),
     );
 
     const initialSignal = yield* Ref.get(pauseSignalRef);
-    return (yield* awaitCompletionOrPause(fiber, initialSignal)) as ExecutionResult;
+    return (yield* awaitCompletionOrPause(
+      fiber,
+      initialSignal,
+      executionId,
+      counter,
+    )) as ExecutionResult;
   });
 
   /**
@@ -405,6 +631,21 @@ export const createExecutionEngine = <
     if (!paused) return null;
     pausedExecutions.delete(executionId);
 
+    const interactionStatus =
+      response.action === "cancel" ? "cancelled" : "resolved";
+    yield* executor.executions
+      .resolveInteraction(paused.interactionId, {
+        status: interactionStatus,
+        responseJson: safeStringify({
+          action: response.action,
+          content: response.content ?? null,
+        }),
+      })
+      .pipe(silent);
+    yield* executor.executions
+      .update(ExecutionId.make(executionId), { status: "running" })
+      .pipe(silent);
+
     // Swap in a fresh pause signal BEFORE unblocking the fiber, so the
     // next elicitation handler call signals this new Deferred.
     const nextSignal = yield* Deferred.make<InternalPausedExecution<E>>();
@@ -415,7 +656,14 @@ export const createExecutionEngine = <
       content: response.content,
     });
 
-    return (yield* awaitCompletionOrPause(paused.fiber, nextSignal)) as ExecutionResult;
+    const counter =
+      toolCallCounters.get(executionId) ?? (yield* Ref.make(0));
+    return (yield* awaitCompletionOrPause(
+      paused.fiber,
+      nextSignal,
+      ExecutionId.make(executionId),
+      counter,
+    )) as ExecutionResult;
   });
 
   /**
@@ -424,18 +672,74 @@ export const createExecutionEngine = <
    */
   const runInlineExecution = Effect.fn("mcp.execute")(function* (
     code: string,
-    options: { readonly onElicitation: ElicitationHandler },
+    options: {
+      readonly onElicitation: ElicitationHandler;
+      readonly trigger?: ExecutionTrigger;
+    },
   ) {
     yield* Effect.annotateCurrentSpan({
       "mcp.execute.mode": "inline",
       "mcp.execute.code_length": code.length,
     });
-    const invoker = makeFullInvoker(executor, {
-      onElicitation: options.onElicitation,
+    const executionId = newExecutionId();
+    const counter = yield* Ref.make(0);
+
+    yield* executor.executions
+      .create({
+        id: executionId,
+        scopeId: ownerScopeId(),
+        status: "running",
+        code,
+        startedAt: Date.now(),
+        triggerKind: options.trigger?.kind,
+        triggerMetaJson: options.trigger?.meta
+          ? safeStringify(options.trigger.meta)
+          : undefined,
+      })
+      .pipe(silent);
+
+    const recordingInteractionHandler: ElicitationHandler = (ctx) =>
+      Effect.gen(function* () {
+        const interactionId = newInteractionId();
+        yield* executor.executions
+          .recordInteraction({
+            id: interactionId,
+            executionId,
+            status: "pending",
+            kind: ctx.request._tag,
+            purpose: ctx.request.message,
+            payloadJson: safeStringify(serializeElicitationRequest(ctx)),
+          })
+          .pipe(silent);
+        const response = yield* options.onElicitation(ctx);
+        yield* executor.executions
+          .resolveInteraction(interactionId, {
+            status: response.action === "cancel" ? "cancelled" : "resolved",
+            responseJson: safeStringify({
+              action: response.action,
+              content: response.content ?? null,
+            }),
+          })
+          .pipe(silent);
+        return response;
+      });
+
+    const fullInvoker = makeFullInvoker(executor, {
+      onElicitation: recordingInteractionHandler,
     });
+    const invoker = makeRecordingInvoker(fullInvoker, executionId, counter);
+
     return yield* codeExecutor
       .execute(code, invoker)
-      .pipe(Effect.withSpan("executor.code.exec"));
+      .pipe(
+        Effect.withSpan("executor.code.exec"),
+        Effect.tap((result) =>
+          persistTerminalState(executionId, { _tag: "Success", result }, counter),
+        ),
+        Effect.tapErrorCause((cause) =>
+          persistTerminalState(executionId, { _tag: "Failure", cause }, counter),
+        ),
+      );
   });
 
   return {

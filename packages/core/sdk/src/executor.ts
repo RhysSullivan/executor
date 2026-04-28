@@ -38,6 +38,8 @@ import {
   type ElicitationHandler,
   type ElicitationRequest,
 } from "./elicitation";
+import { makeExecutionStore } from "./execution-store";
+import type { ExecutionStoreService } from "./executions";
 import {
   ConnectionNotFoundError,
   ConnectionProviderNotRegisteredError,
@@ -227,6 +229,8 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
     readonly providers: () => Effect.Effect<readonly string[]>;
   };
+
+  readonly executions: ExecutionStoreService;
 
   readonly close: () => Effect.Effect<void, StorageFailure>;
 } & PluginExtensions<TPlugins>;
@@ -595,6 +599,11 @@ export const createExecutor = <
     );
     const adapter = buildAdapterRouter(scopedRoot);
     const core = typedAdapter<CoreSchema>(adapter);
+
+    // Execution history — reads + writes against the generic adapter.
+    // Exposed to callers as `executor.executions`; the engine drives
+    // lifecycle transitions (create / update / recordToolCall / …).
+    const executions: ExecutionStoreService = makeExecutionStore({ core });
 
     // Populated once, never mutated after startup.
     const staticTools = new Map<string, StaticTools>();
@@ -2398,6 +2407,7 @@ export const createExecutor = <
               Array.from(connectionProviders.keys()) as readonly string[],
           ),
       },
+      executions,
       close,
     };
 
