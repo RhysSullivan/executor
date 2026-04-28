@@ -62,7 +62,7 @@ export const verifyMcpAccessToken = (
   jwks: JWTVerifyGetKey,
   options: {
     readonly issuer: string;
-    readonly audience?: string;
+    readonly audience: string;
   },
 ) =>
   Effect.gen(function* () {
@@ -70,7 +70,7 @@ export const verifyMcpAccessToken = (
       try: () =>
         jwtVerify(token, jwks, {
           issuer: options.issuer,
-          ...(options.audience ? { audience: options.audience } : {}),
+          audience: options.audience,
         }),
       catch: classifyJwtVerificationError,
     }).pipe(withJwtVerificationSpan);
@@ -81,4 +81,23 @@ export const verifyMcpAccessToken = (
       accountId: payload.sub,
       organizationId: (payload.org_id as string | undefined) ?? null,
     } satisfies VerifiedToken;
+  });
+
+export const verifyWorkOSMcpAccessToken = (
+  token: string,
+  jwks: JWTVerifyGetKey,
+  options: {
+    readonly issuer: string;
+    readonly audience: string;
+  },
+) =>
+  Effect.gen(function* () {
+    const verified = yield* verifyMcpAccessToken(token, jwks, {
+      issuer: options.issuer,
+      audience: options.audience,
+    });
+    yield* Effect.annotateCurrentSpan({
+      "mcp.auth.audience_mode": "workos_client",
+    });
+    return verified;
   });

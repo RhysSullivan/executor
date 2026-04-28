@@ -21,7 +21,11 @@ import { Context, Effect, Layer, Option, Schema } from "effect";
 import { createRemoteJWKSet } from "jose";
 
 import { TelemetryLive } from "./services/telemetry";
-import { McpJwtVerificationError, verifyMcpAccessToken, type VerifiedToken } from "./mcp-auth";
+import {
+  McpJwtVerificationError,
+  verifyWorkOSMcpAccessToken,
+  type VerifiedToken,
+} from "./mcp-auth";
 import { authorizeOrganization } from "./auth/authorize-organization";
 import { UserStoreService } from "./auth/context";
 import { CoreSharedServices } from "./api/core-shared-services";
@@ -33,6 +37,7 @@ import { DbService } from "./services/db";
 
 const AUTHKIT_DOMAIN = env.MCP_AUTHKIT_DOMAIN ?? "https://signin.executor.sh";
 const RESOURCE_ORIGIN = env.MCP_RESOURCE_ORIGIN ?? "https://executor.sh";
+const WORKOS_CLIENT_ID = env.WORKOS_CLIENT_ID;
 
 const jwks = createRemoteJWKSet(new URL(`${AUTHKIT_DOMAIN}/oauth2/jwks`));
 
@@ -108,9 +113,9 @@ export class McpOrganizationAuth extends Context.Tag("@executor/cloud/McpOrganiz
 >() {}
 
 const verifyJwt = (token: string) =>
-  verifyMcpAccessToken(token, jwks, {
+  verifyWorkOSMcpAccessToken(token, jwks, {
     issuer: AUTHKIT_DOMAIN,
-    audience: RESOURCE_URL,
+    audience: WORKOS_CLIENT_ID,
   });
 
 const DbLive = DbService.Live;
