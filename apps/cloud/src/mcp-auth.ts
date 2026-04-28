@@ -1,6 +1,6 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Either } from "effect";
 import { jwtVerify, type JWTVerifyGetKey } from "jose";
-import { JWTExpired } from "jose/errors";
+import { JOSEError, JWKSInvalid, JWKSTimeout, JWTExpired } from "jose/errors";
 
 export type VerifiedToken = {
   /** The WorkOS account ID (user ID). */
@@ -11,34 +11,74 @@ export type VerifiedToken = {
 
 export class McpJwtVerificationError extends Data.TaggedError("McpJwtVerificationError")<{
   readonly cause: unknown;
-  readonly reason: "expired" | "invalid";
+  readonly reason: "expired" | "invalid" | "system";
 }> {}
 
-export const verifyMcpAccessToken = Effect.fn("mcp.auth.jwt_verify")(function* (
+const classifyJwtVerificationError = (cause: unknown): McpJwtVerificationError =>
+  new McpJwtVerificationError({
+    cause,
+    reason:
+      cause instanceof JWTExpired
+        ? "expired"
+        : cause instanceof JWKSTimeout ||
+            cause instanceof JWKSInvalid ||
+            !(cause instanceof JOSEError)
+          ? "system"
+          : "invalid",
+  });
+
+const isExpectedJwtVerificationError = (error: McpJwtVerificationError): boolean =>
+  error.reason === "expired" || error.reason === "invalid";
+
+const withJwtVerificationSpan = <A>(
+  effect: Effect.Effect<A, McpJwtVerificationError>,
+): Effect.Effect<A, McpJwtVerificationError> =>
+  effect.pipe(
+    Effect.either,
+    Effect.flatMap((outcome) =>
+      Effect.gen(function* () {
+        if (Either.isRight(outcome)) {
+          yield* Effect.annotateCurrentSpan({ "mcp.auth.jwt_verify.outcome": "verified" });
+          return outcome;
+        }
+
+        yield* Effect.annotateCurrentSpan({
+          "mcp.auth.jwt_verify.outcome": outcome.left.reason,
+        });
+
+        return isExpectedJwtVerificationError(outcome.left)
+          ? outcome
+          : yield* Effect.fail(outcome.left);
+      }),
+    ),
+    Effect.withSpan("mcp.auth.jwt_verify"),
+    Effect.flatMap((outcome) =>
+      Either.isRight(outcome) ? Effect.succeed(outcome.right) : Effect.fail(outcome.left),
+    ),
+  );
+
+export const verifyMcpAccessToken = (
   token: string,
   jwks: JWTVerifyGetKey,
   options: {
     readonly issuer: string;
     readonly audience?: string;
   },
-) {
-  const { payload } = yield* Effect.tryPromise({
-    try: () =>
-      jwtVerify(token, jwks, {
-        issuer: options.issuer,
-        ...(options.audience ? { audience: options.audience } : {}),
-      }),
-    catch: (cause) =>
-      new McpJwtVerificationError({
-        cause,
-        reason: cause instanceof JWTExpired ? "expired" : "invalid",
-      }),
+) =>
+  Effect.gen(function* () {
+    const { payload } = yield* Effect.tryPromise({
+      try: () =>
+        jwtVerify(token, jwks, {
+          issuer: options.issuer,
+          ...(options.audience ? { audience: options.audience } : {}),
+        }),
+      catch: classifyJwtVerificationError,
+    }).pipe(withJwtVerificationSpan);
+
+    if (!payload.sub) return null;
+
+    return {
+      accountId: payload.sub,
+      organizationId: (payload.org_id as string | undefined) ?? null,
+    } satisfies VerifiedToken;
   });
-
-  if (!payload.sub) return null;
-
-  return {
-    accountId: payload.sub,
-    organizationId: (payload.org_id as string | undefined) ?? null,
-  } satisfies VerifiedToken;
-});
