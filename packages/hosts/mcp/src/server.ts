@@ -327,10 +327,13 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         if (supportsManagedElicitation(server)) {
           const result = yield* engine.execute(code, {
             onElicitation: makeMcpElicitationHandler(server, debugLog),
+            trigger: { kind: "mcp" },
           });
           return toMcpResult(formatExecuteResult(result));
         }
-        const outcome = yield* engine.executeWithPause(code);
+        const outcome = yield* engine.executeWithPause(code, {
+          trigger: { kind: "mcp" },
+        });
         debugLog("execute.paused_flow_result", {
           status: outcome.status,
           executionId: outcome.status === "paused" ? outcome.execution.id : undefined,

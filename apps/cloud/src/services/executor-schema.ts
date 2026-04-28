@@ -203,6 +203,74 @@ export const workos_vault_metadata = pgTable("workos_vault_metadata", {
   index("workos_vault_metadata_scope_id_idx").on(table.scope_id),
 ]);
 
+// Execution history — one row per engine.execute() / executeWithPause()
+// call. `scope_id` is the innermost executor scope that owned the run;
+// the scoped adapter filters these on every list query. JSON-bearing
+// columns (result/error/logs/trigger-meta) are text blobs; the SDK
+// never parses them server-side.
+export const execution = pgTable("execution", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  status: text('status').notNull(),
+  code: text('code').notNull(),
+  result_json: text('result_json'),
+  error_text: text('error_text'),
+  logs_json: text('logs_json'),
+  started_at: bigint('started_at', { mode: 'number' }),
+  completed_at: bigint('completed_at', { mode: 'number' }),
+  trigger_kind: text('trigger_kind'),
+  trigger_meta_json: text('trigger_meta_json'),
+  tool_call_count: bigint('tool_call_count', { mode: 'number' }).default(0).notNull(),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("execution_scope_id_idx").on(table.scope_id),
+  index("execution_status_idx").on(table.status),
+  index("execution_trigger_kind_idx").on(table.trigger_kind),
+  index("execution_created_at_idx").on(table.created_at),
+]);
+
+// Per-execution interaction rows — elicitation requests + their
+// resolutions. Not scope-owned; tenant isolation flows through the
+// parent execution.
+export const execution_interaction = pgTable("execution_interaction", {
+  id: text('id').primaryKey(),
+  execution_id: text('execution_id').notNull(),
+  status: text('status').notNull(),
+  kind: text('kind').notNull(),
+  purpose: text('purpose'),
+  payload_json: text('payload_json'),
+  response_json: text('response_json'),
+  response_private_json: text('response_private_json'),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  index("execution_interaction_execution_id_idx").on(table.execution_id),
+  index("execution_interaction_status_idx").on(table.status),
+]);
+
+// Per-execution tool-call rows — one per executor.tools.invoke call
+// inside the sandboxed execution. Powers the runs UI's tool-call
+// timeline + facet list.
+export const execution_tool_call = pgTable("execution_tool_call", {
+  id: text('id').primaryKey(),
+  execution_id: text('execution_id').notNull(),
+  status: text('status').notNull(),
+  tool_path: text('tool_path').notNull(),
+  namespace: text('namespace'),
+  args_json: text('args_json'),
+  result_json: text('result_json'),
+  error_text: text('error_text'),
+  started_at: bigint('started_at', { mode: 'number' }).notNull(),
+  completed_at: bigint('completed_at', { mode: 'number' }),
+  duration_ms: bigint('duration_ms', { mode: 'number' })
+}, (table) => [
+  index("execution_tool_call_execution_id_idx").on(table.execution_id),
+  index("execution_tool_call_tool_path_idx").on(table.tool_path),
+  index("execution_tool_call_namespace_idx").on(table.namespace),
+]);
+
 // Blob store table — hand-appended. BlobStore is a separate storage
 // abstraction from DBSchema, so the CLI doesn't generate it. Keep in
 // sync with @executor/storage-postgres's BlobStore implementation.

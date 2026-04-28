@@ -43,6 +43,13 @@
       "when": 1777000000000,
       "tag": "0005_drop_connection_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777044250244,
+      "tag": "0006_panoramic_mother_askani",
+      "breakpoints": true
     }
   ]
 }

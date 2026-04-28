@@ -14,3 +14,12 @@ export type PolicyId = typeof PolicyId.Type;
 
 export const ConnectionId = Schema.String.pipe(Schema.brand("ConnectionId"));
 export type ConnectionId = typeof ConnectionId.Type;
+
+export const ExecutionId = Schema.String.pipe(Schema.brand("ExecutionId"));
+export type ExecutionId = typeof ExecutionId.Type;
+
+export const ExecutionInteractionId = Schema.String.pipe(Schema.brand("ExecutionInteractionId"));
+export type ExecutionInteractionId = typeof ExecutionInteractionId.Type;
+
+export const ExecutionToolCallId = Schema.String.pipe(Schema.brand("ExecutionToolCallId"));
+export type ExecutionToolCallId = typeof ExecutionToolCallId.Type;
