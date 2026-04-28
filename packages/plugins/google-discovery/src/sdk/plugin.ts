@@ -180,6 +180,27 @@ export interface GoogleDiscoveryPluginExtension {
   ) => Effect.Effect<void, StorageFailure>;
 }
 
+const oauthSecretError = (message: string) =>
+  new GoogleDiscoveryOAuthError({ message });
+
+const resolveOAuthSecret = (
+  ctx: PluginCtx<GoogleDiscoveryStore>,
+  id: string,
+  label: string,
+): Effect.Effect<string, GoogleDiscoveryOAuthError | StorageFailure> =>
+  ctx.secrets.get(id).pipe(
+    Effect.mapError((err) =>
+      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+        ? oauthSecretError(`${label} secret not found: ${id}`)
+        : err,
+    ),
+    Effect.flatMap((value) =>
+      value === null
+        ? Effect.fail(oauthSecretError(`${label} secret not found: ${id}`))
+        : Effect.succeed(value),
+    ),
+  );
+
 // ---------------------------------------------------------------------------
 // URL normalization + slug helpers (unchanged)
 // ---------------------------------------------------------------------------
@@ -422,12 +443,11 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
             message: "This Google Discovery document does not declare any OAuth scopes",
           });
         }
-        const clientIdValue = yield* ctx.secrets.get(input.clientIdSecretId);
-        if (clientIdValue === null) {
-          return yield* new GoogleDiscoveryOAuthError({
-            message: `OAuth client ID secret not found: ${input.clientIdSecretId}`,
-          });
-        }
+        const clientIdValue = yield* resolveOAuthSecret(
+          ctx,
+          input.clientIdSecretId,
+          "OAuth client ID",
+        );
         const sessionId = randomUUID();
         const codeVerifier = createPkceCodeVerifier();
         const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
@@ -476,26 +496,19 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
             });
           }
 
-          const clientIdValue = yield* ctx.secrets.get(session.clientIdSecretId);
-          if (clientIdValue === null) {
-            return yield* new GoogleDiscoveryOAuthError({
-              message: `OAuth client ID secret not found: ${session.clientIdSecretId}`,
-            });
-          }
+          const clientIdValue = yield* resolveOAuthSecret(
+            ctx,
+            session.clientIdSecretId,
+            "OAuth client ID",
+          );
 
           const clientSecretValue =
             session.clientSecretSecretId === null
               ? null
-              : yield* ctx.secrets.get(session.clientSecretSecretId).pipe(
-                  Effect.flatMap((v) =>
-                    v === null
-                      ? Effect.fail(
-                          new GoogleDiscoveryOAuthError({
-                            message: `OAuth client secret not found: ${session.clientSecretSecretId}`,
-                          }),
-                        )
-                      : Effect.succeed(v),
-                  ),
+              : yield* resolveOAuthSecret(
+                  ctx,
+                  session.clientSecretSecretId,
+                  "OAuth client secret",
                 );
 
           const tokenResponse = yield* exchangeAuthorizationCode({

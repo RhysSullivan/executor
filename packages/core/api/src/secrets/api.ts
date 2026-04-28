@@ -34,11 +34,6 @@ const SecretStatusResponse = Schema.Struct({
   status: Schema.Literal("resolved", "missing"),
 });
 
-const SecretResolveResponse = Schema.Struct({
-  secretId: SecretId,
-  value: Schema.String,
-});
-
 const SetSecretPayload = Schema.Struct({
   id: SecretId,
   name: Schema.String,
@@ -77,12 +72,6 @@ export class SecretsApi extends HttpApiGroup.make("secrets")
     HttpApiEndpoint.post("set")`/scopes/${scopeIdParam}/secrets`
       .setPayload(SetSecretPayload)
       .addSuccess(SecretRefResponse)
-      .addError(SecretResolution),
-  )
-  .add(
-    HttpApiEndpoint.get("resolve")`/scopes/${scopeIdParam}/secrets/${secretIdParam}/resolve`
-      .addSuccess(SecretResolveResponse)
-      .addError(SecretNotFound)
       .addError(SecretResolution),
   )
   .add(

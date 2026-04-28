@@ -171,7 +171,7 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
   readonly secrets: {
     readonly get: (
       id: string,
-    ) => Effect.Effect<string | null, StorageFailure>;
+    ) => Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure>;
     /** Fast-path existence check — hits the core `secret` routing table
      *  only, never calls the provider. Use this for UI state ("secret
      *  missing, prompt to add") to avoid keychain permission prompts
@@ -682,16 +682,19 @@ export const createExecutor = <
       return winner ?? null;
     };
 
-    const secretsGet = (
+    const secretRowsForId = (
       id: string,
+    ): Effect.Effect<readonly Record<string, unknown>[], StorageFailure> =>
+      core.findMany({
+        model: "secret",
+        where: [{ field: "id", value: id }],
+      });
+
+    const resolveSecretValueFromRows = (
+      id: string,
+      rows: readonly Record<string, unknown>[],
     ): Effect.Effect<string | null, StorageFailure> =>
       Effect.gen(function* () {
-        // The scope-wrapped adapter injects `scope_id IN (scopeIds)`
-        // automatically, so we only filter by id here.
-        const rows = yield* core.findMany({
-          model: "secret",
-          where: [{ field: "id", value: id }],
-        });
         const ordered = [...rows].sort(
           (a, b) =>
             (scopePrecedence.get(a.scope_id as string) ?? Infinity) -
@@ -725,6 +728,37 @@ export const createExecutor = <
         );
         for (const value of values) if (value !== null) return value;
         return null;
+      });
+
+    const secretsGet = (
+      id: string,
+    ): Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure> =>
+      Effect.gen(function* () {
+        // The scope-wrapped adapter injects `scope_id IN (scopeIds)`
+        // automatically, so we only filter by id here. Connection-owned
+        // token rows are internal plumbing; public secret resolution
+        // must not expose them even if a token secret id is leaked.
+        const rows = yield* secretRowsForId(id);
+        const owned = rows.find((row) => row.owned_by_connection_id);
+        if (owned) {
+          return yield* Effect.fail(
+            new SecretOwnedByConnectionError({
+              secretId: SecretId.make(id),
+              connectionId: ConnectionId.make(
+                owned.owned_by_connection_id as string,
+              ),
+            }),
+          );
+        }
+        return yield* resolveSecretValueFromRows(id, rows);
+      });
+
+    const connectionSecretGet = (
+      id: string,
+    ): Effect.Effect<string | null, StorageFailure> =>
+      Effect.gen(function* () {
+        const rows = yield* secretRowsForId(id);
+        return yield* resolveSecretValueFromRows(id, rows);
       });
 
     const secretsSet = (
@@ -1448,7 +1482,7 @@ export const createExecutor = <
         }
 
         const refreshTokenValue = ref.refreshTokenSecretId
-          ? yield* secretsGet(ref.refreshTokenSecretId as unknown as string)
+          ? yield* connectionSecretGet(ref.refreshTokenSecretId as unknown as string)
           : null;
 
         // RFC 6749 §5.2 `invalid_grant` (and anything else the
@@ -1524,7 +1558,7 @@ export const createExecutor = <
           ref.expiresAt - CONNECTION_REFRESH_SKEW_MS <= now;
 
         if (!needsRefresh) {
-          const current = yield* secretsGet(
+          const current = yield* connectionSecretGet(
             ref.accessTokenSecretId as unknown as string,
           );
           if (current !== null) return current;
@@ -2328,11 +2362,9 @@ export const createExecutor = <
       id: string,
     ): Effect.Effect<"resolved" | "missing", StorageFailure> =>
       Effect.gen(function* () {
-        const row = yield* core.findOne({
-          model: "secret",
-          where: [{ field: "id", value: id }],
-        });
-        if (row) return "resolved";
+        const rows = yield* secretRowsForId(id);
+        if (rows.some((row) => row.owned_by_connection_id)) return "missing";
+        if (rows.length > 0) return "resolved";
 
         for (const provider of secretProviders.values()) {
           if (!provider.list) continue;

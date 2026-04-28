@@ -9,12 +9,11 @@
 //
 // Invariants the product is staking on:
 //
-//   1. Users in different orgs can't see each other's secrets — not even
-//      secrets written at the org scope of the other org.
-//   2. Users in the same org can't see each other's user-scoped secrets
-//      (per-user OAuth tokens etc. don't leak to co-workers).
-//   3. Org-scoped secrets ARE visible to every user in that org — an
-//      admin writing a shared API key serves the whole tenant.
+//   1. Users in different orgs can't see each other's secret metadata.
+//   2. Users in the same org can't see each other's user-scoped secret
+//      metadata (per-user OAuth tokens etc. don't leak to co-workers).
+//   3. Org-scoped secret metadata IS visible to every user in that org
+//      — an admin writing a shared API key serves the whole tenant.
 //   4. The same user id in different orgs gets distinct per-user scopes —
 //      the userOrgScope id bakes in the org id on purpose.
 //   5. secrets.set rejects a scope id outside the caller's executor stack.
@@ -75,14 +74,6 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         );
         expect(charlieList.map((s) => s.id)).not.toContain(id);
 
-        const charlieResolve = yield* asUser(charlie, orgB, (client) =>
-          client.secrets
-            .resolve({
-              path: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(id) },
-            })
-            .pipe(Effect.either),
-        );
-        expect(charlieResolve._tag).toBe("Left");
       }),
   );
 
@@ -108,7 +99,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         );
 
         // Bob is in the same org — his user-org scope differs. He should
-        // see neither the token in a list nor be able to resolve it.
+        // not see the token in a list.
         const bobList = yield* asUser(bobId, orgId, (client) =>
           client.secrets.list({
             path: { scopeId: ScopeId.make(testUserOrgScopeId(bobId, orgId)) },
@@ -116,28 +107,26 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         );
         expect(bobList.map((s) => s.id)).not.toContain(id);
 
-        const bobResolve = yield* asUser(bobId, orgId, (client) =>
-          client.secrets
-            .resolve({
-              path: {
-                scopeId: ScopeId.make(testUserOrgScopeId(bobId, orgId)),
-                secretId: SecretId.make(id),
-              },
-            })
-            .pipe(Effect.either),
+        const bobStatus = yield* asUser(bobId, orgId, (client) =>
+          client.secrets.status({
+            path: {
+              scopeId: ScopeId.make(testUserOrgScopeId(bobId, orgId)),
+              secretId: SecretId.make(id),
+            },
+          }),
         );
-        expect(bobResolve._tag).toBe("Left");
+        expect(bobStatus.status).toBe("missing");
 
-        // And Alice still sees her own token.
-        const aliceResolve = yield* asUser(aliceId, orgId, (client) =>
-          client.secrets.resolve({
+        // And Alice still sees her own token metadata.
+        const aliceStatus = yield* asUser(aliceId, orgId, (client) =>
+          client.secrets.status({
             path: {
               scopeId: ScopeId.make(testUserOrgScopeId(aliceId, orgId)),
               secretId: SecretId.make(id),
             },
           }),
         );
-        expect(aliceResolve.value).toBe("alice-token-value");
+        expect(aliceStatus.status).toBe("resolved");
       }),
   );
 
@@ -161,18 +150,18 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
           }),
         );
 
-        const adminValue = yield* asUser(adminId, orgId, (client) =>
-          client.secrets.resolve({
+        const adminStatus = yield* asUser(adminId, orgId, (client) =>
+          client.secrets.status({
             path: { scopeId: ScopeId.make(orgId), secretId: SecretId.make(id) },
           }),
         );
-        const memberValue = yield* asUser(memberId, orgId, (client) =>
-          client.secrets.resolve({
+        const memberStatus = yield* asUser(memberId, orgId, (client) =>
+          client.secrets.status({
             path: { scopeId: ScopeId.make(orgId), secretId: SecretId.make(id) },
           }),
         );
-        expect(adminValue.value).toBe("shared-org-key");
-        expect(memberValue.value).toBe("shared-org-key");
+        expect(adminStatus.status).toBe("resolved");
+        expect(memberStatus.status).toBe("resolved");
       }),
   );
 
@@ -206,29 +195,27 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         );
         expect(listInB.map((s) => s.id)).not.toContain(id);
 
-        const resolveInB = yield* asUser(userId, orgB, (client) =>
-          client.secrets
-            .resolve({
-              path: {
-                scopeId: ScopeId.make(testUserOrgScopeId(userId, orgB)),
-                secretId: SecretId.make(id),
-              },
-            })
-            .pipe(Effect.either),
+        const statusInB = yield* asUser(userId, orgB, (client) =>
+          client.secrets.status({
+            path: {
+              scopeId: ScopeId.make(testUserOrgScopeId(userId, orgB)),
+              secretId: SecretId.make(id),
+            },
+          }),
         );
-        expect(resolveInB._tag).toBe("Left");
+        expect(statusInB.status).toBe("missing");
 
-        // Sanity: the original write is still readable under the org-A
+        // Sanity: the original write is still visible under the org-A
         // user-org scope.
-        const resolveInA = yield* asUser(userId, orgA, (client) =>
-          client.secrets.resolve({
+        const statusInA = yield* asUser(userId, orgA, (client) =>
+          client.secrets.status({
             path: {
               scopeId: ScopeId.make(testUserOrgScopeId(userId, orgA)),
               secretId: SecretId.make(id),
             },
           }),
         );
-        expect(resolveInA.value).toBe("value-in-a");
+        expect(statusInA.status).toBe("resolved");
       }),
   );
 
@@ -256,16 +243,14 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
       // at that org must not see `wrong-scope`.
       const foreignUser = nextUserId();
       const leaked = yield* asUser(foreignUser, foreignOrg, (client) =>
-        client.secrets
-          .resolve({
-            path: {
-              scopeId: ScopeId.make(foreignOrg),
-              secretId: SecretId.make("wrong-scope"),
-            },
-          })
-          .pipe(Effect.either),
+        client.secrets.status({
+          path: {
+            scopeId: ScopeId.make(foreignOrg),
+            secretId: SecretId.make("wrong-scope"),
+          },
+        }),
       );
-      expect(leaked._tag).toBe("Left");
+      expect(leaked.status).toBe("missing");
     }),
   );
 });

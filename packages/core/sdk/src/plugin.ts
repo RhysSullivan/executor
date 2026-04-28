@@ -132,7 +132,7 @@ export interface PluginCtx<TStore = unknown> {
   readonly secrets: {
     readonly get: (
       id: string,
-    ) => Effect.Effect<string | null, StorageFailure>;
+    ) => Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure>;
     /** List user-visible secrets. Connection-owned secrets (rows with
      *  `owned_by_connection_id` set) are filtered out so they don't
      *  clutter the UI — users see the Connection instead. */

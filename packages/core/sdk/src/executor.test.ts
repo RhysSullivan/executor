@@ -5,6 +5,7 @@ import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
 import type { DBAdapter, Where } from "@executor/storage-core";
 
 import { makeInMemoryBlobStore } from "./blob";
+import { CreateConnectionInput, TokenMaterial } from "./connections";
 import { collectSchemas, createExecutor } from "./executor";
 import {
   ElicitationResponse,
@@ -15,7 +16,7 @@ import { defineSchema, definePlugin } from "./plugin";
 import { SetSecretInput } from "./secrets";
 import { makeTestConfig } from "./testing";
 import type { SecretProvider } from "./secrets";
-import { ScopeId, SecretId } from "./ids";
+import { ConnectionId, ScopeId, SecretId } from "./ids";
 import { Scope } from "./scope";
 
 type FindManyCall = {
@@ -190,6 +191,12 @@ const memorySecretsPlugin = definePlugin(() => ({
   id: "memory-secrets" as const,
   storage: () => ({}),
   secretProviders: [memoryProvider],
+}));
+
+const memoryConnectionPlugin = definePlugin(() => ({
+  id: "memory-connection" as const,
+  storage: () => ({}),
+  connectionProviders: [{ key: "memory-connection" }],
 }));
 
 // ---------------------------------------------------------------------------
@@ -553,6 +560,58 @@ describe("createExecutor", () => {
       expect(list).toHaveLength(1);
       expect(list[0]!.name).toBe("API Token");
       expect(list[0]!.provider).toBe("memory");
+    }),
+  );
+
+  it.effect("secrets.get rejects connection-owned token secrets", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [memorySecretsPlugin(), memoryConnectionPlugin()] as const,
+        }),
+      );
+
+      yield* executor.connections.create(
+        new CreateConnectionInput({
+          id: ConnectionId.make("conn-owned"),
+          scope: ScopeId.make("test-scope"),
+          provider: "memory-connection",
+          identityLabel: "Alice",
+          accessToken: new TokenMaterial({
+            secretId: SecretId.make("conn-owned.access_token"),
+            name: "Access",
+            value: "access-secret",
+          }),
+          refreshToken: new TokenMaterial({
+            secretId: SecretId.make("conn-owned.refresh_token"),
+            name: "Refresh",
+            value: "refresh-secret",
+          }),
+          expiresAt: null,
+          oauthScope: "read",
+          providerState: null,
+        }),
+      );
+
+      const leaked = yield* executor.secrets
+        .get("conn-owned.access_token")
+        .pipe(Effect.either);
+      expect(leaked._tag).toBe("Left");
+      if (leaked._tag === "Left") {
+        expect((leaked.left as { _tag?: string })._tag).toBe(
+          "SecretOwnedByConnectionError",
+        );
+      }
+
+      const status = yield* executor.secrets.status("conn-owned.access_token");
+      expect(status).toBe("missing");
+      const visibleIds = (yield* executor.secrets.list()).map(
+        (s) => s.id as unknown as string,
+      );
+      expect(visibleIds).not.toContain("conn-owned.access_token");
+
+      const token = yield* executor.connections.accessToken("conn-owned");
+      expect(token).toBe("access-secret");
     }),
   );
 

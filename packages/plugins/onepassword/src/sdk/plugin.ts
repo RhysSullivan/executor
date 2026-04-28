@@ -162,6 +162,14 @@ const resolveAuth = (
     });
   }
   return ctx.secrets.get(auth.tokenSecretId).pipe(
+    Effect.mapError((err) =>
+      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+        ? new OnePasswordError({
+            operation: "auth resolution",
+            message: `Service account token secret "${auth.tokenSecretId}" not found`,
+          })
+        : err,
+    ),
     Effect.flatMap((token) => {
       if (token === null) {
         return Effect.fail(

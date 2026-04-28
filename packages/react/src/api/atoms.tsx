@@ -79,8 +79,6 @@ export const connectionsAtom = (scopeId: ScopeId) =>
 
 export const setSecret = ExecutorApiClient.mutation("secrets", "set");
 
-export const resolveSecret = ExecutorApiClient.mutation("secrets", "resolve");
-
 export const removeSecret = ExecutorApiClient.mutation("secrets", "remove");
 
 export const removeConnection = ExecutorApiClient.mutation(

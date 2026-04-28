@@ -133,7 +133,7 @@ describe("tenant isolation (HTTP)", () => {
     }),
   );
 
-  it.effect("secrets.resolve cannot return another org's plaintext", () =>
+  it.effect("secret metadata is not visible across orgs", () =>
     Effect.gen(function* () {
       const orgA = `org_${crypto.randomUUID()}`;
       const orgB = `org_${crypto.randomUUID()}`;
@@ -146,13 +146,17 @@ describe("tenant isolation (HTTP)", () => {
         }),
       );
 
-      const result = yield* asOrg(orgB, (client) =>
-        client.secrets
-          .resolve({ path: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(secretIdA) } })
-          .pipe(Effect.either),
+      const status = yield* asOrg(orgB, (client) =>
+        client.secrets.status({
+          path: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(secretIdA) },
+        }),
+      );
+      const list = yield* asOrg(orgB, (client) =>
+        client.secrets.list({ path: { scopeId: ScopeId.make(orgB) } }),
       );
 
-      expect(result._tag).toBe("Left");
+      expect(status.status).toBe("missing");
+      expect(list.map((s) => s.id)).not.toContain(secretIdA);
     }),
   );
 

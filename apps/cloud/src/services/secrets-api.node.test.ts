@@ -1,4 +1,4 @@
-// Secrets endpoints — set / list / status / resolve / remove round-trip
+// Secrets endpoints — set / list / status / remove round-trip
 // and error fidelity within a single org.
 
 import { describe, expect, it } from "@effect/vitest";
@@ -6,10 +6,10 @@ import { Effect } from "effect";
 
 import { ScopeId, SecretId } from "@executor/sdk";
 
-import { asOrg } from "./__test-harness__/api-harness";
+import { asOrg, fetchForOrg, TEST_BASE_URL } from "./__test-harness__/api-harness";
 
 describe("secrets api (HTTP)", () => {
-  it.effect("set → list → resolve round-trips a new secret", () =>
+  it.effect("set → list → status round-trips a new secret without exposing plaintext", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
       const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
@@ -28,12 +28,31 @@ describe("secrets api (HTTP)", () => {
       );
       expect(list.find((s) => s.id === id)?.name).toBe("My API Token");
 
-      const resolved = yield* asOrg(org, (client) =>
-        client.secrets.resolve({
+      const status = yield* asOrg(org, (client) =>
+        client.secrets.status({
           path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
         }),
       );
-      expect(resolved.value).toBe("sk-test-abc");
+      expect(status.status).toBe("resolved");
+    }),
+  );
+
+  it.effect("does not expose a plaintext resolve endpoint", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
+
+      yield* asOrg(org, (client) =>
+        client.secrets.set({
+          path: { scopeId: ScopeId.make(org) },
+          payload: { id: SecretId.make(id), name: "n", value: "v" },
+        }),
+      );
+
+      const response = yield* Effect.promise(() =>
+        fetchForOrg(org)(`${TEST_BASE_URL}/scopes/${org}/secrets/${id}/resolve`),
+      );
+      expect(response.status).toBe(404);
     }),
   );
 
@@ -68,7 +87,7 @@ describe("secrets api (HTTP)", () => {
     }),
   );
 
-  it.effect("remove deletes the secret; subsequent resolve fails and list drops it", () =>
+  it.effect("remove deletes the secret; subsequent status is missing and list drops it", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
       const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
@@ -90,34 +109,12 @@ describe("secrets api (HTTP)", () => {
       );
       expect(list.map((s) => s.id)).not.toContain(id);
 
-      const afterResolve = yield* asOrg(org, (client) =>
-        client.secrets
-          .resolve({ path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) } })
-          .pipe(Effect.either),
+      const afterStatus = yield* asOrg(org, (client) =>
+        client.secrets.status({
+          path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+        }),
       );
-      expect(afterResolve._tag).toBe("Left");
-    }),
-  );
-
-  it.effect("resolve on an unknown id fails with a typed error", () =>
-    Effect.gen(function* () {
-      const org = `org_${crypto.randomUUID()}`;
-      const missing = `missing_${crypto.randomUUID().slice(0, 8)}`;
-
-      const result = yield* asOrg(org, (client) =>
-        client.secrets
-          .resolve({ path: { scopeId: ScopeId.make(org), secretId: SecretId.make(missing) } })
-          .pipe(Effect.either),
-      );
-      expect(result._tag).toBe("Left");
-      if (result._tag === "Left") {
-        // The API declares SecretNotFoundError / SecretResolutionError
-        // as typed errors; either is acceptable for an unknown id.
-        const err = result.left as { _tag?: string };
-        expect(
-          err._tag === "SecretNotFoundError" || err._tag === "SecretResolutionError",
-        ).toBe(true);
-      }
+      expect(afterStatus.status).toBe("missing");
     }),
   );
 
@@ -135,7 +132,7 @@ describe("secrets api (HTTP)", () => {
     }),
   );
 
-  it.effect("set with the same id twice updates the value (upsert)", () =>
+  it.effect("set with the same id twice updates the visible metadata", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
       const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
@@ -146,12 +143,10 @@ describe("secrets api (HTTP)", () => {
             path: { scopeId: ScopeId.make(org) },
             payload: { id: SecretId.make(id), name: "first", value: "first-value" },
           });
-          return yield* client.secrets.resolve({
-            path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
-          });
+          return yield* client.secrets.list({ path: { scopeId: ScopeId.make(org) } });
         }),
       );
-      expect(first.value).toBe("first-value");
+      expect(first.find((s) => s.id === id)?.name).toBe("first");
 
       const second = yield* asOrg(org, (client) =>
         Effect.gen(function* () {
@@ -159,12 +154,10 @@ describe("secrets api (HTTP)", () => {
             path: { scopeId: ScopeId.make(org) },
             payload: { id: SecretId.make(id), name: "updated", value: "second-value" },
           });
-          return yield* client.secrets.resolve({
-            path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
-          });
+          return yield* client.secrets.list({ path: { scopeId: ScopeId.make(org) } });
         }),
       );
-      expect(second.value).toBe("second-value");
+      expect(second.find((s) => s.id === id)?.name).toBe("updated");
     }),
   );
 });

@@ -1,14 +1,13 @@
 import { useId, useState, type CSSProperties } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
-import { setSecret, resolveSecret } from "../api/atoms";
+import { setSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import { useScope } from "../api/scope-context";
 import { SecretId, type ScopeId } from "@executor/sdk";
 import { Button } from "../components/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "../components/field";
 import { Input } from "../components/input";
-import { Spinner } from "../components/spinner";
 import { SecretPicker, type SecretPickerSecret } from "./secret-picker";
 
 export interface HeaderAuthPreset {
@@ -182,66 +181,16 @@ export function InlineCreateSecret(props: {
   );
 }
 
-type ResolveState =
-  | { status: "hidden" }
-  | { status: "loading" }
-  | { status: "revealed"; value: string }
-  | { status: "error" };
-
 function HeaderValuePreview(props: { headerName: string; secretId: string; prefix?: string }) {
-  const { headerName, secretId, prefix } = props;
-  const scopeId = useScope();
-  const [state, setState] = useState<ResolveState>({ status: "hidden" });
-  const doResolve = useAtomSet(resolveSecret, { mode: "promise" });
-
-  const handleToggle = async () => {
-    if (state.status === "revealed") {
-      setState({ status: "hidden" });
-      return;
-    }
-    setState({ status: "loading" });
-    try {
-      const result = await doResolve({
-        path: {
-          scopeId,
-          secretId: SecretId.make(secretId),
-        },
-      });
-      setState({ status: "revealed", value: result.value });
-    } catch {
-      setState({ status: "error" });
-    }
-  };
-
-  const displayValue =
-    state.status === "revealed"
-      ? state.value
-      : state.status === "error"
-        ? "failed to resolve"
-        : "•".repeat(12);
-  const isLoading = state.status === "loading";
-  const isRevealed = state.status === "revealed";
+  const { headerName, prefix } = props;
 
   return (
     <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-xs">
       <span className="text-muted-foreground shrink-0">{headerName}:</span>
       <span className="text-foreground truncate">
         {prefix && <span className="text-muted-foreground">{prefix}</span>}
-        {displayValue}
+        {"•".repeat(12)}
       </span>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="ml-auto shrink-0"
-        onClick={handleToggle}
-        disabled={isLoading}
-      >
-        {isLoading ? (
-          <Spinner className="size-3" />
-        ) : (
-          <SecretVisibilityIcon revealed={isRevealed} />
-        )}
-      </Button>
     </div>
   );
 }

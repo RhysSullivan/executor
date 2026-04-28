@@ -524,10 +524,19 @@ const resolveConfiguredHeaders = (
         value.slot,
       );
       if (binding?.value.kind === "secret") {
-        const secret = yield* ctx.secrets.get(binding.value.secretId as string);
+        const secretId = binding.value.secretId as string;
+        const secret = yield* ctx.secrets.get(secretId).pipe(
+          Effect.mapError((err) =>
+            "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+              ? new OpenApiOAuthError({
+                  message: `Missing secret "${secretId}" for header "${name}"`,
+                })
+              : err,
+          ),
+        );
         if (secret === null) {
           return yield* new OpenApiOAuthError({
-            message: `Missing secret "${binding.value.secretId}" for header "${name}"`,
+            message: `Missing secret "${secretId}" for header "${name}"`,
           });
         }
         resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;

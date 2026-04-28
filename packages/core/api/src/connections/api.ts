@@ -4,7 +4,6 @@ import { Schema } from "effect";
 import {
   ConnectionId,
   ScopeId,
-  SecretId,
 } from "@executor/sdk";
 
 import { InternalError } from "../observability";
@@ -25,8 +24,6 @@ const ConnectionRefResponse = Schema.Struct({
   scopeId: ScopeId,
   provider: Schema.String,
   identityLabel: Schema.NullOr(Schema.String),
-  accessTokenSecretId: SecretId,
-  refreshTokenSecretId: Schema.NullOr(SecretId),
   expiresAt: Schema.NullOr(Schema.Number),
   oauthScope: Schema.NullOr(Schema.String),
   createdAt: Schema.Number,

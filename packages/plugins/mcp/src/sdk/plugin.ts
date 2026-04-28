@@ -366,7 +366,13 @@ const resolveConnectorInput = (
 
     const auth = sd.auth;
     if (auth.kind === "header") {
-      const val = yield* ctx.secrets.get(auth.secretId);
+      const val = yield* ctx.secrets.get(auth.secretId).pipe(
+        Effect.mapError((err) =>
+          "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+            ? remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`)
+            : err,
+        ),
+      );
       if (val === null) {
         return yield* Effect.fail(
           remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`),
