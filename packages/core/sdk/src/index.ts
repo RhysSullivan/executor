@@ -23,7 +23,16 @@ export { typedAdapter } from "@executor/storage-core";
 export { StorageError, UniqueViolationError } from "@executor/storage-core";
 
 // IDs (branded)
-export { ScopeId, ToolId, SecretId, PolicyId, ConnectionId } from "./ids";
+export {
+  ScopeId,
+  ToolId,
+  SecretId,
+  PolicyId,
+  ConnectionId,
+  ExecutionId,
+  ExecutionInteractionId,
+  ExecutionToolCallId,
+} from "./ids";
 
 // Scope
 export { Scope } from "./scope";
@@ -66,6 +75,9 @@ export {
   type DefinitionRow,
   type SecretRow,
   type ConnectionRow,
+  type ExecutionRow,
+  type ExecutionInteractionRow,
+  type ExecutionToolCallRow,
   type DefinitionsInput,
   type ToolAnnotations,
 } from "./core-schema";
@@ -101,6 +113,41 @@ export {
   type ElicitationHandler,
   type ElicitationContext,
 } from "./elicitation";
+
+// Execution history
+export {
+  ExecutionStatus,
+  ExecutionInteractionStatus,
+  ExecutionToolCallStatus,
+  Execution,
+  ExecutionInteraction,
+  ExecutionToolCall,
+  ExecutionStore,
+  EXECUTION_STATUS_KEYS,
+  type ExecutionStoreService,
+  type CreateExecutionInput,
+  type UpdateExecutionInput,
+  type CreateExecutionInteractionInput,
+  type UpdateExecutionInteractionInput,
+  type CreateExecutionToolCallInput,
+  type UpdateExecutionToolCallInput,
+  type ExecutionListItem,
+  type ExecutionListOptions,
+  type ExecutionListResult,
+  type ExecutionListMeta,
+  type ExecutionStatusCount,
+  type ExecutionTriggerCount,
+  type ExecutionToolFacet,
+  type ExecutionInteractionCounts,
+  type ExecutionChartBucket,
+  type ExecutionTimeRange,
+  type ExecutionSort,
+  type ExecutionSortField,
+  type ExecutionSortDirection,
+  type ExecutionDetail,
+} from "./executions";
+export { makeExecutionStore } from "./execution-store";
+export { encodeCursor, decodeCursor, type CursorPayload } from "./cursor";
 
 // Blob store
 export {
