@@ -12,6 +12,7 @@ declare namespace Cloudflare {
     WORKOS_API_KEY: string;
     WORKOS_CLIENT_ID: string;
     WORKOS_COOKIE_PASSWORD: string;
+    WORKOS_WEBHOOK_SECRET: string;
     APP_URL: string;
     WORKOS_CLAIM_TOKEN: string;
     MCP_SESSION: DurableObjectNamespace<import("./src/server").McpSessionDO>;
@@ -29,6 +30,7 @@ declare namespace NodeJS {
       | "WORKOS_API_KEY"
       | "WORKOS_CLIENT_ID"
       | "WORKOS_COOKIE_PASSWORD"
+      | "WORKOS_WEBHOOK_SECRET"
       | "APP_URL"
       | "WORKOS_CLAIM_TOKEN"
     >

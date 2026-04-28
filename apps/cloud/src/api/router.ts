@@ -17,6 +17,10 @@ export class AutumnRequestHandlerService extends Context.Tag(
   "@executor/cloud/AutumnRequestHandlerService",
 )<AutumnRequestHandlerService, RequestAppService>() {}
 
+export class IdentityWebhookRequestHandlerService extends Context.Tag(
+  "@executor/cloud/IdentityWebhookRequestHandlerService",
+)<IdentityWebhookRequestHandlerService, RequestAppService>() {}
+
 export class ProtectedRequestHandlerService extends Context.Tag(
   "@executor/cloud/ProtectedRequestHandlerService",
 )<ProtectedRequestHandlerService, RequestAppService>() {}
@@ -25,12 +29,14 @@ export const ApiRouterApp = Effect.gen(function* () {
   const org = yield* OrgRequestHandlerService;
   const nonProtected = yield* NonProtectedRequestHandlerService;
   const autumn = yield* AutumnRequestHandlerService;
+  const identityWebhooks = yield* IdentityWebhookRequestHandlerService;
   const protectedHandler = yield* ProtectedRequestHandlerService;
 
   return yield* HttpRouter.empty.pipe(
     HttpRouter.mountApp("/org", org.app, { includePrefix: true }),
     HttpRouter.mountApp("/auth", nonProtected.app, { includePrefix: true }),
     HttpRouter.mountApp("/autumn", autumn.app, { includePrefix: true }),
+    HttpRouter.mountApp("/webhooks", identityWebhooks.app, { includePrefix: true }),
     HttpRouter.mountApp("/", protectedHandler.app),
     HttpRouter.toHttpApp,
   );

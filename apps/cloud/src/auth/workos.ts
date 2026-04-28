@@ -214,6 +214,16 @@ const make = Effect.gen(function* () {
     /** Delete a domain claim. */
     deleteOrganizationDomain: (domainId: string) =>
       use((wos) => wos.organizationDomains.delete(domainId)),
+
+    /** Verify and parse a WorkOS webhook payload. */
+    constructWebhookEvent: (payload: Record<string, unknown>, signature: string, secret: string) =>
+      use((wos) =>
+        wos.webhooks.constructEvent({
+          payload,
+          sigHeader: signature,
+          secret,
+        }),
+      ),
   };
 });
 

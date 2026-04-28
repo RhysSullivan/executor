@@ -15,6 +15,7 @@ import { Effect, Layer, Schema } from "effect";
 import {
   ApiRequestHandler,
   AutumnRequestHandlerService,
+  IdentityWebhookRequestHandlerService,
   NonProtectedRequestHandlerService,
   ProtectedRequestHandlerService,
   OrgRequestHandlerService,
@@ -127,6 +128,9 @@ const TestRequestHandlersLive = Layer.mergeAll(
   Layer.succeed(NonProtectedRequestHandlerService, { app: AuthTestApp }),
   Layer.succeed(AutumnRequestHandlerService, {
     app: Effect.succeed(HttpServerResponse.unsafeJson({ source: "autumn" })),
+  }),
+  Layer.succeed(IdentityWebhookRequestHandlerService, {
+    app: Effect.succeed(HttpServerResponse.unsafeJson({ source: "identity-webhook" })),
   }),
   Layer.succeed(ProtectedRequestHandlerService, { app: ProtectedTestApp }),
 );

@@ -21,6 +21,9 @@ declare global {
       // Billing
       AUTUMN_SECRET_KEY?: string;
 
+      // Identity
+      WORKOS_WEBHOOK_SECRET?: string;
+
       // MCP
       EXECUTOR_MCP_DEBUG?: string;
       MCP_AUTHKIT_DOMAIN?: string;

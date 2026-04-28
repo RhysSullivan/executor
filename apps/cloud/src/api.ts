@@ -5,14 +5,17 @@ import { ProtectedApiApp } from "./api/protected";
 import {
   ApiRequestHandler,
   AutumnRequestHandlerService,
+  IdentityWebhookRequestHandlerService,
   NonProtectedRequestHandlerService,
   ProtectedRequestHandlerService,
   OrgRequestHandlerService,
 } from "./api/router";
+import { IdentityWebhookApiApp } from "./api/layers";
 
 const ApiRequestHandlersLive = Layer.mergeAll(
   Layer.succeed(OrgRequestHandlerService, { app: OrgApiApp }),
   Layer.succeed(NonProtectedRequestHandlerService, { app: NonProtectedApiApp }),
+  Layer.succeed(IdentityWebhookRequestHandlerService, { app: IdentityWebhookApiApp }),
   Layer.succeed(AutumnRequestHandlerService, { app: AutumnApiApp }),
   Layer.succeed(ProtectedRequestHandlerService, { app: ProtectedApiApp }),
 );

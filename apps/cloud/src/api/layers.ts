@@ -20,6 +20,8 @@ import { DbService } from "../services/db";
 import { TelemetryLive } from "../services/telemetry";
 import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
+import { IdentityApi, IdentityWebhookHandlers } from "../identity/handlers";
+import { IdentitySync } from "../identity/sync";
 import { ErrorCaptureLive } from "../observability";
 
 import { CoreSharedServices } from "./core-shared-services";
@@ -40,11 +42,16 @@ const IdentityDirectoryLive = IdentityDirectory.Live.pipe(
   Layer.provideMerge(UserStoreLive),
   Layer.provideMerge(CoreSharedServices),
 );
+const IdentitySyncLive = IdentitySync.Live.pipe(
+  Layer.provideMerge(UserStoreLive),
+  Layer.provideMerge(CoreSharedServices),
+);
 
 export const SharedServices = Layer.mergeAll(
   DbLive,
   UserStoreLive,
   IdentityDirectoryLive,
+  IdentitySyncLive,
   CoreSharedServices,
   HttpServer.layerContext,
   TelemetryLive,
@@ -76,6 +83,10 @@ const OrgApiLive = HttpApiBuilder.api(OrgHttpApi).pipe(
   Layer.provideMerge(OrgAuthLive),
 );
 
+const IdentityWebhookApiLive = HttpApiBuilder.api(IdentityApi).pipe(
+  Layer.provide(IdentityWebhookHandlers),
+);
+
 const NonProtectedRequestLayer = NonProtectedApiLive.pipe(
   Layer.provideMerge(RouterConfig),
   Layer.provideMerge(HttpServer.layerContext),
@@ -90,6 +101,13 @@ const OrgRequestLayer = OrgApiLive.pipe(
   Layer.provideMerge(HttpApiBuilder.Middleware.layer),
 );
 
+const IdentityWebhookRequestLayer = IdentityWebhookApiLive.pipe(
+  Layer.provideMerge(RouterConfig),
+  Layer.provideMerge(HttpServer.layerContext),
+  Layer.provideMerge(HttpApiBuilder.Router.Live),
+  Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+);
+
 export const NonProtectedApiApp = Effect.flatMap(
   HttpApiBuilder.httpApp.pipe(Effect.provide(NonProtectedRequestLayer)),
   HttpMiddleware.logger,
@@ -97,5 +115,10 @@ export const NonProtectedApiApp = Effect.flatMap(
 
 export const OrgApiApp = Effect.flatMap(
   HttpApiBuilder.httpApp.pipe(Effect.provide(OrgRequestLayer)),
+  HttpMiddleware.logger,
+).pipe(Effect.provide(SharedServices));
+
+export const IdentityWebhookApiApp = Effect.flatMap(
+  HttpApiBuilder.httpApp.pipe(Effect.provide(IdentityWebhookRequestLayer)),
   HttpMiddleware.logger,
 ).pipe(Effect.provide(SharedServices));
