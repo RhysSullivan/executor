@@ -256,6 +256,7 @@ export class McpSessionDO extends DurableObject {
     return {
       "mcp.do.instance_age_ms": now - this.instanceCreatedAt,
       "mcp.do.method_entry_delay_ms": now - methodEnteredAt,
+      "mcp.session.session_id": this.ctx.id.toString(),
       "mcp.session.initialized": this.initialized,
       "mcp.session.has_transport": !!this.transport,
       "mcp.session.has_meta_memory": !!this.sessionMeta,
