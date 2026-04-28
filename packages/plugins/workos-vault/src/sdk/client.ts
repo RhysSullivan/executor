@@ -1,6 +1,6 @@
 import type { WorkOS } from "@workos-inc/node/worker";
 import { WorkOS as WorkOSClient } from "@workos-inc/node/worker";
-import { Data, Effect } from "effect";
+import { Data, Effect, Either } from "effect";
 
 export interface WorkOSVaultObjectMetadata {
   readonly context: Record<string, unknown>;
@@ -47,10 +47,16 @@ export interface WorkOSVaultCredentials {
   readonly clientId: string;
 }
 
+interface WorkOSVaultUseOptions {
+  readonly expectedErrorStatuses?: readonly number[];
+  readonly expectedErrorOutcome?: string;
+}
+
 export interface WorkOSVaultClient {
   readonly use: <A>(
     operation: string,
     fn: (client: WorkOSVaultSdk) => Promise<A>,
+    options?: WorkOSVaultUseOptions,
   ) => Effect.Effect<A, WorkOSVaultClientError, never>;
   readonly createObject: (options: {
     readonly name: string;
@@ -70,24 +76,80 @@ export interface WorkOSVaultClient {
   }) => Effect.Effect<void, WorkOSVaultClientError, never>;
 }
 
-export const makeWorkOSVaultClient = (
-  workos: Pick<WorkOS, "vault">,
-): WorkOSVaultClient => {
+const vaultErrorStatus = (error: WorkOSVaultClientError): number | null => {
+  const cause = error.cause;
+  return typeof cause === "object" &&
+    cause !== null &&
+    "status" in cause &&
+    typeof (cause as { readonly status: unknown }).status === "number"
+    ? (cause as { readonly status: number }).status
+    : null;
+};
+
+const isExpectedVaultError = (
+  error: WorkOSVaultClientError,
+  options: WorkOSVaultUseOptions | undefined,
+): boolean => {
+  const status = vaultErrorStatus(error);
+  return status !== null && (options?.expectedErrorStatuses?.includes(status) ?? false);
+};
+
+export const makeWorkOSVaultClient = (workos: Pick<WorkOS, "vault">): WorkOSVaultClient => {
   const client: WorkOSVaultSdk = workos.vault;
 
   const use = <A>(
     operation: string,
     fn: (vault: WorkOSVaultSdk) => Promise<A>,
-  ): Effect.Effect<A, WorkOSVaultClientError, never> =>
-    Effect.tryPromise({
+    options?: WorkOSVaultUseOptions,
+  ): Effect.Effect<A, WorkOSVaultClientError, never> => {
+    const attempt = Effect.tryPromise({
       try: () => fn(client),
       catch: (cause) => new WorkOSVaultClientError({ cause, operation }),
-    }).pipe(Effect.withSpan(`workos_vault.${operation}`));
+    });
+
+    const observed = attempt.pipe(
+      Effect.either,
+      Effect.flatMap((outcome) =>
+        Effect.gen(function* () {
+          if (Either.isRight(outcome)) {
+            yield* Effect.annotateCurrentSpan({ "workos_vault.outcome": "ok" });
+            return outcome;
+          }
+
+          const status = vaultErrorStatus(outcome.left);
+          if (isExpectedVaultError(outcome.left, options)) {
+            yield* Effect.annotateCurrentSpan({
+              "workos_vault.outcome": options?.expectedErrorOutcome ?? "expected_error",
+              "workos_vault.status": status ?? "unknown",
+            });
+            return outcome;
+          }
+
+          yield* Effect.annotateCurrentSpan({
+            "workos_vault.outcome": "error",
+            "workos_vault.status": status ?? "unknown",
+          });
+          return yield* Effect.fail(outcome.left);
+        }),
+      ),
+      Effect.withSpan(`workos_vault.${operation}`),
+    );
+
+    return observed.pipe(
+      Effect.flatMap((outcome) =>
+        Either.isRight(outcome) ? Effect.succeed(outcome.right) : Effect.fail(outcome.left),
+      ),
+    );
+  };
 
   return {
     use,
     createObject: (options) => use("create_object", (vault) => vault.createObject(options)),
-    readObjectByName: (name) => use("read_object_by_name", (vault) => vault.readObjectByName(name)),
+    readObjectByName: (name) =>
+      use("read_object_by_name", (vault) => vault.readObjectByName(name), {
+        expectedErrorOutcome: "expected_missing_object",
+        expectedErrorStatuses: [400, 404],
+      }),
     updateObject: (options) => use("update_object", (vault) => vault.updateObject(options)),
     deleteObject: (options) => use("delete_object", (vault) => vault.deleteObject(options)),
   };

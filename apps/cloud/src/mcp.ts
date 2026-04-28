@@ -21,7 +21,7 @@ import { Context, Effect, Either, Layer, Option, Schema } from "effect";
 import { createRemoteJWKSet } from "jose";
 
 import { TelemetryLive } from "./services/telemetry";
-import { verifyMcpAccessToken, type VerifiedToken } from "./mcp-auth";
+import { McpJwtVerificationError, verifyMcpAccessToken, type VerifiedToken } from "./mcp-auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -87,7 +87,9 @@ const corsPreflight = HttpServerResponse.empty({
 export class McpAuth extends Context.Tag("@executor/cloud/McpAuth")<
   McpAuth,
   {
-    readonly verifyBearer: (request: Request) => Effect.Effect<VerifiedToken | null>;
+    readonly verifyBearer: (
+      request: Request,
+    ) => Effect.Effect<VerifiedToken | null, McpJwtVerificationError>;
   }
 >() {}
 
@@ -123,15 +125,16 @@ export const McpAuthLive = Layer.succeed(McpAuth, {
       return null;
     }
     const verified = yield* verifyJwt(authHeader.slice(BEARER_PREFIX.length)).pipe(
-      Effect.catchTag("McpJwtVerificationError", (error) =>
-        Effect.gen(function* () {
+      Effect.catchTag("McpJwtVerificationError", (error) => {
+        if (error.reason === "system") return Effect.fail(error);
+        return Effect.gen(function* () {
           yield* Effect.annotateCurrentSpan({
             "mcp.auth.outcome": "invalid",
             "mcp.auth.invalid_reason": error.reason,
           });
           return null;
-        }),
-      ),
+        });
+      }),
     );
     if (!verified) return null;
     if (!verified.accountId) {
