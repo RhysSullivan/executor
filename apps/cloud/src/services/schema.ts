@@ -76,3 +76,9 @@ export const identitySyncEvents = pgTable(
     pk: primaryKey({ columns: [t.provider, t.eventId] }),
   }),
 );
+
+export const identitySyncCursors = pgTable("identity_sync_cursors", {
+  provider: text("provider").primaryKey(),
+  cursor: text("cursor"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

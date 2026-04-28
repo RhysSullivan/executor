@@ -224,6 +224,31 @@ const make = Effect.gen(function* () {
           secret,
         }),
       ),
+
+    /** Pull identity-related WorkOS events for replay/reconciliation. */
+    listIdentityEvents: (options: {
+      after?: string;
+      rangeStart?: string;
+      limit?: number;
+      order?: "asc" | "desc";
+    }) =>
+      use((wos) =>
+        wos.events.listEvents({
+          events: [
+            "user.created",
+            "user.updated",
+            "organization.created",
+            "organization.updated",
+            "organization_membership.created",
+            "organization_membership.updated",
+            "organization_membership.deleted",
+          ],
+          ...(options.after ? { after: options.after } : {}),
+          ...(options.rangeStart ? { rangeStart: options.rangeStart } : {}),
+          ...(options.limit ? { limit: options.limit } : {}),
+          order: options.order ?? "asc",
+        }),
+      ),
   };
 });
 

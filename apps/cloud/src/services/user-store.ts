@@ -9,7 +9,13 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { accounts, identitySyncEvents, memberships, organizations } from "./schema";
+import {
+  accounts,
+  identitySyncCursors,
+  identitySyncEvents,
+  memberships,
+  organizations,
+} from "./schema";
 import type { DrizzleDb } from "./db";
 
 export type Account = typeof accounts.$inferSelect;
@@ -175,5 +181,25 @@ export const makeUserStore = (db: DrizzleDb) => ({
       .onConflictDoNothing()
       .returning();
     return result != null;
+  },
+
+  getIdentityCursor: async (provider: string) => {
+    const rows = await db
+      .select()
+      .from(identitySyncCursors)
+      .where(eq(identitySyncCursors.provider, provider));
+    return rows[0]?.cursor ?? null;
+  },
+
+  setIdentityCursor: async (provider: string, cursor: string | null) => {
+    const [result] = await db
+      .insert(identitySyncCursors)
+      .values({ provider, cursor })
+      .onConflictDoUpdate({
+        target: identitySyncCursors.provider,
+        set: { cursor, updatedAt: new Date() },
+      })
+      .returning();
+    return result!;
   },
 });

@@ -22,6 +22,7 @@ import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
 import { IdentityApi, IdentityWebhookHandlers } from "../identity/handlers";
 import { IdentitySync } from "../identity/sync";
+import { IdentityReconciliation } from "../identity/reconciliation";
 import { ErrorCaptureLive } from "../observability";
 
 import { CoreSharedServices } from "./core-shared-services";
@@ -46,12 +47,18 @@ const IdentitySyncLive = IdentitySync.Live.pipe(
   Layer.provideMerge(UserStoreLive),
   Layer.provideMerge(CoreSharedServices),
 );
+const IdentityReconciliationLive = IdentityReconciliation.Live.pipe(
+  Layer.provideMerge(UserStoreLive),
+  Layer.provideMerge(IdentitySyncLive),
+  Layer.provideMerge(CoreSharedServices),
+);
 
 export const SharedServices = Layer.mergeAll(
   DbLive,
   UserStoreLive,
   IdentityDirectoryLive,
   IdentitySyncLive,
+  IdentityReconciliationLive,
   CoreSharedServices,
   HttpServer.layerContext,
   TelemetryLive,
