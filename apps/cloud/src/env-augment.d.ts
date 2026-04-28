@@ -25,7 +25,6 @@ declare global {
       EXECUTOR_MCP_DEBUG?: string;
       MCP_AUTHKIT_DOMAIN?: string;
       MCP_RESOURCE_ORIGIN?: string;
-      MCP_STRICT_AUDIENCE?: string;
       NODE_ENV?: string;
 
       // Shared with frontend

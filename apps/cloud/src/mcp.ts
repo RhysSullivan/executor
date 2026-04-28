@@ -17,7 +17,7 @@
 import { env } from "cloudflare:workers";
 import { HttpApp, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import * as Sentry from "@sentry/cloudflare";
-import { Context, Effect, Either, Layer, Option, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { createRemoteJWKSet } from "jose";
 
 import { TelemetryLive } from "./services/telemetry";
@@ -94,27 +94,9 @@ export class McpAuth extends Context.Tag("@executor/cloud/McpAuth")<
 >() {}
 
 const verifyJwt = (token: string) =>
-  Effect.gen(function* () {
-    const strictResult = yield* verifyMcpAccessToken(token, jwks, {
-      issuer: AUTHKIT_DOMAIN,
-      audience: RESOURCE_URL,
-    }).pipe(Effect.either);
-
-    if (Either.isRight(strictResult)) {
-      return strictResult.right;
-    }
-
-    if (env.MCP_STRICT_AUDIENCE === "true") {
-      return yield* Effect.fail(strictResult.left);
-    }
-
-    const verified = yield* verifyMcpAccessToken(token, jwks, {
-      issuer: AUTHKIT_DOMAIN,
-    });
-    yield* Effect.annotateCurrentSpan({
-      "mcp.auth.audience_fallback": true,
-    });
-    return verified;
+  verifyMcpAccessToken(token, jwks, {
+    issuer: AUTHKIT_DOMAIN,
+    audience: RESOURCE_URL,
   });
 
 export const McpAuthLive = Layer.succeed(McpAuth, {
