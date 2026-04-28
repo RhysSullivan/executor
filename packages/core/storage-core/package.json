@@ -1,25 +1,74 @@
 {
   "name": "@executor/storage-core",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.0.1",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/storage-core",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/core/storage-core"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/conformance.ts",
     "./testing/memory": "./src/testing/memory.ts"
   },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./testing": {
+        "import": {
+          "types": "./dist/testing/conformance.d.ts",
+          "default": "./dist/testing/conformance.js"
+        }
+      },
+      "./testing/memory": {
+        "import": {
+          "types": "./dist/testing/memory.d.ts",
+          "default": "./dist/testing/memory.js"
+        }
+      }
+    }
+  },
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "test": "vitest run",
     "typecheck": "tsgo --noEmit",
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/vitest": "catalog:",
     "@standard-schema/spec": "^1.0.0",
-    "effect": "catalog:",
+    "effect": "catalog:"
+  },
+  "peerDependencies": {
+    "@effect/vitest": "catalog:",
     "vitest": "catalog:"
   },
+  "peerDependenciesMeta": {
+    "@effect/vitest": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "typescript": "catalog:"
+    "@effect/vitest": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

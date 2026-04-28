@@ -1,6 +1,8 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 
+import { InternalError } from "../observability";
+
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
@@ -60,4 +62,5 @@ export class ExecutionsApi extends HttpApiGroup.make("executions")
       .setPayload(ResumeRequest)
       .addSuccess(ResumeResponse)
       .addError(ExecutionNotFoundError),
-  ) {}
+  )
+  .addError(InternalError) {}

@@ -1,8 +1,7 @@
-import { useAtomRefresh } from "@effect-atom/atom-react";
 import { Button } from "@executor/react/components/button";
 
 import { AUTH_PATHS } from "../../auth/api";
-import { authAtom, useAuth } from "../auth";
+import { useAuth } from "../auth";
 import {
   CreateOrganizationFields,
   useCreateOrganizationForm,
@@ -10,7 +9,6 @@ import {
 
 export const OnboardingPage = () => {
   const auth = useAuth();
-  const refreshAuth = useAtomRefresh(authAtom);
 
   const suggestedName =
     auth.status === "authenticated" &&
@@ -21,13 +19,10 @@ export const OnboardingPage = () => {
 
   const form = useCreateOrganizationForm({
     defaultName: suggestedName,
-    // On success: the server set a new cookie with the new org; refetch /me
-    // so AuthGate routes into Shell.
-    // On failure: the server may have cleared the cookie because the current
-    // session was too stale to attach the new org. Refetch /me regardless so
-    // AuthGate can route to LoginPage if that's the case.
-    onSuccess: () => refreshAuth(),
-    onFailure: () => refreshAuth(),
+    // The server sets a cookie for the new (or cleared) org on both success and
+    // failure. The authWriteKeys passed at the mutation site auto-invalidate
+    // authAtom so AuthGate re-routes into Shell or LoginPage as appropriate.
+    onSuccess: () => {},
   });
 
   return (

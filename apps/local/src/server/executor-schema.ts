@@ -56,11 +56,31 @@ export const secret = sqliteTable("secret", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   provider: text('provider').notNull(),
+  owned_by_connection_id: text('owned_by_connection_id'),
   created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("secret_scope_id_idx").on(table.scope_id),
   index("secret_provider_idx").on(table.provider),
+  index("secret_owned_by_connection_id_idx").on(table.owned_by_connection_id),
+]);
+
+export const connection = sqliteTable("connection", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  provider: text('provider').notNull(),
+  identity_label: text('identity_label'),
+  access_token_secret_id: text('access_token_secret_id').notNull(),
+  refresh_token_secret_id: text('refresh_token_secret_id'),
+  expires_at: integer('expires_at'),
+  scope: text('scope'),
+  provider_state: text('provider_state', { mode: "json" }),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("connection_scope_id_idx").on(table.scope_id),
+  index("connection_provider_idx").on(table.provider),
 ]);
 
 export const openapi_source = sqliteTable("openapi_source", {
@@ -68,6 +88,7 @@ export const openapi_source = sqliteTable("openapi_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   spec: text('spec').notNull(),
+  source_url: text('source_url'),
   base_url: text('base_url'),
   headers: text('headers', { mode: "json" }),
   oauth2: text('oauth2', { mode: "json" }),
@@ -86,6 +107,22 @@ export const openapi_operation = sqliteTable("openapi_operation", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("openapi_operation_scope_id_idx").on(table.scope_id),
   index("openapi_operation_source_id_idx").on(table.source_id),
+]);
+
+export const openapi_source_binding = sqliteTable("openapi_source_binding", {
+  id: text('id').primaryKey(),
+  source_id: text('source_id').notNull(),
+  source_scope_id: text('source_scope_id').notNull(),
+  target_scope_id: text('target_scope_id').notNull(),
+  slot: text('slot').notNull(),
+  value: text('value', { mode: "json" }).notNull(),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [
+  index("openapi_source_binding_source_id_idx").on(table.source_id),
+  index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
+  index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
+  index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
 export const openapi_oauth_session = sqliteTable("openapi_oauth_session", {
@@ -186,16 +223,5 @@ export const graphql_operation = sqliteTable("graphql_operation", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_operation_scope_id_idx").on(table.scope_id),
   index("graphql_operation_source_id_idx").on(table.source_id),
-]);
-
-// Blob store table — hand-appended. BlobStore is a separate storage
-// abstraction from DBSchema, so the CLI doesn't generate it. Keep in
-// sync with @executor/storage-file's BlobStore implementation.
-export const blob = sqliteTable("blob", {
-  namespace: text('namespace').notNull(),
-  key: text('key').notNull(),
-  value: text('value').notNull(),
-}, (table) => [
-  primaryKey({ columns: [table.namespace, table.key] }),
 ]);
 

@@ -5,7 +5,11 @@
 
 import type { Effect } from "effect";
 
+import type { StorageError, UniqueViolationError } from "./errors";
 import type { DBFieldAttribute, DBSchema } from "./schema";
+
+/** Error union every backend method may emit. */
+export type StorageFailure = StorageError | UniqueViolationError;
 
 // ---------------------------------------------------------------------------
 // Where clauses
@@ -102,7 +106,7 @@ export type DBAdapter = {
     select?: string[] | undefined;
     /** Preserve an `id` in `data` instead of discarding it. */
     forceAllowId?: boolean | undefined;
-  }) => Effect.Effect<R, Error>;
+  }) => Effect.Effect<R, StorageFailure>;
 
   /**
    * Insert multiple rows in one call. Backends that don't have native
@@ -113,14 +117,14 @@ export type DBAdapter = {
     model: string;
     data: ReadonlyArray<Omit<T, "id">>;
     forceAllowId?: boolean | undefined;
-  }) => Effect.Effect<readonly R[], Error>;
+  }) => Effect.Effect<readonly R[], StorageFailure>;
 
   findOne: <T>(data: {
     model: string;
     where: Where[];
     select?: string[] | undefined;
     join?: JoinOption | undefined;
-  }) => Effect.Effect<T | null, Error>;
+  }) => Effect.Effect<T | null, StorageFailure>;
 
   findMany: <T>(data: {
     model: string;
@@ -135,12 +139,12 @@ export type DBAdapter = {
       | undefined;
     offset?: number | undefined;
     join?: JoinOption | undefined;
-  }) => Effect.Effect<readonly T[], Error>;
+  }) => Effect.Effect<readonly T[], StorageFailure>;
 
   count: (data: {
     model: string;
     where?: Where[] | undefined;
-  }) => Effect.Effect<number, Error>;
+  }) => Effect.Effect<number, StorageFailure>;
 
   /**
    * ⚠︎ `update` may return `null` if multiple rows match — prefer `updateMany`
@@ -150,17 +154,17 @@ export type DBAdapter = {
     model: string;
     where: Where[];
     update: Record<string, unknown>;
-  }) => Effect.Effect<T | null, Error>;
+  }) => Effect.Effect<T | null, StorageFailure>;
 
   updateMany: (data: {
     model: string;
     where: Where[];
     update: Record<string, unknown>;
-  }) => Effect.Effect<number, Error>;
+  }) => Effect.Effect<number, StorageFailure>;
 
-  delete: (data: { model: string; where: Where[] }) => Effect.Effect<void, Error>;
+  delete: (data: { model: string; where: Where[] }) => Effect.Effect<void, StorageFailure>;
 
-  deleteMany: (data: { model: string; where: Where[] }) => Effect.Effect<number, Error>;
+  deleteMany: (data: { model: string; where: Where[] }) => Effect.Effect<number, StorageFailure>;
 
   /**
    * Run operations in a transaction. Backends without transaction support
@@ -168,7 +172,7 @@ export type DBAdapter = {
    */
   transaction: <R, E>(
     callback: (trx: DBTransactionAdapter) => Effect.Effect<R, E>,
-  ) => Effect.Effect<R, E | Error>;
+  ) => Effect.Effect<R, E | StorageFailure>;
 
   /**
    * Optional migration-source generator. Forwarded verbatim from the
@@ -179,7 +183,7 @@ export type DBAdapter = {
     | ((props: {
         file?: string | undefined;
         tables: DBSchema;
-      }) => Effect.Effect<DBAdapterSchemaCreation, Error>)
+      }) => Effect.Effect<DBAdapterSchemaCreation, StorageFailure>)
     | undefined;
 
   /**
@@ -205,26 +209,38 @@ export interface CustomAdapter {
     model: string;
     data: T;
     select?: string[] | undefined;
-  }) => Effect.Effect<T, Error>;
+  }) => Effect.Effect<T, StorageFailure>;
+
+  /**
+   * Native bulk insert. Required because over a real network (e.g.
+   * Hyperdrive), per-row `create` inflates to N round-trips and can't
+   * finish inside a request budget for specs with ~1000+ rows. SQL
+   * backends issue a single multi-row INSERT; in-memory backends just
+   * push the rows.
+   */
+  createMany: <T extends Record<string, unknown>>(data: {
+    model: string;
+    data: ReadonlyArray<T>;
+  }) => Effect.Effect<T[], StorageFailure>;
 
   update: <T>(data: {
     model: string;
     where: CleanedWhere[];
     update: T;
-  }) => Effect.Effect<T | null, Error>;
+  }) => Effect.Effect<T | null, StorageFailure>;
 
   updateMany: (data: {
     model: string;
     where: CleanedWhere[];
     update: Record<string, unknown>;
-  }) => Effect.Effect<number, Error>;
+  }) => Effect.Effect<number, StorageFailure>;
 
   findOne: <T>(data: {
     model: string;
     where: CleanedWhere[];
     select?: string[] | undefined;
     join?: JoinConfig | undefined;
-  }) => Effect.Effect<T | null, Error>;
+  }) => Effect.Effect<T | null, StorageFailure>;
 
   findMany: <T>(data: {
     model: string;
@@ -234,22 +250,22 @@ export interface CustomAdapter {
     sortBy?: { field: string; direction: "asc" | "desc" } | undefined;
     offset?: number | undefined;
     join?: JoinConfig | undefined;
-  }) => Effect.Effect<T[], Error>;
+  }) => Effect.Effect<T[], StorageFailure>;
 
   delete: (data: {
     model: string;
     where: CleanedWhere[];
-  }) => Effect.Effect<void, Error>;
+  }) => Effect.Effect<void, StorageFailure>;
 
   deleteMany: (data: {
     model: string;
     where: CleanedWhere[];
-  }) => Effect.Effect<number, Error>;
+  }) => Effect.Effect<number, StorageFailure>;
 
   count: (data: {
     model: string;
     where?: CleanedWhere[] | undefined;
-  }) => Effect.Effect<number, Error>;
+  }) => Effect.Effect<number, StorageFailure>;
 
   /**
    * Optional migration-source generator — plugin authors use this to
@@ -260,7 +276,7 @@ export interface CustomAdapter {
     | ((props: {
         file?: string | undefined;
         tables: DBSchema;
-      }) => Effect.Effect<DBAdapterSchemaCreation, Error>)
+      }) => Effect.Effect<DBAdapterSchemaCreation, StorageFailure>)
     | undefined;
 
   options?: Record<string, unknown> | undefined;
@@ -309,7 +325,7 @@ export interface DBAdapterFactoryConfig {
         | false
         | (<R, E>(
             callback: (trx: DBTransactionAdapter) => Effect.Effect<R, E>,
-          ) => Effect.Effect<R, E | Error>)
+          ) => Effect.Effect<R, E | StorageFailure>)
       )
     | undefined;
   /** Skip id generation on `create`. @default false */
@@ -342,7 +358,7 @@ export interface DBAdapterFactoryConfig {
           | "count";
         model: string;
         schema: DBSchema;
-      }) => Effect.Effect<unknown, Error>)
+      }) => Effect.Effect<unknown, StorageFailure>)
     | undefined;
   /**
    * Per-field hook run inside the factory's read-path transform. Called
@@ -357,7 +373,7 @@ export interface DBAdapterFactoryConfig {
         select: readonly string[];
         model: string;
         schema: DBSchema;
-      }) => Effect.Effect<unknown, Error>)
+      }) => Effect.Effect<unknown, StorageFailure>)
     | undefined;
   /** Escape hatch — skip write-path transform entirely. @default false */
   disableTransformInput?: boolean | undefined;

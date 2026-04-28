@@ -8,6 +8,7 @@ import {
   removeSource,
   refreshSource,
 } from "../api/atoms";
+import { sourceWriteKeys } from "../api/reactivity-keys";
 import { ToolTree } from "../components/tool-tree";
 import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
 import type { ToolSummary } from "../components/tool-tree";
@@ -81,8 +82,8 @@ export function SourceDetailPage(props: {
     try {
       await doRemove({
         path: { scopeId, sourceId: namespace },
+        reactivityKeys: sourceWriteKeys,
       });
-      refreshSources();
       void navigate({ to: "/" });
     } catch {
       setDeleting(false);
@@ -95,9 +96,8 @@ export function SourceDetailPage(props: {
     try {
       await doRefresh({
         path: { scopeId, sourceId: namespace },
+        reactivityKeys: sourceWriteKeys,
       });
-      refreshTools();
-      refreshSources();
     } finally {
       setRefreshing(false);
     }
@@ -105,8 +105,6 @@ export function SourceDetailPage(props: {
 
   const handleEditSave = () => {
     setEditing(false);
-    refreshSources();
-    refreshTools();
   };
 
   return (
@@ -129,6 +127,12 @@ export function SourceDetailPage(props: {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          {editPlugin?.signIn && !editing && (
+            <Suspense fallback={null}>
+              <editPlugin.signIn sourceId={namespace} />
+            </Suspense>
+          )}
+
           {canEdit && editPlugin && !editing && (
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               Edit
@@ -197,37 +201,49 @@ export function SourceDetailPage(props: {
           </div>
         </div>
       ) : (
-        /* Content -- split pane */
-        Result.match(tools, {
-          onInitial: () => <SourceDetailSkeleton />,
-          onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
-          onSuccess: () => (
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              {/* Left: tool tree */}
-              <div className="flex w-72 shrink-0 flex-col border-r border-border/60 lg:w-80 xl:w-[22rem]">
-                <ToolTree
-                  tools={sourceTools}
-                  selectedToolId={selectedToolId}
-                  onSelect={setSelectedToolId}
-                />
-              </div>
+        <>
+          {editPlugin?.summary && (
+            <Suspense fallback={null}>
+              <editPlugin.summary
+                sourceId={namespace}
+                variant="panel"
+                onAction={() => setEditing(true)}
+              />
+            </Suspense>
+          )}
 
-              {/* Right: tool detail */}
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                {selectedTool ? (
-                  <ToolDetail
-                    toolId={selectedTool.id}
-                    toolName={selectedTool.name}
-                    toolDescription={selectedTool.description}
-                    scopeId={scopeId}
+          {/* Content -- split pane */}
+          {Result.match(tools, {
+            onInitial: () => <SourceDetailSkeleton />,
+            onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
+            onSuccess: () => (
+              <div className="flex min-h-0 flex-1 overflow-hidden">
+                {/* Left: tool tree */}
+                <div className="flex w-72 shrink-0 flex-col border-r border-border/60 lg:w-80 xl:w-[22rem]">
+                  <ToolTree
+                    tools={sourceTools}
+                    selectedToolId={selectedToolId}
+                    onSelect={setSelectedToolId}
                   />
-                ) : (
-                  <ToolDetailEmpty hasTools={sourceTools.length > 0} />
-                )}
+                </div>
+
+                {/* Right: tool detail */}
+                <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                  {selectedTool ? (
+                    <ToolDetail
+                      toolId={selectedTool.id}
+                      toolName={selectedTool.name}
+                      toolDescription={selectedTool.description}
+                      scopeId={scopeId}
+                    />
+                  ) : (
+                    <ToolDetailEmpty hasTools={sourceTools.length > 0} />
+                  )}
+                </div>
               </div>
-            </div>
-          ),
-        })
+            ),
+          })}
+        </>
       )}
     </div>
   );

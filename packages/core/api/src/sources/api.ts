@@ -1,6 +1,12 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId, ToolId } from "@executor/sdk";
+import {
+  ScopeId,
+  SourceRemovalNotAllowedError,
+  ToolId,
+} from "@executor/sdk";
+
+import { InternalError } from "../observability";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -15,6 +21,7 @@ const sourceIdParam = HttpApiSchema.param("sourceId", Schema.String);
 
 const SourceResponse = Schema.Struct({
   id: Schema.String,
+  scopeId: Schema.optional(ScopeId),
   name: Schema.String,
   kind: Schema.String,
   url: Schema.optional(Schema.String),
@@ -54,6 +61,14 @@ const DetectResultResponse = Schema.Struct({
 });
 
 // ---------------------------------------------------------------------------
+// Error schemas with HTTP status annotations
+// ---------------------------------------------------------------------------
+
+const SourceRemovalNotAllowed = SourceRemovalNotAllowedError.annotations(
+  HttpApiSchema.annotations({ status: 409 }),
+);
+
+// ---------------------------------------------------------------------------
 // Group
 // ---------------------------------------------------------------------------
 
@@ -64,9 +79,9 @@ export class SourcesApi extends HttpApiGroup.make("sources")
     ),
   )
   .add(
-    HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/sources/${sourceIdParam}`.addSuccess(
-      SourceRemoveResponse,
-    ),
+    HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/sources/${sourceIdParam}`
+      .addSuccess(SourceRemoveResponse)
+      .addError(SourceRemovalNotAllowed),
   )
   .add(
     HttpApiEndpoint.post(
@@ -82,4 +97,5 @@ export class SourcesApi extends HttpApiGroup.make("sources")
     HttpApiEndpoint.post("detect")`/scopes/${scopeIdParam}/sources/detect`
       .setPayload(DetectRequest)
       .addSuccess(Schema.Array(DetectResultResponse)),
-  ) {}
+  )
+  .addError(InternalError) {}

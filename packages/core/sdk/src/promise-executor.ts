@@ -45,7 +45,12 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = Promisified<
 >;
 
 export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
-  readonly scope?: { readonly id?: string; readonly name?: string };
+  /**
+   * Precedence-ordered scope stack (innermost first). Optional — defaults
+   * to a single-element stack with id "default-scope". Pass an array of
+   * `{ id, name }` partials to build a multi-scope executor.
+   */
+  readonly scopes?: readonly { readonly id?: string; readonly name?: string }[];
   readonly plugins?: TPlugins;
 }
 
@@ -112,19 +117,37 @@ export const createExecutor = async <
   const plugins = (config?.plugins ?? []) as unknown as TPlugins;
   const schema = collectSchemas(plugins);
 
-  const scope = new Scope({
-    id: ScopeId.make(config?.scope?.id ?? "default-scope"),
-    name: config?.scope?.name ?? "default",
-    createdAt: new Date(),
-  });
+  const scopes =
+    config?.scopes && config.scopes.length > 0
+      ? config.scopes.map(
+          (s, i) =>
+            new Scope({
+              id: ScopeId.make(s.id ?? (i === 0 ? "default-scope" : `scope-${i}`)),
+              name: s.name ?? (i === 0 ? "default" : `scope-${i}`),
+              createdAt: new Date(),
+            }),
+        )
+      : [
+          new Scope({
+            id: ScopeId.make("default-scope"),
+            name: "default",
+            createdAt: new Date(),
+          }),
+        ];
 
   const effectConfig = {
-    scope,
+    scopes,
     adapter: makeMemoryAdapter({ schema }),
     blobs: makeInMemoryBlobStore(),
     plugins,
   };
 
+  // The SDK has no observability requirement; storage failures surface
+  // as raw `StorageError` / `UniqueViolationError` in the typed channel.
+  // `Effect.runPromise` turns them into Promise rejections — consumers
+  // get the tagged error as the rejected value. See
+  // notes/promise-sdk-typed-errors.md for the planned `runPromiseExit`
+  // rewrite that exposes the full error union to consumers.
   const effectExecutor = await Effect.runPromise(
     createEffectExecutor(effectConfig),
   );

@@ -37,6 +37,19 @@ export const McpOAuthSession = Schema.Struct({
   endpoint: Schema.String,
   redirectUrl: Schema.String,
   codeVerifier: Schema.String,
+  /**
+   * Executor scope id where the minted Connection (and its owned
+   * access/refresh secrets) will land. Pinned at `startOAuth` time so
+   * token writes target the same scope regardless of who's currently
+   * invoking. For per-user OAuth this is the innermost
+   * (`ctx.scopes[0]`) scope; for org-shared installs it can be the org
+   * scope.
+   */
+  tokenScope: Schema.String,
+  /** Stable id of the SDK Connection the exchange will mint. Stored
+   *  once on the source's auth config so per-user scope shadowing
+   *  resolves to the calling user's connection at invoke time. */
+  connectionId: Schema.String,
 });
 export type McpOAuthSession = typeof McpOAuthSession.Type;
 
@@ -93,12 +106,26 @@ export const startMcpOAuthAuthorization = (input: {
   endpoint: string;
   redirectUrl: string;
   state: string;
+  /** Pre-existing DCR client + discovery URLs for the source. When
+   *  passed, the SDK skips registration and re-uses these values. */
+  clientInformation?: OAuthClientInformationMixed | null;
+  authorizationServerUrl?: string | null;
+  resourceMetadataUrl?: string | null;
 }): Effect.Effect<McpOAuthStartResult, McpOAuthError> =>
   Effect.gen(function* () {
     let authorizationUrl: URL | undefined;
     let codeVerifier: string | undefined;
-    let discoveryState: OAuthDiscoveryState | undefined;
-    let clientInformation: OAuthClientInformationMixed | undefined;
+    let discoveryState: OAuthDiscoveryState | undefined =
+      input.authorizationServerUrl || input.resourceMetadataUrl
+        ? {
+            authorizationServerUrl:
+              input.authorizationServerUrl ??
+              new URL("/", input.endpoint).toString(),
+            resourceMetadataUrl: input.resourceMetadataUrl ?? undefined,
+          }
+        : undefined;
+    let clientInformation: OAuthClientInformationMixed | undefined =
+      input.clientInformation ?? undefined;
 
     const provider: OAuthClientProvider = {
       get redirectUrl() {

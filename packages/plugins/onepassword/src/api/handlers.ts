@@ -1,12 +1,19 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { addGroup } from "@executor/api";
+import { addGroup, capture } from "@executor/api";
 import type { OnePasswordExtension } from "../sdk/plugin";
 import { OnePasswordGroup } from "./group";
 
 // ---------------------------------------------------------------------------
-// Service tag — the server provides the 1Password extension
+// Service tag
+//
+// Holds the `Captured` shape — every method's `StorageFailure` channel has
+// been swapped for `InternalError({ traceId })`. The host provides an
+// already-wrapped extension via
+// `Layer.succeed(OnePasswordExtensionService, withCapture(executor).onepassword)`.
+// Handlers see `InternalError` in the error union, which matches
+// `.addError(InternalError)` on the group — no per-handler translation.
 // ---------------------------------------------------------------------------
 
 export class OnePasswordExtensionService extends Context.Tag("OnePasswordExtensionService")<
@@ -22,6 +29,12 @@ const ExecutorApiWithOnePassword = addGroup(OnePasswordGroup);
 
 // ---------------------------------------------------------------------------
 // Handlers
+//
+// Each handler is exactly: yield the extension service, call the method,
+// return. Plugin SDK errors flow through the typed channel and are
+// schema-encoded (OnePasswordError -> 502) by HttpApi. Defects bubble up
+// and are captured + downgraded to `InternalError(traceId)` by the
+// observability middleware.
 // ---------------------------------------------------------------------------
 
 export const OnePasswordHandlers = HttpApiBuilder.group(
@@ -30,31 +43,31 @@ export const OnePasswordHandlers = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("getConfig", () =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           return yield* ext.getConfig();
-        }).pipe(Effect.orDie),
+        })),
       )
       .handle("configure", ({ payload }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           yield* ext.configure(payload);
-        }).pipe(Effect.orDie),
+        })),
       )
       .handle("removeConfig", () =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           yield* ext.removeConfig();
-        }).pipe(Effect.orDie),
+        })),
       )
       .handle("status", () =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           return yield* ext.status();
-        }).pipe(Effect.orDie),
+        })),
       )
       .handle("listVaults", ({ urlParams }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           const auth =
             urlParams.authKind === "desktop-app"
@@ -62,6 +75,6 @@ export const OnePasswordHandlers = HttpApiBuilder.group(
               : { kind: "service-account" as const, tokenSecretId: urlParams.account };
           const vaults = yield* ext.listVaults(auth);
           return { vaults: [...vaults] };
-        }).pipe(Effect.orDie),
+        })),
       ),
 );

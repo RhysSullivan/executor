@@ -1,42 +1,44 @@
 // Scoped adapter — wraps a DBAdapter so every read on a tenant-scoped
-// table filters by `scope_id IN (read scopes)` and every write stamps
-// `scope_id = writeTarget` into the row payload. Tables the schema
-// doesn't declare a `scope_id` field on pass through untouched — the
-// wrapper doesn't invent columns that aren't there.
+// table filters by `scope_id IN (scopes)` and every write validates that
+// its `scope_id` payload is one of the allowed scopes. Tables the
+// schema doesn't declare a `scope_id` field on pass through untouched —
+// the wrapper doesn't invent columns that aren't there.
 //
-// The `scopes` argument is an ordered-list primitive even though the
-// SDK today always passes a single-element read list. The shape lets us
-// layer scopes later (org → workspace → user, innermost wins on
-// shadowing) without changing the wrapper signature or any plugin code.
-// `read` and `write` are independent: a caller can read across an
-// entire stack while writes always land in exactly one scope.
+// Writes are explicit: the caller must include `scope_id` in every
+// create/update payload for scoped tables. The adapter does not pick a
+// default. A missing `scope_id` on a scoped write, or a value outside
+// the allowed `scopes` array, is a `StorageError`.
 //
-// The SDK's `createExecutor` wraps the root adapter (and every tx handle
-// passed back into transaction callbacks) with this before handing it to
-// the core table writers or to plugin storage via `typedAdapter(...)`.
-// Plugins see a stable DBAdapter; they don't know or care about scope.
+// The SDK's `createExecutor` wraps the root adapter (and every tx
+// handle passed back into transaction callbacks) with this before
+// handing it to the core table writers or to plugin storage via
+// `typedAdapter(...)`. Plugins see a stable DBAdapter; they learn their
+// scope from `ctx.scopes` and stamp it explicitly on every write.
 //
 // Contract: every multi-tenant table's schema must include
 // `scope_id: { type: "string", required: true, index: true }`. Tables
 // without it are shared across scopes by construction.
 
-import type {
-  DBAdapter,
-  DBSchema,
-  DBTransactionAdapter,
-  Where,
+import { Effect } from "effect";
+
+import {
+  StorageError,
+  type DBAdapter,
+  type DBSchema,
+  type DBTransactionAdapter,
+  type Where,
 } from "@executor/storage-core";
 
 const SCOPE_FIELD = "scope_id";
 
 export interface ScopeContext {
   /**
-   * Precedence-ordered list of scope ids visible to reads. Innermost
-   * first when layering is used. Today always one element.
+   * Precedence-ordered list of scope ids the wrapper accepts on reads
+   * and writes. Innermost first. Reads walk every scope in the list
+   * (via `scope_id IN (...)`); writes must name one of them explicitly
+   * via `scope_id` in the payload.
    */
-  readonly read: readonly string[];
-  /** The single scope id written rows get stamped with. */
-  readonly write: string;
+  readonly scopes: readonly string[];
 }
 
 const collectScopedModels = (schema: DBSchema): Set<string> => {
@@ -49,33 +51,69 @@ const collectScopedModels = (schema: DBSchema): Set<string> => {
 
 const withScopeRead = (
   where: readonly Where[] | undefined,
-  scopes: ScopeContext,
+  ctx: ScopeContext,
 ): Where[] => {
-  // Strip any caller-provided scope filter so they can't override
-  // isolation, then AND ours in. For a single-scope stack we use `eq`
-  // so downstream query planners see a simple equality; for multiple
-  // scopes we emit `in (...)`.
   const base = (where ?? []).filter((w) => w.field !== SCOPE_FIELD);
+  const callerScope = (where ?? []).find((w) => w.field === SCOPE_FIELD);
+
+  // Honor a caller-supplied scope filter IF it names a single scope
+  // that lives in the executor's stack. This turns a stack-wide read
+  // (default) into a single-scope read — and, for delete/update, pins
+  // mutations to the named scope instead of letting the `IN (stack)`
+  // injection silently widen them. An out-of-stack value is treated
+  // as an isolation bypass attempt and discarded; the stack-wide
+  // filter applies instead, so the caller sees nothing outside their
+  // stack regardless of what they asked for.
+  if (
+    callerScope &&
+    typeof callerScope.value === "string" &&
+    ctx.scopes.includes(callerScope.value)
+  ) {
+    return [...base, { field: SCOPE_FIELD, value: callerScope.value }];
+  }
+
   const scope: Where =
-    scopes.read.length === 1
-      ? { field: SCOPE_FIELD, value: scopes.read[0]! }
-      : { field: SCOPE_FIELD, value: [...scopes.read], operator: "in" };
+    ctx.scopes.length === 1
+      ? { field: SCOPE_FIELD, value: ctx.scopes[0]! }
+      : { field: SCOPE_FIELD, value: [...ctx.scopes], operator: "in" };
   return [...base, scope];
 };
 
-const stampScope = (
+const assertScopedWrite = (
+  model: string,
   data: Record<string, unknown>,
-  writeScope: string,
-): Record<string, unknown> => ({
-  ...data,
-  [SCOPE_FIELD]: writeScope,
-});
+  ctx: ScopeContext,
+): Effect.Effect<void, StorageError> => {
+  const value = data[SCOPE_FIELD];
+  if (typeof value !== "string" || value.length === 0) {
+    return Effect.fail(
+      new StorageError({
+        message:
+          `Write to scoped table "${model}" missing required \`scope_id\`. ` +
+          `Callers must name the target scope explicitly.`,
+        cause: undefined,
+      }),
+    );
+  }
+  if (!ctx.scopes.includes(value)) {
+    return Effect.fail(
+      new StorageError({
+        message:
+          `Write to scoped table "${model}" targets scope "${value}" ` +
+          `which is not in the executor's scope stack ` +
+          `[${ctx.scopes.join(", ")}].`,
+        cause: undefined,
+      }),
+    );
+  }
+  return Effect.void;
+};
 
 type TxMethods = Omit<DBAdapter, "transaction" | "createSchema" | "options">;
 
 const wrapTxMethods = (
   inner: TxMethods,
-  scopes: ScopeContext,
+  ctx: ScopeContext,
   scopedModels: Set<string>,
 ): TxMethods => {
   const isScoped = (model: string) => scopedModels.has(model);
@@ -84,76 +122,107 @@ const wrapTxMethods = (
     id: inner.id,
     create: (data) =>
       isScoped(data.model)
-        ? inner.create({
-            ...data,
-            data: stampScope(data.data as Record<string, unknown>, scopes.write),
-          })
+        ? Effect.flatMap(
+            assertScopedWrite(
+              data.model,
+              data.data as Record<string, unknown>,
+              ctx,
+            ),
+            () => inner.create(data),
+          )
         : inner.create(data),
     createMany: (data) =>
       isScoped(data.model)
-        ? inner.createMany({
-            ...data,
-            data: data.data.map((row) =>
-              stampScope(row as Record<string, unknown>, scopes.write),
-            ) as typeof data.data,
-          })
+        ? Effect.flatMap(
+            Effect.all(
+              data.data.map((row) =>
+                assertScopedWrite(
+                  data.model,
+                  row as Record<string, unknown>,
+                  ctx,
+                ),
+              ),
+            ),
+            () => inner.createMany(data),
+          )
         : inner.createMany(data),
     findOne: (data) =>
       isScoped(data.model)
-        ? inner.findOne({ ...data, where: withScopeRead(data.where, scopes) })
+        ? inner.findOne({ ...data, where: withScopeRead(data.where, ctx) })
         : inner.findOne(data),
     findMany: (data) =>
       isScoped(data.model)
-        ? inner.findMany({ ...data, where: withScopeRead(data.where, scopes) })
+        ? inner.findMany({ ...data, where: withScopeRead(data.where, ctx) })
         : inner.findMany(data),
     count: (data) =>
       isScoped(data.model)
-        ? inner.count({ ...data, where: withScopeRead(data.where, scopes) })
+        ? inner.count({ ...data, where: withScopeRead(data.where, ctx) })
         : inner.count(data),
     update: (data) =>
       isScoped(data.model)
-        ? inner.update({
-            ...data,
-            where: withScopeRead(data.where, scopes),
-            // Force-overwrite any caller-supplied `scope_id` so an update
-            // can't transfer a row to a different scope. Symmetric with
-            // `create`'s `stampScope(data.data)`.
-            update: stampScope(data.update, scopes.write),
-          })
+        ? Effect.flatMap(
+            // If the caller sets `scope_id` in the update payload, it
+            // must be one of the allowed scopes. If they don't, we leave
+            // the row's existing scope_id in place — updates are scoped
+            // by the where filter's IN clause, so you can only mutate
+            // rows you can read. That's sufficient for isolation; we
+            // don't need to force-stamp on update.
+            (data.update as Record<string, unknown>)[SCOPE_FIELD] !== undefined
+              ? assertScopedWrite(
+                  data.model,
+                  data.update as Record<string, unknown>,
+                  ctx,
+                )
+              : Effect.void,
+            () =>
+              inner.update({
+                ...data,
+                where: withScopeRead(data.where, ctx),
+              }),
+          )
         : inner.update(data),
     updateMany: (data) =>
       isScoped(data.model)
-        ? inner.updateMany({
-            ...data,
-            where: withScopeRead(data.where, scopes),
-            update: stampScope(data.update, scopes.write),
-          })
+        ? Effect.flatMap(
+            (data.update as Record<string, unknown>)[SCOPE_FIELD] !== undefined
+              ? assertScopedWrite(
+                  data.model,
+                  data.update as Record<string, unknown>,
+                  ctx,
+                )
+              : Effect.void,
+            () =>
+              inner.updateMany({
+                ...data,
+                where: withScopeRead(data.where, ctx),
+              }),
+          )
         : inner.updateMany(data),
     delete: (data) =>
       isScoped(data.model)
-        ? inner.delete({ ...data, where: withScopeRead(data.where, scopes) })
+        ? inner.delete({ ...data, where: withScopeRead(data.where, ctx) })
         : inner.delete(data),
     deleteMany: (data) =>
       isScoped(data.model)
-        ? inner.deleteMany({ ...data, where: withScopeRead(data.where, scopes) })
+        ? inner.deleteMany({ ...data, where: withScopeRead(data.where, ctx) })
         : inner.deleteMany(data),
   };
 };
 
 export const scopeAdapter = (
   inner: DBAdapter,
-  scopes: ScopeContext,
+  ctx: ScopeContext,
   schema: DBSchema,
 ): DBAdapter => {
   const scopedModels = collectScopedModels(schema);
-  const tx = wrapTxMethods(inner, scopes, scopedModels);
+  const tx = wrapTxMethods(inner, ctx, scopedModels);
   return {
     ...tx,
     transaction: (callback) =>
       inner.transaction((rawTrx) => {
         const scopedTrx: DBTransactionAdapter = wrapTxMethods(
           rawTrx,
-          scopes,
+          ctx,
           scopedModels,
         );
         return callback(scopedTrx);

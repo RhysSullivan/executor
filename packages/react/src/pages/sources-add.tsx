@@ -1,9 +1,6 @@
 import { Suspense } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { SourcePlugin } from "../plugins/source-plugin";
-import { useAtomRefresh } from "@effect-atom/atom-react";
-import { sourcesAtom } from "../api/atoms";
-import { useScope } from "../hooks/use-scope";
 
 // ---------------------------------------------------------------------------
 // Page
@@ -17,8 +14,6 @@ export function SourcesAddPage(props: {
   sourcePlugins: readonly SourcePlugin[];
 }) {
   const { pluginKey, url, preset, namespace, sourcePlugins } = props;
-  const scopeId = useScope();
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const navigate = useNavigate();
 
   const plugin = sourcePlugins.find((p) => p.key === pluginKey);
@@ -57,7 +52,6 @@ export function SourcesAddPage(props: {
             initialPreset={preset}
             initialNamespace={namespace}
             onComplete={() => {
-              refreshSources();
               void navigate({ to: "/" });
             }}
             onCancel={() => {

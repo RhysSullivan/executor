@@ -9,6 +9,10 @@ jobs:
   # needs to know which platforms made it this far.
   build-preview-binary:
     name: Build preview binary (${{ matrix.target }})
+    # Fork PRs don't receive repo secrets, so the R2 upload step can't
+    # authenticate. Skip the whole preview pipeline (publish `needs:` this
+    # job and cascades to skipped) rather than failing the check.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:

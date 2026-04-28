@@ -330,7 +330,7 @@ export const isDenoAvailable = (executable: string = defaultDenoExecutable()): b
 
 export const makeDenoSubprocessExecutor = (
   options: DenoSubprocessExecutorOptions = {},
-): CodeExecutor => ({
+): CodeExecutor<never> => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     executeInDeno(code, toolInvoker, options),
 });

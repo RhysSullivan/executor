@@ -195,6 +195,14 @@ const syncGitHubRelease = async (input: {
     return;
   }
 
+  const versionedNotes = resolve(cliRoot, "release-notes", `${input.tag}.md`);
+  const fallbackNotes = resolve(cliRoot, "release-notes", "next.md");
+  const notesFile = existsSync(versionedNotes)
+    ? versionedNotes
+    : existsSync(fallbackNotes)
+      ? fallbackNotes
+      : null;
+
   const args = [
     "release",
     "create",
@@ -204,7 +212,7 @@ const syncGitHubRelease = async (input: {
     repository,
     "--title",
     input.tag,
-    "--generate-notes",
+    ...(notesFile ? ["--notes-file", notesFile] : ["--generate-notes"]),
     "--verify-tag",
   ];
 

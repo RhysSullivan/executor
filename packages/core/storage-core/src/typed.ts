@@ -17,7 +17,7 @@
 
 import type { Effect } from "effect";
 
-import type { DBAdapter, Where } from "./adapter";
+import type { DBAdapter, StorageFailure, Where } from "./adapter";
 import type {
   DBSchema,
   InferDBFieldsInput,
@@ -34,25 +34,33 @@ type RowOutput<S extends DBSchema, M extends keyof S> = InferDBFieldsOutput<
 > &
   Record<string, unknown>;
 
-export interface TypedAdapter<S extends DBSchema> {
+/**
+ * Schema-typed view over a `DBAdapter`. The error parameter `E`
+ * defaults to `StorageFailure` (`StorageError | UniqueViolationError`) —
+ * that's what backends emit and what plugin code sees. Translation
+ * to the opaque public `InternalError({ traceId })` is done only at
+ * the HTTP edge (`@executor/api` `withCapture`); everyone else
+ * works with the raw tag.
+ */
+export interface TypedAdapter<S extends DBSchema, E = StorageFailure> {
   readonly raw: DBAdapter;
 
   readonly create: <M extends keyof S & string>(data: {
     model: M;
     data: Omit<RowInput<S, M>, "id"> & { id?: string };
     forceAllowId?: boolean;
-  }) => Effect.Effect<RowOutput<S, M>, Error>;
+  }) => Effect.Effect<RowOutput<S, M>, E>;
 
   readonly createMany: <M extends keyof S & string>(data: {
     model: M;
     data: ReadonlyArray<Omit<RowInput<S, M>, "id"> & { id?: string }>;
     forceAllowId?: boolean;
-  }) => Effect.Effect<readonly RowOutput<S, M>[], Error>;
+  }) => Effect.Effect<readonly RowOutput<S, M>[], E>;
 
   readonly findOne: <M extends keyof S & string>(data: {
     model: M;
     where: Where[];
-  }) => Effect.Effect<RowOutput<S, M> | null, Error>;
+  }) => Effect.Effect<RowOutput<S, M> | null, E>;
 
   readonly findMany: <M extends keyof S & string>(data: {
     model: M;
@@ -60,34 +68,34 @@ export interface TypedAdapter<S extends DBSchema> {
     limit?: number;
     sortBy?: { field: string; direction: "asc" | "desc" };
     offset?: number;
-  }) => Effect.Effect<readonly RowOutput<S, M>[], Error>;
+  }) => Effect.Effect<readonly RowOutput<S, M>[], E>;
 
   readonly update: <M extends keyof S & string>(data: {
     model: M;
     where: Where[];
     update: Partial<RowInput<S, M>>;
-  }) => Effect.Effect<RowOutput<S, M> | null, Error>;
+  }) => Effect.Effect<RowOutput<S, M> | null, E>;
 
   readonly updateMany: <M extends keyof S & string>(data: {
     model: M;
     where: Where[];
     update: Partial<RowInput<S, M>>;
-  }) => Effect.Effect<number, Error>;
+  }) => Effect.Effect<number, E>;
 
   readonly delete: <M extends keyof S & string>(data: {
     model: M;
     where: Where[];
-  }) => Effect.Effect<void, Error>;
+  }) => Effect.Effect<void, E>;
 
   readonly deleteMany: <M extends keyof S & string>(data: {
     model: M;
     where: Where[];
-  }) => Effect.Effect<number, Error>;
+  }) => Effect.Effect<number, E>;
 
   readonly count: <M extends keyof S & string>(data: {
     model: M;
     where?: Where[];
-  }) => Effect.Effect<number, Error>;
+  }) => Effect.Effect<number, E>;
 }
 
 /**

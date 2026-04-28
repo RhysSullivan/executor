@@ -4,6 +4,7 @@ import type { HttpApiGroup } from "@effect/platform";
 import { ToolsApi } from "./tools/api";
 import { SourcesApi } from "./sources/api";
 import { SecretsApi } from "./secrets/api";
+import { ConnectionsApi } from "./connections/api";
 import { ExecutionsApi } from "./executions/api";
 import { ScopeApi } from "./scope/api";
 
@@ -11,6 +12,7 @@ export const CoreExecutorApi = HttpApi.make("executor")
   .add(ToolsApi)
   .add(SourcesApi)
   .add(SecretsApi)
+  .add(ConnectionsApi)
   .add(ExecutionsApi)
   .add(ScopeApi)
   .annotateContext(

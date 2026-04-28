@@ -130,8 +130,12 @@ const DiscoveryDocumentModel = Schema.Struct({
 });
 type DiscoveryDocument = typeof DiscoveryDocumentModel.Type;
 
-const toParseError = (message: string, cause: unknown) =>
-  new GoogleDiscoveryParseError({ message, cause });
+// The Schema.TaggedError version of GoogleDiscoveryParseError no longer
+// carries a `cause` field — it would leak raw decoder internals over the
+// wire. The decoder failure still shows up on the Effect cause chain for
+// server-side logging; the client only sees the user-facing `message`.
+const toParseError = (message: string, _cause: unknown) =>
+  new GoogleDiscoveryParseError({ message });
 
 const decodeUnknownWith =
   <A>(

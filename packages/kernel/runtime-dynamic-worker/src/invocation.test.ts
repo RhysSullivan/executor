@@ -30,14 +30,14 @@ const failingInvoker = (message: string): SandboxToolInvoker => ({
 describe("ToolDispatcher", () => {
   it("returns a success envelope on successful tool call", async () => {
     const invoker = makeInvoker(({ args }) => args);
-    const dispatcher = new ToolDispatcher(invoker);
+    const dispatcher = new ToolDispatcher(invoker, Effect.runPromise);
 
     const result = await dispatcher.call("test.tool", '{"key":"value"}');
     expect(decodeWorkerRpcResponse(result)).toEqual({ ok: true, result: { key: "value" } });
   });
 
   it("serializes tagged failures into a structured error envelope", async () => {
-    const dispatcher = new ToolDispatcher(failingInvoker("tool broke"));
+    const dispatcher = new ToolDispatcher(failingInvoker("tool broke"), Effect.runPromise);
 
     const result = await dispatcher.call("broken.tool", "{}");
     expect(decodeWorkerRpcResponse(result)).toMatchObject({
@@ -54,13 +54,16 @@ describe("ToolDispatcher", () => {
   });
 
   it("serializes object-shaped tool errors without collapsing them", async () => {
-    const dispatcher = new ToolDispatcher({
-      invoke: () =>
-        Effect.fail({
-          code: "forbidden",
-          detail: "missing team access",
-        }),
-    });
+    const dispatcher = new ToolDispatcher(
+      {
+        invoke: () =>
+          Effect.fail({
+            code: "forbidden",
+            detail: "missing team access",
+          }),
+      },
+      Effect.runPromise,
+    );
 
     const result = await dispatcher.call("broken.tool", "{}");
     expect(decodeWorkerRpcResponse(result)).toEqual({
@@ -86,7 +89,7 @@ describe("ToolDispatcher", () => {
 
   it("handles undefined args", async () => {
     const invoker = makeInvoker(({ args }) => args);
-    const dispatcher = new ToolDispatcher(invoker);
+    const dispatcher = new ToolDispatcher(invoker, Effect.runPromise);
 
     const result = await dispatcher.call("test.tool", "");
     expect(decodeWorkerRpcResponse(result)).toEqual({ ok: true, result: undefined });
@@ -98,7 +101,7 @@ describe("ToolDispatcher", () => {
       capturedPath = path;
       return "ok";
     });
-    const dispatcher = new ToolDispatcher(invoker);
+    const dispatcher = new ToolDispatcher(invoker, Effect.runPromise);
 
     await dispatcher.call("my.deep.tool.path", "{}");
     expect(capturedPath).toBe("my.deep.tool.path");

@@ -2,10 +2,18 @@ import type { Effect } from "effect";
 import type {
   DBAdapter,
   DBSchema,
+  StorageFailure,
   TypedAdapter,
 } from "@executor/storage-core";
 
-import type { ScopedBlobStore } from "./blob";
+import type { PluginBlobStore } from "./blob";
+import type {
+  ConnectionProvider,
+  ConnectionRef,
+  ConnectionRefreshError,
+  CreateConnectionInput,
+  UpdateConnectionTokensInput,
+} from "./connections";
 import type {
   DefinitionsInput,
   SourceInput,
@@ -19,6 +27,13 @@ import type {
   ElicitationRequest,
   ElicitationResponse,
 } from "./elicitation";
+import type {
+  ConnectionNotFoundError,
+  ConnectionProviderNotRegisteredError,
+  ConnectionReauthRequiredError,
+  ConnectionRefreshNotSupportedError,
+  SecretOwnedByConnectionError,
+} from "./errors";
 import type { Scope } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
@@ -35,9 +50,25 @@ import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 // ---------------------------------------------------------------------------
 
 export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
-  readonly scope: Scope;
-  readonly adapter: TSchema extends DBSchema ? TypedAdapter<TSchema> : DBAdapter;
-  readonly blobs: ScopedBlobStore;
+  /**
+   * Precedence-ordered scope stack visible to this executor. Innermost
+   * first. Reads on scoped tables walk every scope; writes require the
+   * plugin to name a target scope explicitly (via `scope_id` on the
+   * adapter payload, via `options.scope` on the blob store).
+   */
+  readonly scopes: readonly Scope[];
+  /**
+   * Plugin-facing typed adapter. Failures surface as raw `StorageFailure`
+   * (`StorageError` | `UniqueViolationError`). Plugins can
+   * `catchTag("UniqueViolationError", …)` to translate to their own
+   * user-facing errors. `StorageError` bubbles up; the HTTP edge (see
+   * `@executor/api` `withCapture`) is the one place that
+   * translates it to the opaque `InternalError({ traceId })`.
+   */
+  readonly adapter: TSchema extends DBSchema
+    ? TypedAdapter<TSchema, StorageFailure>
+    : DBAdapter;
+  readonly blobs: PluginBlobStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,13 +98,23 @@ export type Elicit = (
 // ---------------------------------------------------------------------------
 
 export interface PluginCtx<TStore = unknown> {
-  readonly scope: Scope;
+  /**
+   * Precedence-ordered scope stack visible to this executor. Innermost
+   * first. Plugins that write scoped rows must pick an element of
+   * `scopes` as the `scope`/`scope_id` they stamp; reads through the
+   * adapter or `ctx.secrets` automatically fall through the stack.
+   */
+  readonly scopes: readonly Scope[];
   readonly storage: TStore;
 
   readonly core: {
     readonly sources: {
-      readonly register: (input: SourceInput) => Effect.Effect<void, Error>;
-      readonly unregister: (sourceId: string) => Effect.Effect<void, Error>;
+      readonly register: (
+        input: SourceInput,
+      ) => Effect.Effect<void, StorageFailure>;
+      readonly unregister: (
+        sourceId: string,
+      ) => Effect.Effect<void, StorageFailure>;
     };
     /** Register shared JSON-schema `$defs` for a source. Tool
      *  input/output schemas registered via `sources.register` can carry
@@ -84,15 +125,20 @@ export interface PluginCtx<TStore = unknown> {
     readonly definitions: {
       readonly register: (
         input: DefinitionsInput,
-      ) => Effect.Effect<void, Error>;
+      ) => Effect.Effect<void, StorageFailure>;
     };
   };
 
   readonly secrets: {
-    readonly get: (id: string) => Effect.Effect<string | null, Error>;
+    readonly get: (
+      id: string,
+    ) => Effect.Effect<string | null, StorageFailure>;
+    /** List user-visible secrets. Connection-owned secrets (rows with
+     *  `owned_by_connection_id` set) are filtered out so they don't
+     *  clutter the UI — users see the Connection instead. */
     readonly list: () => Effect.Effect<
       readonly { readonly id: string; readonly name: string; readonly provider: string }[],
-      Error
+      StorageFailure
     >;
     /** Write a secret value through a provider. Used by plugins that
      *  mint secrets on behalf of the user (OAuth2 token storage,
@@ -100,9 +146,59 @@ export interface PluginCtx<TStore = unknown> {
      *  `executor.secrets.set` on the host surface, but OAuth2 refresh
      *  and one-shot token capture from plugin-owned flows need it here
      *  too. Same routing rules as the host-level setter. */
-    readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, Error>;
-    /** Delete a secret from its pinned provider and the core table. */
-    readonly remove: (id: string) => Effect.Effect<void, Error>;
+    readonly set: (
+      input: SetSecretInput,
+    ) => Effect.Effect<SecretRef, StorageFailure>;
+    /** Delete a secret from its pinned provider and the core table.
+     *  Rejects with `SecretOwnedByConnectionError` if the row is owned
+     *  by a connection — callers must go through `connections.remove`
+     *  to drop the whole sign-in. */
+    readonly remove: (
+      id: string,
+    ) => Effect.Effect<void, SecretOwnedByConnectionError | StorageFailure>;
+  };
+
+  /** Connections — product-level sign-in state. Owns backing secret
+   *  rows via `secret.owned_by_connection_id`. Plugins call
+   *  `connections.accessToken(id)` at invoke time to get a guaranteed-
+   *  fresh token (the SDK handles refresh via the registered provider
+   *  keyed by `connection.provider`). */
+  readonly connections: {
+    readonly get: (
+      id: string,
+    ) => Effect.Effect<ConnectionRef | null, StorageFailure>;
+    readonly list: () => Effect.Effect<readonly ConnectionRef[], StorageFailure>;
+    readonly create: (
+      input: CreateConnectionInput,
+    ) => Effect.Effect<
+      ConnectionRef,
+      ConnectionProviderNotRegisteredError | StorageFailure
+    >;
+    readonly updateTokens: (
+      input: UpdateConnectionTokensInput,
+    ) => Effect.Effect<
+      ConnectionRef,
+      ConnectionNotFoundError | StorageFailure
+    >;
+    readonly setIdentityLabel: (
+      id: string,
+      label: string | null,
+    ) => Effect.Effect<void, ConnectionNotFoundError | StorageFailure>;
+    /** Get a guaranteed-fresh access token. Calls the provider's
+     *  `refresh` handler if `expires_at` is in the past / within the
+     *  refresh skew window. */
+    readonly accessToken: (
+      id: string,
+    ) => Effect.Effect<
+      string,
+      | ConnectionNotFoundError
+      | ConnectionProviderNotRegisteredError
+      | ConnectionRefreshNotSupportedError
+      | ConnectionReauthRequiredError
+      | ConnectionRefreshError
+      | StorageFailure
+    >;
+    readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
   };
 
   /** Run `effect` inside a database transaction. Wraps the underlying
@@ -111,7 +207,7 @@ export interface PluginCtx<TStore = unknown> {
    *  registration. */
   readonly transaction: <A, E>(
     effect: Effect.Effect<A, E>,
-  ) => Effect.Effect<A, E | Error>;
+  ) => Effect.Effect<A, E | StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +242,7 @@ export interface StaticToolDecl<TStore = unknown> {
   readonly annotations?: ToolAnnotations;
   readonly handler: (
     input: StaticToolHandlerInput<TStore>,
-  ) => Effect.Effect<unknown, Error>;
+  ) => Effect.Effect<unknown, unknown>;
 }
 
 export interface StaticSourceDecl<TStore = unknown> {
@@ -182,6 +278,16 @@ export interface InvokeToolInput<TStore = unknown> {
 export interface SourceLifecycleInput<TStore = unknown> {
   readonly ctx: PluginCtx<TStore>;
   readonly sourceId: string;
+  /**
+   * Scope of the source row being removed/refreshed — resolved by the
+   * SDK's `sources.remove` / `sources.refresh` via innermost-wins lookup
+   * across the executor's scope stack. Plugins that own a side table
+   * keyed by (id, scope_id) must pin their own cleanup to this scope;
+   * relying on the scoped adapter's `scope_id IN (stack)` fall-through
+   * would widen the mutation across the whole stack and wipe a
+   * shadowed outer-scope row.
+   */
+  readonly scope: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +334,7 @@ export interface PluginSpec<
    *  only static tools can omit it. */
   readonly invokeTool?: (
     input: InvokeToolInput<TStore>,
-  ) => Effect.Effect<unknown, Error>;
+  ) => Effect.Effect<unknown, unknown>;
 
   /** Bulk resolve annotations (requiresApproval, approvalDescription,
    *  mayElicit) for a set of tool rows under a single source. Called
@@ -251,7 +357,7 @@ export interface PluginSpec<
     readonly ctx: PluginCtx<TStore>;
     readonly sourceId: string;
     readonly toolRows: readonly ToolRow[];
-  }) => Effect.Effect<Record<string, ToolAnnotations>, Error>;
+  }) => Effect.Effect<Record<string, ToolAnnotations>, unknown>;
 
   /** Called when `executor.sources.remove(id)` targets a source owned
    *  by this plugin. Plugin-side cleanup only; the executor deletes
@@ -259,11 +365,11 @@ export interface PluginSpec<
    *  the same transaction. */
   readonly removeSource?: (
     input: SourceLifecycleInput<TStore>,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, unknown>;
 
   readonly refreshSource?: (
     input: SourceLifecycleInput<TStore>,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, unknown>;
 
   /** URL autodetection hook. When the user pastes a URL in the
    *  onboarding UI, `executor.sources.detect(url)` fans out to every
@@ -274,18 +380,35 @@ export interface PluginSpec<
   readonly detect?: (input: {
     readonly ctx: PluginCtx<TStore>;
     readonly url: string;
-  }) => Effect.Effect<SourceDetectionResult | null, Error>;
+  }) => Effect.Effect<SourceDetectionResult | null, unknown>;
 
   /** Secret providers contributed by this plugin. Either a static
-   *  array or a function of ctx (for providers that need per-instance
-   *  state like the keychain's scope-derived service name). Called
-   *  once at executor startup after `storage` and `extension` have
-   *  been built. */
+   *  array, a function of ctx (for providers that need per-instance
+   *  state like the keychain's scope-derived service name), or a
+   *  function returning an Effect so plugins can probe for backend
+   *  availability at startup and register conditionally. Called once
+   *  at executor startup after `storage` and `extension` have been
+   *  built. */
   readonly secretProviders?:
     | readonly SecretProvider[]
-    | ((ctx: PluginCtx<TStore>) => readonly SecretProvider[]);
+    | ((ctx: PluginCtx<TStore>) => readonly SecretProvider[])
+    | ((
+        ctx: PluginCtx<TStore>,
+      ) => Effect.Effect<readonly SecretProvider[]>);
 
-  readonly close?: () => Effect.Effect<void, Error>;
+  /** Connection providers contributed by this plugin. Same registration
+   *  shape as `secretProviders`. Each provider's `key` is what
+   *  `connection.provider` references in the core table; the `refresh`
+   *  handler is the SDK's single entry point for token lifecycle —
+   *  plugins don't run their own refresh loops anymore. */
+  readonly connectionProviders?:
+    | readonly ConnectionProvider[]
+    | ((ctx: PluginCtx<TStore>) => readonly ConnectionProvider[])
+    | ((
+        ctx: PluginCtx<TStore>,
+      ) => Effect.Effect<readonly ConnectionProvider[]>);
+
+  readonly close?: () => Effect.Effect<void, unknown>;
 }
 
 export interface Plugin<

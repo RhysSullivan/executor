@@ -18,7 +18,6 @@ import type { PgDatabase } from "drizzle-orm/pg-core";
 import postgres, { type Sql } from "postgres";
 import * as cloudSchema from "./schema";
 import * as executorSchema from "./executor-schema";
-import { server } from "../env";
 
 // Exported so every drizzle() call in the cloud app shares one schema
 // object. Historically `mcp-session.ts` built its own and forgot to spread
@@ -34,14 +33,14 @@ export type DbServiceShape = {
   readonly db: DrizzleDb;
 };
 
-const resolveConnectionString = () => {
-  // In local dev prefer an explicit DATABASE_URL (direct connection to
-  // the PGlite socket server) so we bypass Miniflare's Hyperdrive proxy.
-  // In production fall back to the Hyperdrive binding.
-  if (server.DATABASE_URL) {
-    return server.DATABASE_URL;
+export const resolveConnectionString = () => {
+  // Production should always use Hyperdrive when the binding exists. Keeping
+  // DATABASE_URL as a higher-priority fallback made it too easy for a deployed
+  // secret to silently bypass Hyperdrive.
+  if (env.EXECUTOR_DIRECT_DATABASE_URL === "true" && env.DATABASE_URL) {
+    return env.DATABASE_URL;
   }
-  return env.HYPERDRIVE?.connectionString ?? server.DATABASE_URL;
+  return env.HYPERDRIVE?.connectionString || env.DATABASE_URL || "";
 };
 
 const makeSql = (): Sql =>
@@ -56,6 +55,8 @@ const makeSql = (): Sql =>
     idle_timeout: 0,
     max_lifetime: 60,
     connect_timeout: 10,
+    fetch_types: false,
+    prepare: true,
     onnotice: () => undefined,
   });
 

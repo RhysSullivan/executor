@@ -1,14 +1,14 @@
 import { HttpApi, HttpApiBuilder, HttpServerResponse } from "@effect/platform";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 
 import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
 import { authorizeOrganization } from "./authorize-organization";
+import { env } from "cloudflare:workers";
 import { WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
-import { server } from "../env";
 
 const COOKIE_OPTIONS = {
   path: "/",
@@ -17,6 +17,61 @@ const COOKIE_OPTIONS = {
   maxAge: 60 * 60 * 24 * 7,
   secure: true,
 };
+
+const STATE_COOKIE = "wos-login-state";
+const STATE_COOKIE_OPTIONS = {
+  path: "/",
+  httpOnly: true,
+  sameSite: "lax" as const,
+  maxAge: 10 * 60,
+  secure: true,
+};
+
+const RESPONSE_COOKIE_OPTIONS = {
+  ...COOKIE_OPTIONS,
+  maxAge: Duration.days(7),
+};
+
+const RESPONSE_STATE_COOKIE_OPTIONS = {
+  ...STATE_COOKIE_OPTIONS,
+  maxAge: Duration.minutes(10),
+};
+
+const DELETE_COOKIE_OPTIONS = {
+  path: "/",
+  httpOnly: true,
+  sameSite: "lax" as const,
+  maxAge: 0,
+  expires: new Date(0),
+  secure: true,
+};
+
+const randomState = (): string => {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+
+const timingSafeEqual = (a: string, b: string): boolean => {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+};
+
+const setResponseCookie = (
+  response: HttpServerResponse.HttpServerResponse,
+  name: string,
+  value: string,
+  options: typeof RESPONSE_COOKIE_OPTIONS,
+) => HttpServerResponse.unsafeSetCookie(response, name, value, options);
+
+const deleteResponseCookie = (
+  response: HttpServerResponse.HttpServerResponse,
+  name: string,
+) => HttpServerResponse.unsafeSetCookie(response, name, "", DELETE_COOKIE_OPTIONS);
 
 // ---------------------------------------------------------------------------
 // Single non-protected API surface — public (login/callback) + session
@@ -40,15 +95,28 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           // Use the explicit public site URL — in dev, the request's Host
           // header points at the internal proxy target, not the public URL
           // WorkOS needs to redirect back to.
-          const origin = server.VITE_PUBLIC_SITE_URL;
-          const url = workos.getAuthorizationUrl(`${origin}${AUTH_PATHS.callback}`);
-          return HttpServerResponse.redirect(url, { status: 302 });
+          const origin = env.VITE_PUBLIC_SITE_URL ?? "";
+          const state = randomState();
+          const url = workos.getAuthorizationUrl(`${origin}${AUTH_PATHS.callback}`, state);
+          return setResponseCookie(
+            HttpServerResponse.redirect(url, { status: 302 }),
+            STATE_COOKIE,
+            state,
+            RESPONSE_STATE_COOKIE_OPTIONS,
+          );
         }),
       )
-      .handleRaw("callback", ({ urlParams }) =>
+      .handleRaw("callback", ({ request, urlParams }) =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
           const users = yield* UserStoreService;
+          const cookieState = request.cookies[STATE_COOKIE] ?? null;
+          if (!cookieState || !timingSafeEqual(cookieState, urlParams.state)) {
+            return deleteResponseCookie(
+              HttpServerResponse.text("Invalid login state", { status: 400 }),
+              STATE_COOKIE,
+            );
+          }
 
           const result = yield* workos.authenticateWithCode(urlParams.code);
 
@@ -78,8 +146,15 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
             return HttpServerResponse.text("Failed to create session", { status: 500 });
           }
 
-          setCookie("wos-session", sealedSession, COOKIE_OPTIONS);
-          return HttpServerResponse.redirect("/", { status: 302 });
+          return deleteResponseCookie(
+            setResponseCookie(
+              HttpServerResponse.redirect("/", { status: 302 }),
+              "wos-session",
+              sealedSession,
+              RESPONSE_COOKIE_OPTIONS,
+            ),
+            STATE_COOKIE,
+          );
         }),
       ),
 );

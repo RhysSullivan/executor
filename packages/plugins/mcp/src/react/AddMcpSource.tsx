@@ -35,6 +35,8 @@ import {
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 
 type RemoteAuthMode = "none" | "header" | "oauth2";
+import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import { usePendingSources } from "@executor/react/api/optimistic";
 import { probeMcpEndpoint, addMcpSource, startMcpOAuth } from "./atoms";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
 
@@ -47,16 +49,32 @@ function findPreset(id: string | undefined): McpPreset | undefined {
   return mcpPresets.find((p) => p.id === id);
 }
 
+// Stable SDK connection id for an MCP source's OAuth sign-in. The same
+// id is passed into `startOAuth` AND stored on the source's auth
+// config, so at invoke time the per-user scope (which owns the user's
+// own secrets) resolves via shadowing over the source-level pointer.
+// Keyed by namespace so reconnecting mints a new connection that
+// shadows the previous one at the same scope.
+const mcpOAuthConnectionId = (namespaceSlug: string): string =>
+  `mcp-oauth2-${namespaceSlug || "default"}`;
+
 // ---------------------------------------------------------------------------
 // State machine (remote flow)
 // ---------------------------------------------------------------------------
 
 type OAuthTokens = {
-  accessTokenSecretId: string;
-  refreshTokenSecretId: string | null;
+  /** Id of the SDK Connection minted by the exchange. The UI stores it
+   *  on the source's auth config as `{kind: "oauth2", connectionId}`. */
+  connectionId: string;
   tokenType: string;
   expiresAt: number | null;
   scope: string | null;
+  /** Source-level OAuth state captured during the flow. Persisted on
+   *  the source's auth config so refreshes + future user OAuth flows
+   *  re-use the same DCR client + skip discovery. */
+  clientInformation: Record<string, unknown> | null;
+  authorizationServerUrl: string | null;
+  resourceMetadataUrl: string | null;
 };
 
 type ProbeResult = {
@@ -330,6 +348,7 @@ export default function AddMcpSource(props: {
   const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
   const doAdd = useAtomSet(addMcpSource, { mode: "promise" });
   const doStartOAuth = useAtomSet(startMcpOAuth, { mode: "promise" });
+  const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
   const [remoteAuthMode, setRemoteAuthMode] = useState<RemoteAuthMode>("none");
@@ -359,12 +378,16 @@ export default function AddMcpSource(props: {
   const remoteHeadersComplete = remoteHeaders.every(
     (header) => header.name.trim() && header.value.trim(),
   );
+  // OAuth is "ready to save" even without tokens — the source is stored
+  // with a stable connectionId pointer, and each user completes their
+  // own sign-in via McpSignInButton on the source detail page (per-user
+  // scope shadowing means each user's tokens land at their own scope).
   const authReady =
     remoteAuthMode === "none"
       ? canUseNone
       : remoteAuthMode === "header"
         ? headerAuthComplete
-        : tokens !== null;
+        : true;
   const canAdd = Boolean(probe) && authReady && remoteHeadersComplete && !isAdding && !isOAuthBusy;
   // Probe failures are shown inline on the URL field; other failures
   // (OAuth start, add source) render in the bottom error block.
@@ -416,9 +439,18 @@ export default function AddMcpSource(props: {
     dispatch({ type: "oauth-start" });
     try {
       const redirectUrl = `${window.location.origin}/api/mcp/oauth/callback`;
+      const namespaceSlug =
+        slugifyNamespace(remoteIdentity.namespace) ||
+        slugifyNamespace(probe?.namespace ?? "") ||
+        "mcp";
+      const connectionId = mcpOAuthConnectionId(namespaceSlug);
       const result = await doStartOAuth({
         path: { scopeId },
-        payload: { endpoint: state.url.trim(), redirectUrl },
+        payload: {
+          endpoint: state.url.trim(),
+          redirectUrl,
+          connectionId,
+        },
       });
       dispatch({ type: "oauth-waiting", sessionId: result.sessionId });
       oauthCleanup.current = openOAuthPopup(
@@ -429,11 +461,13 @@ export default function AddMcpSource(props: {
             dispatch({
               type: "oauth-ok",
               tokens: {
-                accessTokenSecretId: data.accessTokenSecretId,
-                refreshTokenSecretId: data.refreshTokenSecretId,
+                connectionId: data.connectionId,
                 tokenType: data.tokenType,
                 expiresAt: data.expiresAt,
                 scope: data.scope,
+                clientInformation: data.clientInformation ?? null,
+                authorizationServerUrl: data.authorizationServerUrl ?? null,
+                resourceMetadataUrl: data.resourceMetadataUrl ?? null,
               },
             });
           } else {
@@ -451,7 +485,7 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to start OAuth",
       });
     }
-  }, [state.url, scopeId, doStartOAuth]);
+  }, [state.url, scopeId, doStartOAuth, remoteIdentity.namespace, probe?.namespace]);
 
   const handleCancelOAuth = useCallback(() => {
     oauthCleanup.current?.();
@@ -462,42 +496,58 @@ export default function AddMcpSource(props: {
   const handleAddRemote = useCallback(async () => {
     if (!probe) return;
     dispatch({ type: "add-start" });
-    try {
-      const headerAuth = remoteAuthHeaders[0];
-      const auth =
-        remoteAuthMode === "header" && headerAuth?.secretId
+    const headerAuth = remoteAuthHeaders[0];
+    // For oauth2 sources saved without completing the flow, use the
+    // same stable connectionId the handleOAuth path would have used.
+    // This pins the source's auth pointer, so when a per-user sign-in
+    // runs later (via McpSignInButton) it mints the connection at the
+    // user scope against the same id — innermost-wins shadowing then
+    // resolves tokens per-user at invoke time.
+    const deferredOAuthConnectionId = mcpOAuthConnectionId(
+      slugifyNamespace(remoteIdentity.namespace) ||
+        slugifyNamespace(probe.namespace ?? "") ||
+        "mcp",
+    );
+    const auth =
+      remoteAuthMode === "header" && headerAuth?.secretId
+        ? {
+            kind: "header" as const,
+            headerName: headerAuth.name.trim(),
+            secretId: headerAuth.secretId,
+            ...(headerAuth.prefix ? { prefix: headerAuth.prefix } : {}),
+          }
+        : remoteAuthMode === "oauth2"
           ? {
-              kind: "header" as const,
-              headerName: headerAuth.name.trim(),
-              secretId: headerAuth.secretId,
-              ...(headerAuth.prefix ? { prefix: headerAuth.prefix } : {}),
+              kind: "oauth2" as const,
+              connectionId: tokens?.connectionId ?? deferredOAuthConnectionId,
             }
-          : remoteAuthMode === "oauth2" && tokens
-            ? {
-                kind: "oauth2" as const,
-                accessTokenSecretId: tokens.accessTokenSecretId,
-                refreshTokenSecretId: tokens.refreshTokenSecretId,
-                tokenType: tokens.tokenType,
-                expiresAt: tokens.expiresAt,
-                scope: tokens.scope,
-              }
-            : { kind: "none" as const };
-      const headers = Object.fromEntries(
-        remoteHeaders
-          .map((header) => [header.name.trim(), header.value.trim()] as const)
-          .filter(([name, value]) => name && value),
-      );
-
+          : { kind: "none" as const };
+    const headers = Object.fromEntries(
+      remoteHeaders
+        .map((header) => [header.name.trim(), header.value.trim()] as const)
+        .filter(([name, value]) => name && value),
+    );
+    const displayName = remoteIdentity.name.trim() || probe.serverName || probe.name;
+    const slugNamespace = slugifyNamespace(remoteIdentity.namespace);
+    const placeholderId = slugNamespace || `pending:${crypto.randomUUID()}`;
+    const placeholder = beginAdd({
+      id: placeholderId,
+      name: displayName,
+      kind: "mcp",
+      url: state.url.trim(),
+    });
+    try {
       await doAdd({
         path: { scopeId },
         payload: {
           transport: "remote" as const,
-          name: remoteIdentity.name.trim() || probe.serverName || probe.name,
-          namespace: slugifyNamespace(remoteIdentity.namespace) || undefined,
+          name: displayName,
+          namespace: slugNamespace || undefined,
           endpoint: state.url.trim(),
           auth,
           ...(Object.keys(headers).length > 0 ? { headers } : {}),
         },
+        reactivityKeys: sourceWriteKeys,
       });
       props.onComplete();
     } catch (e) {
@@ -505,6 +555,8 @@ export default function AddMcpSource(props: {
         type: "add-fail",
         error: e instanceof Error ? e.message : "Failed to add source",
       });
+    } finally {
+      placeholder.done();
     }
   }, [
     probe,
@@ -517,6 +569,7 @@ export default function AddMcpSource(props: {
     doAdd,
     props,
     scopeId,
+    beginAdd,
   ]);
 
   // ---- Stdio actions ----
@@ -549,24 +602,35 @@ export default function AddMcpSource(props: {
     if (!cmd) return;
     setStdioAdding(true);
     setStdioError(null);
+    const displayName = stdioIdentity.name.trim() || cmd;
+    const slugNamespace = slugifyNamespace(stdioIdentity.namespace);
+    const placeholderId = slugNamespace || `pending:${crypto.randomUUID()}`;
+    const placeholder = beginAdd({
+      id: placeholderId,
+      name: displayName,
+      kind: "mcp",
+    });
     try {
       await doAdd({
         path: { scopeId },
         payload: {
           transport: "stdio" as const,
-          name: stdioIdentity.name.trim() || cmd,
-          namespace: slugifyNamespace(stdioIdentity.namespace) || undefined,
+          name: displayName,
+          namespace: slugNamespace || undefined,
           command: cmd,
           args: parseStdioArgs(stdioArgs),
           env: parseStdioEnv(stdioEnv),
         },
+        reactivityKeys: sourceWriteKeys,
       });
       props.onComplete();
     } catch (e) {
       setStdioError(e instanceof Error ? e.message : "Failed to add source");
       setStdioAdding(false);
+    } finally {
+      placeholder.done();
     }
-  }, [stdioCommand, stdioArgs, stdioEnv, stdioIdentity, doAdd, scopeId, props]);
+  }, [stdioCommand, stdioArgs, stdioEnv, stdioIdentity, doAdd, scopeId, props, beginAdd]);
 
   // ---- Render ----
 
@@ -732,15 +796,22 @@ export default function AddMcpSource(props: {
                   onHeadersChange={setRemoteAuthHeaders}
                   existingSecrets={secretList}
                   singleHeader
+                  sourceName={remoteIdentity.name}
                 />
               )}
 
               {remoteAuthMode === "oauth2" && (
                 <>
                   {!tokens && state.step === "probed" && (
-                    <Button onClick={handleOAuth}  variant="outline">
-                      Sign in
-                    </Button>
+                    <div className="flex flex-col gap-2">
+                      <Button onClick={handleOAuth} variant="outline">
+                        Sign in
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground">
+                        Optional — you can save the source now and each user can sign
+                        in from the source detail page later.
+                      </p>
+                    </div>
                   )}
 
                   {!tokens && state.step === "oauth-starting" && (

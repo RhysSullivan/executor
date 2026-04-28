@@ -1,24 +1,22 @@
+import { Effect } from "effect";
+import type * as Cause from "effect/Cause";
+
 import type { ExecutionEngine } from "@executor/execution";
 
-export const withExecutionUsageTracking = (
+export const withExecutionUsageTracking = <E extends Cause.YieldableError>(
   organizationId: string,
-  engine: ExecutionEngine,
+  engine: ExecutionEngine<E>,
   trackUsage: (organizationId: string) => void,
-): ExecutionEngine => ({
-  execute: async (code, options) => {
-    const result = await engine.execute(code, options);
-    trackUsage(organizationId);
-    return result;
-  },
-  executeWithPause: async (code) => {
-    const result = await engine.executeWithPause(code);
-    trackUsage(organizationId);
-    return result;
-  },
-  resume: async (executionId, response) => {
-    const result = await engine.resume(executionId, response);
-    // resume doesn't count as usage
-    return result;
-  },
+): ExecutionEngine<E> => ({
+  execute: (code, options) =>
+    engine
+      .execute(code, options)
+      .pipe(Effect.tap(() => Effect.sync(() => trackUsage(organizationId)))),
+  executeWithPause: (code) =>
+    engine
+      .executeWithPause(code)
+      .pipe(Effect.tap(() => Effect.sync(() => trackUsage(organizationId)))),
+  // resume doesn't count as usage
+  resume: (executionId, response) => engine.resume(executionId, response),
   getDescription: engine.getDescription,
 });

@@ -4,13 +4,14 @@ import { Effect } from "effect";
 import { ExecutorApi } from "../api";
 import { formatExecuteResult, formatPausedExecution } from "@executor/execution";
 import { ExecutionEngineService } from "../services";
+import { capture, captureEngineError } from "@executor/api";
 
 export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions", (handlers) =>
   handlers
     .handle("execute", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
-        const outcome = yield* Effect.promise(() => engine.executeWithPause(payload.code));
+        const outcome = yield* captureEngineError(engine.executeWithPause(payload.code));
 
         if (outcome.status === "completed") {
           const formatted = formatExecuteResult(outcome.result);
@@ -28,12 +29,12 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
           text: formatted.text,
           structured: formatted.structured,
         };
-      }),
+      })),
     )
     .handle("resume", ({ path, payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
-        const result = yield* Effect.promise(() =>
+        const result = yield* captureEngineError(
           engine.resume(path.executionId, {
             action: payload.action,
             content: payload.content as Record<string, unknown> | undefined,
@@ -62,6 +63,6 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
           structured: formatted.structured,
           isError: false,
         };
-      }),
+      })),
     ),
 );

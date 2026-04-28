@@ -9,8 +9,12 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
+import { FetchHttpClient } from "@effect/platform";
 
-import { previewSpec } from "./preview";
+import { previewSpec as previewSpecRaw } from "./preview";
+
+const previewSpec = (input: string) =>
+  previewSpecRaw(input).pipe(Effect.provide(FetchHttpClient.layer));
 
 const minimalSpec = (
   securitySchemes: Record<string, unknown>,

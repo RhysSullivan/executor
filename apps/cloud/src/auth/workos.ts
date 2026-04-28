@@ -2,10 +2,10 @@
 // WorkOS AuthKit — Effect-native sealed session management
 // ---------------------------------------------------------------------------
 
+import { env } from "cloudflare:workers";
 import { Context, Effect, Layer } from "effect";
 import { WorkOS } from "@workos-inc/node/worker";
 import { WorkOSError, tryPromiseService, withServiceLogging } from "./errors";
-import { server } from "../env";
 
 const COOKIE_NAME = "wos-session";
 
@@ -14,9 +14,9 @@ const COOKIE_NAME = "wos-session";
 // ---------------------------------------------------------------------------
 
 const make = Effect.gen(function* () {
-  const apiKey = server.WORKOS_API_KEY;
-  const clientId = server.WORKOS_CLIENT_ID;
-  const cookiePassword = server.WORKOS_COOKIE_PASSWORD;
+  const apiKey = env.WORKOS_API_KEY;
+  const clientId = env.WORKOS_CLIENT_ID;
+  const cookiePassword = env.WORKOS_COOKIE_PASSWORD;
 
   if (!cookiePassword || cookiePassword.length < 32) {
     return yield* Effect.die(new Error("WORKOS_COOKIE_PASSWORD must be at least 32 characters"));
@@ -78,11 +78,12 @@ const make = Effect.gen(function* () {
     });
 
   return {
-    getAuthorizationUrl: (redirectUri: string) =>
+    getAuthorizationUrl: (redirectUri: string, state?: string) =>
       workos.userManagement.getAuthorizationUrl({
         provider: "authkit",
         redirectUri,
         clientId,
+        ...(state ? { state } : {}),
       }),
 
     authenticateWithCode: (code: string) =>

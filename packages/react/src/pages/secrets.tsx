@@ -1,6 +1,7 @@
 import { useState, Suspense } from "react";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
+import { secretWriteKeys } from "../api/reactivity-keys";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
 import { SecretId } from "@executor/sdk";
 import { useScope } from "../hooks/use-scope";
@@ -72,7 +73,6 @@ function AddSecretDialog(props: {
 
   const scopeId = useScope();
   const doSet = useAtomSet(setSecret, { mode: "promise" });
-  const refresh = useAtomRefresh(secretsAtom(scopeId));
 
   const reset = () => {
     setId("");
@@ -96,10 +96,10 @@ function AddSecretDialog(props: {
           value: value.trim(),
           provider: provider === "auto" ? undefined : provider,
         },
+        reactivityKeys: secretWriteKeys,
       });
       reset();
       props.onOpenChange(false);
-      refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save secret");
       setSaving(false);
@@ -292,7 +292,6 @@ export function SecretsPage(props: {
   const scopeId = useScope();
   const secrets = useAtomValue(secretsAtom(scopeId));
   const doRemove = useAtomSet(removeSecret, { mode: "promise" });
-  const refresh = useAtomRefresh(secretsAtom(scopeId));
 
   const handleRemove = async (secretId: string) => {
     try {
@@ -301,8 +300,8 @@ export function SecretsPage(props: {
           scopeId,
           secretId: SecretId.make(secretId),
         },
+        reactivityKeys: secretWriteKeys,
       });
-      refresh();
     } catch {
       // TODO: toast
     }

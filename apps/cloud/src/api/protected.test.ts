@@ -5,16 +5,18 @@ import { withExecutionUsageTracking } from "./execution-usage";
 
 const makeBaseEngine = (): ExecutionEngine =>
   ({
-    execute: async () => ({ result: "ok", logs: [] }),
-    executeWithPause: async () => ({
-      status: "completed",
-      result: { result: "ok", logs: [] },
-    }),
-    resume: async () => ({
-      status: "completed",
-      result: { result: "ok", logs: [] },
-    }),
-    getDescription: async () => "desc",
+    execute: () => Effect.succeed({ result: "ok", logs: [] }),
+    executeWithPause: () =>
+      Effect.succeed({
+        status: "completed",
+        result: { result: "ok", logs: [] },
+      }),
+    resume: () =>
+      Effect.succeed({
+        status: "completed",
+        result: { result: "ok", logs: [] },
+      }),
+    getDescription: Effect.succeed("desc"),
   }) as ExecutionEngine;
 
 describe("withExecutionUsageTracking", () => {
@@ -25,10 +27,8 @@ describe("withExecutionUsageTracking", () => {
         tracked.push(orgId);
       });
 
-      yield* Effect.promise(() =>
-        engine.execute("1+1", { onElicitation: (() => Effect.die("unused")) as never }),
-      );
-      yield* Effect.promise(() => engine.executeWithPause("2+2"));
+      yield* engine.execute("1+1", { onElicitation: (() => Effect.die("unused")) as never });
+      yield* engine.executeWithPause("2+2");
 
       expect(tracked).toEqual(["org_1", "org_1"]);
     }),
@@ -44,8 +44,8 @@ describe("withExecutionUsageTracking", () => {
         "org_2",
         {
           ...base,
-          resume: async (...args) => {
-            if (shouldReturnNull) return null;
+          resume: (...args) => {
+            if (shouldReturnNull) return Effect.succeed(null);
             return base.resume(...args);
           },
         },
@@ -54,17 +54,13 @@ describe("withExecutionUsageTracking", () => {
         },
       );
 
-      yield* Effect.promise(() =>
-        engine.resume("exec_1", {
-          action: "accept",
-        }),
-      );
+      yield* engine.resume("exec_1", {
+        action: "accept",
+      });
       shouldReturnNull = true;
-      yield* Effect.promise(() =>
-        engine.resume("missing", {
-          action: "accept",
-        }),
-      );
+      yield* engine.resume("missing", {
+        action: "accept",
+      });
 
       expect(tracked).toEqual([]);
     }),

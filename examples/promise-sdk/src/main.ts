@@ -12,7 +12,7 @@ import { graphqlPlugin } from "@executor/plugin-graphql/promise";
 // ---------------------------------------------------------------------------
 
 const executor = await createExecutor({
-  scope: { name: "my-app" },
+  scopes: [{ id: "my-app", name: "my-app" }],
   plugins: [mcpPlugin(), openApiPlugin(), graphqlPlugin()] as const,
 });
 
@@ -24,6 +24,7 @@ await executor.mcp.addSource({
   transport: "remote",
   name: "Context7",
   endpoint: "https://mcp.context7.com/mcp",
+  scope: "my-app",
 });
 
 // Stdio server
@@ -41,6 +42,7 @@ await executor.mcp.addSource({
 await executor.openapi.addSpec({
   spec: "https://petstore3.swagger.io/api/v3/openapi.json",
   namespace: "petstore",
+  scope: "my-app",
 });
 
 // With auth headers (static or secret-backed)
@@ -62,6 +64,7 @@ await executor.openapi.addSpec({
 await executor.graphql.addSource({
   endpoint: "https://graphql.anilist.co",
   namespace: "anilist",
+  scope: "my-app",
 });
 
 // ---------------------------------------------------------------------------
@@ -97,6 +100,7 @@ if (anilistTool) {
 await executor.secrets.set(
   new SetSecretInput({
     id: SecretId.make("api-key"),
+    scope: "my-app" as SetSecretInput["scope"],
     name: "Shared API Key",
     value: "sk_...",
   }),

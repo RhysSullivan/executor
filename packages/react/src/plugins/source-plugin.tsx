@@ -72,6 +72,21 @@ export interface SourcePlugin {
    */
   readonly summary?: ComponentType<{
     readonly sourceId: string;
+    readonly variant?: "badge" | "panel";
+    readonly onAction?: () => void;
+  }>;
+
+  /**
+   * Optional top-bar action for signing in / reconnecting to the source.
+   * Rendered by the shell next to Edit when present. Plugins that don't
+   * support interactive sign-in (no OAuth etc.) simply omit this.
+   *
+   * Deliberately separate from `edit` — edit is source config, sign-in is
+   * the user-level connection lifecycle. A source can be valid-to-edit
+   * while its sign-in is expired / missing, and vice versa.
+   */
+  readonly signIn?: ComponentType<{
+    readonly sourceId: string;
   }>;
 
   /** Curated presets shown on the sources page for quick-add */

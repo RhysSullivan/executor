@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, integer, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const source = pgTable("source", {
   id: text('id').notNull(),
@@ -56,11 +56,31 @@ export const secret = pgTable("secret", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   provider: text('provider').notNull(),
+  owned_by_connection_id: text('owned_by_connection_id'),
   created_at: timestamp('created_at').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("secret_scope_id_idx").on(table.scope_id),
   index("secret_provider_idx").on(table.provider),
+  index("secret_owned_by_connection_id_idx").on(table.owned_by_connection_id),
+]);
+
+export const connection = pgTable("connection", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  provider: text('provider').notNull(),
+  identity_label: text('identity_label'),
+  access_token_secret_id: text('access_token_secret_id').notNull(),
+  refresh_token_secret_id: text('refresh_token_secret_id'),
+  expires_at: bigint('expires_at', { mode: 'number' }),
+  scope: text('scope'),
+  provider_state: jsonb('provider_state'),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("connection_scope_id_idx").on(table.scope_id),
+  index("connection_provider_idx").on(table.provider),
 ]);
 
 export const openapi_source = pgTable("openapi_source", {
@@ -68,6 +88,7 @@ export const openapi_source = pgTable("openapi_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   spec: text('spec').notNull(),
+  source_url: text('source_url'),
   base_url: text('base_url'),
   headers: jsonb('headers'),
   oauth2: jsonb('oauth2'),
@@ -75,6 +96,23 @@ export const openapi_source = pgTable("openapi_source", {
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("openapi_source_scope_id_idx").on(table.scope_id),
+]);
+
+export const openapi_source_binding = pgTable("openapi_source_binding", {
+  id: text('id').notNull(),
+  source_id: text('source_id').notNull(),
+  source_scope_id: text('source_scope_id').notNull(),
+  target_scope_id: text('target_scope_id').notNull(),
+  slot: text('slot').notNull(),
+  value: jsonb('value').notNull(),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.id] }),
+  index("openapi_source_binding_source_id_idx").on(table.source_id),
+  index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
+  index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
+  index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
 export const openapi_operation = pgTable("openapi_operation", {
@@ -125,7 +163,7 @@ export const mcp_oauth_session = pgTable("mcp_oauth_session", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
   session: jsonb('session').notNull(),
-  expires_at: integer('expires_at').notNull(),
+  expires_at: bigint('expires_at', { mode: 'number' }).notNull(),
   created_at: timestamp('created_at').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
@@ -175,4 +213,3 @@ export const blob = pgTable("blob", {
 }, (table) => [
   primaryKey({ columns: [table.namespace, table.key] }),
 ]);
-

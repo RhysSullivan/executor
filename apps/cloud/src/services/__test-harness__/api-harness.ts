@@ -31,6 +31,7 @@ import {
   ExecutorService,
 } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   Scope,
   ScopeId,
@@ -65,6 +66,19 @@ import { DbService } from "../db";
 
 export const TEST_BASE_URL = "http://test.local";
 export const TEST_ORG_HEADER = "x-test-org-id";
+export const TEST_USER_HEADER = "x-test-user-id";
+
+// Mirrors apps/cloud/src/services/executor.ts#createScopedExecutor — the
+// per-user scope id bakes in the org so the same user id in a different
+// org gets a distinct scope row.
+const userOrgScopeId = (userId: string, orgId: string) =>
+  `user-org:${userId}:${orgId}`;
+
+// `asOrg(orgId, …)` callers don't care which specific user they are, only
+// that the executor has a valid user-org scope. We give each org a stable
+// default user so list/get operations at the org scope remain deterministic
+// across calls within a single test.
+const defaultUserFor = (orgId: string) => `default_user_${orgId}`;
 
 // ---------------------------------------------------------------------------
 // Fake WorkOS Vault client — in-memory map keyed by name.
@@ -163,7 +177,11 @@ export const makeFakeVaultClient = (): WorkOSVaultClient => {
 
 const fakeVault = makeFakeVaultClient();
 
-const createTestScopedExecutor = (scopeId: string, scopeName: string) =>
+const createTestScopedExecutor = (
+  userId: string,
+  orgId: string,
+  orgName: string,
+) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
     const plugins = [
@@ -175,12 +193,22 @@ const createTestScopedExecutor = (scopeId: string, scopeName: string) =>
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
-    const scope = new Scope({
-      id: ScopeId.make(scopeId),
-      name: scopeName,
+    const orgScope = new Scope({
+      id: ScopeId.make(orgId),
+      name: orgName,
       createdAt: new Date(),
     });
-    return yield* createExecutor({ scope, adapter, blobs, plugins });
+    const userOrgScope = new Scope({
+      id: ScopeId.make(userOrgScopeId(userId, orgId)),
+      name: `Personal · ${orgName}`,
+      createdAt: new Date(),
+    });
+    return yield* createExecutor({
+      scopes: [userOrgScope, orgScope],
+      adapter,
+      blobs,
+      plugins,
+    });
   });
 
 // ---------------------------------------------------------------------------
@@ -197,8 +225,13 @@ const FakeOrgAuthLive = Layer.succeed(
         if (!orgId || typeof orgId !== "string") {
           return yield* Effect.die(new Error("missing x-test-org-id"));
         }
+        const userHeader = request.headers[TEST_USER_HEADER];
+        const userId =
+          typeof userHeader === "string" && userHeader.length > 0
+            ? userHeader
+            : defaultUserFor(orgId);
         return AuthContext.of({
-          accountId: `acct_${orgId}`,
+          accountId: userId,
           organizationId: orgId,
           email: "test@example.com",
           name: "Test User",
@@ -212,10 +245,10 @@ const TestApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
   Layer.provide(Layer.merge(ProtectedCloudApiHandlers, FakeOrgAuthLive)),
 );
 
-const buildAppForScope = (scopeId: string, scopeName: string) =>
+const buildAppForScope = (userId: string, orgId: string, orgName: string) =>
   Effect.gen(function* () {
-    const executor = yield* createTestScopedExecutor(scopeId, scopeName);
-    const engine = createExecutionEngine({ executor });
+    const executor = yield* createTestScopedExecutor(userId, orgId, orgName);
+    const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
     const services = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
       Layer.succeed(ExecutionEngineService, engine),
@@ -244,7 +277,12 @@ const RouterApp = Effect.gen(function* () {
   if (!orgId || typeof orgId !== "string") {
     return yield* Effect.die(new Error("missing x-test-org-id"));
   }
-  return yield* yield* buildAppForScope(orgId, `Org ${orgId}`);
+  const userHeader = request.headers[TEST_USER_HEADER];
+  const userId =
+    typeof userHeader === "string" && userHeader.length > 0
+      ? userHeader
+      : defaultUserFor(orgId);
+  return yield* yield* buildAppForScope(userId, orgId, `Org ${orgId}`);
 });
 
 const handler = HttpApp.toWebHandler(
@@ -263,9 +301,32 @@ export const fetchForOrg = (orgId: string): typeof globalThis.fetch =>
     return handler(req);
   }) as typeof globalThis.fetch;
 
+export const fetchForUser = (
+  userId: string,
+  orgId: string,
+): typeof globalThis.fetch =>
+  ((input: RequestInfo | URL, init?: RequestInit) => {
+    const base = input instanceof Request ? input : new Request(input, init);
+    const req = new Request(base, {
+      headers: {
+        ...Object.fromEntries(base.headers),
+        [TEST_ORG_HEADER]: orgId,
+        [TEST_USER_HEADER]: userId,
+      },
+    });
+    return handler(req);
+  }) as typeof globalThis.fetch;
+
 export const clientLayerForOrg = (orgId: string) =>
   FetchHttpClient.layer.pipe(
     Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchForOrg(orgId))),
+  );
+
+export const clientLayerForUser = (userId: string, orgId: string) =>
+  FetchHttpClient.layer.pipe(
+    Layer.provide(
+      Layer.succeed(FetchHttpClient.Fetch, fetchForUser(userId, orgId)),
+    ),
   );
 
 // Constructs an HttpApiClient bound to the given org, hands it to `body`,
@@ -288,6 +349,27 @@ export const asOrg = <A, E>(
     const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
     return yield* body(client);
   }).pipe(Effect.provide(clientLayerForOrg(orgId))) as Effect.Effect<A, E>;
+
+// Same as `asOrg` but also threads a specific user id through the fake
+// OrgAuth, so the built executor's user-org scope id is
+// `user-org:${userId}:${orgId}`. Use this for tests that care about
+// per-user isolation inside the same org.
+export const asUser = <A, E>(
+  userId: string,
+  orgId: string,
+  body: (client: ApiShape) => Effect.Effect<A, E>,
+): Effect.Effect<A, E> =>
+  Effect.gen(function* () {
+    const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
+    return yield* body(client);
+  }).pipe(
+    Effect.provide(clientLayerForUser(userId, orgId)),
+  ) as Effect.Effect<A, E>;
+
+// Exposed so tests can build the same user-org scope id the harness uses
+// when writing at a specific user's scope.
+export const testUserOrgScopeId = (userId: string, orgId: string) =>
+  userOrgScopeId(userId, orgId);
 
 // Re-exports so call sites don't need a second import.
 export { ProtectedCloudApi };

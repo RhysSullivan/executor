@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
-import { sourcesAtom } from "@executor/react/api/atoms";
+import { useSourcesWithPending } from "@executor/react/api/optimistic";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { Skeleton } from "@executor/react/components/skeleton";
@@ -66,7 +66,7 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
-  const sources = useAtomValue(sourcesAtom(scopeId));
+  const sources = useSourcesWithPending(scopeId);
 
   return Result.match(sources, {
     onInitial: () => (
@@ -370,6 +370,7 @@ function UserFooter() {
 function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
+  const isConnections = props.pathname === "/connections";
   const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
   const isOrg = props.pathname === "/org";
 
@@ -385,6 +386,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+        <NavItem to="/connections" label="Connections" active={isConnections} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
         <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />

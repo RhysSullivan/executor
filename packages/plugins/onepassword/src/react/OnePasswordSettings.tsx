@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useAtomSet, useAtomValue, useAtomRefresh } from "@effect-atom/atom-react";
+import { useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 import { Result } from "@effect-atom/atom-react";
+import { ReactivityKey } from "@executor/react/api/reactivity-keys";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
@@ -139,7 +140,6 @@ function ConfigDialog(props: {
 
   const scopeId = useScope();
   const doConfigure = useAtomSet(configureOnePassword, { mode: "promise" });
-  const refreshConfig = useAtomRefresh(onepasswordConfigAtom(scopeId));
 
   const reset = () => {
     if (!isEdit) {
@@ -165,9 +165,9 @@ function ConfigDialog(props: {
       await doConfigure({
         path: { scopeId },
         payload: { auth, vaultId: vaultId.trim(), name: vaultName.trim() || "1Password" },
+        reactivityKeys: [ReactivityKey.secrets],
       });
       props.onOpenChange(false);
-      refreshConfig();
       reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save configuration");
@@ -296,12 +296,10 @@ export default function OnePasswordSettings() {
   const scopeId = useScope();
   const configResult = useAtomValue(onepasswordConfigAtom(scopeId));
   const doRemove = useAtomSet(removeOnePasswordConfig, { mode: "promise" });
-  const refreshConfig = useAtomRefresh(onepasswordConfigAtom(scopeId));
 
   const handleRemove = async () => {
     try {
-      await doRemove({ path: { scopeId } });
-      refreshConfig();
+      await doRemove({ path: { scopeId }, reactivityKeys: [ReactivityKey.secrets] });
     } catch {
       /* TODO: toast */
     }

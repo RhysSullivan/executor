@@ -5,6 +5,7 @@ import type { Layer } from "effect";
 import {
   definePlugin,
   SourceDetectionResult,
+  type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
 } from "@executor/sdk";
@@ -24,7 +25,7 @@ import {
   type IntrospectionTypeRef,
 } from "./introspect";
 import { extract } from "./extract";
-import { GraphqlExtractionError } from "./errors";
+import { GraphqlExtractionError, GraphqlIntrospectionError } from "./errors";
 import { invokeWithLayer, resolveHeaders } from "./invoke";
 import {
   graphqlSchema,
@@ -49,6 +50,13 @@ export type HeaderValue = HeaderValueValue;
 export interface GraphqlSourceConfig {
   /** The GraphQL endpoint URL */
   readonly endpoint: string;
+  /**
+   * Executor scope id that owns this source row. Must be one of the
+   * executor's configured scopes. Typical shape: an admin adds the
+   * source at the outermost (organization) scope so it's visible to
+   * every inner (per-user) scope via fall-through reads.
+   */
+  readonly scope: string;
   /** Display name for the source. Falls back to namespace if not provided. */
   readonly name?: string;
   /** Optional: introspection JSON text (if endpoint doesn't support introspection) */
@@ -69,27 +77,55 @@ export interface GraphqlUpdateSourceInput {
   readonly headers?: Record<string, HeaderValue>;
 }
 
+/**
+ * Errors any GraphQL extension method may surface. `GraphqlIntrospectionError`
+ * and `GraphqlExtractionError` are plugin-domain tagged errors that flow
+ * directly to clients (4xx, each carrying its own `HttpApiSchema` status).
+ * `StorageFailure` covers raw backend failures (`StorageError` plus
+ * `UniqueViolationError`); the HTTP edge (`@executor/api`'s `withCapture`)
+ * translates `StorageError` to the opaque `InternalError({ traceId })` at
+ * Layer composition.
+ */
+export type GraphqlExtensionFailure =
+  | GraphqlIntrospectionError
+  | GraphqlExtractionError
+  | StorageFailure;
+
 export interface GraphqlPluginExtension {
   /** Add a GraphQL endpoint and register its operations as tools */
   readonly addSource: (
     config: GraphqlSourceConfig,
-  ) => Effect.Effect<{ readonly toolCount: number }, Error>;
+  ) => Effect.Effect<
+    { readonly toolCount: number; readonly namespace: string },
+    GraphqlExtensionFailure
+  >;
 
-  /** Remove all tools from a previously added GraphQL source by namespace */
-  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
+  /** Remove all tools from a previously added GraphQL source by namespace.
+   *  `scope` pins the cleanup to the exact row — without it a shadowed
+   *  outer-scope source with the same namespace could be wiped instead. */
+  readonly removeSource: (
+    namespace: string,
+    scope: string,
+  ) => Effect.Effect<void, StorageFailure>;
 
-  /** Fetch the full stored source by namespace (or null if missing) */
+  /** Fetch the full stored source by namespace (or null if missing).
+   *  `scope` returns the exact row at that scope. For fall-through
+   *  reads across the executor's scope stack, use `executor.sources.*`. */
   readonly getSource: (
     namespace: string,
-  ) => Effect.Effect<StoredGraphqlSource | null, Error>;
+    scope: string,
+  ) => Effect.Effect<StoredGraphqlSource | null, StorageFailure>;
 
   /** Update config (endpoint, headers) for an existing GraphQL source.
    *  Does NOT re-introspect or re-register tools — just patches the
-   *  stored endpoint/headers used at invoke time. */
+   *  stored endpoint/headers used at invoke time. `scope` pins the
+   *  mutation to a single row so shadowed rows at other scopes are
+   *  untouched. */
   readonly updateSource: (
     namespace: string,
+    scope: string,
     input: GraphqlUpdateSourceInput,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +318,7 @@ export const graphqlPlugin = definePlugin(
       schema: graphqlSchema,
       storage: (deps): GraphqlStore => makeDefaultGraphqlStore(deps),
 
-      extension: (ctx): GraphqlPluginExtension => {
+      extension: (ctx) => {
         const resolveConfigHeaders = (
           headers: Record<string, HeaderValue> | undefined,
         ) =>
@@ -324,6 +360,7 @@ export const graphqlPlugin = definePlugin(
               // subsequent core-source register collision rolls back both.
               const storedSource: StoredGraphqlSource = {
                 namespace,
+                scope: config.scope,
                 name: displayName,
                 endpoint: config.endpoint,
                 headers: config.headers ?? {},
@@ -339,6 +376,7 @@ export const graphqlPlugin = definePlugin(
 
               yield* ctx.core.sources.register({
                 id: namespace,
+                scope: config.scope,
                 kind: "graphql",
                 name: displayName,
                 url: config.endpoint,
@@ -355,6 +393,7 @@ export const graphqlPlugin = definePlugin(
               if (Object.keys(definitions).length > 0) {
                 yield* ctx.core.definitions.register({
                   sourceId: namespace,
+                  scope: config.scope,
                   definitions,
                 });
               }
@@ -368,13 +407,6 @@ export const graphqlPlugin = definePlugin(
         return {
           addSource: (config) =>
             addSourceInternal(config).pipe(
-              Effect.mapError((err) =>
-                err instanceof Error
-                  ? err
-                  : new GraphqlExtractionError({
-                      message: String(err),
-                    }),
-              ),
               Effect.tap((result) =>
                 configFile
                   ? configFile.upsertSource(
@@ -382,14 +414,13 @@ export const graphqlPlugin = definePlugin(
                     )
                   : Effect.void,
               ),
-              Effect.map(({ toolCount }) => ({ toolCount })),
             ),
 
-          removeSource: (namespace) =>
+          removeSource: (namespace, scope) =>
             Effect.gen(function* () {
               yield* ctx.transaction(
                 Effect.gen(function* () {
-                  yield* ctx.storage.removeSource(namespace);
+                  yield* ctx.storage.removeSource(namespace, scope);
                   yield* ctx.core.sources.unregister(namespace);
                 }),
               );
@@ -398,15 +429,16 @@ export const graphqlPlugin = definePlugin(
               }
             }),
 
-          getSource: (namespace) => ctx.storage.getSource(namespace),
+          getSource: (namespace, scope) =>
+            ctx.storage.getSource(namespace, scope),
 
-          updateSource: (namespace, input) =>
-            ctx.storage.updateSourceMeta(namespace, {
+          updateSource: (namespace, scope, input) =>
+            ctx.storage.updateSourceMeta(namespace, scope, {
               name: input.name?.trim() || undefined,
               endpoint: input.endpoint,
               headers: input.headers,
             }),
-        };
+        } satisfies GraphqlPluginExtension;
       },
 
       staticSources: (self) => [
@@ -437,8 +469,16 @@ export const graphqlPlugin = definePlugin(
                 },
                 required: ["toolCount"],
               },
-              handler: ({ args }) =>
-                self.addSource(args as GraphqlSourceConfig),
+              // Static-tool callers don't name a scope. Default to the
+              // outermost scope in the executor's stack — for a single-
+              // scope executor that's the only scope; for a per-user
+              // stack `[user, org]` it writes at `org` so the source is
+              // visible across every user.
+              handler: ({ ctx, args }) =>
+                self.addSource({
+                  ...(args as Omit<GraphqlSourceConfig, "scope">),
+                  scope: ctx.scopes.at(-1)!.id as string,
+                }),
             },
           ],
         },
@@ -446,13 +486,22 @@ export const graphqlPlugin = definePlugin(
 
       invokeTool: ({ ctx, toolRow, args }) =>
         Effect.gen(function* () {
-          const op = yield* ctx.storage.getOperationByToolId(toolRow.id);
+          // toolRow.scope_id is the resolved owning scope of the tool
+          // (innermost-wins from the executor's stack). The matching
+          // graphql_operation + graphql_source rows live at the same
+          // scope, so pin every store lookup to it instead of relying
+          // on the scoped adapter's stack-wide fall-through.
+          const toolScope = toolRow.scope_id as string;
+          const op = yield* ctx.storage.getOperationByToolId(
+            toolRow.id,
+            toolScope,
+          );
           if (!op) {
             return yield* Effect.fail(
               new Error(`No GraphQL operation found for tool "${toolRow.id}"`),
             );
           }
-          const source = yield* ctx.storage.getSource(op.sourceId);
+          const source = yield* ctx.storage.getSource(op.sourceId, toolScope);
           if (!source) {
             return yield* Effect.fail(
               new Error(`No GraphQL source found for "${op.sourceId}"`),
@@ -477,19 +526,46 @@ export const graphqlPlugin = definePlugin(
 
       resolveAnnotations: ({ ctx, sourceId, toolRows }) =>
         Effect.gen(function* () {
-          const ops = yield* ctx.storage.listOperationsBySource(sourceId);
-          const byId = new Map<string, OperationBinding>();
-          for (const op of ops) byId.set(op.toolId, op.binding);
+          // toolRows for a single (plugin_id, source_id) group can still
+          // straddle multiple scopes when the source is shadowed (e.g. an
+          // org-level GraphQL source plus a per-user override that
+          // re-registers the same tool ids). Run one listOperationsBySource
+          // per distinct scope so each lookup pins {source_id, scope_id}
+          // and we don't fall through to the wrong scope's bindings.
+          const scopes = new Set<string>();
+          for (const row of toolRows as readonly ToolRow[]) {
+            scopes.add(row.scope_id as string);
+          }
+          // One listOperationsBySource per scope is independent storage
+          // work; run them in parallel so a shadowed source doesn't
+          // serialise two ~200ms reads back-to-back in the caller's
+          // `executor.tools.list.annotations` span.
+          const entries = yield* Effect.forEach(
+            [...scopes],
+            (scope) =>
+              Effect.gen(function* () {
+                const ops = yield* ctx.storage.listOperationsBySource(
+                  sourceId,
+                  scope,
+                );
+                const byId = new Map<string, OperationBinding>();
+                for (const op of ops) byId.set(op.toolId, op.binding);
+                return [scope, byId] as const;
+              }),
+            { concurrency: "unbounded" },
+          );
+          const byScope = new Map<string, Map<string, OperationBinding>>(entries);
 
           const out: Record<string, ToolAnnotations> = {};
           for (const row of toolRows as readonly ToolRow[]) {
-            const binding = byId.get(row.id);
+            const binding = byScope.get(row.scope_id as string)?.get(row.id);
             if (binding) out[row.id] = annotationsFor(binding);
           }
           return out;
         }),
 
-      removeSource: ({ ctx, sourceId }) => ctx.storage.removeSource(sourceId),
+      removeSource: ({ ctx, sourceId, scope }) =>
+        ctx.storage.removeSource(sourceId, scope),
 
       detect: ({ url }) =>
         Effect.gen(function* () {

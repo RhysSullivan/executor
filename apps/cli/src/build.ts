@@ -102,6 +102,54 @@ const resolveSecureExecV8 = (t: Target): string | null => {
   }
 };
 
+/**
+ * Resolve the platform-specific @napi-rs/keyring native binding for a target.
+ *
+ * `bun build --compile` doesn't include `.node` modules in bunfs, so the
+ * keyring loader's dynamic `require('@napi-rs/keyring-<plat>-<arch>')` fails
+ * at runtime. We copy the `.node` file next to the executor and main.ts sets
+ * `NAPI_RS_NATIVE_LIBRARY_PATH` so the loader's env-var escape hatch picks it
+ * up instead of trying to walk node_modules.
+ */
+const resolveKeyringNative = (t: Target): string | null => {
+  const platformMap: Record<string, { pkg: string; node: string }> = {
+    "darwin-arm64": { pkg: "@napi-rs/keyring-darwin-arm64", node: "keyring.darwin-arm64.node" },
+    "darwin-x64": { pkg: "@napi-rs/keyring-darwin-x64", node: "keyring.darwin-x64.node" },
+    "linux-arm64": { pkg: "@napi-rs/keyring-linux-arm64-gnu", node: "keyring.linux-arm64-gnu.node" },
+    "linux-x64": { pkg: "@napi-rs/keyring-linux-x64-gnu", node: "keyring.linux-x64-gnu.node" },
+    "linux-arm64-musl": {
+      pkg: "@napi-rs/keyring-linux-arm64-musl",
+      node: "keyring.linux-arm64-musl.node",
+    },
+    "linux-x64-musl": {
+      pkg: "@napi-rs/keyring-linux-x64-musl",
+      node: "keyring.linux-x64-musl.node",
+    },
+    "win32-arm64": {
+      pkg: "@napi-rs/keyring-win32-arm64-msvc",
+      node: "keyring.win32-arm64-msvc.node",
+    },
+    "win32-x64": { pkg: "@napi-rs/keyring-win32-x64-msvc", node: "keyring.win32-x64-msvc.node" },
+  };
+  const key = [t.os, t.arch, t.abi].filter(Boolean).join("-");
+  const entry = platformMap[key];
+  if (!entry) return null;
+  try {
+    const req = createRequire(
+      join(repoRoot, "node_modules", "@napi-rs/keyring", "package.json"),
+    );
+    const pkgJson = req.resolve(`${entry.pkg}/package.json`);
+    return join(dirname(pkgJson), entry.node);
+  } catch {
+    const bunPath = join(
+      repoRoot,
+      `node_modules/.bun/${entry.pkg.replace("/", "+")}@1.2.0/node_modules/${entry.pkg}/${entry.node}`,
+    );
+    if (existsSync(bunPath)) return bunPath;
+    return null;
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Build mode
 // ---------------------------------------------------------------------------
@@ -292,6 +340,23 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
 
   await rm(distDir, { recursive: true, force: true });
 
+  // Cross-platform builds need every target's optional native packages
+  // (e.g. @napi-rs/keyring-darwin-arm64, @secure-exec/v8-win32-x64) so we
+  // can copy the right .node / binary next to each target's executor.
+  // `bun install --frozen-lockfile --cpu=* --os=*` extracts them all
+  // without modifying the lockfile.
+  const needsCrossPlatform = targets.some((t) => !isCurrentPlatform(t));
+  if (needsCrossPlatform) {
+    console.log("Installing optional native deps for all platforms...");
+    const proc = Bun.spawn(["bun", "install", "--frozen-lockfile", "--cpu=*", "--os=*"], {
+      cwd: repoRoot,
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    if ((await proc.exited) !== 0) {
+      throw new Error("bun install --cpu=* --os=* failed");
+    }
+  }
+
   console.log(`Generating embedded web UI bundle (${mode})...`);
   const embeddedWebUI = await createEmbeddedWebUISource(mode);
   await writeFile(embeddedWebUIPath, `${embeddedWebUI}\n`);
@@ -331,6 +396,14 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
         const destName = target.os === "win32" ? "secure-exec-v8.exe" : "secure-exec-v8";
         await cp(secureExecBin, join(binDir, destName));
         await chmod(join(binDir, destName), 0o755);
+      }
+
+      // Copy @napi-rs/keyring native binding next to executor — bun --compile
+      // doesn't bundle .node files, so the loader needs to find it on disk
+      // via NAPI_RS_NATIVE_LIBRARY_PATH (set in main.ts).
+      const keyringNative = resolveKeyringNative(target);
+      if (keyringNative && existsSync(keyringNative)) {
+        await cp(keyringNative, join(binDir, "keyring.node"));
       }
 
       // Smoke test on current platform

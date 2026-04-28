@@ -3,8 +3,8 @@ import { Effect } from "effect";
 
 import { UserStoreService } from "../auth/context";
 import { AuthContext } from "../auth/middleware";
+import { env } from "cloudflare:workers";
 import { WorkOSAuth } from "../auth/workos";
-import { server } from "../env";
 import { AutumnService } from "../services/autumn";
 import { OrgHttpApi } from "./compose";
 import { Forbidden } from "./api";
@@ -18,6 +18,39 @@ const requireAdmin = Effect.gen(function* () {
     return yield* new Forbidden();
   }
 });
+
+// Target-ownership checks — independent of caller privilege. `requireAdmin`
+// confirms the caller is an admin of their session's org; these confirm the
+// resource they're about to mutate actually lives in that same org. Without
+// this, an admin of org A who obtained a membership/domain id from org B
+// (leak, screenshot, support context) could trigger the WorkOS SDK against
+// org B's resource — the workspace API key is workspace-wide and WorkOS
+// does not enforce per-org ownership on delete/update by id. Failures
+// (not found OR org mismatch) both surface as Forbidden so we don't leak
+// existence of ids outside the caller's org.
+const assertMembershipInSessionOrg = (membershipId: string) =>
+  Effect.gen(function* () {
+    const auth = yield* AuthContext;
+    const workos = yield* WorkOSAuth;
+    const membership = yield* workos
+      .getOrgMembership(membershipId)
+      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+    if (!membership || membership.organizationId !== auth.organizationId) {
+      return yield* new Forbidden();
+    }
+  });
+
+const assertDomainInSessionOrg = (domainId: string) =>
+  Effect.gen(function* () {
+    const auth = yield* AuthContext;
+    const workos = yield* WorkOSAuth;
+    const domain = yield* workos
+      .getOrganizationDomain(domainId)
+      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+    if (!domain || domain.organizationId !== auth.organizationId) {
+      return yield* new Forbidden();
+    }
+  });
 
 export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
   handlers
@@ -84,6 +117,7 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
     .handle("removeMember", ({ path }) =>
       Effect.gen(function* () {
         yield* requireAdmin;
+        yield* assertMembershipInSessionOrg(path.membershipId);
         const workos = yield* WorkOSAuth;
         yield* workos.deleteOrgMembership(path.membershipId);
         return { success: true };
@@ -92,6 +126,7 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
     .handle("updateMemberRole", ({ path, payload }) =>
       Effect.gen(function* () {
         yield* requireAdmin;
+        yield* assertMembershipInSessionOrg(path.membershipId);
         const workos = yield* WorkOSAuth;
         yield* workos.updateOrgMembershipRole(path.membershipId, payload.roleSlug);
         return { success: true };
@@ -144,7 +179,7 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         const workos = yield* WorkOSAuth;
         const { link } = yield* workos.generateDomainVerificationPortalLink(
           auth.organizationId,
-          server.VITE_PUBLIC_SITE_URL ? `${server.VITE_PUBLIC_SITE_URL}/org` : "/org",
+          env.VITE_PUBLIC_SITE_URL ? `${env.VITE_PUBLIC_SITE_URL}/org` : "/org",
         );
         return { link };
       }),
@@ -152,6 +187,7 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
     .handle("deleteDomain", ({ path }) =>
       Effect.gen(function* () {
         yield* requireAdmin;
+        yield* assertDomainInSessionOrg(path.domainId);
         const workos = yield* WorkOSAuth;
         yield* workos.deleteOrganizationDomain(path.domainId);
         return { success: true };

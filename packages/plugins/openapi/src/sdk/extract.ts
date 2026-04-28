@@ -3,8 +3,9 @@ import { Effect, Option } from "effect";
 import { OpenApiExtractionError } from "./errors";
 import type { ParsedDocument } from "./parse";
 import {
+  declaredContents,
   DocResolver,
-  preferredContent,
+  preferredResponseContent,
   type OperationObject,
   type ParameterObject,
   type PathItemObject,
@@ -12,9 +13,11 @@ import {
   type ResponseObject,
 } from "./openapi-utils";
 import {
+  EncodingObject,
   ExtractedOperation,
   ExtractionResult,
   type HttpMethod,
+  MediaBinding,
   OperationId,
   OperationParameter,
   OperationRequestBody,
@@ -83,6 +86,29 @@ const extractParameters = (
 // Request body extraction
 // ---------------------------------------------------------------------------
 
+const buildEncodingRecord = (
+  encoding: Record<string, unknown> | undefined,
+): Record<string, EncodingObject> | undefined => {
+  if (!encoding) return undefined;
+  const out: Record<string, EncodingObject> = {};
+  for (const [prop, raw] of Object.entries(encoding)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const e = raw as {
+      contentType?: string;
+      style?: string;
+      explode?: boolean;
+      allowReserved?: boolean;
+    };
+    out[prop] = new EncodingObject({
+      contentType: Option.fromNullable(e.contentType),
+      style: Option.fromNullable(e.style),
+      explode: Option.fromNullable(e.explode),
+      allowReserved: Option.fromNullable(e.allowReserved),
+    });
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+};
+
 const extractRequestBody = (
   operation: OperationObject,
   r: DocResolver,
@@ -92,13 +118,29 @@ const extractRequestBody = (
   const body = r.resolve<RequestBodyObject>(operation.requestBody);
   if (!body) return undefined;
 
-  const content = preferredContent(body.content);
-  if (!content) return undefined;
+  const contents = declaredContents(body.content).map(
+    ({ mediaType, media }) =>
+      new MediaBinding({
+        contentType: mediaType,
+        schema: Option.fromNullable(media.schema),
+        encoding: Option.fromNullable(
+          buildEncodingRecord(
+            (media as { encoding?: Record<string, unknown> }).encoding,
+          ),
+        ),
+      }),
+  );
+  if (contents.length === 0) return undefined;
+
+  // Default = first declared (spec author's preferred order). Callers can
+  // override at invoke time with a `contentType` arg.
+  const defaultContent = contents[0]!;
 
   return new OperationRequestBody({
     required: body.required === true,
-    contentType: content.mediaType,
-    schema: Option.fromNullable(content.media.schema),
+    contentType: defaultContent.contentType,
+    schema: defaultContent.schema,
+    contents: Option.some(contents),
   });
 };
 
@@ -118,7 +160,7 @@ const extractOutputSchema = (operation: OperationObject, r: DocResolver): unknow
   for (const [, ref] of preferred) {
     const resp = r.resolve<ResponseObject>(ref);
     if (!resp) continue;
-    const content = preferredContent(resp.content);
+    const content = preferredResponseContent(resp.content);
     if (content?.media.schema) return content.media.schema;
   }
 
@@ -144,6 +186,21 @@ const buildInputSchema = (
   if (requestBody) {
     properties.body = Option.getOrElse(requestBody.schema, () => ({ type: "object" }));
     if (requestBody.required) required.push("body");
+
+    // When the spec declares multiple media types for this requestBody,
+    // expose `contentType` so the model can pick. Default = first declared.
+    // `body` schema tracks the default; the model is responsible for
+    // supplying a body shape that matches whichever contentType it picks.
+    const contents = Option.getOrUndefined(requestBody.contents);
+    if (contents && contents.length > 1) {
+      properties.contentType = {
+        type: "string",
+        enum: contents.map((c) => c.contentType),
+        default: requestBody.contentType,
+        description:
+          "Content-Type for the request body. Declared media types for this operation, in spec order.",
+      };
+    }
   }
 
   if (Object.keys(properties).length === 0) return undefined;

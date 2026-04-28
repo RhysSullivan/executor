@@ -14,7 +14,11 @@
 
 import { Effect, Schema } from "effect";
 
-import { defineSchema, type StorageDeps } from "@executor/sdk";
+import {
+  defineSchema,
+  type StorageDeps,
+  type StorageFailure,
+} from "@executor/sdk";
 
 import {
   GoogleDiscoveryMethodBinding,
@@ -70,6 +74,10 @@ export type GoogleDiscoverySchema = typeof googleDiscoverySchema;
 
 export interface GoogleDiscoveryStoredSource {
   readonly namespace: string;
+  /** Executor scope id this source row lives in. Writes stamp this on
+   *  `scope_id`; reads return whichever scope's row the adapter's
+   *  fall-through walk surfaced first. */
+  readonly scope: string;
   readonly name: string;
   readonly config: GoogleDiscoveryStoredSourceData;
 }
@@ -101,43 +109,81 @@ const decodeJson = (value: unknown): unknown => {
 // Store interface
 // ---------------------------------------------------------------------------
 
+// Every method routes through the typed adapter (`ctx.storage.adapter`)
+// so the typed error channel is `StorageFailure`. Schema-decode failures
+// inside `Effect.gen` land as defects, not typed errors, and are caught
+// by the HTTP edge's observability middleware.
+//
+// Every read/write that targets a single keyed row pins BOTH the natural
+// id (toolId, sourceId, sessionId) AND the owning `scope_id`. The store
+// runs behind the scoped adapter (which auto-injects `scope_id IN
+// (stack)`), so a bare `{id}` filter resolves to any matching row in the
+// stack in adapter-iteration order. For shadowed rows (same id at
+// multiple scopes — e.g. an org-level google discovery source with a
+// per-user override), that's a scope-isolation bug: updates and deletes
+// can land on the wrong scope's row. Callers thread the resolved scope
+// in (typically `path.scopeId` for HTTP, `toolRow.scope_id` /
+// `input.scope` for invokeTool/lifecycle) so every keyed mutation
+// targets exactly one row.
 export interface GoogleDiscoveryStore {
-  readonly getBinding: (toolId: string) => Effect.Effect<
+  readonly getBinding: (
+    toolId: string,
+    scope: string,
+  ) => Effect.Effect<
     { readonly namespace: string; readonly binding: GoogleDiscoveryMethodBinding } | null,
-    Error
+    StorageFailure
   >;
   readonly putBinding: (
     toolId: string,
     sourceId: string,
+    scope: string,
     binding: GoogleDiscoveryMethodBinding,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
   readonly removeBindingsBySource: (
     sourceId: string,
-  ) => Effect.Effect<readonly string[], Error>;
+    scope: string,
+  ) => Effect.Effect<readonly string[], StorageFailure>;
   readonly getBindingsForSource: (
     sourceId: string,
+    scope: string,
   ) => Effect.Effect<
     ReadonlyMap<string, GoogleDiscoveryMethodBinding>,
-    Error
+    StorageFailure
   >;
 
-  readonly putSource: (source: GoogleDiscoveryStoredSource) => Effect.Effect<void, Error>;
-  readonly removeSource: (sourceId: string) => Effect.Effect<void, Error>;
+  readonly putSource: (
+    source: GoogleDiscoveryStoredSource,
+  ) => Effect.Effect<void, StorageFailure>;
+  readonly updateSourceMeta: (
+    sourceId: string,
+    scope: string,
+    update: {
+      readonly name?: string;
+      readonly auth?: import("./types").GoogleDiscoveryAuth;
+    },
+  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (
+    sourceId: string,
+    scope: string,
+  ) => Effect.Effect<void, StorageFailure>;
   readonly getSource: (
     sourceId: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSource | null, Error>;
+    scope: string,
+  ) => Effect.Effect<GoogleDiscoveryStoredSource | null, StorageFailure>;
   readonly getSourceConfig: (
     sourceId: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null, Error>;
+    scope: string,
+  ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null, StorageFailure>;
 
   readonly putOAuthSession: (
     sessionId: string,
+    scope: string,
     session: GoogleDiscoveryOAuthSession,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
   readonly getOAuthSession: (
     sessionId: string,
-  ) => Effect.Effect<GoogleDiscoveryOAuthSession | null, Error>;
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<GoogleDiscoveryOAuthSession | null, StorageFailure>;
+  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,30 +196,38 @@ export const makeGoogleDiscoveryStore = (
   const db = deps.adapter;
 
   return {
-    getBinding: (toolId) =>
+    getBinding: (toolId, scope) =>
       Effect.gen(function* () {
         const row = yield* db.findOne({
           model: "google_discovery_binding",
-          where: [{ field: "id", value: toolId }],
+          where: [
+            { field: "id", value: toolId },
+            { field: "scope_id", value: scope },
+          ],
         });
         if (!row) return null;
         const decoded = decodeBinding(decodeJson(row.binding));
         return { namespace: row.source_id as string, binding: decoded };
       }),
 
-    putBinding: (toolId, sourceId, binding) =>
+    putBinding: (toolId, sourceId, scope, binding) =>
       Effect.gen(function* () {
         // Upsert: delete + insert. The in-memory adapter accepts
         // overwriting via create; real SQL backends would fail without
-        // the explicit delete.
+        // the explicit delete. Pin the delete to the target scope so a
+        // shadowed row at another scope in the stack isn't wiped.
         yield* db.delete({
           model: "google_discovery_binding",
-          where: [{ field: "id", value: toolId }],
+          where: [
+            { field: "id", value: toolId },
+            { field: "scope_id", value: scope },
+          ],
         });
         yield* db.create({
           model: "google_discovery_binding",
           data: {
             id: toolId,
+            scope_id: scope,
             source_id: sourceId,
             binding: encodeBinding(binding) as unknown as Record<string, unknown>,
             created_at: new Date(),
@@ -182,25 +236,34 @@ export const makeGoogleDiscoveryStore = (
         });
       }),
 
-    removeBindingsBySource: (sourceId) =>
+    removeBindingsBySource: (sourceId, scope) =>
       Effect.gen(function* () {
         const rows = yield* db.findMany({
           model: "google_discovery_binding",
-          where: [{ field: "source_id", value: sourceId }],
+          where: [
+            { field: "source_id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
         });
         const ids = rows.map((r) => r.id as string);
         yield* db.deleteMany({
           model: "google_discovery_binding",
-          where: [{ field: "source_id", value: sourceId }],
+          where: [
+            { field: "source_id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
         });
         return ids;
       }),
 
-    getBindingsForSource: (sourceId) =>
+    getBindingsForSource: (sourceId, scope) =>
       Effect.gen(function* () {
         const rows = yield* db.findMany({
           model: "google_discovery_binding",
-          where: [{ field: "source_id", value: sourceId }],
+          where: [
+            { field: "source_id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
         });
         const out = new Map<string, GoogleDiscoveryMethodBinding>();
         for (const row of rows) {
@@ -214,12 +277,16 @@ export const makeGoogleDiscoveryStore = (
         const now = new Date();
         yield* db.delete({
           model: "google_discovery_source",
-          where: [{ field: "id", value: source.namespace }],
+          where: [
+            { field: "id", value: source.namespace },
+            { field: "scope_id", value: source.scope },
+          ],
         });
         yield* db.create({
           model: "google_discovery_source",
           data: {
             id: source.namespace,
+            scope_id: source.scope,
             name: source.name,
             config: encodeStoredSourceData(source.config) as unknown as Record<string, unknown>,
             created_at: now,
@@ -229,48 +296,96 @@ export const makeGoogleDiscoveryStore = (
         });
       }),
 
-    removeSource: (sourceId) =>
-      db
-        .delete({
-          model: "google_discovery_source",
-          where: [{ field: "id", value: sourceId }],
-        })
-        .pipe(Effect.asVoid),
-
-    getSource: (sourceId) =>
+    updateSourceMeta: (sourceId, scope, update) =>
       Effect.gen(function* () {
         const row = yield* db.findOne({
           model: "google_discovery_source",
-          where: [{ field: "id", value: sourceId }],
+          where: [
+            { field: "id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
+        });
+        if (!row) return;
+        const config = decodeStoredSourceData(decodeJson(row.config));
+        const nextConfig = new GoogleDiscoveryStoredSourceData({
+          ...config,
+          name: update.name ?? config.name,
+          auth: update.auth ?? config.auth,
+        });
+        yield* db.update({
+          model: "google_discovery_source",
+          where: [
+            { field: "id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
+          update: {
+            name: update.name ?? (row.name as string),
+            config: encodeStoredSourceData(nextConfig) as unknown as Record<string, unknown>,
+            updated_at: new Date(),
+          },
+        });
+      }),
+
+    removeSource: (sourceId, scope) =>
+      db
+        .delete({
+          model: "google_discovery_source",
+          where: [
+            { field: "id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
+        })
+        .pipe(Effect.asVoid),
+
+    getSource: (sourceId, scope) =>
+      Effect.gen(function* () {
+        const row = yield* db.findOne({
+          model: "google_discovery_source",
+          where: [
+            { field: "id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
         });
         if (!row) return null;
         return {
           namespace: row.id as string,
+          scope: row.scope_id as string,
           name: row.name as string,
           config: decodeStoredSourceData(decodeJson(row.config)),
         };
       }),
 
-    getSourceConfig: (sourceId) =>
+    getSourceConfig: (sourceId, scope) =>
       Effect.gen(function* () {
         const row = yield* db.findOne({
           model: "google_discovery_source",
-          where: [{ field: "id", value: sourceId }],
+          where: [
+            { field: "id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
         });
         if (!row) return null;
         return decodeStoredSourceData(decodeJson(row.config));
       }),
 
-    putOAuthSession: (sessionId, session) =>
+    putOAuthSession: (sessionId, scope, session) =>
       Effect.gen(function* () {
+        // Pin the defensive overwrite to the target scope — sessionIds
+        // are UUIDs so collisions are negligible, but a hypothetical
+        // collision with a session in another scope of this stack
+        // shouldn't wipe the wrong row.
         yield* db.delete({
           model: "google_discovery_oauth_session",
-          where: [{ field: "id", value: sessionId }],
+          where: [
+            { field: "id", value: sessionId },
+            { field: "scope_id", value: scope },
+          ],
         });
         yield* db.create({
           model: "google_discovery_oauth_session",
           data: {
             id: sessionId,
+            scope_id: scope,
             session: encodeSession(session) as unknown as Record<string, unknown>,
             expires_at: new Date(Date.now() + GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS),
           },
@@ -290,7 +405,10 @@ export const makeGoogleDiscoveryStore = (
         if (expiresAt.getTime() < Date.now()) {
           yield* db.delete({
             model: "google_discovery_oauth_session",
-            where: [{ field: "id", value: sessionId }],
+            where: [
+              { field: "id", value: sessionId },
+              { field: "scope_id", value: row.scope_id as string },
+            ],
           });
           return null;
         }

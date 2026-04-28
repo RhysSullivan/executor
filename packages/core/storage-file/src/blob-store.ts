@@ -9,10 +9,11 @@
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
-import { and, eq, sql as drizzleSql } from "drizzle-orm";
+import { and, eq, inArray, sql as drizzleSql } from "drizzle-orm";
 import { primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import type { BlobStore } from "@executor/sdk";
+import { StorageError } from "@executor/storage-core";
 
 export const blobTable = sqliteTable(
   "blob",
@@ -34,9 +35,12 @@ export interface MakeSqliteBlobStoreOptions {
 
 const wrapErr =
   (op: string) =>
-  (e: unknown): Error => {
-    const msg = e instanceof Error ? e.message : String(e);
-    return new Error(`[storage-file] blob ${op}: ${msg}`);
+  (cause: unknown): StorageError => {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    return new StorageError({
+      message: `[storage-file] blob ${op}: ${msg}`,
+      cause,
+    });
   };
 
 export const makeSqliteBlobStore = (
@@ -58,6 +62,33 @@ export const makeSqliteBlobStore = (
           .all() as ReadonlyArray<{ value: string }>,
       catch: wrapErr("get"),
     }).pipe(Effect.map((rows) => rows[0]?.value ?? null)),
+
+  getMany: (namespaces, key) =>
+    namespaces.length === 0
+      ? Effect.succeed(new Map<string, string>())
+      : Effect.try({
+          try: () =>
+            options.db
+              .select({
+                namespace: blobTable.namespace,
+                value: blobTable.value,
+              })
+              .from(blobTable)
+              .where(
+                and(
+                  inArray(blobTable.namespace, [...namespaces]),
+                  eq(blobTable.key, key),
+                ),
+              )
+              .all() as ReadonlyArray<{ namespace: string; value: string }>,
+          catch: wrapErr("getMany"),
+        }).pipe(
+          Effect.map((rows) => {
+            const out = new Map<string, string>();
+            for (const row of rows) out.set(row.namespace, row.value);
+            return out;
+          }),
+        ),
 
   put: (namespace, key, value) =>
     Effect.try({

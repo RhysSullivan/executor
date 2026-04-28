@@ -7,10 +7,15 @@ import { Effect } from "effect";
 import { vi } from "vitest";
 
 import {
+  ConnectionId,
+  CreateConnectionInput,
   createExecutor,
   makeTestConfig,
+  Scope,
+  ScopeId,
   SecretId,
   SetSecretInput,
+  TokenMaterial,
   type InvokeOptions,
 } from "@executor/sdk";
 
@@ -114,14 +119,21 @@ const makeMemorySecretsPlugin = () => {
   const provider: SecretProvider = {
     key: "memory",
     writable: true,
-    get: (id) => Effect.sync(() => store.get(id) ?? null),
-    set: (id, value) =>
+    get: (id, scope) =>
+      Effect.sync(() => store.get(`${scope}\u0000${id}`) ?? null),
+    set: (id, value, scope) =>
       Effect.sync(() => {
-        store.set(id, value);
+        store.set(`${scope}\u0000${id}`, value);
       }),
-    delete: (id) => Effect.sync(() => store.delete(id)),
+    delete: (id, scope) =>
+      Effect.sync(() => store.delete(`${scope}\u0000${id}`)),
     list: () =>
-      Effect.sync(() => Array.from(store.keys()).map((id) => ({ id, name: id }))),
+      Effect.sync(() =>
+        Array.from(store.keys()).map((k) => {
+          const name = k.split("\u0000", 2)[1] ?? k;
+          return { id: name, name };
+        }),
+      ),
   };
   return definePlugin(() => ({
     id: "memory-secrets" as const,
@@ -194,6 +206,7 @@ describe("Google Discovery plugin", () => {
         yield* executor.secrets.set(
           new SetSecretInput({
             id: SecretId.make("google-client-id"),
+            scope: "test-scope" as SetSecretInput["scope"],
             name: "Google Client ID",
             value: "client-123",
           }),
@@ -232,6 +245,7 @@ describe("Google Discovery plugin", () => {
         yield* executor.secrets.set(
           new SetSecretInput({
             id: SecretId.make("google-client-id"),
+            scope: "test-scope" as SetSecretInput["scope"],
             name: "Google Client ID",
             value: "client-123",
           }),
@@ -239,6 +253,7 @@ describe("Google Discovery plugin", () => {
         yield* executor.secrets.set(
           new SetSecretInput({
             id: SecretId.make("google-client-secret"),
+            scope: "test-scope" as SetSecretInput["scope"],
             name: "Google Client Secret",
             value: "client-secret-value",
           }),
@@ -288,13 +303,22 @@ describe("Google Discovery plugin", () => {
           });
 
           expect(auth.kind).toBe("oauth2");
-          expect(auth.clientIdSecretId).toBe("google-client-id");
-          expect(auth.refreshTokenSecretId).not.toBeNull();
+          expect(auth.connectionId).toMatch(/^google-discovery-oauth2-/);
 
-          const accessToken = yield* executor.secrets.get(auth.accessTokenSecretId);
+          // Tokens live on the SDK connection — resolving via
+          // ctx.connections.accessToken returns the minted value.
+          const accessToken = yield* executor.connections.accessToken(
+            auth.connectionId as Parameters<typeof executor.connections.accessToken>[0],
+          );
           expect(accessToken).toBe("access-token-value");
-          const refreshToken = yield* executor.secrets.get(auth.refreshTokenSecretId!);
-          expect(refreshToken).toBe("refresh-token-value");
+
+          // Backing access-token secret is owned by the connection, so
+          // it's filtered out of the user-facing secret list.
+          const secretIds = new Set(
+            (yield* executor.secrets.list()).map((s) => s.id as unknown as string),
+          );
+          expect(secretIds).not.toContain(`${auth.connectionId}.access_token`);
+          expect(secretIds).not.toContain(`${auth.connectionId}.refresh_token`);
         } finally {
           fetchMock.mockRestore();
           yield* executor.close();
@@ -316,34 +340,43 @@ describe("Google Discovery plugin", () => {
         );
 
         try {
-          yield* executor.secrets.set(
-            new SetSecretInput({
-              id: SecretId.make("drive-access-token"),
-              name: "Drive Access Token",
-              value: "secret-token",
-            }),
+          // A connection wraps the access token (+ optional refresh) and
+          // the invoke path resolves via ctx.connections.accessToken.
+          const connectionId = ConnectionId.make(
+            "google-discovery-oauth2-test",
           );
-          yield* executor.secrets.set(
-            new SetSecretInput({
-              id: SecretId.make("drive-client-id"),
-              name: "Drive Client ID",
-              value: "client-123",
+          yield* executor.connections.create(
+            new CreateConnectionInput({
+              id: connectionId,
+              scope: ScopeId.make("test-scope"),
+              provider: "google-discovery:oauth2",
+              identityLabel: "Drive Test",
+              accessToken: new TokenMaterial({
+                secretId: SecretId.make(`${connectionId}.access_token`),
+                name: "Drive Access Token",
+                value: "secret-token",
+              }),
+              refreshToken: null,
+              expiresAt: null,
+              oauthScope: null,
+              providerState: {
+                clientIdSecretId: "drive-client-id",
+                clientSecretSecretId: null,
+                scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+              },
             }),
           );
 
           const result = yield* executor.googleDiscovery.addSource({
             name: "Google Drive",
+            scope: "test-scope",
             discoveryUrl: handle.discoveryUrl,
             namespace: "drive",
             auth: {
               kind: "oauth2",
+              connectionId,
               clientIdSecretId: "drive-client-id",
               clientSecretSecretId: null,
-              accessTokenSecretId: "drive-access-token",
-              refreshTokenSecretId: null,
-              tokenType: "Bearer",
-              expiresAt: null,
-              scope: null,
               scopes: ["https://www.googleapis.com/auth/drive.readonly"],
             },
           });
@@ -366,6 +399,185 @@ describe("Google Discovery plugin", () => {
           expect(apiRequest!.headers.authorization).toBe("Bearer secret-token");
           expect(apiRequest!.url).toContain("fields=id%2Cname");
           expect(apiRequest!.url).toContain("prettyPrint=true");
+        } finally {
+          yield* executor.close();
+        }
+      } finally {
+        yield* Effect.promise(() => handle.close());
+      }
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Multi-scope shadowing — regression suite covering the bug class where
+  // store reads/writes that don't pin scope_id collapse onto whichever row
+  // the scoped adapter's `scope_id IN (stack)` filter sees first. Each
+  // scenario is reproducible against the pre-fix store.
+  // -------------------------------------------------------------------------
+
+  const ORG_SCOPE = ScopeId.make("org-scope");
+  const USER_SCOPE = ScopeId.make("user-scope");
+
+  const stackedScopes = [
+    new Scope({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
+    new Scope({ id: ORG_SCOPE, name: "org", createdAt: new Date() }),
+  ] as const;
+
+  it.effect("shadowed addSource does not wipe the outer-scope source", () =>
+    Effect.gen(function* () {
+      const handle = yield* Effect.promise(() => startServer());
+      try {
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            scopes: stackedScopes,
+            plugins: [makeMemorySecretsPlugin()(), googleDiscoveryPlugin()] as const,
+          }),
+        );
+        try {
+          // Org-level base source
+          yield* executor.googleDiscovery.addSource({
+            name: "Org Drive",
+            scope: ORG_SCOPE as string,
+            discoveryUrl: handle.discoveryUrl,
+            namespace: "shared",
+            auth: { kind: "none" },
+          });
+
+          // Per-user shadow with the same namespace
+          yield* executor.googleDiscovery.addSource({
+            name: "User Drive",
+            scope: USER_SCOPE as string,
+            discoveryUrl: handle.discoveryUrl,
+            namespace: "shared",
+            auth: { kind: "none" },
+          });
+
+          const userView = yield* executor.googleDiscovery.getSource(
+            "shared",
+            USER_SCOPE as string,
+          );
+          const orgView = yield* executor.googleDiscovery.getSource(
+            "shared",
+            ORG_SCOPE as string,
+          );
+
+          // Both rows must coexist — innermost-wins reads come from the
+          // executor; the store's scope-pinned getters return the exact row.
+          expect(userView?.name).toBe("User Drive");
+          expect(userView?.scope).toBe(USER_SCOPE as string);
+          expect(orgView?.name).toBe("Org Drive");
+          expect(orgView?.scope).toBe(ORG_SCOPE as string);
+        } finally {
+          yield* executor.close();
+        }
+      } finally {
+        yield* Effect.promise(() => handle.close());
+      }
+    }),
+  );
+
+  it.effect("removeSource on user shadow leaves the org row intact", () =>
+    Effect.gen(function* () {
+      const handle = yield* Effect.promise(() => startServer());
+      try {
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            scopes: stackedScopes,
+            plugins: [makeMemorySecretsPlugin()(), googleDiscoveryPlugin()] as const,
+          }),
+        );
+        try {
+          yield* executor.googleDiscovery.addSource({
+            name: "Org Drive",
+            scope: ORG_SCOPE as string,
+            discoveryUrl: handle.discoveryUrl,
+            namespace: "shared",
+            auth: { kind: "none" },
+          });
+          yield* executor.googleDiscovery.addSource({
+            name: "User Drive",
+            scope: USER_SCOPE as string,
+            discoveryUrl: handle.discoveryUrl,
+            namespace: "shared",
+            auth: { kind: "none" },
+          });
+
+          yield* executor.googleDiscovery.removeSource(
+            "shared",
+            USER_SCOPE as string,
+          );
+
+          const userView = yield* executor.googleDiscovery.getSource(
+            "shared",
+            USER_SCOPE as string,
+          );
+          const orgView = yield* executor.googleDiscovery.getSource(
+            "shared",
+            ORG_SCOPE as string,
+          );
+
+          expect(userView).toBeNull();
+          expect(orgView?.name).toBe("Org Drive");
+        } finally {
+          yield* executor.close();
+        }
+      } finally {
+        yield* Effect.promise(() => handle.close());
+      }
+    }),
+  );
+
+  it.effect("re-adding a user shadow does not wipe the org row's bindings", () =>
+    Effect.gen(function* () {
+      const handle = yield* Effect.promise(() => startServer());
+      try {
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            scopes: stackedScopes,
+            plugins: [makeMemorySecretsPlugin()(), googleDiscoveryPlugin()] as const,
+          }),
+        );
+        try {
+          yield* executor.googleDiscovery.addSource({
+            name: "Org Drive",
+            scope: ORG_SCOPE as string,
+            discoveryUrl: handle.discoveryUrl,
+            namespace: "shared",
+            auth: { kind: "none" },
+          });
+          // Add user shadow, then add it again — the internal
+          // registerManifest sequence does a scope-pinned
+          // removeBindingsBySource before re-upserting. Without pinning
+          // scope, the inner re-add would wipe the org-level bindings
+          // via fall-through.
+          yield* executor.googleDiscovery.addSource({
+            name: "User Drive v1",
+            scope: USER_SCOPE as string,
+            discoveryUrl: handle.discoveryUrl,
+            namespace: "shared",
+            auth: { kind: "none" },
+          });
+          yield* executor.googleDiscovery.addSource({
+            name: "User Drive v2",
+            scope: USER_SCOPE as string,
+            discoveryUrl: handle.discoveryUrl,
+            namespace: "shared",
+            auth: { kind: "none" },
+          });
+
+          const userView = yield* executor.googleDiscovery.getSource(
+            "shared",
+            USER_SCOPE as string,
+          );
+          const orgView = yield* executor.googleDiscovery.getSource(
+            "shared",
+            ORG_SCOPE as string,
+          );
+
+          expect(userView?.name).toBe("User Drive v2");
+          expect(userView?.scope).toBe(USER_SCOPE as string);
+          expect(orgView?.name).toBe("Org Drive");
+          expect(orgView?.scope).toBe(ORG_SCOPE as string);
         } finally {
           yield* executor.close();
         }

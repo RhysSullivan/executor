@@ -364,16 +364,18 @@ export const schemaToTypeScriptPreviewWithDefs = (
   };
 };
 
+export type ToolTypeScriptPreview = {
+  inputTypeScript?: string;
+  outputTypeScript?: string;
+  typeScriptDefinitions?: Record<string, string>;
+};
+
 export const buildToolTypeScriptPreview = (input: {
   inputSchema?: unknown;
   outputSchema?: unknown;
   defs: ReadonlyMap<string, unknown>;
   options?: TypeScriptRenderOptions;
-}): {
-  inputTypeScript?: string;
-  outputTypeScript?: string;
-  typeScriptDefinitions?: Record<string, string>;
-} => {
+}): ToolTypeScriptPreview => {
   const inputPreview =
     input.inputSchema !== undefined
       ? schemaToTypeScriptPreviewWithDefs(input.inputSchema, input.defs, input.options)
@@ -396,3 +398,4 @@ export const buildToolTypeScriptPreview = (input: {
       : {}),
   };
 };
+

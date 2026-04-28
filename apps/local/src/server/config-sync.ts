@@ -84,10 +84,16 @@ const addSourceFromConfig = (
   executor: LocalExecutor,
   source: SourceConfig,
 ): Effect.Effect<void, unknown> => {
+  // `executor.jsonc` is a single-scope artifact today — the file isn't
+  // aware of per-user tenancy. Pin replayed sources to the outermost
+  // scope so a future `[user, org]` stack still sees them via org
+  // fall-through.
+  const scope = executor.scopes.at(-1)!.id as string;
   switch (source.kind) {
     case "openapi":
       return executor.openapi.addSpec({
         spec: source.spec,
+        scope,
         baseUrl: source.baseUrl,
         namespace: source.namespace,
         headers: translateHeaders(source.headers),
@@ -96,6 +102,7 @@ const addSourceFromConfig = (
     case "graphql":
       return executor.graphql.addSource({
         endpoint: source.endpoint,
+        scope,
         namespace: source.namespace,
         headers: translateHeaders(source.headers) as Record<string, string> | undefined,
       }).pipe(Effect.asVoid);
@@ -104,6 +111,7 @@ const addSourceFromConfig = (
       if (source.transport === "stdio") {
         return executor.mcp.addSource({
           transport: "stdio",
+          scope,
           name: source.name,
           command: source.command,
           args: source.args ? [...source.args] : undefined,
@@ -114,6 +122,7 @@ const addSourceFromConfig = (
       }
       return executor.mcp.addSource({
         transport: "remote",
+        scope,
         name: source.name,
         endpoint: source.endpoint,
         remoteTransport: source.remoteTransport,

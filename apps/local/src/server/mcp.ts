@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -59,7 +60,7 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
       };
 
       try {
-        created = await createExecutorMcpServer(config);
+        created = await Effect.runPromise(createExecutorMcpServer(config));
         await created.connect(transport);
         const response = await transport.handleRequest(request);
 
@@ -90,7 +91,7 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
 // ---------------------------------------------------------------------------
 
 export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promise<void> => {
-  const server = await createExecutorMcpServer(config);
+  const server = await Effect.runPromise(createExecutorMcpServer(config));
   const transport = new StdioServerTransport();
 
   const waitForExit = () =>

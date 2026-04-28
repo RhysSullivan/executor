@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
+import { authWriteKeys } from "@executor/react/api/reactivity-keys";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 
@@ -31,7 +32,7 @@ export function useCreateOrganizationForm(options: {
     }
     setCreating(true);
     setError(null);
-    const exit = await doCreate({ payload: { name: trimmed } });
+    const exit = await doCreate({ payload: { name: trimmed }, reactivityKeys: authWriteKeys });
     setCreating(false);
     if (exit._tag === "Success") {
       options.onSuccess(exit.value);

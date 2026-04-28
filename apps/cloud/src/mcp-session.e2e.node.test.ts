@@ -23,6 +23,7 @@ import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 
 import { createExecutorMcpServer } from "@executor/host-mcp";
 import { createExecutionEngine } from "@executor/execution";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   ElicitationResponse,
   FormElicitation,
@@ -121,7 +122,7 @@ const buildScopedExecutor = (
       name: scopeName,
       createdAt: new Date(),
     });
-    return yield* createExecutor({ scope, adapter, blobs, plugins });
+    return yield* createExecutor({ scopes: [scope], adapter, blobs, plugins });
   });
 
 // Builds a scope, wires a real execution engine + MCP server, and yields
@@ -134,8 +135,8 @@ const openSession = (
   Effect.acquireRelease(
     Effect.gen(function* () {
       const executor = yield* buildScopedExecutor(orgId, `Org ${orgId}`, options);
-      const engine = createExecutionEngine({ executor });
-      const mcpServer = yield* Effect.promise(() => createExecutorMcpServer({ engine }));
+      const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
+      const mcpServer = yield* createExecutorMcpServer({ engine });
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
       const client = new Client(
         { name: "cloud-e2e-test", version: "1.0.0" },

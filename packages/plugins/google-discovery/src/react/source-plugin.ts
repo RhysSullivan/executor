@@ -8,5 +8,6 @@ export const googleDiscoverySourcePlugin: SourcePlugin = {
   add: lazy(() => import("./AddGoogleDiscoverySource")),
   edit: lazy(() => import("./EditGoogleDiscoverySource")),
   summary: lazy(() => import("./GoogleDiscoverySourceSummary")),
+  signIn: lazy(() => import("./GoogleDiscoverySignInButton")),
   presets: googleDiscoveryPresets,
 };

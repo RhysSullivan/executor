@@ -5,10 +5,16 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-import { ScopeId } from "@executor/sdk";
+import { ScopeId, SecretId } from "@executor/sdk";
 
-import { asOrg } from "./__test-harness__/api-harness";
+import {
+  asOrg,
+  asUser,
+  testUserOrgScopeId,
+} from "./__test-harness__/api-harness";
 
 const MINIMAL_OPENAPI_SPEC = JSON.stringify({
   openapi: "3.0.0",
@@ -23,6 +29,18 @@ const MINIMAL_OPENAPI_SPEC = JSON.stringify({
     },
   },
 });
+
+// The Cloudflare OpenAPI spec is the biggest real spec we care about:
+// 16MB, 2700+ operations, thousands of shared schemas. Exercising
+// addSpec end-to-end on it through the real postgres adapter is the
+// load-bearing check that any adapter regression (per-row `createMany`,
+// accidental N+1 reads, transaction snapshots that copy too much) will
+// show up as a test failure instead of a prod incident.
+const CLOUDFLARE_SPEC_PATH = resolve(
+  __dirname,
+  "../../../../packages/plugins/openapi/fixtures/cloudflare.json",
+);
+const CLOUDFLARE_SPEC = readFileSync(CLOUDFLARE_SPEC_PATH, "utf-8");
 
 describe("sources api (HTTP)", () => {
   it.effect("addSpec → sources.list includes the new namespace", () =>
@@ -146,5 +164,188 @@ describe("sources api (HTTP)", () => {
       expect(fetched?.name).toBe("Renamed API");
       expect(fetched?.config.baseUrl).toBe("https://override.example.com");
     }),
+  );
+
+  it.effect("per-user source bindings isolate personal credentials over HTTP", () =>
+    Effect.gen(function* () {
+      const orgId = `org_${crypto.randomUUID()}`;
+      const aliceId = `user_${crypto.randomUUID().slice(0, 8)}`;
+      const bobId = `user_${crypto.randomUUID().slice(0, 8)}`;
+      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const aliceScope = testUserOrgScopeId(aliceId, orgId);
+      const bobScope = testUserOrgScopeId(bobId, orgId);
+
+      yield* asOrg(orgId, (client) =>
+        client.openapi.addSpec({
+          path: { scopeId: ScopeId.make(orgId) },
+          payload: {
+            spec: MINIMAL_OPENAPI_SPEC,
+            namespace,
+            headers: {
+              Authorization: {
+                kind: "binding",
+                slot: "auth:personal-token",
+                prefix: "Bearer ",
+              },
+            },
+          },
+        }),
+      );
+
+      yield* asUser(aliceId, orgId, (client) =>
+        Effect.gen(function* () {
+          yield* client.secrets.set({
+            path: { scopeId: ScopeId.make(aliceScope) },
+            payload: {
+              id: SecretId.make("alice_pat"),
+              name: "Alice PAT",
+              value: "alice-secret",
+            },
+          });
+          yield* client.openapi.setSourceBinding({
+            path: { scopeId: ScopeId.make(aliceScope) },
+            payload: {
+              sourceId: namespace,
+              sourceScope: ScopeId.make(orgId),
+              scope: ScopeId.make(aliceScope),
+              slot: "auth:personal-token",
+              value: {
+                kind: "secret",
+                secretId: SecretId.make("alice_pat"),
+              },
+            },
+          });
+        }),
+      );
+
+      yield* asUser(bobId, orgId, (client) =>
+        Effect.gen(function* () {
+          yield* client.secrets.set({
+            path: { scopeId: ScopeId.make(bobScope) },
+            payload: {
+              id: SecretId.make("bob_pat"),
+              name: "Bob PAT",
+              value: "bob-secret",
+            },
+          });
+          yield* client.openapi.setSourceBinding({
+            path: { scopeId: ScopeId.make(bobScope) },
+            payload: {
+              sourceId: namespace,
+              sourceScope: ScopeId.make(orgId),
+              scope: ScopeId.make(bobScope),
+              slot: "auth:personal-token",
+              value: {
+                kind: "secret",
+                secretId: SecretId.make("bob_pat"),
+              },
+            },
+          });
+        }),
+      );
+
+      const aliceBindings = yield* asUser(aliceId, orgId, (client) =>
+        client.openapi.listSourceBindings({
+          path: {
+            scopeId: ScopeId.make(aliceScope),
+            namespace,
+            sourceScopeId: ScopeId.make(orgId),
+          },
+        }),
+      );
+      expect(aliceBindings).toContainEqual(
+        expect.objectContaining({
+          scopeId: ScopeId.make(aliceScope),
+          slot: "auth:personal-token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("alice_pat"),
+          },
+        }),
+      );
+      expect(
+        aliceBindings.some(
+          (binding) =>
+            binding.slot === "auth:personal-token" &&
+            binding.value.kind === "secret" &&
+            binding.value.secretId === SecretId.make("bob_pat"),
+        ),
+      ).toBe(false);
+
+      const bobBindings = yield* asUser(bobId, orgId, (client) =>
+        client.openapi.listSourceBindings({
+          path: {
+            scopeId: ScopeId.make(bobScope),
+            namespace,
+            sourceScopeId: ScopeId.make(orgId),
+          },
+        }),
+      );
+      expect(bobBindings).toContainEqual(
+        expect.objectContaining({
+          scopeId: ScopeId.make(bobScope),
+          slot: "auth:personal-token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("bob_pat"),
+          },
+        }),
+      );
+      expect(
+        bobBindings.some(
+          (binding) =>
+            binding.slot === "auth:personal-token" &&
+            binding.value.kind === "secret" &&
+            binding.value.secretId === SecretId.make("alice_pat"),
+        ),
+      ).toBe(false);
+
+      const sources = yield* asOrg(orgId, (client) =>
+        client.sources.list({ path: { scopeId: ScopeId.make(orgId) } }),
+      );
+      expect(sources.find((source) => source.id === namespace)?.scopeId).toBe(
+        ScopeId.make(orgId),
+      );
+    }),
+  );
+
+  it.effect(
+    "addSpec persists the full Cloudflare spec through the real adapter",
+    () =>
+      Effect.gen(function* () {
+        const org = `org_${crypto.randomUUID()}`;
+        const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+
+        const result = yield* asOrg(org, (client) =>
+          client.openapi.addSpec({
+            path: { scopeId: ScopeId.make(org) },
+            payload: { spec: CLOUDFLARE_SPEC, namespace },
+          }),
+        );
+        expect(result.namespace).toBe(namespace);
+        expect(result.toolCount).toBeGreaterThan(1000);
+
+        const sources = yield* asOrg(org, (client) =>
+          client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+        );
+        expect(sources.map((s) => s.id)).toContain(namespace);
+
+        // removeSpec on the same size must also land cleanly — catches
+        // symmetrical regressions on the delete side (e.g. deleteMany
+        // fanning out to per-row deletes).
+        yield* asOrg(org, (client) =>
+          client.sources.remove({
+            path: { scopeId: ScopeId.make(org), sourceId: namespace },
+          }),
+        );
+        const after = yield* asOrg(org, (client) =>
+          client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+        );
+        expect(after.map((s) => s.id)).not.toContain(namespace);
+      }),
+    // 60s is generous for a correct O(1) write path on local PGlite;
+    // a per-row regression would take minutes and hit this ceiling
+    // long before the suite would tolerate it.
+    { timeout: 60_000 },
   );
 });

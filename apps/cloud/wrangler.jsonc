@@ -39,17 +39,19 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "776c27dfec5f47f59343603b35a7b4c2",
+      "id": "ca5f68119e4e4277b2ad6298a9048875",
       "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5433/postgres",
     },
   ],
+  "placement": {
+    "region": "aws:us-east-1",
+  },
   "worker_loaders": [
     {
       "binding": "LOADER",
     },
   ],
   "vars": {
-    "VITE_PUBLIC_SENTRY_DSN": "https://e20b1bdeea27008092a4dc0ac303e97a@o4511196985556992.ingest.us.sentry.io/4511197010067456",
     "VITE_PUBLIC_SITE_URL": "https://executor.sh",
   },
 }

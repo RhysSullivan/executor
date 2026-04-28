@@ -11,6 +11,9 @@ import { ToolId } from "./ids";
 
 export interface Source {
   readonly id: string;
+  /** Owning scope of the visible source row. Present for dynamic
+   *  sources; static sources omit it. */
+  readonly scopeId?: string;
   readonly kind: string;
   readonly name: string;
   readonly url?: string;
@@ -102,4 +105,6 @@ export interface ToolListFilter {
   readonly sourceId?: string;
   /** Case-insensitive substring match against `name` OR `description`. */
   readonly query?: string;
+  /** Resolve plugin-derived annotations. Defaults to true. */
+  readonly includeAnnotations?: boolean;
 }

@@ -12,6 +12,7 @@
 
 export {
   drizzleAdapter,
+  isTransientStorageError,
   type DrizzleAdapterOptions,
   type DrizzleProvider,
   type DrizzleDB,

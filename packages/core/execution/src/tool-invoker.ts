@@ -11,40 +11,65 @@ import type { SandboxToolInvoker } from "@executor/codemode-core";
 import { ExecutionToolError } from "./errors";
 
 /**
+ * Extract the source namespace from a tool path. Tool paths look like
+ * "<sourceId>.<op>" or "<sourceId>.<group>.<op>" — we take the first
+ * segment as a cheap, non-lookup stand-in for the source id so the span
+ * attribute is always populated without hitting `executor.sources.list()`
+ * per call.
+ */
+const extractSourceNamespace = (path: string): string => {
+  const idx = path.indexOf(".");
+  return idx === -1 ? path : path.slice(0, idx);
+};
+
+/**
  * Bridges QuickJS `tools.someSource.someOp(args)` calls into
  * `executor.tools.invoke(toolId, args)`.
+ *
+ * Wrapped in `Effect.fn("mcp.tool.dispatch")` so every tool call becomes a
+ * span in the Effect tracer. Attributes:
+ *   - `mcp.tool.name`      — full tool path (e.g. "github.repos.get")
+ *   - `mcp.tool.source_id` — first segment of the path (namespace)
+ *
+ * `mcp.tool.kind` (openapi | mcp | graphql | code) is NOT annotated here
+ * because it would require a `sources.list()` lookup on every invocation.
+ * Callers that already know the source kind can annotate at their own span.
  */
 export const makeExecutorToolInvoker = (
   executor: Executor,
   options: { readonly invokeOptions: InvokeOptions },
 ): SandboxToolInvoker => ({
-  invoke: ({ path, args }) =>
-    Effect.gen(function* () {
-      const result = yield* executor.tools.invoke(path as ToolId, args, options.invokeOptions).pipe(
-        Effect.catchTag("ElicitationDeclinedError", (err) =>
-          Effect.fail(
-            new ExecutionToolError({
-              message: `Tool "${err.toolId}" requires approval but the request was ${err.action === "cancel" ? "cancelled" : "declined"} by the user.`,
-              cause: err,
-            }),
-          ),
+  invoke: Effect.fn("mcp.tool.dispatch")(function* ({ path, args }) {
+    yield* Effect.annotateCurrentSpan({
+      "mcp.tool.name": path,
+      "mcp.tool.source_id": extractSourceNamespace(path),
+    });
+
+    const result = yield* executor.tools.invoke(path as ToolId, args, options.invokeOptions).pipe(
+      Effect.catchTag("ElicitationDeclinedError", (err) =>
+        Effect.fail(
+          new ExecutionToolError({
+            message: `Tool "${err.toolId}" requires approval but the request was ${err.action === "cancel" ? "cancelled" : "declined"} by the user.`,
+            cause: err,
+          }),
         ),
-      );
-      const r = result as { readonly error?: unknown; readonly data?: unknown } | unknown;
-      if (
-        r !== null &&
-        typeof r === "object" &&
-        "error" in r &&
-        (r as { error?: unknown }).error !== null &&
-        (r as { error?: unknown }).error !== undefined
-      ) {
-        return yield* Effect.fail((r as { error: unknown }).error);
-      }
-      if (r !== null && typeof r === "object" && "data" in r) {
-        return (r as { data: unknown }).data;
-      }
-      return r;
-    }),
+      ),
+    );
+    const r = result as { readonly error?: unknown; readonly data?: unknown } | unknown;
+    if (
+      r !== null &&
+      typeof r === "object" &&
+      "error" in r &&
+      (r as { error?: unknown }).error !== null &&
+      (r as { error?: unknown }).error !== undefined
+    ) {
+      return yield* Effect.fail((r as { error: unknown }).error);
+    }
+    if (r !== null && typeof r === "object" && "data" in r) {
+      return (r as { data: unknown }).data;
+    }
+    return r;
+  }),
 });
 
 export type ToolDiscoveryResult = {
@@ -246,103 +271,110 @@ const scoreToolMatch = (tool: SearchableTool, query: string): ToolDiscoveryResul
 };
 
 /** What `tools.search()` calls inside the sandbox. */
-export const searchTools = (
+export const searchTools = Effect.fn("executor.tools.search")(function* (
   executor: Executor,
   query: string,
   limit = 12,
   options?: { readonly namespace?: string },
-): Effect.Effect<ReadonlyArray<ToolDiscoveryResult>> =>
-  Effect.gen(function* () {
-    if (normalizeSearchText(query).length === 0) {
-      return [];
-    }
-
-    const all = yield* executor.tools.list().pipe(Effect.orDie);
-    return all
-      .filter((tool: Tool) => matchesNamespace(tool, options?.namespace))
-      .map((tool: Tool) => scoreToolMatch(tool, query))
-      .filter((tool): tool is ToolDiscoveryResult => tool !== null)
-      .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
-      .slice(0, limit);
+) {
+  yield* Effect.annotateCurrentSpan({
+    "executor.search.query_length": query.length,
+    "executor.search.limit": limit,
+    ...(options?.namespace ? { "executor.search.namespace": options.namespace } : {}),
   });
+
+  if (normalizeSearchText(query).length === 0) {
+    return [] as ReadonlyArray<ToolDiscoveryResult>;
+  }
+
+  const all = yield* executor.tools.list({ includeAnnotations: false }).pipe(Effect.orDie);
+  const results = all
+    .filter((tool: Tool) => matchesNamespace(tool, options?.namespace))
+    .map((tool: Tool) => scoreToolMatch(tool, query))
+    .filter((tool): tool is ToolDiscoveryResult => tool !== null)
+    .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
+    .slice(0, limit);
+
+  yield* Effect.annotateCurrentSpan({
+    "executor.search.candidate_count": all.length,
+    "executor.search.result_count": results.length,
+  });
+  return results;
+});
 
 /** What `tools.executor.sources.list()` calls inside the sandbox. */
-export const listExecutorSources = (
+export const listExecutorSources = Effect.fn("executor.sources.list")(function* (
   executor: Executor,
   options?: { readonly query?: string; readonly limit?: number },
-): Effect.Effect<ReadonlyArray<ExecutorSourceListItem>> =>
-  Effect.gen(function* () {
-    const normalizedQuery = normalizeSearchText(options?.query ?? "");
-    const limit = options?.limit ?? 200;
-    const sources = yield* executor.sources.list().pipe(Effect.orDie);
+) {
+  const normalizedQuery = normalizeSearchText(options?.query ?? "");
+  const limit = options?.limit ?? 200;
+  const sources = yield* executor.sources.list().pipe(Effect.orDie);
 
-    const filtered =
-      normalizedQuery.length === 0
-        ? sources
-        : sources.filter((source: Source) => {
-            const haystack = normalizeSearchText([source.id, source.name, source.kind].join(" "));
-            return tokenizeSearchText(normalizedQuery).every((token) => haystack.includes(token));
-          });
+  const filtered =
+    normalizedQuery.length === 0
+      ? sources
+      : sources.filter((source: Source) => {
+          const haystack = normalizeSearchText([source.id, source.name, source.kind].join(" "));
+          return tokenizeSearchText(normalizedQuery).every((token) => haystack.includes(token));
+        });
 
-    // Single query for all tools, then count per source in memory.
-    const allTools = yield* executor.tools.list().pipe(Effect.orDie);
-    const toolCountBySource = new Map<string, number>();
-    for (const tool of allTools) {
-      toolCountBySource.set(tool.sourceId, (toolCountBySource.get(tool.sourceId) ?? 0) + 1);
-    }
+  // Single query for all tools, then count per source in memory.
+  const allTools = yield* executor.tools.list({ includeAnnotations: false }).pipe(Effect.orDie);
+  const toolCountBySource = new Map<string, number>();
+  for (const tool of allTools) {
+    toolCountBySource.set(tool.sourceId, (toolCountBySource.get(tool.sourceId) ?? 0) + 1);
+  }
 
-    const withCounts = filtered.map(
-      (source: Source) =>
-        ({
-          id: source.id,
-          name: source.name,
-          kind: source.kind,
-          runtime: source.runtime,
-          canRemove: source.canRemove,
-          canRefresh: source.canRefresh,
-          toolCount: toolCountBySource.get(source.id) ?? 0,
-        }) satisfies ExecutorSourceListItem,
-    );
+  const withCounts = filtered.map(
+    (source: Source) =>
+      ({
+        id: source.id,
+        name: source.name,
+        kind: source.kind,
+        runtime: source.runtime,
+        canRemove: source.canRemove,
+        canRefresh: source.canRefresh,
+        toolCount: toolCountBySource.get(source.id) ?? 0,
+      }) satisfies ExecutorSourceListItem,
+  );
 
-    return withCounts
-      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
-      .slice(0, limit);
+  const results = withCounts
+    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
+    .slice(0, limit);
+
+  yield* Effect.annotateCurrentSpan({
+    "executor.sources.candidate_count": sources.length,
+    "executor.sources.result_count": results.length,
   });
+  return results;
+});
 
 /** What `tools.describe.tool()` calls inside the sandbox. */
-export const describeTool = (
+export const describeTool = Effect.fn("executor.tools.describe")(function* (
   executor: Executor,
   path: string,
-): Effect.Effect<
-  {
-    path: string;
-    name: string;
-    description?: string;
-    inputTypeScript?: string;
-    outputTypeScript?: string;
-    typeScriptDefinitions?: Record<string, string>;
-  },
-  unknown
-> =>
-  Effect.gen(function* () {
-    // Single tools.schema() call — it already fetches the tool row
-    // internally. No need to also call tools.list() just for name/description.
-    const schema: ToolSchema | null = yield* executor.tools.schema(path);
+) {
+  yield* Effect.annotateCurrentSpan({ "mcp.tool.name": path });
 
-    // tools.schema() returns null if the tool doesn't exist. Fall back to
-    // a minimal stub so callers can still render something.
-    if (schema === null) {
-      return { path, name: path };
-    }
+  // Single tools.schema() call — it already fetches the tool row
+  // internally. No need to also call tools.list() just for name/description.
+  const schema: ToolSchema | null = yield* executor.tools.schema(path);
 
-    // The schema's id is the tool path; name/description come from the
-    // tool row which tools.schema() already loaded.
-    return {
-      path,
-      name: schema.name ?? path,
-      description: schema.description,
-      inputTypeScript: schema.inputTypeScript,
-      outputTypeScript: schema.outputTypeScript,
-      typeScriptDefinitions: schema.typeScriptDefinitions,
-    };
-  });
+  // tools.schema() returns null if the tool doesn't exist. Fall back to
+  // a minimal stub so callers can still render something.
+  if (schema === null) {
+    return { path, name: path };
+  }
+
+  // The schema's id is the tool path; name/description come from the
+  // tool row which tools.schema() already loaded.
+  return {
+    path,
+    name: schema.name ?? path,
+    description: schema.description,
+    inputTypeScript: schema.inputTypeScript,
+    outputTypeScript: schema.outputTypeScript,
+    typeScriptDefinitions: schema.typeScriptDefinitions,
+  };
+});

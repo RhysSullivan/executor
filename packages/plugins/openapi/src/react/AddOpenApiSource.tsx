@@ -1,13 +1,33 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
 import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
+import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
 
-import { SecretPicker } from "@executor/react/plugins/secret-picker";
-import { useScope } from "@executor/react/api/scope-context";
+import { useScope, useUserScope } from "@executor/react/api/scope-context";
+import {
+  connectionWriteKeys,
+  sourceWriteKeys,
+} from "@executor/react/api/reactivity-keys";
+
+// `addSpec` with an oauth2 payload persists a source row AND (for
+// clientCredentials) a freshly-minted Connection + owned secrets,
+// because the inline token exchange happens during `startOAuth`.
+// Invalidate both so the source-detail page opens into its connected
+// state without a refresh.
+const addSpecWriteKeys = [
+  ...sourceWriteKeys,
+  ...connectionWriteKeys,
+] as const;
+const bindingWriteKeys = [
+  ...sourceWriteKeys,
+  ...connectionWriteKeys,
+] as const;
+import { usePendingSources } from "@executor/react/api/optimistic";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import {
+  CreatableSecretPicker,
   matchPresetKey,
   type HeaderState,
 } from "@executor/react/plugins/secret-header-auth";
@@ -18,6 +38,7 @@ import {
 } from "@executor/react/plugins/source-identity";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { Button } from "@executor/react/components/button";
+import { CopyButton } from "@executor/react/components/copy-button";
 import {
   CardStack,
   CardStackContent,
@@ -37,24 +58,34 @@ import {
 } from "@executor/react/components/native-select";
 import { Textarea } from "@executor/react/components/textarea";
 import { Checkbox } from "@executor/react/components/checkbox";
+import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import {
   addOpenApiSpec,
   previewOpenApiSpec,
+  setOpenApiSourceBinding,
   startOpenApiOAuth,
 } from "./atoms";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
 import {
+  headerBindingSlot,
+  oauth2ClientIdSlot,
+  oauth2ClientSecretSlot,
+  oauth2ConnectionSlot,
+} from "../sdk/store";
+import {
+  ConfiguredHeaderBinding,
   OAuth2Auth,
-  type HeaderValue,
+  OAuth2SourceConfig,
   type ServerInfo,
   type ServerVariable,
 } from "../sdk/types";
 
-const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
-const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
+export const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
+export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
+export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/openapi/oauth/callback";
 
 const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
   let out = url;
@@ -63,6 +94,36 @@ const substituteUrlVariables = (url: string, values: Record<string, string>): st
   }
   return out;
 };
+
+export const openApiOAuthConnectionId = (
+  namespaceSlug: string,
+  flow: OAuth2Preset["flow"],
+): string =>
+  flow === "clientCredentials"
+    ? `openapi-oauth2-app-${namespaceSlug || "default"}`
+    : `openapi-oauth2-user-${namespaceSlug || "default"}`;
+
+/**
+ * OpenAPI 3.x requires OAuth2 tokenUrl/authorizationUrl to be absolute,
+ * but some specs ship relative paths like `/api/rest/v1/oauth/token`.
+ * Resolve them against the source's chosen baseUrl so the backend can
+ * fetch them directly and the absolute URL is what gets persisted on
+ * OAuth2Auth.
+ */
+export function resolveOAuthUrl(url: string, baseUrl: string): string {
+  if (!url) return url;
+  try {
+    new URL(url);
+    return url;
+  } catch {
+    if (!baseUrl) return url;
+    try {
+      return new URL(url, baseUrl).toString();
+    } catch {
+      return url;
+    }
+  }
+}
 
 type StrategySelection =
   | { readonly kind: "none" }
@@ -158,7 +219,10 @@ export default function AddOpenApiSource(props: {
     null,
   );
   const [oauth2SelectedScopes, setOauth2SelectedScopes] = useState<Set<string>>(new Set());
-  const [oauth2Auth, setOauth2Auth] = useState<OAuth2Auth | null>(null);
+  const [oauth2AuthState, setOauth2AuthState] = useState<{
+    readonly fingerprint: string;
+    readonly auth: OAuth2Auth;
+  } | null>(null);
   const [startingOAuth, setStartingOAuth] = useState(false);
   const [oauth2Error, setOauth2Error] = useState<string | null>(null);
   const oauthCleanup = useRef<(() => void) | null>(null);
@@ -168,9 +232,12 @@ export default function AddOpenApiSource(props: {
   const [addError, setAddError] = useState<string | null>(null);
 
   const scopeId = useScope();
+  const userScope = useUserScope();
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
   const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
+  const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
   // Keep the latest handleAnalyze in a ref so the debounced effect doesn't
@@ -221,51 +288,75 @@ export default function AddOpenApiSource(props: {
     return out;
   };
 
-  // Derive a favicon URL from the spec URL (if the user entered one — raw
-  // JSON/YAML content will fail URL parsing and yield null). Uses Google's
-  // favicon service so we don't depend on the domain serving /favicon.ico.
-  const faviconUrl = useMemo(() => {
-    try {
-      const trimmed = specUrl.trim();
-      if (!trimmed) return null;
-      const u = new URL(trimmed);
-      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-      return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=64`;
-    } catch {
-      return null;
-    }
-  }, [specUrl]);
-
-  const [faviconFailed, setFaviconFailed] = useState(false);
-  useEffect(() => {
-    setFaviconFailed(false);
-  }, [faviconUrl]);
-
-  const allHeaders: Record<string, HeaderValue> = {};
+  const configuredHeaders: Record<string, ConfiguredHeaderBinding> = {};
+  const headerBindings: Array<{ slot: string; secretId: string }> = [];
   for (const ch of customHeaders) {
-    if (ch.name.trim() && ch.secretId) {
-      allHeaders[ch.name.trim()] = {
-        secretId: ch.secretId,
-        ...(ch.prefix ? { prefix: ch.prefix } : {}),
-      };
+    if (!ch.name.trim()) continue;
+    const slot = headerBindingSlot(ch.name.trim());
+    configuredHeaders[ch.name.trim()] = new ConfiguredHeaderBinding({
+      kind: "binding",
+      slot,
+      prefix: ch.prefix,
+    });
+    if (ch.secretId) {
+      headerBindings.push({ slot, secretId: ch.secretId });
     }
   }
-  const hasHeaders = Object.keys(allHeaders).length > 0;
-
-  const customHeadersValid = customHeaders.every((ch) => ch.name.trim() && ch.secretId);
 
   const oauth2Presets: readonly OAuth2Preset[] = preview?.oauth2Presets ?? [];
+  const oauth2RedirectUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
+      : OPENAPI_OAUTH_CALLBACK_PATH;
+  // Stable source id derivation. Matches the value `handleAdd` sends as
+  // `namespace`, and is also the default credential key when the user
+  // does not provide a more explicit shared connection id.
+  const resolvedSourceId =
+    slugifyNamespace(identity.namespace) ||
+    (preview ? Option.getOrElse(preview.title, () => "openapi") : "openapi");
   const selectedOAuth2Preset: OAuth2Preset | null =
     strategy.kind === "oauth2" ? (oauth2Presets[strategy.presetIndex] ?? null) : null;
+  const selectedOAuth2Fingerprint = selectedOAuth2Preset
+    ? [
+        resolvedSourceId,
+        resolvedBaseUrl,
+        selectedOAuth2Preset.securitySchemeName,
+        selectedOAuth2Preset.flow,
+        selectedOAuth2Preset.tokenUrl,
+        Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+      ].join("\n")
+    : "";
+  const oauth2Auth =
+    oauth2AuthState?.fingerprint === selectedOAuth2Fingerprint
+      ? oauth2AuthState.auth
+      : null;
 
-  const oauth2Ready =
-    strategy.kind !== "oauth2" || oauth2Auth !== null;
+  const configuredOAuth2 =
+    strategy.kind === "oauth2" && selectedOAuth2Preset
+      ? new OAuth2SourceConfig({
+          kind: "oauth2",
+          securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+          flow: selectedOAuth2Preset.flow,
+          tokenUrl: resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl),
+          authorizationUrl:
+            selectedOAuth2Preset.flow === "authorizationCode"
+              ? resolveOAuthUrl(
+                  Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+                  resolvedBaseUrl,
+                ) || null
+              : null,
+          clientIdSlot: oauth2ClientIdSlot(selectedOAuth2Preset.securitySchemeName),
+          // Authorization-code specs can still be confidential clients
+          // (Spotify is one example). Persist the slot even when the value is
+          // deferred so the edit screen can collect the secret later.
+          clientSecretSlot: oauth2ClientSecretSlot(selectedOAuth2Preset.securitySchemeName),
+          connectionSlot: oauth2ConnectionSlot(selectedOAuth2Preset.securitySchemeName),
+          scopes: [...oauth2SelectedScopes],
+        })
+      : null;
+  const hasHeaders = Object.keys(configuredHeaders).length > 0;
 
-  const canAdd =
-    preview !== null &&
-    resolvedBaseUrl.length > 0 &&
-    (customHeaders.length === 0 || customHeadersValid) &&
-    oauth2Ready;
+  const canAdd = preview !== null && resolvedBaseUrl.length > 0;
 
   // ---- Handlers ----
 
@@ -312,7 +403,7 @@ export default function AddOpenApiSource(props: {
     setStrategy(next);
     // Clear any stale OAuth grant whenever the strategy changes away from oauth2.
     if (next.kind !== "oauth2") {
-      setOauth2Auth(null);
+      setOauth2AuthState(null);
       setOauth2Error(null);
     }
     switch (next.kind) {
@@ -357,7 +448,7 @@ export default function AddOpenApiSource(props: {
       return copy;
     });
     // Changing scopes invalidates any previously-granted token.
-    setOauth2Auth(null);
+    setOauth2AuthState(null);
   };
 
   const handleConnectOAuth2 = useCallback(async () => {
@@ -370,20 +461,80 @@ export default function AddOpenApiSource(props: {
       const displayName =
         identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
 
+      const tokenUrl = resolveOAuthUrl(
+        selectedOAuth2Preset.tokenUrl,
+        resolvedBaseUrl,
+      );
+
+      if (selectedOAuth2Preset.flow === "clientCredentials") {
+        // RFC 6749 §4.4: no user-interactive consent step. The client_secret
+        // is mandatory; the backend exchanges tokens inline and returns a
+        // completed OAuth2Auth we can attach to the source directly.
+        if (!oauth2ClientSecretSecretId) {
+          setStartingOAuth(false);
+          setOauth2Error("client_credentials requires a client secret");
+          return;
+        }
+        const response = await doStartOAuth({
+          path: { scopeId },
+          payload: {
+            sourceId: resolvedSourceId,
+            connectionId: openApiOAuthConnectionId(
+              resolvedSourceId,
+              selectedOAuth2Preset.flow,
+            ),
+            displayName,
+            securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+            flow: "clientCredentials",
+            tokenUrl,
+            clientIdSecretId: oauth2ClientIdSecretId,
+            clientSecretSecretId: oauth2ClientSecretSecretId,
+            scopes: [...oauth2SelectedScopes],
+          },
+        });
+        setStartingOAuth(false);
+        if (response.flow !== "clientCredentials") {
+          setOauth2Error("Unexpected response flow from server");
+          return;
+        }
+        setOauth2AuthState({
+          fingerprint: selectedOAuth2Fingerprint,
+          auth: response.auth,
+        });
+        setOauth2Error(null);
+        return;
+      }
+
+      const authorizationUrl = resolveOAuthUrl(
+        Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+        resolvedBaseUrl,
+      );
+
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
+          sourceId: resolvedSourceId,
+          connectionId: openApiOAuthConnectionId(
+            resolvedSourceId,
+            selectedOAuth2Preset.flow,
+          ),
           displayName,
           securitySchemeName: selectedOAuth2Preset.securitySchemeName,
           flow: "authorizationCode",
-          authorizationUrl: Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
-          tokenUrl: selectedOAuth2Preset.tokenUrl,
-          redirectUrl: `${window.location.origin}/api/openapi/oauth/callback`,
+          authorizationUrl,
+          tokenUrl,
+          redirectUrl: oauth2RedirectUrl,
           clientIdSecretId: oauth2ClientIdSecretId,
           clientSecretSecretId: oauth2ClientSecretSecretId,
           scopes: [...oauth2SelectedScopes],
         },
       });
+
+      if (response.flow !== "authorizationCode") {
+        setStartingOAuth(false);
+        setOauth2Error("Unexpected response flow from server");
+        return;
+      }
 
       oauthCleanup.current = openOAuthPopup<OAuth2Auth>({
         url: response.authorizationUrl,
@@ -393,25 +544,20 @@ export default function AddOpenApiSource(props: {
           oauthCleanup.current = null;
           setStartingOAuth(false);
           if (result.ok) {
-            // The popup payload is an OAuthPopupResult wrapping the
-            // backend's OAuth2Auth descriptor; strip the envelope and
-            // reconstruct the OAuth2Auth class instance for type safety.
-            setOauth2Auth(
-              new OAuth2Auth({
+            setOauth2AuthState({
+              fingerprint: selectedOAuth2Fingerprint,
+              auth: new OAuth2Auth({
                 kind: "oauth2",
+                connectionId: result.connectionId,
                 securitySchemeName: result.securitySchemeName,
                 flow: result.flow,
                 tokenUrl: result.tokenUrl,
+                authorizationUrl: result.authorizationUrl,
                 clientIdSecretId: result.clientIdSecretId,
                 clientSecretSecretId: result.clientSecretSecretId,
-                accessTokenSecretId: result.accessTokenSecretId,
-                refreshTokenSecretId: result.refreshTokenSecretId,
-                tokenType: result.tokenType,
-                expiresAt: result.expiresAt,
-                scope: result.scope,
-                scopes: [...result.scopes],
+                scopes: result.scopes,
               }),
-            );
+            });
             setOauth2Error(null);
           } else {
             setOauth2Error(result.error);
@@ -438,10 +584,14 @@ export default function AddOpenApiSource(props: {
     oauth2ClientIdSecretId,
     oauth2ClientSecretSecretId,
     oauth2SelectedScopes,
+    oauth2RedirectUrl,
+    resolvedBaseUrl,
     preview,
     doStartOAuth,
     scopeId,
     identity.name,
+    resolvedSourceId,
+    selectedOAuth2Fingerprint,
   ]);
 
   const handleCancelOAuth2 = useCallback(() => {
@@ -456,22 +606,111 @@ export default function AddOpenApiSource(props: {
   const handleAdd = async () => {
     setAdding(true);
     setAddError(null);
+    const namespace = resolvedSourceId;
+    const displayName =
+      identity.name.trim() ||
+      (preview ? Option.getOrElse(preview.title, () => namespace) : namespace);
+    const placeholder = beginAdd({
+      id: namespace,
+      name: displayName,
+      kind: "openapi",
+      url: resolvedBaseUrl || undefined,
+    });
     try {
-      await doAdd({
+      const result = await doAdd({
         path: { scopeId },
         payload: {
           spec: specUrl,
           name: identity.name.trim() || undefined,
           namespace: slugifyNamespace(identity.namespace) || undefined,
           baseUrl: resolvedBaseUrl || undefined,
-          ...(hasHeaders ? { headers: allHeaders } : {}),
-          ...(oauth2Auth ? { oauth2: oauth2Auth } : {}),
+          ...(hasHeaders ? { headers: configuredHeaders } : {}),
+          ...(configuredOAuth2 ? { oauth2: configuredOAuth2 } : {}),
         },
+        reactivityKeys: addSpecWriteKeys,
       });
+
+      const sourceId = result.namespace;
+      const sourceScope = ScopeId.make(scopeId);
+      const bindingScope = ScopeId.make(userScope);
+
+      for (const binding of headerBindings) {
+        await doSetBinding({
+          path: { scopeId },
+          payload: {
+            sourceId,
+            sourceScope,
+            scope: bindingScope,
+            slot: binding.slot,
+            value: {
+              kind: "secret",
+              secretId: SecretId.make(binding.secretId),
+            },
+          },
+          reactivityKeys: bindingWriteKeys,
+        });
+      }
+
+      if (configuredOAuth2 && oauth2ClientIdSecretId) {
+        await doSetBinding({
+          path: { scopeId },
+          payload: {
+            sourceId,
+            sourceScope,
+            scope: bindingScope,
+            slot: configuredOAuth2.clientIdSlot,
+            value: {
+              kind: "secret",
+              secretId: SecretId.make(oauth2ClientIdSecretId),
+            },
+          },
+          reactivityKeys: bindingWriteKeys,
+        });
+      }
+
+      if (
+        configuredOAuth2?.clientSecretSlot &&
+        oauth2ClientSecretSecretId
+      ) {
+        await doSetBinding({
+          path: { scopeId },
+          payload: {
+            sourceId,
+            sourceScope,
+            scope: bindingScope,
+            slot: configuredOAuth2.clientSecretSlot,
+            value: {
+              kind: "secret",
+              secretId: SecretId.make(oauth2ClientSecretSecretId),
+            },
+          },
+          reactivityKeys: bindingWriteKeys,
+        });
+      }
+
+      if (configuredOAuth2 && oauth2Auth) {
+        await doSetBinding({
+          path: { scopeId },
+          payload: {
+            sourceId,
+            sourceScope,
+            scope: bindingScope,
+            slot: configuredOAuth2.connectionSlot,
+            value: {
+              kind: "connection",
+              connectionId: ConnectionId.make(oauth2Auth.connectionId),
+            },
+          },
+          reactivityKeys: bindingWriteKeys,
+        });
+      }
+
       props.onComplete();
     } catch (e) {
       setAddError(e instanceof Error ? e.message : "Failed to add source");
       setAdding(false);
+    } finally {
+      placeholder.done();
     }
   };
 
@@ -500,7 +739,7 @@ export default function AddOpenApiSource(props: {
                     setVariableSelections({});
                     setCustomHeaders([]);
                     setStrategy({ kind: "none" });
-                    setOauth2Auth(null);
+                    setOauth2AuthState(null);
                     setOauth2Error(null);
                   }
                 }}
@@ -524,14 +763,7 @@ export default function AddOpenApiSource(props: {
         <CardStack>
           <CardStackContent className="border-t-0">
             <CardStackEntry>
-              {faviconUrl && !faviconFailed && (
-                <img
-                  src={faviconUrl}
-                  alt=""
-                  className="size-4 shrink-0 object-contain"
-                  onError={() => setFaviconFailed(true)}
-                />
-              )}
+              {resolvedBaseUrl && <SourceFavicon url={resolvedBaseUrl} size={16} />}
               <CardStackEntryContent>
                 <CardStackEntryTitle>
                   {Option.getOrElse(preview.title, () => "API")}
@@ -788,6 +1020,8 @@ export default function AddOpenApiSource(props: {
                 headers={customHeaders}
                 onHeadersChange={handleHeadersChange}
                 existingSecrets={secretList}
+                sourceName={identity.name}
+                writeScope={userScope}
               />
             )}
 
@@ -795,14 +1029,29 @@ export default function AddOpenApiSource(props: {
             {selectedOAuth2Preset && (
               <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-3">
                 <div className="space-y-1.5">
+                  <FieldLabel className="text-[11px]">
+                    Redirect URL{" "}
+                    <span className="text-muted-foreground">
+                      · add this to your OAuth app's allowed redirects
+                    </span>
+                  </FieldLabel>
+                  <div className="flex items-center gap-1 rounded-md border border-border bg-background/50 px-2.5 py-1.5 font-mono text-[11px]">
+                    <span className="truncate flex-1 text-foreground">{oauth2RedirectUrl}</span>
+                    <CopyButton value={oauth2RedirectUrl} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
                   <FieldLabel className="text-[11px]">Client ID secret</FieldLabel>
-                  <SecretPicker
+                  <CreatableSecretPicker
                     value={oauth2ClientIdSecretId}
                     onSelect={(id: string) => {
                       setOauth2ClientIdSecretId(id);
-                      setOauth2Auth(null);
+                      setOauth2AuthState(null);
                     }}
                     secrets={secretList}
+                    sourceName={identity.name}
+                    secretLabel="Client ID"
+                    writeScope={userScope}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -812,13 +1061,16 @@ export default function AddOpenApiSource(props: {
                       · optional for public clients with PKCE
                     </span>
                   </FieldLabel>
-                  <SecretPicker
+                  <CreatableSecretPicker
                     value={oauth2ClientSecretSecretId}
                     onSelect={(id: string) => {
                       setOauth2ClientSecretSecretId(id);
-                      setOauth2Auth(null);
+                      setOauth2AuthState(null);
                     }}
                     secrets={secretList}
+                    sourceName={identity.name}
+                    secretLabel="Client Secret"
+                    writeScope={userScope}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -855,13 +1107,13 @@ export default function AddOpenApiSource(props: {
                 {oauth2Auth ? (
                   <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
                     <div className="text-[11px] text-green-700 dark:text-green-400">
-                      Connected · {oauth2Auth.scopes.length} scope
-                      {oauth2Auth.scopes.length === 1 ? "" : "s"} granted
+                      Connected · {oauth2SelectedScopes.size} scope
+                      {oauth2SelectedScopes.size === 1 ? "" : "s"} granted
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setOauth2Auth(null)}
+                      onClick={() => setOauth2AuthState(null)}
                     >
                       Disconnect
                     </Button>
@@ -880,14 +1132,20 @@ export default function AddOpenApiSource(props: {
                     </Button>
                   </div>
                 ) : (
-                  <Button
-                    variant="secondary"
-                    onClick={handleConnectOAuth2}
-                    disabled={!oauth2ClientIdSecretId || resolvedBaseUrl.length === 0}
-                    className="w-full"
-                  >
-                    Connect via OAuth
-                  </Button>
+                  <div className="flex flex-col gap-1.5">
+                    <Button
+                      variant="secondary"
+                      onClick={handleConnectOAuth2}
+                      disabled={!oauth2ClientIdSecretId || resolvedBaseUrl.length === 0}
+                      className="w-full"
+                    >
+                      Connect via OAuth
+                    </Button>
+                    <p className="text-[11px] text-muted-foreground">
+                      Optional — you can save the source now and each user can sign
+                      in from the source detail page later.
+                    </p>
+                  </div>
                 )}
 
                 {oauth2Error && (

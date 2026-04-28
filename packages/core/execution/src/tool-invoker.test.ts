@@ -8,8 +8,11 @@ import {
   definePlugin,
   makeTestConfig,
 } from "@executor/sdk";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
+
+const codeExecutor = makeQuickJsExecutor();
 
 const RepoInputSchema = {
   type: "object",
@@ -147,11 +150,9 @@ describe("tool discovery", () => {
       });
       expect(crmOnly.map((match) => match.path)).toEqual(["crm.listContacts"]);
 
-      const sandboxResult = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute(
-          'return await tools.search({ namespace: "crm", query: "create contact", limit: 5 });',
-          { onElicitation: acceptAll },
-        ),
+      const sandboxResult = yield* createExecutionEngine({ executor, codeExecutor }).execute(
+        'return await tools.search({ namespace: "crm", query: "create contact", limit: 5 });',
+        { onElicitation: acceptAll },
       );
       expect(sandboxResult.error).toBeUndefined();
       expect(sandboxResult.result).toEqual([
@@ -164,10 +165,9 @@ describe("tool discovery", () => {
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
 
-      const listed = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute("return await tools.executor.sources.list();", {
-          onElicitation: acceptAll,
-        }),
+      const listed = yield* createExecutionEngine({ executor, codeExecutor }).execute(
+        "return await tools.executor.sources.list();",
+        { onElicitation: acceptAll },
       );
       expect(listed.error).toBeUndefined();
       expect(listed.result).toEqual(
@@ -177,11 +177,9 @@ describe("tool discovery", () => {
         ]),
       );
 
-      const searched = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute(
-          'return await tools.search({ query: "list contacts", namespace: "crm", limit: 5 });',
-          { onElicitation: acceptAll },
-        ),
+      const searched = yield* createExecutionEngine({ executor, codeExecutor }).execute(
+        'return await tools.search({ query: "list contacts", namespace: "crm", limit: 5 });',
+        { onElicitation: acceptAll },
       );
       expect(searched.error).toBeUndefined();
       expect(searched.result).toEqual([expect.objectContaining({ path: "crm.listContacts" })]);
@@ -205,57 +203,50 @@ describe("tool discovery", () => {
   it.effect("rejects malformed discover calls inside the sandbox", () =>
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
-      const engine = createExecutionEngine({ executor });
+      const engine = createExecutionEngine({ executor, codeExecutor });
 
-      const invalid = yield* Effect.promise(() =>
-        engine.execute(
-          [
-            "try {",
-            '  await tools.search("github issues");',
-            '  return "unexpected";',
-            "} catch (error) {",
-            "  return error instanceof Error ? error.message : String(error);",
-            "}",
-          ].join("\n"),
-          { onElicitation: acceptAll },
-        ),
+      const invalid = yield* engine.execute(
+        [
+          "try {",
+          '  await tools.search("github issues");',
+          '  return "unexpected";',
+          "} catch (error) {",
+          "  return error instanceof Error ? error.message : String(error);",
+          "}",
+        ].join("\n"),
+        { onElicitation: acceptAll },
       );
       expect(invalid.error).toBeUndefined();
       expect(String(invalid.result)).toContain(
         "tools.search expects an object: { query?: string; namespace?: string; limit?: number }",
       );
 
-      const emptyQuery = yield* Effect.promise(() =>
-        engine.execute('return await tools.search({ query: "", limit: 5 });', {
-          onElicitation: acceptAll,
-        }),
+      const emptyQuery = yield* engine.execute(
+        'return await tools.search({ query: "", limit: 5 });',
+        { onElicitation: acceptAll },
       );
       expect(emptyQuery.error).toBeUndefined();
       expect(emptyQuery.result).toEqual([]);
 
-      const invalidDescribe = yield* Effect.promise(() =>
-        engine.execute(
-          [
-            "try {",
-            '  await tools.describe.tool({ path: "github.listRepositoryIssues", includeSchemas: true });',
-            '  return "unexpected";',
-            "} catch (error) {",
-            "  return error instanceof Error ? error.message : String(error);",
-            "}",
-          ].join("\n"),
-          { onElicitation: acceptAll },
-        ),
+      const invalidDescribe = yield* engine.execute(
+        [
+          "try {",
+          '  await tools.describe.tool({ path: "github.listRepositoryIssues", includeSchemas: true });',
+          '  return "unexpected";',
+          "} catch (error) {",
+          "  return error instanceof Error ? error.message : String(error);",
+          "}",
+        ].join("\n"),
+        { onElicitation: acceptAll },
       );
       expect(invalidDescribe.error).toBeUndefined();
       expect(String(invalidDescribe.result)).toContain(
         "tools.describe.tool no longer accepts includeSchemas",
       );
 
-      const invalidSearch = yield* Effect.promise(() =>
-        engine.execute(
-          'try { return await tools.search("crm"); } catch (error) { return error instanceof Error ? error.message : String(error); }',
-          { onElicitation: acceptAll },
-        ),
+      const invalidSearch = yield* engine.execute(
+        'try { return await tools.search("crm"); } catch (error) { return error instanceof Error ? error.message : String(error); }',
+        { onElicitation: acceptAll },
       );
       expect(invalidSearch.error).toBeUndefined();
       expect(String(invalidSearch.result)).toContain("tools.search expects an object");
@@ -327,11 +318,11 @@ describe("pause/resume with multiple elicitations", () => {
     () =>
       Effect.gen(function* () {
         const executor = yield* makeElicitingExecutor();
-        const engine = createExecutionEngine({ executor });
+        const engine = createExecutionEngine({ executor, codeExecutor });
 
         const code = "return await tools.api.multiApproval({});";
 
-        const outcome1 = yield* Effect.promise(() => engine.executeWithPause(code));
+        const outcome1 = yield* engine.executeWithPause(code);
         expect(outcome1.status).toBe("paused");
         const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
         expect(paused1.execution.elicitationContext.request.message).toBe("First approval");
@@ -341,7 +332,7 @@ describe("pause/resume with multiple elicitations", () => {
         // result or the completion).
         const outcome2 = yield* Effect.promise(() =>
           Promise.race([
-            engine.resume(paused1.execution.id, { action: "accept" }),
+            Effect.runPromise(engine.resume(paused1.execution.id, { action: "accept" })),
             new Promise<never>((_, reject) =>
               setTimeout(
                 () => reject(new Error("resume hung — second elicitation not surfaced")),
@@ -361,11 +352,11 @@ describe("pause/resume with multiple elicitations", () => {
   // sandbox fiber.
   it("resume returns across separate runPromise boundaries for a single-elicit tool (HTTP-like)", async () => {
     const executor = await Effect.runPromise(makeElicitingExecutor());
-    const engine = createExecutionEngine({ executor });
+    const engine = createExecutionEngine({ executor, codeExecutor });
 
     const code = "return await tools.api.singleApproval({});";
 
-    const outcome1 = await engine.executeWithPause(code);
+    const outcome1 = await Effect.runPromise(engine.executeWithPause(code));
     expect(outcome1.status).toBe("paused");
     const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
     expect(paused1.execution.elicitationContext.request.message).toBe("Only approval");
@@ -386,7 +377,7 @@ describe("pause/resume with multiple elicitations", () => {
     expect(exitProbe).toBe("still-running");
 
     const outcome2 = await Promise.race([
-      engine.resume(paused1.execution.id, { action: "accept" }),
+      Effect.runPromise(engine.resume(paused1.execution.id, { action: "accept" })),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("resume hung across runPromise boundaries")), 2000),
       ),

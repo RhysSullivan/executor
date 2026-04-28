@@ -7,9 +7,10 @@ import {
 } from "@effect/platform";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
-import { addGroup } from "@executor/api";
+import { addGroup, observabilityMiddleware } from "@executor/api";
 import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   OpenApiGroup,
   OpenApiHandlers,
@@ -33,6 +34,7 @@ import {
 } from "@executor/plugin-graphql/api";
 import { getExecutor } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
+import { ErrorCaptureLive } from "./observability";
 
 // ---------------------------------------------------------------------------
 // Local server API — core + all plugin groups
@@ -43,6 +45,13 @@ const LocalApi = addGroup(OpenApiGroup)
   .add(GoogleDiscoveryGroup)
   .add(OnePasswordGroup)
   .add(GraphqlGroup);
+
+// `ErrorCaptureLive` logs causes to the console and returns a short
+// correlation id. Provided above the handler + middleware layers so
+// both the `withCapture` typed-channel translation AND the
+// `observabilityMiddleware` defect catchall see the same
+// implementation.
+const LocalObservability = observabilityMiddleware(LocalApi);
 
 const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
   Layer.provide(CoreHandlers),
@@ -55,6 +64,8 @@ const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
       GraphqlHandlers,
     ),
   ),
+  Layer.provide(LocalObservability),
+  Layer.provide(ErrorCaptureLive),
 );
 
 // ---------------------------------------------------------------------------
@@ -78,8 +89,10 @@ const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
 
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const executor = await getExecutor();
-  const engine = createExecutionEngine({ executor });
+  const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
 
+  // Handlers wrap their own bodies with `capture(...)` — the edge
+  // translation lives per-handler, not at service construction.
   const pluginExtensions = Layer.mergeAll(
     Layer.succeed(OpenApiExtensionService, executor.openapi),
     Layer.succeed(McpExtensionService, executor.mcp),

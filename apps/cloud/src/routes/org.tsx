@@ -1,9 +1,14 @@
 import { useReducer, useState } from "react";
 import { Exit } from "effect";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { useCustomer } from "autumn-js/react";
 import { toast } from "sonner";
+import {
+  orgMemberWriteKeys,
+  orgDomainWriteKeys,
+  orgInfoWriteKeys,
+} from "@executor/react/api/reactivity-keys";
 import {
   Dialog,
   DialogContent,
@@ -46,7 +51,7 @@ import {
   deleteDomain,
   updateOrgName,
 } from "../web/org-atoms";
-import { authAtom, useAuth } from "../web/auth";
+import { useAuth } from "../web/auth";
 
 export const Route = createFileRoute("/org")({
   component: OrgPage,
@@ -109,8 +114,6 @@ function OrgPage() {
   const membersResult = useAtomValue(orgMembersAtom);
   const rolesResult = useAtomValue(orgRolesAtom);
   const domainsResult = useAtomValue(orgDomainsAtom);
-  const refreshMembers = useAtomRefresh(orgMembersAtom);
-  const refreshDomains = useAtomRefresh(orgDomainsAtom);
   const doRemove = useAtomSet(removeMember, { mode: "promiseExit" });
   const doUpdateRole = useAtomSet(updateMemberRole, { mode: "promiseExit" });
   const doDeleteDomain = useAtomSet(deleteDomain, { mode: "promiseExit" });
@@ -130,26 +133,26 @@ function OrgPage() {
   });
 
   const handleRemove = async (membershipId: string, name: string) => {
-    const exit = await doRemove({ path: { membershipId } });
+    const exit = await doRemove({ path: { membershipId }, reactivityKeys: orgMemberWriteKeys });
     if (Exit.isSuccess(exit)) {
       toast.success(`Removed ${name}`);
-      refreshMembers();
     } else {
       toast.error("Failed to remove member");
     }
   };
 
   const handleChangeRole = async (membershipId: string, roleSlug: string, roleName: string) => {
-    const exit = await doUpdateRole({ path: { membershipId }, payload: { roleSlug } });
+    const exit = await doUpdateRole({
+      path: { membershipId },
+      payload: { roleSlug },
+      reactivityKeys: orgMemberWriteKeys,
+    });
     if (Exit.isSuccess(exit)) {
       toast.success(`Role changed to ${roleName}`);
-      refreshMembers();
     } else {
       toast.error("Failed to change role");
     }
   };
-
-  const refreshAuth = useAtomRefresh(authAtom);
 
   const handleSaveName = async () => {
     const trimmed = editName.trim();
@@ -158,10 +161,12 @@ function OrgPage() {
       return;
     }
     setSavingName(true);
-    const exit = await doUpdateOrgName({ payload: { name: trimmed } });
+    const exit = await doUpdateOrgName({
+      payload: { name: trimmed },
+      reactivityKeys: orgInfoWriteKeys,
+    });
     if (Exit.isSuccess(exit)) {
       toast.success("Organization name updated");
-      refreshAuth();
     } else {
       toast.error("Failed to update organization name");
       setEditName(orgName);
@@ -170,17 +175,19 @@ function OrgPage() {
   };
 
   const handleDeleteDomain = async (domainId: string, domain: string) => {
-    const exit = await doDeleteDomain({ path: { domainId } });
+    const exit = await doDeleteDomain({
+      path: { domainId },
+      reactivityKeys: orgDomainWriteKeys,
+    });
     if (Exit.isSuccess(exit)) {
       toast.success(`Removed ${domain}`);
-      refreshDomains();
     } else {
       toast.error("Failed to remove domain");
     }
   };
 
   const handleAddDomain = async () => {
-    const exit = await doGetVerificationLink({});
+    const exit = await doGetVerificationLink({ reactivityKeys: orgDomainWriteKeys });
     if (Exit.isSuccess(exit)) {
       window.open(exit.value.link, "_blank");
     } else {
@@ -473,7 +480,6 @@ function OrgPage() {
         <InviteDialog
           open={inviteOpen}
           onOpenChange={setInviteOpen}
-          onInvited={refreshMembers}
           roles={roles}
         />
       </div>
@@ -580,7 +586,6 @@ function DomainCard({
 function InviteDialog(props: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onInvited: () => void;
   roles: readonly { slug: string; name: string }[];
 }) {
   const [state, dispatch] = useReducer(inviteReducer, initialInviteState);
@@ -595,13 +600,13 @@ function InviteDialog(props: {
         email: state.email.trim(),
         ...(state.roleSlug ? { roleSlug: state.roleSlug } : {}),
       },
+      reactivityKeys: orgMemberWriteKeys,
     });
 
     if (Exit.isSuccess(exit)) {
       toast.success(`Invitation sent to ${state.email.trim()}`);
       dispatch({ type: "reset" });
       props.onOpenChange(false);
-      props.onInvited();
     } else {
       dispatch({ type: "error", message: "Failed to send invitation" });
     }

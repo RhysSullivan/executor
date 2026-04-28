@@ -83,11 +83,13 @@ export const POST: APIRoute = async ({ request }) => {
           yield* executor.openapi.addSpec({
             spec: match.endpoint,
             namespace: match.namespace,
+            scope: "test-scope",
           });
         } else if (match.kind === "graphql") {
           yield* executor.graphql.addSource({
             endpoint: match.endpoint,
             namespace: match.namespace,
+            scope: "test-scope",
           });
         } else {
           // For kinds we can't fully add (e.g. Google Discovery needs auth),

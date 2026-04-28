@@ -3,7 +3,7 @@
 //
 // Vendored from better-auth (packages/core/src/db/adapter/factory.ts) under
 // MIT. Adapted for executor:
-//   - Promise/async → Effect.Effect<T, Error>
+//   - Promise/async → Effect.Effect<T, StorageFailure>
 //   - Stripped auth-specific concerns (numeric serial ids, joins, telemetry
 //     spans, logger, plural model name resolution, BetterAuthOptions)
 //   - Contract matches our CustomAdapter + DBAdapterFactoryConfig in
@@ -35,8 +35,10 @@ import type {
   DBTransactionAdapter,
   JoinConfig,
   JoinOption,
+  StorageFailure,
   Where,
 } from "./adapter";
+import { StorageError } from "./errors";
 import type { DBFieldAttribute, DBSchema, DBPrimitive } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -124,12 +126,17 @@ export const createAdapter = (
     return defaultGenerateId();
   };
 
-  const getModelDef = (model: string): Effect.Effect<DBSchema[string], Error> =>
+  const getModelDef = (
+    model: string,
+  ): Effect.Effect<DBSchema[string], StorageError> =>
     Effect.gen(function* () {
       const def = schema[model];
       if (!def) {
         return yield* Effect.fail(
-          new Error(`[storage-core] unknown model "${model}"`),
+          new StorageError({
+            message: `[storage-core] unknown model "${model}"`,
+            cause: undefined,
+          }),
         );
       }
       return def;
@@ -258,7 +265,7 @@ export const createAdapter = (
     data: Record<string, unknown>,
     action: "create" | "update",
     forceAllowId: boolean,
-  ): Effect.Effect<Record<string, unknown>, Error> =>
+  ): Effect.Effect<Record<string, unknown>, StorageFailure> =>
     Effect.gen(function* () {
       const def = yield* getModelDef(model);
       const out: Record<string, unknown> = {};
@@ -303,10 +310,11 @@ export const createAdapter = (
           if (res && typeof (res as { then?: unknown }).then === "function") {
             value = yield* Effect.tryPromise({
               try: () => res as Promise<DBPrimitive>,
-              catch: (e) =>
-                new Error(
-                  `[storage-core] transform.input for "${model}.${logical}" failed: ${String(e)}`,
-                ),
+              catch: (cause) =>
+                new StorageError({
+                  message: `[storage-core] transform.input for "${model}.${logical}" failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+                  cause,
+                }),
             });
           } else {
             value = res;
@@ -347,7 +355,7 @@ export const createAdapter = (
     model: string,
     row: Record<string, unknown> | null,
     select?: string[],
-  ): Effect.Effect<Record<string, unknown> | null, Error> =>
+  ): Effect.Effect<Record<string, unknown> | null, StorageFailure> =>
     Effect.gen(function* () {
       if (row === null || row === undefined) return null;
       const def = yield* getModelDef(model);
@@ -377,10 +385,11 @@ export const createAdapter = (
           if (res && typeof (res as { then?: unknown }).then === "function") {
             value = yield* Effect.tryPromise({
               try: () => res as Promise<DBPrimitive>,
-              catch: (e) =>
-                new Error(
-                  `[storage-core] transform.output for "${model}.${logical}" failed: ${String(e)}`,
-                ),
+              catch: (cause) =>
+                new StorageError({
+                  message: `[storage-core] transform.output for "${model}.${logical}" failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+                  cause,
+                }),
             });
           } else {
             value = res;
@@ -532,7 +541,7 @@ export const createAdapter = (
     data: Record<string, unknown>,
     action: "create" | "update",
     forceAllowId: boolean,
-  ): Effect.Effect<Record<string, unknown>, Error> =>
+  ): Effect.Effect<Record<string, unknown>, StorageFailure> =>
     config.disableTransformInput
       ? Effect.succeed(data)
       : transformInput(model, data, action, forceAllowId);
@@ -551,7 +560,7 @@ export const createAdapter = (
     base: Record<string, unknown> | null,
     raw: Record<string, unknown> | null,
     join: JoinOption | undefined,
-  ): Effect.Effect<Record<string, unknown> | null, Error> =>
+  ): Effect.Effect<Record<string, unknown> | null, StorageFailure> =>
     Effect.gen(function* () {
       if (!base || !raw || !join) return base;
       const merged: Record<string, unknown> = { ...base };
@@ -593,7 +602,7 @@ export const createAdapter = (
     model: string,
     row: Record<string, unknown> | null,
     select?: string[],
-  ): Effect.Effect<Record<string, unknown> | null, Error> =>
+  ): Effect.Effect<Record<string, unknown> | null, StorageFailure> =>
     config.disableTransformOutput
       ? Effect.succeed(row)
       : transformOutput(model, row, select);
@@ -629,7 +638,14 @@ export const createAdapter = (
           data.select,
         );
         return out as unknown as R;
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.create", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+          },
+        }),
+      ),
 
     createMany: <T extends Record<string, unknown>, R = T>(data: {
       model: string;
@@ -637,17 +653,47 @@ export const createAdapter = (
       forceAllowId?: boolean | undefined;
     }) =>
       Effect.gen(function* () {
-        const out: R[] = [];
+        // Delegates straight to the backend's native bulk insert — no
+        // per-row fallback, because over a real network connection
+        // (Hyperdrive, etc.) N round-trips would blow the request
+        // budget for specs with thousands of operations. Transforms
+        // still run per-row so JSON / dates / booleans serialize the
+        // same as single `create`.
+        const inputs: Record<string, unknown>[] = [];
         for (const row of data.data) {
-          const created = yield* self.create<T, R>({
-            model: data.model,
-            data: row,
-            forceAllowId: data.forceAllowId,
-          });
-          out.push(created);
+          inputs.push(
+            yield* maybeTransformInput(
+              data.model,
+              row as Record<string, unknown>,
+              "create",
+              data.forceAllowId === true,
+            ),
+          );
+        }
+        const res = yield* inner.createMany({
+          model: getModelName(data.model),
+          data: inputs,
+        });
+        const out: R[] = [];
+        for (const row of res) {
+          out.push(
+            (yield* maybeTransformOutput(
+              data.model,
+              row as Record<string, unknown>,
+              undefined,
+            )) as unknown as R,
+          );
         }
         return out as unknown as readonly R[];
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.create_many", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+            "executor.storage.row_count": data.data.length,
+          },
+        }),
+      ),
 
     findOne: <T>(data: {
       model: string;
@@ -667,7 +713,14 @@ export const createAdapter = (
         const out = yield* maybeTransformOutput(data.model, res, data.select);
         const merged = yield* attachJoinedRows(out, res, data.join);
         return merged as unknown as T | null;
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.find_one", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+          },
+        }),
+      ),
 
     findMany: <T>(data: {
       model: string;
@@ -703,7 +756,14 @@ export const createAdapter = (
           out.push(merged);
         }
         return out as readonly T[];
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.find_many", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+          },
+        }),
+      ),
 
     count: (data: { model: string; where?: Where[] | undefined }) =>
       Effect.gen(function* () {
@@ -712,7 +772,14 @@ export const createAdapter = (
           model: getModelName(data.model),
           where,
         });
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.count", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+          },
+        }),
+      ),
 
     update: <T>(data: {
       model: string;
@@ -734,7 +801,14 @@ export const createAdapter = (
         });
         const out = yield* maybeTransformOutput(data.model, res);
         return out as unknown as T | null;
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.update", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+          },
+        }),
+      ),
 
     updateMany: (data: {
       model: string;
@@ -754,7 +828,14 @@ export const createAdapter = (
           where,
           update,
         });
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.update_many", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+          },
+        }),
+      ),
 
     delete: (data: { model: string; where: Where[] }) =>
       Effect.gen(function* () {
@@ -763,7 +844,14 @@ export const createAdapter = (
           model: getModelName(data.model),
           where,
         });
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.delete", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+          },
+        }),
+      ),
 
     deleteMany: (data: { model: string; where: Where[] }) =>
       Effect.gen(function* () {
@@ -772,17 +860,28 @@ export const createAdapter = (
           model: getModelName(data.model),
           where,
         });
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.delete_many", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.table": data.model,
+          },
+        }),
+      ),
 
     transaction: <R, E>(
       callback: (trx: DBTransactionAdapter) => Effect.Effect<R, E>,
     ) => {
       const txFn = config.transaction;
-      if (!txFn) {
-        // No real transaction support — just run the callback against self.
-        return callback(self);
-      }
-      return txFn(callback);
+      const ran = !txFn ? callback(self) : txFn(callback);
+      return ran.pipe(
+        Effect.withSpan("executor.storage.transaction", {
+          attributes: {
+            "executor.storage.adapter_id": config.adapterId,
+            "executor.storage.transaction.native": txFn !== undefined,
+          },
+        }),
+      );
     },
 
     // Forward the backend's createSchema verbatim. Upstream better-auth

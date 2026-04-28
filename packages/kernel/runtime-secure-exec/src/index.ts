@@ -441,7 +441,9 @@ const evaluateInSecureExec = (
   );
 };
 
-export const makeSecureExecExecutor = (options: SecureExecExecutorOptions = {}): CodeExecutor => ({
+export const makeSecureExecExecutor = (
+  options: SecureExecExecutorOptions = {},
+): CodeExecutor<never> => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     evaluateInSecureExec(options, code, toolInvoker),
 });

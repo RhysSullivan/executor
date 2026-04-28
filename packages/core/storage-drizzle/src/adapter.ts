@@ -3,7 +3,7 @@
 //
 // Vendored from better-auth (packages/drizzle-adapter/src/drizzle-adapter.ts)
 // under MIT. Adapted for executor:
-//   - Promise/async → Effect.Effect<T, Error>
+//   - Promise/async → Effect.Effect<T, StorageFailure>
 //   - Tables read from `db._.fullSchema` (drizzle schema introspection)
 //   - Relational queries via `db.query[model]` for join resolution
 //   - Filter/compile logic matches our CleanedWhere shape directly
@@ -11,7 +11,7 @@
 //     generation, encode/decode all happen in storage-core
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Effect, Schedule } from "effect";
 import {
   and,
   asc,
@@ -41,7 +41,16 @@ import type {
   DBSchema,
   JoinConfig,
 } from "@executor/storage-core";
-import { createAdapter } from "@executor/storage-core";
+import {
+  StorageError,
+  UniqueViolationError,
+  createAdapter,
+} from "@executor/storage-core";
+
+// Mirrors `StorageFailure` from @executor/storage-core/adapter — kept
+// local so we don't force a new named export on the public index. Both
+// constructors are already exported, so the union is reconstructible.
+type StorageFailure = StorageError | UniqueViolationError;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -227,19 +236,109 @@ const buildIncludes = (
 
 // ---------------------------------------------------------------------------
 // Promise → Effect helper
+//
+// Classifies postgres driver errors: `23505` (unique_violation) maps to
+// `UniqueViolationError`, everything else to `StorageError`. Sqlite
+// raises a `SQLITE_CONSTRAINT_UNIQUE` via a synchronous throw; we detect
+// that via the message since better-sqlite3's error code is on the
+// object too.
 // ---------------------------------------------------------------------------
+
+const isUniqueViolation = (cause: unknown): boolean => {
+  if (!cause || typeof cause !== "object") return false;
+  const c = cause as { code?: unknown; message?: unknown };
+  if (c.code === "23505") return true;
+  if (typeof c.code === "string" && c.code === "SQLITE_CONSTRAINT_UNIQUE") {
+    return true;
+  }
+  if (
+    typeof c.message === "string" &&
+    /unique constraint|UNIQUE constraint failed/i.test(c.message)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+// drizzle-orm wraps driver errors as `DrizzleQueryError` with a synthetic
+// `"Failed query: <SQL>\nparams: <values>"` message and the real driver
+// error on `.cause`. Walk down so classification + logging see the
+// server-side code/message (`23505`, `value too long`, etc.) instead of
+// the SQL+bound-values blob, which for OpenAPI specs is 1MB+ of spec text.
+const unwrapDriverCause = (cause: unknown): unknown => {
+  let cur = cause;
+  for (let i = 0; i < 5; i++) {
+    if (!cur || typeof cur !== "object") return cur;
+    const c = cur as { cause?: unknown; code?: unknown; message?: unknown };
+    if (typeof c.code === "string" && c.code.length > 0) return cur;
+    if (c.cause && c.cause !== cur) {
+      cur = c.cause;
+      continue;
+    }
+    return cur;
+  }
+  return cur;
+};
+
+const classifyError = (
+  op: string,
+  model: string | undefined,
+  cause: unknown,
+): StorageFailure => {
+  const driverCause = unwrapDriverCause(cause);
+  if (isUniqueViolation(driverCause)) {
+    return model !== undefined
+      ? new UniqueViolationError({ model })
+      : new UniqueViolationError({});
+  }
+  return new StorageError({
+    message: `[storage-drizzle] ${op} failed: ${driverCause instanceof Error ? driverCause.message : String(driverCause)}`,
+    cause: driverCause,
+  });
+};
+
+// Hyperdrive (Cloudflare's Postgres pooler) periodically hands out a
+// stale pooled connection that drops the write mid-query. Drizzle
+// surfaces this as a driver error we classify into a StorageError whose
+// message contains "Network connection lost" or "CONNECTION_CLOSED".
+// Retrying on a fresh pooled connection almost always succeeds, so we
+// retry transient errors twice with short exponential backoff. Unique
+// violations and anything else fail fast.
+export const isTransientStorageError = (err: StorageFailure): boolean => {
+  if (err._tag !== "StorageError") return false;
+  const msg = err.message;
+  return (
+    msg.includes("Network connection lost") ||
+    msg.includes("CONNECTION_CLOSED") ||
+    msg.includes("Connection terminated") ||
+    msg.includes("ECONNRESET")
+  );
+};
+
+const transientRetrySchedule = Schedule.exponential("50 millis");
+
+const withTransientRetry = <T>(
+  effect: Effect.Effect<T, StorageFailure>,
+): Effect.Effect<T, StorageFailure> =>
+  effect.pipe(
+    Effect.retry({
+      while: isTransientStorageError,
+      times: 2,
+      schedule: transientRetrySchedule,
+    }),
+  );
 
 const runPromise = <T>(
   op: string,
   fn: () => Promise<T>,
-): Effect.Effect<T, Error> =>
-  Effect.tryPromise({
-    try: fn,
-    catch: (e) =>
-      new Error(
-        `[storage-drizzle] ${op} failed: ${e instanceof Error ? e.message : String(e)}`,
-      ),
-  });
+  model?: string,
+): Effect.Effect<T, StorageFailure> =>
+  withTransientRetry(
+    Effect.tryPromise({
+      try: fn,
+      catch: (cause) => classifyError(op, model, cause),
+    }),
+  );
 
 // ---------------------------------------------------------------------------
 // withReturning — mirrors better-auth's helper. sqlite + pg support
@@ -254,33 +353,46 @@ const withReturning = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   builder: any,
   data: Record<string, unknown>,
-): Effect.Effect<Record<string, unknown>, Error> =>
+  model: string,
+): Effect.Effect<Record<string, unknown>, StorageFailure> =>
   Effect.gen(function* () {
     if (provider === "mysql") {
-      yield* runPromise("mysql insert execute", () => builder.execute());
+      yield* runPromise("mysql insert execute", () => builder.execute(), model);
       // best-effort: look up by id if present
       if (data.id !== undefined) {
-        const rows = (yield* runPromise("mysql select after insert", () =>
-          db.select().from(table).where(eq(table.id, data.id)).limit(1),
+        const rows = (yield* runPromise(
+          "mysql select after insert",
+          () => db.select().from(table).where(eq(table.id, data.id)).limit(1),
+          model,
         )) as Record<string, unknown>[];
         if (!rows[0])
           return yield* Effect.fail(
-            new Error("[storage-drizzle] mysql insert: no row returned"),
+            new StorageError({
+              message: "[storage-drizzle] mysql insert: no row returned",
+              cause: undefined,
+            }),
           );
         return rows[0];
       }
       return yield* Effect.fail(
-        new Error(
-          "[storage-drizzle] mysql insert: id not provided, cannot recover row",
-        ),
+        new StorageError({
+          message:
+            "[storage-drizzle] mysql insert: id not provided, cannot recover row",
+          cause: undefined,
+        }),
       );
     }
-    const rows = (yield* runPromise("insert returning", () =>
-      builder.returning(),
+    const rows = (yield* runPromise(
+      "insert returning",
+      () => builder.returning(),
+      model,
     )) as Record<string, unknown>[];
     if (!rows[0])
       return yield* Effect.fail(
-        new Error("[storage-drizzle] insert returned no rows"),
+        new StorageError({
+          message: "[storage-drizzle] insert returned no rows",
+          cause: undefined,
+        }),
       );
     return rows[0];
   });
@@ -303,14 +415,64 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
     return t;
   };
 
+  const backendAttrs = (model: string) => ({
+    "executor.storage.backend": "drizzle" as const,
+    "executor.storage.drizzle.provider": provider,
+    "executor.storage.table": model,
+  });
+
   const custom: CustomAdapter = {
     create: ({ model, data }) =>
       Effect.gen(function* () {
         const table = getTable(model);
         const builder = db.insert(table).values(data);
-        const row = yield* withReturning(db, provider, table, builder, data);
+        const row = yield* withReturning(
+          db,
+          provider,
+          table,
+          builder,
+          data,
+          model,
+        );
         return row as never;
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.create", {
+          attributes: backendAttrs(model),
+        }),
+      ),
+
+    // Real multi-row INSERT in fixed-size chunks. One statement per
+    // chunk, not one per row — per-row loops blow the Hyperdrive
+    // request budget on specs with thousands of operations. Chunking
+    // (vs a single giant statement) also keeps payload size bounded:
+    // JSON columns like tool schemas / operation bindings can be a
+    // few KB each, so a 2700-row insert becomes a >10MB statement
+    // otherwise, which chokes both Hyperdrive ingress and WASM
+    // Postgres (PGlite) in the test harness.
+    createMany: ({ model, data }) =>
+      Effect.gen(function* () {
+        if (data.length === 0) return [] as never;
+        const table = getTable(model);
+        const CHUNK = 500;
+        const all: Record<string, unknown>[] = [];
+        for (let i = 0; i < data.length; i += CHUNK) {
+          const slice = data.slice(i, i + CHUNK) as Record<string, unknown>[];
+          const rows = (yield* runPromise(
+            "insert many returning",
+            () => db.insert(table).values(slice).returning(),
+            model,
+          )) as Record<string, unknown>[];
+          for (const row of rows) all.push(row);
+        }
+        return all as never;
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.create_many", {
+          attributes: {
+            ...backendAttrs(model),
+            "executor.storage.row_count": data.length,
+          },
+        }),
+      ),
 
     findOne: ({ model, where, join }) =>
       Effect.gen(function* () {
@@ -318,23 +480,32 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         const clause = compileWhere(table, where, provider);
         if (join && db.query && db.query[model]) {
           const includes = buildIncludes(join);
-          const rows = (yield* runPromise("findOne query.findFirst", () =>
-            Promise.resolve(
-              db.query[model].findFirst({
-                where: clause,
-                with: includes,
-              }),
-            ),
+          const rows = (yield* runPromise(
+            "findOne query.findFirst",
+            () =>
+              Promise.resolve(
+                db.query[model].findFirst({
+                  where: clause,
+                  with: includes,
+                }),
+              ),
+            model,
           )) as Record<string, unknown> | undefined;
           return (rows ?? null) as never;
         }
         let q = db.select().from(table);
         if (clause) q = q.where(clause);
-        const rows = (yield* runPromise("findOne select", () =>
-          q.limit(1),
+        const rows = (yield* runPromise(
+          "findOne select",
+          () => q.limit(1),
+          model,
         )) as Record<string, unknown>[];
         return (rows[0] ?? null) as never;
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.find_one", {
+          attributes: backendAttrs(model),
+        }),
+      ),
 
     findMany: ({ model, where, limit, sortBy, offset, join }) =>
       Effect.gen(function* () {
@@ -354,8 +525,10 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
             const fn = sortBy.direction === "desc" ? desc : asc;
             opts.orderBy = [fn(col)];
           }
-          const rows = (yield* runPromise("findMany query.findMany", () =>
-            Promise.resolve(db.query[model].findMany(opts)),
+          const rows = (yield* runPromise(
+            "findMany query.findMany",
+            () => Promise.resolve(db.query[model].findMany(opts)),
+            model,
           )) as Record<string, unknown>[];
           return rows as never[];
         }
@@ -373,11 +546,17 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         else if (offset !== undefined && provider === "sqlite")
           q = q.limit(Number.MAX_SAFE_INTEGER);
         if (offset !== undefined) q = q.offset(offset);
-        const rows = (yield* runPromise("findMany select", () =>
-          Promise.resolve(q),
+        const rows = (yield* runPromise(
+          "findMany select",
+          () => Promise.resolve(q),
+          model,
         )) as Record<string, unknown>[];
         return rows as never[];
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.find_many", {
+          attributes: backendAttrs(model),
+        }),
+      ),
 
     count: ({ model, where }) =>
       Effect.gen(function* () {
@@ -385,12 +564,18 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         const clause = compileWhere(table, where, provider);
         let q = db.select({ c: count() }).from(table);
         if (clause) q = q.where(clause);
-        const rows = (yield* runPromise("count select", () =>
-          Promise.resolve(q),
+        const rows = (yield* runPromise(
+          "count select",
+          () => Promise.resolve(q),
+          model,
         )) as { c: number | string | bigint }[];
         const raw = rows[0]?.c ?? 0;
         return typeof raw === "number" ? raw : Number(raw);
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.count", {
+          attributes: backendAttrs(model),
+        }),
+      ),
 
     update: ({ model, where, update }) =>
       Effect.gen(function* () {
@@ -399,25 +584,39 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         // Find matching rows first — if >1, DBAdapter contract says null
         let findQ = db.select().from(table);
         if (clause) findQ = findQ.where(clause);
-        const matched = (yield* runPromise("update pre-select", () =>
-          findQ.limit(2),
+        const matched = (yield* runPromise(
+          "update pre-select",
+          () => findQ.limit(2),
+          model,
         )) as Record<string, unknown>[];
         if (matched.length === 0) return null;
         if (matched.length > 1) return null;
         const target = matched[0]!;
         let updQ = db.update(table).set(update).where(eq(table.id, target.id));
         if (provider !== "mysql") {
-          const rows = (yield* runPromise("update returning", () =>
-            updQ.returning(),
+          const rows = (yield* runPromise(
+            "update returning",
+            () => updQ.returning(),
+            model,
           )) as Record<string, unknown>[];
           return (rows[0] ?? null) as never;
         }
-        yield* runPromise("mysql update execute", () => updQ.execute());
-        const reread = (yield* runPromise("mysql update reread", () =>
-          db.select().from(table).where(eq(table.id, target.id)).limit(1),
+        yield* runPromise(
+          "mysql update execute",
+          () => updQ.execute(),
+          model,
+        );
+        const reread = (yield* runPromise(
+          "mysql update reread",
+          () => db.select().from(table).where(eq(table.id, target.id)).limit(1),
+          model,
         )) as Record<string, unknown>[];
         return (reread[0] ?? null) as never;
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.update", {
+          attributes: backendAttrs(model),
+        }),
+      ),
 
     updateMany: ({ model, where, update }) =>
       Effect.gen(function* () {
@@ -427,16 +626,26 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         // but we don't want to rely on that in the generic path)
         let countQ = db.select({ c: count() }).from(table);
         if (clause) countQ = countQ.where(clause);
-        const rows = (yield* runPromise("updateMany count", () =>
-          Promise.resolve(countQ),
+        const rows = (yield* runPromise(
+          "updateMany count",
+          () => Promise.resolve(countQ),
+          model,
         )) as { c: number | string | bigint }[];
         const n = Number(rows[0]?.c ?? 0);
         if (n === 0) return 0;
         let updQ = db.update(table).set(update);
         if (clause) updQ = updQ.where(clause);
-        yield* runPromise("updateMany execute", () => Promise.resolve(updQ));
+        yield* runPromise(
+          "updateMany execute",
+          () => Promise.resolve(updQ),
+          model,
+        );
         return n;
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.update_many", {
+          attributes: backendAttrs(model),
+        }),
+      ),
 
     delete: ({ model, where }) =>
       Effect.gen(function* () {
@@ -445,15 +654,23 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         // Mirror in-memory semantics: delete first matching row only
         let findQ = db.select({ id: table.id }).from(table);
         if (clause) findQ = findQ.where(clause);
-        const matched = (yield* runPromise("delete pre-select", () =>
-          findQ.limit(1),
+        const matched = (yield* runPromise(
+          "delete pre-select",
+          () => findQ.limit(1),
+          model,
         )) as { id: unknown }[];
         const first = matched[0];
         if (!first) return;
-        yield* runPromise("delete exec", () =>
-          Promise.resolve(db.delete(table).where(eq(table.id, first.id))),
+        yield* runPromise(
+          "delete exec",
+          () => Promise.resolve(db.delete(table).where(eq(table.id, first.id))),
+          model,
         );
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.delete", {
+          attributes: backendAttrs(model),
+        }),
+      ),
 
     deleteMany: ({ model, where }) =>
       Effect.gen(function* () {
@@ -461,16 +678,26 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         const clause = compileWhere(table, where, provider);
         let countQ = db.select({ c: count() }).from(table);
         if (clause) countQ = countQ.where(clause);
-        const rows = (yield* runPromise("deleteMany count", () =>
-          Promise.resolve(countQ),
+        const rows = (yield* runPromise(
+          "deleteMany count",
+          () => Promise.resolve(countQ),
+          model,
         )) as { c: number | string | bigint }[];
         const n = Number(rows[0]?.c ?? 0);
         if (n === 0) return 0;
         let delQ = db.delete(table);
         if (clause) delQ = delQ.where(clause);
-        yield* runPromise("deleteMany exec", () => Promise.resolve(delQ));
+        yield* runPromise(
+          "deleteMany exec",
+          () => Promise.resolve(delQ),
+          model,
+        );
         return n;
-      }),
+      }).pipe(
+        Effect.withSpan("executor.storage.backend.delete_many", {
+          attributes: backendAttrs(model),
+        }),
+      ),
   };
 
   // Transaction strategy differs by dialect:
@@ -529,9 +756,16 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
           }).pipe(
             Effect.mapError((e) => {
               if (e instanceof TxFailure) return e.inner;
-              return e instanceof Error ? e : new Error(String(e));
+              return classifyError("pg transaction", undefined, e);
             }),
-          ) as Effect.Effect<R, E | Error>;
+            Effect.withSpan("executor.storage.backend.transaction", {
+              attributes: {
+                "executor.storage.backend": "drizzle",
+                "executor.storage.drizzle.provider": provider,
+                "executor.storage.transaction.strategy": "drizzle_native",
+              },
+            }),
+          ) as Effect.Effect<R, E | StorageFailure>;
         }
 
         return Effect.gen(function* () {
@@ -554,16 +788,13 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
                 }
                 return res;
               },
-              catch: (e) =>
-                new Error(
-                  `[storage-drizzle] ${stmt} failed: ${e instanceof Error ? e.message : String(e)}`,
-                ),
+              catch: (cause) => classifyError(stmt, undefined, cause),
             });
           const maybePromise = yield* runStmt("BEGIN");
           if (maybePromise && typeof (maybePromise as { then?: unknown }).then === "function") {
             yield* Effect.tryPromise({
               try: () => maybePromise as Promise<unknown>,
-              catch: (e) => new Error(String(e)),
+              catch: (cause) => classifyError("BEGIN", undefined, cause),
             });
           }
           const nested = drizzleAdapter({
@@ -582,11 +813,19 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
           if (commitRes && typeof (commitRes as { then?: unknown }).then === "function") {
             yield* Effect.tryPromise({
               try: () => commitRes as Promise<unknown>,
-              catch: (e) => new Error(String(e)),
+              catch: (cause) => classifyError("COMMIT", undefined, cause),
             });
           }
           return result;
-        });
+        }).pipe(
+          Effect.withSpan("executor.storage.backend.transaction", {
+            attributes: {
+              "executor.storage.backend": "drizzle",
+              "executor.storage.drizzle.provider": provider,
+              "executor.storage.transaction.strategy": "raw_begin_commit",
+            },
+          }),
+        );
       }
     : undefined;
 

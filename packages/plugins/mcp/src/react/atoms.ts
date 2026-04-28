@@ -1,4 +1,5 @@
 import type { ScopeId } from "@executor/sdk";
+import { ReactivityKey } from "@executor/react/api/reactivity-keys";
 import { McpClient } from "./client";
 
 // ---------------------------------------------------------------------------
@@ -9,6 +10,7 @@ export const mcpSourceAtom = (scopeId: ScopeId, namespace: string) =>
   McpClient.query("mcp", "getSource", {
     path: { scopeId, namespace },
     timeToLive: "15 seconds",
+    reactivityKeys: [ReactivityKey.sources, ReactivityKey.tools],
   });
 
 // ---------------------------------------------------------------------------

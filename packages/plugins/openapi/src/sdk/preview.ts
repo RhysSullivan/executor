@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect";
 import { Schema } from "effect";
 
-import { parse, type ParsedDocument } from "./parse";
+import { parse, resolveSpecText, type ParsedDocument } from "./parse";
 import { extract } from "./extract";
 import { DocResolver } from "./openapi-utils";
 import { HttpMethod, ServerInfo, type ExtractionResult } from "./types";
@@ -346,8 +346,9 @@ const collectTags = (result: ExtractionResult): string[] => {
 // ---------------------------------------------------------------------------
 
 /** Preview an OpenAPI spec — extract metadata without registering anything.
- *  Reuses parse() + extract() for the heavy lifting. */
-export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (specText: string) {
+ *  Accepts either a URL or raw JSON/YAML text. */
+export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (input: string) {
+  const specText = yield* resolveSpecText(input);
   const doc: ParsedDocument = yield* parse(specText);
   const result = yield* extract(doc);
 
@@ -358,9 +359,15 @@ export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (specText:
   );
 
   const rawSecurity = (doc.security ?? []) as Array<Record<string, unknown>>;
-  const authStrategies = rawSecurity.map(
+  const declaredStrategies = rawSecurity.map(
     (entry) => new AuthStrategy({ schemes: Object.keys(entry) }),
   );
+  // Fall back to one strategy per scheme when the spec only declares schemes
+  // under components (e.g. Sentry) so the user still sees auth options.
+  const authStrategies =
+    declaredStrategies.length > 0
+      ? declaredStrategies
+      : securitySchemes.map((scheme) => new AuthStrategy({ schemes: [scheme.name] }));
 
   return new SpecPreview({
     title: result.title,

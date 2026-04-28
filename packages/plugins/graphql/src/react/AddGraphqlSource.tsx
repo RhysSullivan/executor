@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
+import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import { usePendingSources } from "@executor/react/api/optimistic";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
 import {
@@ -46,6 +48,7 @@ export default function AddGraphqlSource(props: {
 
   const scopeId = useScope();
   const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
+  const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
   const headersValid = headers.every((header) => header.name.trim() && header.secretId);
@@ -54,31 +57,47 @@ export default function AddGraphqlSource(props: {
   const handleAdd = async () => {
     setAdding(true);
     setAddError(null);
-    try {
-      const headerMap: Record<string, HeaderValue> = {};
-      for (const header of headers) {
-        const name = header.name.trim();
-        if (name && header.secretId) {
-          headerMap[name] = {
-            secretId: header.secretId,
-            ...(header.prefix ? { prefix: header.prefix } : {}),
-          };
-        }
+    const headerMap: Record<string, HeaderValue> = {};
+    for (const header of headers) {
+      const name = header.name.trim();
+      if (name && header.secretId) {
+        headerMap[name] = {
+          secretId: header.secretId,
+          ...(header.prefix ? { prefix: header.prefix } : {}),
+        };
       }
+    }
 
+    const trimmedEndpoint = endpoint.trim();
+    const namespace =
+      slugifyNamespace(identity.namespace) ||
+      slugifyNamespace(displayNameFromUrl(trimmedEndpoint) ?? "") ||
+      "graphql";
+    const displayName =
+      identity.name.trim() || displayNameFromUrl(trimmedEndpoint) || namespace;
+    const placeholder = beginAdd({
+      id: namespace,
+      name: displayName,
+      kind: "graphql",
+      url: trimmedEndpoint || undefined,
+    });
+    try {
       await doAdd({
         path: { scopeId },
         payload: {
-          endpoint: endpoint.trim(),
+          endpoint: trimmedEndpoint,
           name: identity.name.trim() || undefined,
           namespace: slugifyNamespace(identity.namespace) || undefined,
           ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
         },
+        reactivityKeys: sourceWriteKeys,
       });
       props.onComplete();
     } catch (e) {
       setAddError(e instanceof Error ? e.message : "Failed to add source");
       setAdding(false);
+    } finally {
+      placeholder.done();
     }
   };
 
@@ -113,6 +132,7 @@ export default function AddGraphqlSource(props: {
           headers={headers}
           onHeadersChange={setHeaders}
           existingSecrets={secretList}
+          sourceName={identity.name}
         />
       </section>
 

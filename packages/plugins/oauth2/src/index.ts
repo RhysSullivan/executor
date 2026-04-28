@@ -22,6 +22,13 @@ import { Data, Effect, ParseResult, Schema } from "effect";
 
 export class OAuth2Error extends Data.TaggedError("OAuth2Error")<{
   readonly message: string;
+  /**
+   * RFC 6749 §5.2 error code, when the token endpoint returned one
+   * (`invalid_grant`, `invalid_client`, `unauthorized_client`, ...).
+   * Callers use this to distinguish terminal failures (a refresh token
+   * the AS no longer honours → re-auth required) from transient ones.
+   */
+  readonly error?: string;
   readonly cause?: unknown;
 }> {}
 
@@ -104,8 +111,11 @@ export const buildAuthorizationUrl = (input: BuildAuthorizationUrlInput): string
 // Token endpoint response parsing
 // ---------------------------------------------------------------------------
 
-const oauth2Error = (message: string, cause?: unknown): OAuth2Error =>
-  new OAuth2Error({ message, cause });
+const oauth2Error = (
+  message: string,
+  cause?: unknown,
+  error?: string,
+): OAuth2Error => new OAuth2Error({ message, cause, error });
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -213,7 +223,13 @@ export const decodeTokenResponse = (
       );
       const description =
         envelope.error_description ?? envelope.error ?? `status ${response.status}`;
-      return yield* Effect.fail(oauth2Error(`OAuth token exchange failed: ${description}`));
+      return yield* Effect.fail(
+        oauth2Error(
+          `OAuth token exchange failed: ${description}`,
+          undefined,
+          envelope.error,
+        ),
+      );
     }
 
     return yield* decodeSuccessBody(record).pipe(
@@ -312,6 +328,38 @@ export const exchangeAuthorizationCode = (
 };
 
 // ---------------------------------------------------------------------------
+// Exchange client credentials → tokens (RFC 6749 §4.4)
+// ---------------------------------------------------------------------------
+
+export type ExchangeClientCredentialsInput = {
+  readonly tokenUrl: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly scopes?: readonly string[];
+  readonly scopeSeparator?: string;
+  /** "body" (default) sends client creds in the form body; "basic" uses HTTP Basic. */
+  readonly clientAuth?: ClientAuthMethod;
+  readonly timeoutMs?: number;
+};
+
+export const exchangeClientCredentials = (
+  input: ExchangeClientCredentialsInput,
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> => {
+  const clientAuth = input.clientAuth ?? "body";
+  const body = new URLSearchParams({ grant_type: "client_credentials" });
+  if (input.scopes && input.scopes.length > 0) {
+    body.set("scope", input.scopes.join(input.scopeSeparator ?? " "));
+  }
+  applyClientAuthBody(body, input.clientId, input.clientSecret, clientAuth);
+  return postToTokenEndpoint({
+    tokenUrl: input.tokenUrl,
+    body,
+    extraHeaders: buildClientAuthHeaders(input.clientId, input.clientSecret, clientAuth),
+    timeoutMs: input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS,
+  });
+};
+
+// ---------------------------------------------------------------------------
 // Refresh access token
 // ---------------------------------------------------------------------------
 
@@ -367,17 +415,3 @@ export const shouldRefreshToken = (input: {
   return input.expiresAt <= now + skew;
 };
 
-// ---------------------------------------------------------------------------
-// Re-exports from sibling modules
-// ---------------------------------------------------------------------------
-
-export {
-  type OAuth2AuthRefs,
-  type OAuth2SecretsIO,
-  type RefreshedAuthSnapshot,
-  type StoreOAuthTokensInput,
-  type StoredOAuthTokens,
-  type WithRefreshedAccessTokenInput,
-  storeOAuthTokens,
-  withRefreshedAccessToken,
-} from "./refresh";

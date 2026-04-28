@@ -1,2 +1,3 @@
 name = "executor-marketing"
+compatibility_date = "2026-04-22"
 compatibility_flags = ["nodejs_compat"]

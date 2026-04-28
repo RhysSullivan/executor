@@ -83,7 +83,7 @@ const plugins = [
 ] as const;
 
 const config = {
-  scope,
+  scopes: [scope],
   adapter: makeMemoryAdapter({ schema: collectSchemas(plugins) }),
   blobs: makeInMemoryBlobStore(),
   plugins,
@@ -208,6 +208,7 @@ const program = Effect.gen(function* () {
   yield* executor.secrets.set(
     new SetSecretInput({
       id: SecretId.make("example-api-token"),
+      scope: "example-scope" as SetSecretInput["scope"],
       name: "Example API Token",
       value: "sk-example-redacted",
       provider: "file",
@@ -262,6 +263,7 @@ const program = Effect.gen(function* () {
     spec: exampleOpenApiSpec,
     namespace: "example-api",
     baseUrl: "https://example.com/api",
+    scope: "example-scope",
   });
   console.log("Registered OpenAPI source:", addSpecResult);
 
@@ -371,6 +373,7 @@ const program = Effect.gen(function* () {
     endpoint: "https://example.com/graphql",
     introspectionJson,
     namespace: "example-graphql",
+    scope: "example-scope",
   });
   console.log("Registered GraphQL source:", gqlResult);
 

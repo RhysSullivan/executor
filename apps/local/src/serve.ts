@@ -30,6 +30,11 @@ const makeIsAllowedHost = (allowed: ReadonlySet<string>) => (request: Request): 
 
 type StaticHandler = () => Response | Promise<Response>;
 
+const hasFileExtension = (pathname: string): boolean => {
+  const lastSegment = pathname.split("/").at(-1) ?? "";
+  return lastSegment.includes(".");
+};
+
 function collectStaticRoutes(dir: string, prefix = ""): Record<string, StaticHandler> {
   const routes: Record<string, StaticHandler> = {};
   try {
@@ -131,6 +136,13 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
       if (url.pathname.startsWith("/api/") || url.pathname === "/api") {
         url.pathname = url.pathname.slice("/api".length) || "/";
         return handlers.api.handler(new Request(url, req));
+      }
+
+      // If a path looks like a static asset (has a file extension), do not
+      // fall back to SPA HTML. Returning index.html here causes browser module
+      // MIME errors when hashed chunks are stale/missing.
+      if (hasFileExtension(url.pathname)) {
+        return new Response("Not Found", { status: 404 });
       }
 
       // SPA fallback

@@ -84,13 +84,68 @@ export const coreSchema = {
   // provider key). Actual values never touch this table — they live in
   // the secret provider (keychain, 1password, file, etc.) and are
   // resolved on demand via `ctx.secrets.get(id)`.
+  //
+  // `owned_by_connection_id` ties the row to a connection. Connection-
+  // owned secrets are plumbing, not user-facing values: `ctx.secrets.list`
+  // filters them out (the user sees the Connection instead), and
+  // `ctx.secrets.remove` refuses to delete them (Connection.remove is
+  // the single owner of the lifecycle). The FK is nullable so existing
+  // "bare" secrets (API keys entered by the user, pre-connection OAuth
+  // rows during migration) remain visible and removable unchanged.
   secret: {
     fields: {
       id: { type: "string", required: true },
       scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       provider: { type: "string", required: true, index: true },
+      owned_by_connection_id: {
+        type: "string",
+        required: false,
+        index: true,
+      },
       created_at: { type: "date", required: true },
+    },
+  },
+  // Connections — sign-in state for one identity against one remote
+  // provider. A Connection owns one or more `secret` rows (access +
+  // refresh tokens, etc.) via `secret.owned_by_connection_id`, and the
+  // SDK exposes `ctx.connections.accessToken(id)` which transparently
+  // refreshes the backing secrets when they're near expiry. Plugins
+  // contribute refresh behavior via `plugin.connectionProviders[].refresh`
+  // keyed by `provider`, same pattern as `secretProviders`.
+  //
+  // `provider_state` is plugin-owned opaque JSON — token endpoint URL,
+  // scopes, issuer, auth-server metadata — whatever the provider's
+  // refresh handler needs to re-hit the token endpoint. It's NOT
+  // sensitive (all secrets go through the provider-backed secret rows);
+  // it's just enough metadata to drive a refresh without re-running
+  // discovery.
+  connection: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      /** Routing key into `plugin.connectionProviders`. Typical shape
+       *  is `${pluginId}:${kind}` (e.g. `openapi:oauth2`, `mcp:oauth2`,
+       *  `google-discovery:google`). Mirrors `secret.provider`. */
+      provider: { type: "string", required: true, index: true },
+      /** Display label shown in the Connections UI. Usually the account
+       *  email / handle / org name the user signed in as. */
+      identity_label: { type: "string", required: false },
+      /** Stable id of the access-token secret. Always present. */
+      access_token_secret_id: { type: "string", required: true },
+      /** Stable id of the refresh-token secret. Null for flows that
+       *  don't mint a refresh token (client_credentials, etc.). */
+      refresh_token_secret_id: { type: "string", required: false },
+      /** Epoch ms when the access token expires. Null if the provider
+       *  didn't declare an expiry. Used as the refresh trigger. */
+      expires_at: { type: "number", required: false },
+      /** Scope string as returned by the token endpoint. */
+      scope: { type: "string", required: false },
+      /** Opaque plugin-owned JSON — token endpoint URL, scopes list,
+       *  discovery hints, etc. Never sensitive. */
+      provider_state: { type: "json", required: false },
+      created_at: { type: "date", required: true },
+      updated_at: { type: "date", required: true },
     },
   },
 } as const satisfies DBSchema;
@@ -114,6 +169,11 @@ export type DefinitionRow = InferDBFieldsOutput<
   Record<string, unknown>;
 
 export type SecretRow = InferDBFieldsOutput<CoreSchema["secret"]["fields"]> &
+  Record<string, unknown>;
+
+export type ConnectionRow = InferDBFieldsOutput<
+  CoreSchema["connection"]["fields"]
+> &
   Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
@@ -161,6 +221,10 @@ export interface SourceInputTool {
 
 export interface SourceInput {
   readonly id: string;
+  /** Scope id this source belongs to. Must be one of the executor's
+   *  configured scopes. Callers (plugins) pick the target scope
+   *  explicitly — typically the scope the source was authored against. */
+  readonly scope: string;
   readonly kind: string;
   readonly name: string;
   readonly url?: string;
@@ -179,5 +243,8 @@ export interface SourceInput {
 
 export interface DefinitionsInput {
   readonly sourceId: string;
+  /** Scope id these definitions belong to — should match the scope of
+   *  the source they're registered under. */
+  readonly scope: string;
   readonly definitions: Record<string, unknown>;
 }

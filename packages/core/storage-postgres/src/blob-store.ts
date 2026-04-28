@@ -10,11 +10,12 @@
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { pgTable, primaryKey, text } from "drizzle-orm/pg-core";
 
 import type { BlobStore } from "@executor/sdk";
+import { StorageError } from "@executor/storage-core";
 
 export const blobTable = pgTable(
   "blob",
@@ -35,9 +36,12 @@ export interface MakePostgresBlobStoreOptions {
 
 const wrapErr =
   (op: string) =>
-  (e: unknown): Error => {
-    const msg = e instanceof Error ? e.message : String(e);
-    return new Error(`[storage-postgres] blob ${op}: ${msg}`);
+  (cause: unknown): StorageError => {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    return new StorageError({
+      message: `[storage-postgres] blob ${op}: ${msg}`,
+      cause,
+    });
   };
 
 export const makePostgresBlobStore = (
@@ -60,6 +64,29 @@ export const makePostgresBlobStore = (
       },
       catch: wrapErr("get"),
     }),
+  getMany: (namespaces, key) =>
+    namespaces.length === 0
+      ? Effect.succeed(new Map<string, string>())
+      : Effect.tryPromise({
+          try: async () => {
+            const rows = await options.db
+              .select({
+                namespace: blobTable.namespace,
+                value: blobTable.value,
+              })
+              .from(blobTable)
+              .where(
+                and(
+                  inArray(blobTable.namespace, [...namespaces]),
+                  eq(blobTable.key, key),
+                ),
+              );
+            const out = new Map<string, string>();
+            for (const row of rows) out.set(row.namespace, row.value);
+            return out as ReadonlyMap<string, string>;
+          },
+          catch: wrapErr("getMany"),
+        }),
   put: (namespace, key, value) =>
     Effect.tryPromise({
       try: async () => {

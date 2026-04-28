@@ -17,6 +17,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./core": "./src/index.ts",
     "./promise": "./src/promise.ts"
   },
   "publishConfig": {
@@ -43,6 +44,7 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
+    "@effect/platform": "catalog:",
     "@executor/storage-core": "workspace:*",
     "effect": "catalog:"
   },

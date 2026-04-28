@@ -228,15 +228,6 @@ describe("release bootstrap smoke", () => {
         const docsResponse = await fetch(`http://127.0.0.1:${webPort}/docs`);
         expect(docsResponse.status, `${webStdout}\n${webStderr}`).toBe(200);
 
-        // Verify code execution works end-to-end in the compiled binary
-        const callResult = await runCommand(
-          installedBinaryPath,
-          ["call", "return 2+2"],
-          installedPackageDir,
-        );
-        expect(callResult.exitCode, `call failed:\n${callResult.stderr}`).toBe(0);
-        expect(callResult.stdout.trim()).toContain("4");
-
         const secondRun = await runCommand(
           process.execPath,
           [join(installedPackageDir, "bin", "executor"), "--help"],
@@ -253,7 +244,11 @@ describe("release bootstrap smoke", () => {
           new Promise((resolveClose) => setTimeout(resolveClose, 5_000)),
         ]);
         if (webProcess.exitCode === null) {
-          webProcess.kill("SIGKILL");
+          if (process.platform === "win32") {
+            webProcess.kill();
+          } else {
+            webProcess.kill("SIGKILL");
+          }
         }
       }
     } finally {

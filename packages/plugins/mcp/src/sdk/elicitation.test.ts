@@ -142,6 +142,7 @@ const makeTestExecutor = (serverUrl: string) =>
     Effect.tap((executor) =>
       executor.mcp.addSource({
         transport: "remote",
+        scope: "test-scope",
         name: "test-mcp",
         endpoint: serverUrl,
       }),

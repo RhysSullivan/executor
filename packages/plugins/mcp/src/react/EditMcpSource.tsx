@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
+import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import {
   SourceIdentityFields,
   useSourceIdentity,
@@ -37,7 +38,6 @@ function RemoteEditForm(props: {
 }) {
   const scopeId = useScope();
   const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
-  const refreshSource = useAtomRefresh(mcpSourceAtom(scopeId, props.sourceId));
 
   const identity = useSourceIdentity({
     fallbackName: props.initial.name,
@@ -90,8 +90,8 @@ function RemoteEditForm(props: {
           endpoint: endpoint.trim() || undefined,
           headers: headersObj,
         },
+        reactivityKeys: sourceWriteKeys,
       });
-      refreshSource();
       setDirty(false);
       props.onSave();
     } catch (e) {

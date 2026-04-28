@@ -1,5 +1,7 @@
 import { Effect, Schema } from "effect";
 
+import type { StorageFailure } from "@executor/storage-core";
+
 import { SecretId, ScopeId } from "./ids";
 
 // ---------------------------------------------------------------------------
@@ -9,7 +11,7 @@ import { SecretId, ScopeId } from "./ids";
 // at startup; there's no runtime registration.
 //
 // The `key` field is the provider's identifier in the secret table's
-// `provider` column and in `executor.secrets.set(id, value, provider?)`.
+// `provider` column and in `executor.secrets.set({ provider, ... })`.
 // Unique per executor.
 // ---------------------------------------------------------------------------
 
@@ -20,19 +22,37 @@ export interface SecretProvider {
    *  honours this before routing writes — trying to write to a
    *  read-only provider is an error, not a silent drop. */
   readonly writable: boolean;
-  /** Get a secret value by id. Returns null if not found. Errors are
-   *  real failures (provider unreachable, decryption failed, etc.). */
-  readonly get: (id: string) => Effect.Effect<string | null, Error>;
-  /** Set a secret value. Only called on writable providers. */
-  readonly set?: (id: string, value: string) => Effect.Effect<void, Error>;
-  /** Delete a secret. Only called on writable providers. Returns true
-   *  if something was deleted. */
-  readonly delete?: (id: string) => Effect.Effect<boolean, Error>;
+  /** Get a secret value. `scope` is the executor scope the lookup is
+   *  being made on behalf of — providers that partition their storage
+   *  by scope (memory, keychain via service name, per-vault in
+   *  1password) use it; providers without tenancy ignore it and fall
+   *  back to a flat lookup. Failures (provider unreachable, decryption
+   *  failed, etc.) surface as `StorageFailure` — the executor treats
+   *  a provider call the same as a DB call; `StorageError` is captured
+   *  at the HTTP edge to `InternalError`, `UniqueViolationError` dies. */
+  readonly get: (
+    id: string,
+    scope: string,
+  ) => Effect.Effect<string | null, StorageFailure>;
+  /** Set a secret value at a named scope. Only called on writable
+   *  providers. Providers that partition by scope use this arg to
+   *  decide where to write; flat providers ignore it. */
+  readonly set?: (
+    id: string,
+    value: string,
+    scope: string,
+  ) => Effect.Effect<void, StorageFailure>;
+  /** Delete a secret at a named scope. Only called on writable providers.
+   *  Returns true if something was deleted. */
+  readonly delete?: (
+    id: string,
+    scope: string,
+  ) => Effect.Effect<boolean, StorageFailure>;
   /** Enumerate known secret entries. Optional — not all backends can
    *  enumerate (env-backed providers, for example). */
   readonly list?: () => Effect.Effect<
     readonly { readonly id: string; readonly name: string }[],
-    Error
+    StorageFailure
   >;
 }
 
@@ -56,12 +76,20 @@ export class SecretRef extends Schema.Class<SecretRef>("SecretRef")({
 // SetSecretInput — all the metadata to write a secret in one call.
 // `executor.secrets.set(input)` takes this and writes both the
 // value (to the provider) and the ref (to the `secret` table).
+//
+// `scope` is required — there's no default write target. Callers name
+// which scope in the executor's stack should own the secret. Typical
+// pattern: UI wiring up org-level API keys writes to the org scope;
+// OAuth token exchange writes to the innermost per-user scope.
 // ---------------------------------------------------------------------------
 
 export class SetSecretInput extends Schema.Class<SetSecretInput>(
   "SetSecretInput",
 )({
   id: SecretId,
+  /** Scope id to own this secret. Must be one of the executor's
+   *  configured scopes. */
+  scope: ScopeId,
   /** Display name shown in secret-list UI. */
   name: Schema.String,
   /** The secret value itself — never persisted outside the provider. */

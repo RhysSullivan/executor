@@ -15,6 +15,8 @@ export { typedAdapter, type TypedAdapter } from "./typed";
 
 export { createAdapter, type CreateAdapterOptions } from "./factory";
 
+export { StorageError, UniqueViolationError } from "./errors";
+
 export {
   whereOperators,
   type WhereOperator,
@@ -28,4 +30,5 @@ export {
   type DBAdapterDebugLogOption,
   type DBAdapterFactoryConfig,
   type DBAdapterSchemaCreation,
+  type StorageFailure,
 } from "./adapter";

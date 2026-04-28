@@ -50,6 +50,7 @@
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
     "@executor/config": "workspace:*",
+    "@executor/plugin-oauth2": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "effect": "catalog:"
@@ -59,6 +60,7 @@
     "@effect/vitest": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/react": "workspace:*",
+    "@executor/storage-core": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "bun-types": "catalog:",

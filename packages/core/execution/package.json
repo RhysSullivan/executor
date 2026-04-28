@@ -1,26 +1,59 @@
 {
   "name": "@executor/execution",
-  "version": "1.4.3",
-  "private": true,
+  "version": "0.0.1",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/execution",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/core/execution"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./promise": "./src/promise.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/promise.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
   },
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@executor/codemode-core": "workspace:*",
-    "@executor/runtime-quickjs": "workspace:*",
     "@executor/sdk": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@executor/runtime-quickjs": "workspace:*",
     "@types/node": "catalog:",
     "bun-types": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }

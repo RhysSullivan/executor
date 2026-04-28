@@ -25,8 +25,8 @@ import { mcpPlugin } from "@executor/plugin-mcp";
 import { graphqlPlugin } from "@executor/plugin-graphql";
 import { workosVaultPlugin } from "@executor/plugin-workos-vault";
 
+import { env } from "cloudflare:workers";
 import { DbService } from "./db";
-import { server } from "../env";
 
 // ---------------------------------------------------------------------------
 // Plugin list — one place, used for both the runtime and the CLI config
@@ -45,24 +45,31 @@ const createOrgPlugins = () =>
     graphqlPlugin(),
     workosVaultPlugin({
       credentials: {
-        apiKey: server.WORKOS_API_KEY,
-        clientId: server.WORKOS_CLIENT_ID,
+        apiKey: env.WORKOS_API_KEY,
+        clientId: env.WORKOS_CLIENT_ID,
       },
     }),
   ] as const;
 
 // ---------------------------------------------------------------------------
-// Create a fresh executor for a scope (stateless, per-request).
+// Create a fresh executor for a (user, org) pair (stateless, per-request).
 //
-// Today "scope" is the WorkOS organization — orgs are the only scope
-// level the cloud app exposes. When workspace / user scopes land, this
-// function grows to accept a `ScopeStack` instead of a single scope id,
-// and nothing downstream (executor, plugins, storage) has to change.
+// Scope stack is `[userOrgScope, orgScope]` — innermost first. The
+// user-within-org scope id (`user-org:${userId}:${orgId}`) intentionally
+// includes the org id so the same WorkOS user in a different org gets a
+// distinct scope row; future workspace scopes can slot in between without
+// conflicting with a hypothetical global user scope.
+//
+// OAuth tokens land at `ctx.scopes[0]` (the user-org scope) by default, so
+// a member's access/refresh tokens can't leak to other members via
+// `secrets.list`, while source rows and org-wide credentials live on the
+// outer scope.
 // ---------------------------------------------------------------------------
 
 export const createScopedExecutor = (
-  scopeId: string,
-  scopeName: string,
+  userId: string,
+  organizationId: string,
+  organizationName: string,
 ) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
@@ -72,11 +79,25 @@ export const createScopedExecutor = (
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
 
-    const scope = new Scope({
-      id: ScopeId.make(scopeId),
-      name: scopeName,
+    const orgScope = new Scope({
+      id: ScopeId.make(organizationId),
+      name: organizationName,
+      createdAt: new Date(),
+    });
+    const userOrgScope = new Scope({
+      id: ScopeId.make(`user-org:${userId}:${organizationId}`),
+      name: `Personal · ${organizationName}`,
       createdAt: new Date(),
     });
 
-    return yield* createExecutor({ scope, adapter, blobs, plugins });
+    // The executor surface returns raw `StorageFailure`; translation to
+    // the opaque `InternalError({ traceId })` happens at the HTTP edge
+    // via `withCapture` (see `api/protected-layers.ts`). That's
+    // where `ErrorCaptureLive` (Sentry) gets wired in.
+    return yield* createExecutor({
+      scopes: [userOrgScope, orgScope],
+      adapter,
+      blobs,
+      plugins,
+    });
   });

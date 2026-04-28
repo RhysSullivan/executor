@@ -20,3 +20,5 @@ export {
   type McpSchema,
   type McpStoredSource,
 } from "./binding-store";
+
+export { McpConnectionAuth } from "./types";

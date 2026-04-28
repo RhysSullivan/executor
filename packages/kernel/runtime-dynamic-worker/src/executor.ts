@@ -12,6 +12,7 @@ import { RpcTarget } from "cloudflare:workers";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Runtime from "effect/Runtime";
 
 import {
   recoverExecutionBody,
@@ -219,19 +220,30 @@ export const decodeWorkerRpcResponse = (raw: string): WorkerRpcResponse =>
  * An `RpcTarget` passed to the dynamic Worker so that sandboxed code can
  * invoke tools on the host. The dynamic worker calls
  * `__dispatcher.call(path, argsJson)` over Workers RPC.
+ *
+ * Each call is wrapped in an `executor.tool.rpc_dispatch` span so the
+ * tool-invocation shell (Workers RPC roundtrip → local invoker →
+ * serialize result) is visible in the trace. Tool-level attributes
+ * like `mcp.tool.name` already come from the inner
+ * `mcp.tool.dispatch` span that `tool-invoker.ts` wraps around
+ * `executor.tools.invoke`.
  */
+export type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
+
 export class ToolDispatcher extends RpcTarget {
   readonly #invoker: SandboxToolInvoker;
+  readonly #runPromise: RunPromise;
 
-  constructor(invoker: SandboxToolInvoker) {
+  constructor(invoker: SandboxToolInvoker, runPromise: RunPromise) {
     super();
     this.#invoker = invoker;
+    this.#runPromise = runPromise;
   }
 
   async call(path: string, argsJson: string): Promise<string> {
     const args = argsJson ? JSON.parse(argsJson) : undefined;
 
-    return Effect.runPromise(
+    return this.#runPromise(
       this.#invoker.invoke({ path, args }).pipe(
         Effect.map(
           (value): WorkerRpcResponse => ({
@@ -247,6 +259,12 @@ export class ToolDispatcher extends RpcTarget {
           }),
         ),
         Effect.map(encodeWorkerRpcResponse),
+        Effect.withSpan("executor.tool.rpc_dispatch", {
+          attributes: {
+            "mcp.tool.name": path,
+            "executor.tool.args_length": argsJson.length,
+          },
+        }),
       ),
     );
   }
@@ -256,46 +274,82 @@ export class ToolDispatcher extends RpcTarget {
 // Evaluate
 // ---------------------------------------------------------------------------
 
-const evaluate = async (
+type DynamicWorkerEntrypoint = {
+  evaluate(dispatcher: ToolDispatcher): Promise<{
+    result: unknown;
+    error?: SerializedWorkerError;
+    logs?: string[];
+  }>;
+};
+
+/**
+ * Assemble the executor module source and ask the `WorkerLoader` for an
+ * isolate. Spans the synchronous module-build + RPC-stub acquisition as
+ * `executor.runtime.startup` so the trace separates "did we wait on
+ * worker boot?" from the actual `evaluate` RPC roundtrip.
+ */
+const startDynamicWorker = (
+  options: DynamicWorkerExecutorOptions,
+  code: string,
+  timeoutMs: number,
+): Effect.Effect<DynamicWorkerEntrypoint> =>
+  Effect.sync((): DynamicWorkerEntrypoint => {
+    const recoveredBody = recoverExecutionBody(code);
+    const executorModule = buildExecutorModule(recoveredBody, timeoutMs);
+    const { [ENTRY_MODULE]: _, ...safeModules } = options.modules ?? {};
+
+    const worker = options.loader.get(`executor-${crypto.randomUUID()}`, () => ({
+      compatibilityDate: "2025-06-01",
+      compatibilityFlags: ["nodejs_compat"],
+      mainModule: ENTRY_MODULE,
+      modules: {
+        ...safeModules,
+        [ENTRY_MODULE]: executorModule,
+      },
+      globalOutbound: options.globalOutbound ?? null,
+    }));
+
+    return worker.getEntrypoint() as unknown as DynamicWorkerEntrypoint;
+  }).pipe(
+    Effect.withSpan("executor.runtime.startup", {
+      attributes: {
+        "executor.runtime": "dynamic-worker",
+        "executor.code.length": code.length,
+        "executor.timeout_ms": timeoutMs,
+        "executor.extra_modules": Object.keys(options.modules ?? {}).length,
+      },
+    }),
+  );
+
+const evaluate = (
   options: DynamicWorkerExecutorOptions,
   code: string,
   toolInvoker: SandboxToolInvoker,
-): Promise<ExecuteResult> => {
+): Effect.Effect<ExecuteResult, DynamicWorkerExecutionError> => {
   const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-  const recoveredBody = recoverExecutionBody(code);
-  const executorModule = buildExecutorModule(recoveredBody, timeoutMs);
 
-  const { [ENTRY_MODULE]: _, ...safeModules } = options.modules ?? {};
-
-  const dispatcher = new ToolDispatcher(toolInvoker);
-
-  const worker = options.loader.get(`executor-${crypto.randomUUID()}`, () => ({
-    compatibilityDate: "2025-06-01",
-    compatibilityFlags: ["nodejs_compat"],
-    mainModule: ENTRY_MODULE,
-    modules: {
-      ...safeModules,
-      [ENTRY_MODULE]: executorModule,
-    },
-    globalOutbound: options.globalOutbound ?? null,
-  }));
-
-  const entrypoint = worker.getEntrypoint() as unknown as {
-    evaluate(dispatcher: ToolDispatcher): Promise<{
-      result: unknown;
-      error?: SerializedWorkerError;
-      logs?: string[];
-    }>;
-  };
-
-  const response = await entrypoint.evaluate(dispatcher);
-  const error = response.error ? renderWorkerError(response.error) : undefined;
-
-  return {
-    result: error ? null : response.result,
-    error,
-    logs: response.logs,
-  };
+  return Effect.gen(function* () {
+    const runtime = yield* Effect.runtime<never>();
+    const dispatcher = new ToolDispatcher(toolInvoker, Runtime.runPromise(runtime));
+    const entrypoint = yield* startDynamicWorker(options, code, timeoutMs);
+    const response = yield* Effect.tryPromise({
+      try: () => entrypoint.evaluate(dispatcher),
+      catch: (cause) =>
+        new DynamicWorkerExecutionError({
+          message: renderTransportMessage(serializeWorkerErrorValue(cause)),
+        }),
+    }).pipe(
+      Effect.withSpan("executor.runtime.evaluate", {
+        attributes: { "executor.runtime": "dynamic-worker" },
+      }),
+    );
+    const error = response.error ? renderWorkerError(response.error) : undefined;
+    return {
+      result: error ? null : response.result,
+      error,
+      logs: response.logs,
+    } satisfies ExecuteResult;
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -307,19 +361,19 @@ const runInDynamicWorker = (
   code: string,
   toolInvoker: SandboxToolInvoker,
 ): Effect.Effect<ExecuteResult, DynamicWorkerExecutionError> =>
-  Effect.tryPromise({
-    try: () => evaluate(options, code, toolInvoker),
-    catch: (cause) =>
-      new DynamicWorkerExecutionError({
-        message: renderTransportMessage(serializeWorkerErrorValue(cause)),
-      }),
-  });
+  evaluate(options, code, toolInvoker).pipe(
+    Effect.withSpan("executor.code.exec.dynamic_worker", {
+      attributes: { "executor.runtime": "dynamic-worker" },
+    }),
+  );
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-export const makeDynamicWorkerExecutor = (options: DynamicWorkerExecutorOptions): CodeExecutor => ({
+export const makeDynamicWorkerExecutor = (
+  options: DynamicWorkerExecutorOptions,
+): CodeExecutor<DynamicWorkerExecutionError> => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     runInDynamicWorker(options, code, toolInvoker),
 });

@@ -2,6 +2,8 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId, ToolId, ToolNotFoundError } from "@executor/sdk";
 
+import { InternalError } from "../observability";
+
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
@@ -53,4 +55,5 @@ export class ToolsApi extends HttpApiGroup.make("tools")
     HttpApiEndpoint.get("schema")`/scopes/${scopeIdParam}/tools/${toolIdParam}/schema`
       .addSuccess(ToolSchemaResponse)
       .addError(ToolNotFound),
-  ) {}
+  )
+  .addError(InternalError) {}

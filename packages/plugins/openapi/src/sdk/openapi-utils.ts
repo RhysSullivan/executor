@@ -90,8 +90,39 @@ export const resolveBaseUrl = (servers: readonly ServerLike[]): string => {
 // Content negotiation
 // ---------------------------------------------------------------------------
 
-/** Pick the preferred media type entry (prefer application/json) */
+/**
+ * Return all declared media entries in spec order. `Object.entries` on a
+ * plain object preserves insertion order in modern engines, which matches
+ * spec declaration order as the parser produced it.
+ */
+export const declaredContents = (
+  content: Record<string, MediaTypeObject> | undefined,
+): ReadonlyArray<{ mediaType: string; media: MediaTypeObject }> => {
+  if (!content) return [];
+  return Object.entries(content).map(([mediaType, media]) => ({ mediaType, media }));
+};
+
+/**
+ * Pick the default media type for a requestBody or response. Matches
+ * swagger-client behaviour: **first declared wins** (not JSON-first). Spec
+ * authors order content entries to signal intent (upload-heavy endpoints
+ * declare multipart first, JSON second); respecting that order avoids
+ * silently downgrading a multipart endpoint to JSON.
+ *
+ * For response bodies we still want a JSON preference because the server
+ * picks the response content type, not the client — the old `application/
+ * json` preference is preserved via `preferredResponseContent` below.
+ */
 export const preferredContent = (
+  content: Record<string, MediaTypeObject> | undefined,
+): { mediaType: string; media: MediaTypeObject } | undefined => {
+  const first = declaredContents(content)[0];
+  return first ? first : undefined;
+};
+
+/** Response-side content picker — still JSON-first because the server
+ *  picks the response media type, so we want to advertise a preference. */
+export const preferredResponseContent = (
   content: Record<string, MediaTypeObject> | undefined,
 ): { mediaType: string; media: MediaTypeObject } | undefined => {
   if (!content) return undefined;

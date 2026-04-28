@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 import { Effect } from "effect";
 
 import { KeychainError } from "./errors";
@@ -34,13 +36,30 @@ type EntryConstructor = (typeof import("@napi-rs/keyring"))["Entry"];
 
 let entryCtorPromise: Promise<EntryConstructor> | null = null;
 
+// In compiled bun binaries (`bun build --compile`) `.node` modules aren't
+// included in bunfs and there's no node_modules at runtime, so
+// @napi-rs/keyring's loader can't find its platform-specific binding.
+// `apps/cli/src/build.ts` copies the .node next to the executor and
+// `apps/cli/src/main.ts` exports its absolute path here. We load it
+// directly because @napi-rs/keyring@1.2.0's NAPI_RS_NATIVE_LIBRARY_PATH
+// branch is buggy (assigns to a local that gets overwritten before return).
+const loadEntryCtor = async (): Promise<EntryConstructor> => {
+  const directPath = process.env.EXECUTOR_KEYRING_NATIVE_PATH;
+  if (directPath) {
+    const req = createRequire(import.meta.url);
+    return (req(directPath) as { Entry: EntryConstructor }).Entry;
+  }
+  const { Entry } = await import("@napi-rs/keyring");
+  return Entry;
+};
+
 const loadEntry = (): Effect.Effect<EntryConstructor, KeychainError> =>
   Effect.tryPromise({
     try: async () => {
       if (!isSupportedPlatform()) {
         throw new Error(`unsupported platform '${process.platform}'`);
       }
-      entryCtorPromise ??= import("@napi-rs/keyring").then(({ Entry }) => Entry);
+      entryCtorPromise ??= loadEntryCtor();
       return await entryCtorPromise;
     },
     catch: (cause) =>

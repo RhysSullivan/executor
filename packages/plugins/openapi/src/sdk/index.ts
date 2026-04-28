@@ -1,4 +1,4 @@
-export { parse } from "./parse";
+export { parse, resolveSpecText, fetchSpecText } from "./parse";
 export { extract } from "./extract";
 export {
   invoke,
@@ -52,12 +52,18 @@ export {
 } from "./errors";
 
 export {
+  EncodingObject,
   ExtractedOperation,
   ExtractionResult,
   InvocationConfig,
   InvocationResult,
+  MediaBinding,
   OAuth2Auth,
+  OAuth2SourceConfig,
   OpenApiOAuthSession,
+  OpenApiSourceBindingInput,
+  OpenApiSourceBindingRef,
+  OpenApiSourceBindingValue,
   OperationBinding,
   OperationParameter,
   OperationRequestBody,

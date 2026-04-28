@@ -88,6 +88,14 @@ export const mcpPresets: readonly McpPreset[] = [
     featured: true,
   },
   {
+    id: "notion",
+    name: "Notion",
+    summary: "Databases, pages, blocks, and search via MCP.",
+    url: "https://mcp.notion.com/mcp",
+    icon: "https://www.notion.com/front-static/favicon.ico",
+    featured: true,
+  },
+  {
     id: "sentry",
     name: "Sentry",
     summary: "Error monitoring, issues, and performance data.",

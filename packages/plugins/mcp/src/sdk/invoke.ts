@@ -21,7 +21,7 @@ import {
   type ElicitationRequest,
 } from "@executor/sdk";
 
-import { McpConnectionError } from "./errors";
+import { McpConnectionError, McpInvocationError } from "./errors";
 import type { McpConnection } from "./connection";
 import type { McpStoredSourceData } from "./types";
 
@@ -34,10 +34,19 @@ const asRecord = (value: unknown): Record<string, unknown> =>
     ? (value as Record<string, unknown>)
     : {};
 
-const connectionCacheKey = (sd: McpStoredSourceData): string =>
+const connectionCacheKey = (
+  sd: McpStoredSourceData,
+  invokerScope: string,
+): string =>
   sd.transport === "stdio"
     ? `stdio:${sd.command}`
-    : `remote:${sd.endpoint}`;
+    : // Remote sources may resolve per-user secrets (OAuth tokens, header
+      // auth) via scope shadowing, so two users invoking the same source
+      // get different Authorization headers. The connection caches that
+      // header in transport state, so the cache key must include the
+      // invoking scope — otherwise user B re-uses user A's connection
+      // (and user A's tokens).
+      `remote:${invokerScope}:${sd.endpoint}`;
 
 // ---------------------------------------------------------------------------
 // Elicitation bridge — decode incoming MCP ElicitRequest, route through
@@ -124,18 +133,23 @@ const useConnection = (
   toolName: string,
   args: Record<string, unknown>,
   elicit: Elicit,
-): Effect.Effect<unknown, Error> =>
+): Effect.Effect<unknown, McpInvocationError> =>
   Effect.gen(function* () {
     installElicitationHandler(connection.client, elicit);
     return yield* Effect.tryPromise({
       try: () => connection.client.callTool({ name: toolName, arguments: args }),
       catch: (cause) =>
-        new Error(
-          `MCP tool call failed for ${toolName}: ${
+        new McpInvocationError({
+          toolName,
+          message: `MCP tool call failed for ${toolName}: ${
             cause instanceof Error ? cause.message : String(cause)
           }`,
-        ),
-    });
+        }),
+    }).pipe(
+      Effect.withSpan("plugin.mcp.client.call_tool", {
+        attributes: { "mcp.tool.name": toolName },
+      }),
+    );
   });
 
 // ---------------------------------------------------------------------------
@@ -147,6 +161,10 @@ export interface InvokeMcpToolInput {
   readonly toolName: string;
   readonly args: unknown;
   readonly sourceData: McpStoredSourceData;
+  /** Innermost executor scope id at invoke time. Mixed into the
+   *  connection cache key so per-user OAuth/secret resolution doesn't
+   *  collapse multiple users onto one shared connection. */
+  readonly invokerScope: string;
   readonly resolveConnector: () => Effect.Effect<McpConnection, McpConnectionError>;
   readonly connectionCache: ScopedCache.ScopedCache<
     string,
@@ -162,9 +180,13 @@ export interface InvokeMcpToolInput {
 
 export const invokeMcpTool = (
   input: InvokeMcpToolInput,
-): Effect.Effect<unknown, Error> =>
-  Effect.gen(function* () {
-    const cacheKey = connectionCacheKey(input.sourceData);
+): Effect.Effect<unknown, McpConnectionError | McpInvocationError> => {
+  const transport: string =
+    input.sourceData.transport === "stdio"
+      ? "stdio"
+      : (input.sourceData.remoteTransport ?? "auto");
+  return Effect.gen(function* () {
+    const cacheKey = connectionCacheKey(input.sourceData, input.invokerScope);
     const args = asRecord(input.args);
 
     // Register the connector for the cache lookup (side-channel pattern
@@ -173,14 +195,13 @@ export const invokeMcpTool = (
     input.pendingConnectors.set(cacheKey, connector);
 
     const firstConnection = yield* input.connectionCache.get(cacheKey).pipe(
-      Effect.mapError(
-        (err) =>
-          new Error(
-            `Failed connecting to MCP server: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          ),
-      ),
+      Effect.withSpan("plugin.mcp.connection.acquire", {
+        attributes: {
+          "plugin.mcp.transport": transport,
+          "plugin.mcp.cache_key": cacheKey,
+          "plugin.mcp.attempt": 1,
+        },
+      }),
     );
 
     return yield* useConnection(
@@ -195,23 +216,32 @@ export const invokeMcpTool = (
         Effect.gen(function* () {
           yield* input.connectionCache.invalidate(cacheKey);
           input.pendingConnectors.set(cacheKey, connector);
-          const fresh = yield* input.connectionCache.get(cacheKey).pipe(
-            Effect.mapError(
-              (err) =>
-                new Error(
-                  `Failed reconnecting to MCP server: ${
-                    err instanceof Error ? err.message : String(err)
-                  }`,
-                ),
-            ),
-          );
+          const fresh = yield* input.connectionCache.get(cacheKey);
           return yield* useConnection(
             fresh,
             input.toolName,
             args,
             input.elicit,
           );
-        }),
+        }).pipe(
+          Effect.withSpan("plugin.mcp.invoke.retry", {
+            attributes: {
+              "plugin.mcp.transport": transport,
+              "plugin.mcp.cache_key": cacheKey,
+              "mcp.tool.name": input.toolName,
+            },
+          }),
+        ),
       ),
     );
-  }).pipe(Effect.scoped);
+  }).pipe(
+    Effect.scoped,
+    Effect.withSpan("plugin.mcp.invoke", {
+      attributes: {
+        "mcp.tool.name": input.toolName,
+        "plugin.mcp.tool_id": input.toolId,
+        "plugin.mcp.transport": transport,
+      },
+    }),
+  );
+};

@@ -5,3 +5,5 @@ do not add any AI assistant, Claude, Anthropic, or Co-Authored-By attribution/tr
 i use speech to text occasionally so if sentences are weird / words aren't right that's why
 
 code is very cheap to write. do not give time estimates with agents code is practically instant to generate therefore unless stated otherwise time to implement is not a blocker
+
+you have repos in .reference like effect, effect-atom. if you are given a git url clone it into that directory to explore it. if you need to know about good patterns look in there

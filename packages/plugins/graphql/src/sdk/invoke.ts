@@ -14,24 +14,53 @@ import {
 
 export const resolveHeaders = (
   headers: Record<string, HeaderValue>,
-  secrets: { readonly get: (id: string) => Effect.Effect<string | null, Error> },
-): Effect.Effect<Record<string, string>, Error> =>
-  Effect.gen(function* () {
+  secrets: { readonly get: (id: string) => Effect.Effect<string | null, unknown> },
+): Effect.Effect<Record<string, string>> => {
+  const entries = Object.entries(headers);
+  const secretCount = entries.reduce(
+    (acc, [, value]) => (typeof value === "string" ? acc : acc + 1),
+    0,
+  );
+  return Effect.gen(function* () {
+    // Resolve secret-backed headers in parallel. Missing / failing
+    // lookups drop the header rather than fail the invocation, same
+    // as the serial version.
+    const values = yield* Effect.all(
+      entries.map(([name, value]) =>
+        typeof value === "string"
+          ? Effect.succeed<{ readonly name: string; readonly value: string | null }>({
+              name,
+              value,
+            })
+          : secrets.get(value.secretId).pipe(
+              Effect.catchAll(() => Effect.succeed<string | null>(null)),
+              Effect.map((secret) => ({
+                name,
+                value:
+                  secret === null
+                    ? null
+                    : value.prefix
+                      ? `${value.prefix}${secret}`
+                      : secret,
+              })),
+            ),
+      ),
+      { concurrency: "unbounded" },
+    );
     const resolved: Record<string, string> = {};
-    for (const [name, value] of Object.entries(headers)) {
-      if (typeof value === "string") {
-        resolved[name] = value;
-      } else {
-        const secret = yield* secrets.get(value.secretId).pipe(
-          Effect.catchAll(() => Effect.succeed<string | null>(null)),
-        );
-        if (secret !== null) {
-          resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
-        }
-      }
+    for (const { name, value } of values) {
+      if (value !== null) resolved[name] = value;
     }
     return resolved;
-  });
+  }).pipe(
+    Effect.withSpan("plugin.graphql.secret.resolve", {
+      attributes: {
+        "plugin.graphql.headers.total": entries.length,
+        "plugin.graphql.headers.secret_count": secretCount,
+      },
+    }),
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Response helpers
@@ -56,6 +85,15 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
   resolvedHeaders: Record<string, string>,
 ) {
   const client = yield* HttpClient.HttpClient;
+
+  yield* Effect.annotateCurrentSpan({
+    "http.method": "POST",
+    "http.url": endpoint,
+    "plugin.graphql.endpoint": endpoint,
+    "plugin.graphql.operation_kind": operation.kind,
+    "plugin.graphql.field_name": operation.fieldName,
+    "plugin.graphql.headers.resolved_count": Object.keys(resolvedHeaders).length,
+  });
 
   // Build the GraphQL request body
   const variables: Record<string, unknown> = {};
@@ -104,6 +142,12 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
   const gqlBody = body as { data?: unknown; errors?: unknown[] } | null;
   const hasErrors = Array.isArray(gqlBody?.errors) && gqlBody.errors.length > 0;
 
+  yield* Effect.annotateCurrentSpan({
+    "http.status_code": status,
+    "plugin.graphql.has_errors": hasErrors,
+    "plugin.graphql.error_count": hasErrors ? gqlBody!.errors!.length : 0,
+  });
+
   return new InvocationResult({
     status,
     data: gqlBody?.data ?? null,
@@ -121,16 +165,23 @@ export const invokeWithLayer = (
   endpoint: string,
   resolvedHeaders: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
-): Effect.Effect<InvocationResult, Error> =>
+) =>
   invoke(operation, args, endpoint, resolvedHeaders).pipe(
     Effect.provide(httpClientLayer),
     Effect.mapError((err) =>
-      err instanceof Error
+      err instanceof GraphqlInvocationError
         ? err
         : new GraphqlInvocationError({
-            message: String(err),
+            message: err instanceof Error ? err.message : String(err),
             statusCode: Option.none(),
             cause: err,
           }),
     ),
+    Effect.withSpan("plugin.graphql.invoke", {
+      attributes: {
+        "plugin.graphql.endpoint": endpoint,
+        "plugin.graphql.operation_kind": operation.kind,
+        "plugin.graphql.field_name": operation.fieldName,
+      },
+    }),
   );
