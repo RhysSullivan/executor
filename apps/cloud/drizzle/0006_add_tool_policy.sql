@@ -3,11 +3,15 @@ CREATE TABLE "tool_policy" (
 	"scope_id" text NOT NULL,
 	"pattern" text NOT NULL,
 	"action" text NOT NULL,
-	"position" bigint NOT NULL,
+	-- Fractional-indexing key (Jira lexorank style). Lex-ordered text;
+	-- always subdivisible by lengthening, so reorders never run out of
+	-- room.
+	"position" text NOT NULL,
 	"created_at" timestamp NOT NULL,
 	"updated_at" timestamp NOT NULL,
 	CONSTRAINT "tool_policy_scope_id_id_pk" PRIMARY KEY("scope_id","id")
 );
 --> statement-breakpoint
-CREATE INDEX "tool_policy_scope_id_idx" ON "tool_policy" USING btree ("scope_id");--> statement-breakpoint
-CREATE INDEX "tool_policy_position_idx" ON "tool_policy" USING btree ("position");
+-- List queries are always `WHERE scope_id = ? ORDER BY position`, so the
+-- composite index serves both the filter and the sort from one btree.
+CREATE INDEX "tool_policy_scope_id_position_idx" ON "tool_policy" USING btree ("scope_id", "position");

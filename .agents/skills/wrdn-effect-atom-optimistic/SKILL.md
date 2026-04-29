@@ -31,7 +31,7 @@ When the trace cannot resolve with the files at hand, drop the finding.
 - **New entries in `PendingResource` or new helpers in `packages/react/src/api/optimistic.tsx`.** The file is closed for new patterns. New rows, new `usePending<X>` hooks, new `use<X>WithPending` hooks should instead be `Atom.optimistic` + `Atom.optimisticFn` families in `atoms.tsx`. Severity: medium.
 - **`try/finally` cleanup of a placeholder around `await doMutate(...)`.** This shape is the tell. `optimisticFn` clears its own transition; manual cleanup means the author is reimplementing it. Severity: medium.
 - **Reading `<thing>Atom(scopeId)` in a component that also writes through `<thing>OptimisticAtom`'s mutations.** The reads and writes must both go through the optimistic family or both bypass it; mixing them produces visual jumps. Severity: medium.
-- **`Atom.optimisticFn` reducer that calls `Date.now()` or generates ids in a way that depends on call timing for stable identity.** A placeholder row id needs to be unique per call (random is fine), but anything that derives "the current optimistic state" from a clock instead of `get(self)` defeats the racing protection. Severity: low.
+- **`Atom.optimisticFn` reducer that derives next state from a captured snapshot of the parent atom instead of from the `current` argument.** The reducer signature is `(current, update) => W` — the runtime reads the optimistic state itself and passes it as `current`, which already reflects in-flight transitions. Code that closes over a `useAtomValue(...)` snapshot or a captured `policies` variable instead of using `current` will see stale state under racing edits. A placeholder row id derived from `Date.now()` or random is fine; the bug is reducer state that ignores `current`. Severity: low.
 - **`Atom.optimistic` wrapped via `Atom.optimistic(policiesAtom(scopeId))` outside an `Atom.family`.** Without `Atom.family`, every render builds a new optimistic atom and transitions don't share state. Severity: medium.
 
 ## What NOT to Report
@@ -120,7 +120,7 @@ const handleEdit = (id: SecretId, value: string) =>
   doUpdate({ path: { scopeId, secretId: id }, payload: { value } });
 ```
 
-No local state, no try/finally, no manual cleanup. Multiple edits stack: each reducer reads `get(self)` so the second edit sees the optimistic value of the first.
+No local state, no try/finally, no manual cleanup. Multiple edits stack: the runtime feeds each reducer call `current` reflecting prior in-flight transitions, so the second edit sees the optimistic value of the first.
 
 ### Bad: extending the legacy layer
 

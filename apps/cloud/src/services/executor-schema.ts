@@ -97,8 +97,11 @@ export const tool_policy = pgTable("tool_policy", {
   updated_at: timestamp('updated_at').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
-  index("tool_policy_scope_id_idx").on(table.scope_id),
-  index("tool_policy_position_idx").on(table.position),
+  // Composite (scope_id, position) — list reads are always
+  // `WHERE scope_id = ? ORDER BY position` so the prefix lets postgres
+  // serve both the filter and the sort from one btree. The earlier
+  // standalone scope_id and position indexes were redundant.
+  index("tool_policy_scope_id_position_idx").on(table.scope_id, table.position),
 ]);
 
 export const openapi_source = pgTable("openapi_source", {

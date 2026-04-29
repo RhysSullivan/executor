@@ -56,6 +56,7 @@ import {
 } from "./errors";
 import { ConnectionId, ScopeId, SecretId, ToolId } from "./ids";
 import {
+  comparePolicyRow,
   isValidPattern,
   resolveToolPolicy,
   rowToToolPolicy,
@@ -2504,9 +2505,7 @@ export const createExecutor = <
           const sa = scopeRank(a);
           const sb = scopeRank(b);
           if (sa !== sb) return sa - sb;
-          const pa = a.position as string;
-          const pb = b.position as string;
-          return pa < pb ? -1 : pa > pb ? 1 : 0;
+          return comparePolicyRow(a, b);
         });
         return sorted.map((row) => rowToToolPolicy(row));
       }).pipe(Effect.withSpan("executor.policies.list"));

@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
 import { effectivePolicyFromSorted } from "@executor/sdk";
 import {
-  policiesAtom,
+  policiesOptimisticAtom,
   sourceToolsAtom,
   sourcesAtom,
   sourceAtom,
@@ -28,7 +28,7 @@ export function SourceDetailPage(props: {
   const scopeId = useScope();
   const source = useAtomValue(sourceAtom(namespace, scopeId));
   const tools = useAtomValue(sourceToolsAtom(namespace, scopeId));
-  const policies = useAtomValue(policiesAtom(scopeId));
+  const policies = useAtomValue(policiesOptimisticAtom(scopeId));
   const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
   const doRemove = useAtomSet(removeSource, { mode: "promise" });

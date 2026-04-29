@@ -36,10 +36,10 @@ Step 3 is the bug. Fixing it correctly requires per-call entry ids and "last
 entry per row id wins" merging — at which point you've reimplemented a worse
 version of `Atom.optimistic`'s transition tracking.
 
-`Atom.optimistic` solves this because every reducer call reads `get(self)` (the
-current *optimistic* state, including any in-flight transitions), so B stacks
-on top of A correctly. When all transitions settle, it calls `refresh(self)`
-to pull the server's authoritative state.
+`Atom.optimistic` solves this because the runtime reads the current optimistic
+state (including any in-flight transitions) and passes it to your reducer as
+`current`, so B stacks on top of A correctly. When all transitions settle, it
+calls `refresh(self)` to pull the server's authoritative state.
 
 ## Pattern
 
@@ -219,8 +219,8 @@ You don't have to think about this — it works — but understanding helps:
 
 - `Atom.optimistic(self)` wraps the underlying atom and tracks a `transitions` set
 - Each `Atom.optimisticFn` call creates one shared transition state per (scope, mutation)
-- A call: `reducer(get(self), arg) → value`, sets transition to `Success(value, waiting=true)`, calls `set(fn, arg)`
-- The next call to the same optimisticFn reads the *optimistic* state via `get(self)` — so it stacks on top
+- A call: runtime reads the current optimistic state (including in-flight transitions), invokes `reducer(current, arg) → value`, sets transition to `Success(value, waiting=true)`, calls the underlying mutation `fn` with `arg`
+- The next call to the same optimisticFn sees the prior call's optimistic value as `current` — so it stacks on top
 - When `fn` settles, both calls' subscribers fire, the transition flips to non-waiting, and `refresh(self)` pulls the server state
 - The server's authoritative response replaces the optimistic state via the
   underlying atom's normal subscribe path

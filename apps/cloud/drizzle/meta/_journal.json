@@ -50,20 +50,6 @@
       "when": 1777444003590,
       "tag": "0006_add_tool_policy",
       "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1777500000000,
-      "tag": "0007_tool_policy_position_double",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1777600000000,
-      "tag": "0008_tool_policy_position_lex",
-      "breakpoints": true
     }
   ]
 }

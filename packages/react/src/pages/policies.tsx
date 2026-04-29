@@ -42,6 +42,26 @@ import {
 } from "../components/select";
 
 // ---------------------------------------------------------------------------
+// Sort comparator — fractional-indexing key, then id as a stable tiebreak.
+// Identical positions can briefly happen across racing inserts; without the
+// tiebreak the rendered order flips between refetches, and `generateKeyBetween`
+// would also throw if asked to insert "between" two equal keys.
+// ---------------------------------------------------------------------------
+
+const comparePolicy = (
+  posA: string,
+  idA: string,
+  posB: string,
+  idB: string,
+): number => {
+  if (posA < posB) return -1;
+  if (posA > posB) return 1;
+  if (idA < idB) return -1;
+  if (idA > idB) return 1;
+  return 0;
+};
+
+// ---------------------------------------------------------------------------
 // Action display
 // ---------------------------------------------------------------------------
 
@@ -341,35 +361,48 @@ export function PoliciesPage() {
             </div>
           ),
           onSuccess: ({ value }) => {
-            // Sort by position (lex order on fractional-indexing keys) so
-            // optimistic position updates reorder the list immediately.
-            // Server returns rows in this order too, so this converges
-            // with the canonical order on refresh.
+            // Sort by position (lex order on fractional-indexing keys),
+            // tiebreaking on id so identical positions don't swap on refetch
+            // and `generateKeyBetween` never sees duplicate neighbor keys
+            // (which would throw). Optimistic placeholders carry
+            // `position: ""` so they sort to the top.
             const sorted = [...value].sort((a, b) =>
-              a.position < b.position ? -1 : a.position > b.position ? 1 : 0,
+              comparePolicy(a.position, a.id, b.position, b.id),
             );
-            // For "move up" at index i, generate a key between the row's
-            // new neighbors (sorted[i-2], sorted[i-1]). At the very top,
-            // generate a key above sorted[0]. Symmetric for "move down".
-            // One update per click; fractional-indexing strings can
-            // always be subdivided so we never run out of keys.
-            const positionAbove = (i: number): string =>
-              i === 1
-                ? generateKeyBetween(null, sorted[0]!.position)
+            // Reorder math runs against committed rows only — placeholder
+            // rows (empty `position`) aren't valid keys for
+            // `generateKeyBetween` and aren't reorderable until the server
+            // confirms.
+            const committed = sorted.filter((p) => p.position !== "");
+            const committedIndex = (id: string): number =>
+              committed.findIndex((p) => p.id === id);
+            const positionAbove = (id: string): string => {
+              const j = committedIndex(id);
+              if (j <= 0) return generateKeyBetween(null, committed[0]!.position);
+              return j === 1
+                ? generateKeyBetween(null, committed[0]!.position)
                 : generateKeyBetween(
-                    sorted[i - 2]!.position,
-                    sorted[i - 1]!.position,
+                    committed[j - 2]!.position,
+                    committed[j - 1]!.position,
                   );
-            const positionBelow = (i: number): string =>
-              i === sorted.length - 2
+            };
+            const positionBelow = (id: string): string => {
+              const j = committedIndex(id);
+              if (j === -1 || j >= committed.length - 1)
+                return generateKeyBetween(
+                  committed[committed.length - 1]!.position,
+                  null,
+                );
+              return j === committed.length - 2
                 ? generateKeyBetween(
-                    sorted[sorted.length - 1]!.position,
+                    committed[committed.length - 1]!.position,
                     null,
                   )
                 : generateKeyBetween(
-                    sorted[i + 1]!.position,
-                    sorted[i + 2]!.position,
+                    committed[j + 1]!.position,
+                    committed[j + 2]!.position,
                   );
+            };
             return (
               <CardStack>
                 <CardStackHeader>Active policies</CardStackHeader>
@@ -384,22 +417,32 @@ export function PoliciesPage() {
                       </CardStackEntryContent>
                     </CardStackEntry>
                   ) : (
-                    sorted.map((p, i) => (
-                      <PolicyRow
-                        key={p.id}
-                        policy={{
-                          id: p.id,
-                          pattern: p.pattern,
-                          action: p.action,
-                        }}
-                        isFirst={i === 0}
-                        isLast={i === sorted.length - 1}
-                        onRemove={() => handleRemove(p.id)}
-                        onChangeAction={(action) => handleUpdate(p.id, action)}
-                        onMoveUp={() => handleMove(p.id, positionAbove(i))}
-                        onMoveDown={() => handleMove(p.id, positionBelow(i))}
-                      />
-                    ))
+                    sorted.map((p) => {
+                      const j = committedIndex(p.id);
+                      // Pending placeholder or only one committed row → no
+                      // reorder affordance.
+                      const reorderable = j !== -1 && committed.length > 1;
+                      return (
+                        <PolicyRow
+                          key={p.id}
+                          policy={{
+                            id: p.id,
+                            pattern: p.pattern,
+                            action: p.action,
+                          }}
+                          isFirst={!reorderable || j === 0}
+                          isLast={!reorderable || j === committed.length - 1}
+                          onRemove={() => handleRemove(p.id)}
+                          onChangeAction={(action) =>
+                            handleUpdate(p.id, action)
+                          }
+                          onMoveUp={() => handleMove(p.id, positionAbove(p.id))}
+                          onMoveDown={() =>
+                            handleMove(p.id, positionBelow(p.id))
+                          }
+                        />
+                      );
+                    })
                   )}
                 </CardStackContent>
               </CardStack>

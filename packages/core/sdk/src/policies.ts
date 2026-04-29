@@ -129,6 +129,23 @@ export const isValidPattern = (pattern: string): boolean => {
 // scope stack shape.
 // ---------------------------------------------------------------------------
 
+// Lex compare on fractional-indexing key, then id as a stable tiebreak.
+// Two rows with identical `position` (racing inserts that picked the same
+// `generateKeyBetween(null, min)` from independent clients) would otherwise
+// flip on every refetch.
+export const comparePolicyRow = (
+  a: { position: unknown; id: unknown },
+  b: { position: unknown; id: unknown },
+): number => {
+  const pa = a.position as string;
+  const pb = b.position as string;
+  if (pa < pb) return -1;
+  if (pa > pb) return 1;
+  const ia = a.id as string;
+  const ib = b.id as string;
+  return ia < ib ? -1 : ia > ib ? 1 : 0;
+};
+
 export const resolveToolPolicy = (
   toolId: string,
   policies: readonly ToolPolicyRow[],
@@ -139,9 +156,7 @@ export const resolveToolPolicy = (
     const sa = scopeRank(a);
     const sb = scopeRank(b);
     if (sa !== sb) return sa - sb;
-    const pa = a.position as string;
-    const pb = b.position as string;
-    return pa < pb ? -1 : pa > pb ? 1 : 0;
+    return comparePolicyRow(a, b);
   });
   for (const row of sorted) {
     if (matchPattern(row.pattern as string, toolId)) {
