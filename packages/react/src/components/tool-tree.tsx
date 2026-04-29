@@ -21,6 +21,10 @@ export interface ToolSummary {
     readonly action: ToolPolicyAction;
     readonly pattern: string;
   };
+  /** Plugin-derived default — what would happen if no user policy
+   *  matched. Used for the muted "default" indicator on rows that
+   *  don't have an explicit policy. */
+  readonly defaultRequiresApproval?: boolean;
 }
 
 // Color + label for the per-row policy indicator. Mirrors the badges on
@@ -394,6 +398,13 @@ function ToolLeafRow(props: {
   const indicator = props.tool.policy
     ? POLICY_INDICATOR[props.tool.policy.action]
     : null;
+  // No user policy: surface the plugin's default when it gates approval.
+  // Auto-approve-by-default is silent (the safe state — no point cluttering
+  // every row with a green dot). Rendered as a hollow ring instead of a
+  // filled dot so users can tell user-set rules apart from defaults at a
+  // glance.
+  const defaultIsRequiresApproval =
+    !props.tool.policy && props.tool.defaultRequiresApproval === true;
   return (
     <Button
       ref={props.buttonRef}
@@ -411,16 +422,19 @@ function ToolLeafRow(props: {
       <span className="flex-1 truncate text-left font-mono">
         {highlightMatch(label, props.search)}
       </span>
-      {indicator && (
+      {indicator ? (
         <span
           aria-label={`${indicator.label} (matched ${props.tool.policy!.pattern})`}
           title={`${indicator.label} (matched ${props.tool.policy!.pattern})`}
-          className={cn(
-            "shrink-0 size-1.5 rounded-full",
-            indicator.dot,
-          )}
+          className={cn("shrink-0 size-1.5 rounded-full", indicator.dot)}
         />
-      )}
+      ) : defaultIsRequiresApproval ? (
+        <span
+          aria-label="Plugin default: Require approval"
+          title="Plugin default: Require approval"
+          className="shrink-0 size-1.5 rounded-full ring-1 ring-amber-500/70 bg-transparent"
+        />
+      ) : null}
     </Button>
   );
 }

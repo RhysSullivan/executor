@@ -101,6 +101,7 @@ export function SourceDetailPage(props: {
       pluginKey: t.pluginId,
       description: t.description,
       policy: resolvePolicyForTool(t.id, policyList),
+      defaultRequiresApproval: t.requiresApproval,
     }));
   }, [tools, policyList]);
 
@@ -268,6 +269,7 @@ export function SourceDetailPage(props: {
                       toolDescription={selectedTool.description}
                       scopeId={scopeId}
                       policy={selectedTool.policy}
+                      defaultRequiresApproval={selectedTool.defaultRequiresApproval}
                     />
                   ) : (
                     <ToolDetailEmpty hasTools={sourceTools.length > 0} />

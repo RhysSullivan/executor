@@ -44,11 +44,12 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
         const executor = yield* ExecutorService;
         // Source detail is a management view — include policy-blocked
         // tools so users can see and unblock them from the same place
-        // they review the source's other tools. The page renders a
-        // policy badge per tool to make the state visible.
+        // they review the source's other tools. Annotations are loaded
+        // so the UI can show the plugin's default approval state for
+        // tools that have no user policy override.
         const tools = yield* executor.tools.list({
           sourceId: path.sourceId,
-          includeAnnotations: false,
+          includeAnnotations: true,
           includeBlocked: true,
         });
         return tools.map((t) => ({
@@ -58,6 +59,8 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
           name: t.name,
           description: t.description,
           mayElicit: t.annotations?.mayElicit,
+          requiresApproval: t.annotations?.requiresApproval,
+          approvalDescription: t.annotations?.approvalDescription,
         }));
       })),
     )

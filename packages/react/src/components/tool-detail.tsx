@@ -72,6 +72,10 @@ export function ToolDetail(props: {
     readonly action: ToolPolicyAction;
     readonly pattern: string;
   };
+  /** Plugin-derived default approval state. Shown in the header as a
+   *  muted "default" badge when no user policy matches, so users can
+   *  see why a tool prompts even without a policy in effect. */
+  defaultRequiresApproval?: boolean;
 }) {
   const toolContract = useAtomValue(toolSchemaAtom(props.scopeId, props.toolId as ToolId));
   const [tab, setTab] = useState<"schema" | "typescript">("schema");
@@ -114,7 +118,7 @@ export function ToolDetail(props: {
           <div className="mt-1 flex items-center gap-2">
             <h3 className="text-base font-semibold text-foreground truncate">{displayName}</h3>
             <CopyButton value={props.toolId} label="Copy tool ID" />
-            {props.policy && (
+            {props.policy ? (
               <Badge
                 variant={POLICY_VARIANT[props.policy.action]}
                 title={`Matched policy: ${props.policy.pattern}`}
@@ -122,7 +126,15 @@ export function ToolDetail(props: {
               >
                 {POLICY_LABEL[props.policy.action]} · {props.policy.pattern}
               </Badge>
-            )}
+            ) : props.defaultRequiresApproval ? (
+              <Badge
+                variant="outline"
+                title="No matching policy — plugin default applies"
+                className="text-[10px] text-muted-foreground"
+              >
+                Default: Require approval
+              </Badge>
+            ) : null}
           </div>
           {props.toolDescription && (
             <div className="mt-1.5 max-w-lg text-sm text-muted-foreground line-clamp-2">
