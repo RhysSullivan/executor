@@ -49,6 +49,21 @@ export type GraphqlSourceConfig = typeof GraphqlSourceConfig.Type;
 
 const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
 
+// ---------------------------------------------------------------------------
+// MCP connection auth — two shapes.
+//
+// `McpAuthConfig` is the file shape: header `secret` is a
+// `secret-public-ref:<id>` string so the file is human-readable and
+// stable across machines.
+//
+// `McpConnectionAuth` is the runtime shape handed to the plugin: header
+// `secretId` is the bare id. Transforms between the two shapes live in
+// `./transform` — plugins never touch the file prefix directly.
+//
+// `oauth2` is identical in both shapes today: a stable pointer to an SDK
+// Connection (`ctx.connections`) holding the token material.
+// ---------------------------------------------------------------------------
+
 export const McpAuthConfig = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
@@ -59,13 +74,25 @@ export const McpAuthConfig = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
-    /** Stable id of the SDK Connection holding access + refresh token
-     *  material. Scope shadowing means the same id resolves per-user
-     *  via the executor's innermost-wins lookup. */
     connectionId: Schema.String,
   }),
 );
 export type McpAuthConfig = typeof McpAuthConfig.Type;
+
+export const McpConnectionAuth = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("header"),
+    headerName: Schema.String,
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("oauth2"),
+    connectionId: Schema.String,
+  }),
+);
+export type McpConnectionAuth = typeof McpConnectionAuth.Type;
 
 export const McpRemoteSourceConfig = Schema.Struct({
   kind: Schema.Literal("mcp"),

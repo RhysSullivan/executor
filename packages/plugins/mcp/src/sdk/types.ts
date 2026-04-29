@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { McpConnectionAuth } from "@executor/config";
+
 // ---------------------------------------------------------------------------
 // Remote transport type
 // ---------------------------------------------------------------------------
@@ -12,33 +14,17 @@ export const McpTransport = Schema.Literal("streamable-http", "sse", "stdio", "a
 export type McpTransport = typeof McpTransport.Type;
 
 // ---------------------------------------------------------------------------
-// Connection auth (only applies to remote sources)
-//
-// `oauth2` is a thin pointer to an SDK Connection (`ctx.connections`) —
-// the access/refresh secrets, expiry, DCR client info, and authorization-
-// server discovery URLs all live on the connection row. Scope shadowing
-// means the same `connectionId` resolves per-user via the executor's
-// innermost-wins lookup.
+// Connection auth — runtime shape. Paired with `McpAuthConfig` (file
+// shape); both live in `@executor/config` so the forward+inverse
+// translators can own the `secret-public-ref:` prefix in one place.
+// Re-exported here for existing downstream consumers.
 // ---------------------------------------------------------------------------
+
+export { McpConnectionAuth };
 
 /** JSON object loosely typed — used for opaque OAuth state we just round-trip. */
 const JsonObject = Schema.Record({ key: Schema.String, value: Schema.Unknown });
 export { JsonObject as McpJsonObject };
-
-export const McpConnectionAuth = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("none") }),
-  Schema.Struct({
-    kind: Schema.Literal("header"),
-    headerName: Schema.String,
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("oauth2"),
-    connectionId: Schema.String,
-  }),
-);
-export type McpConnectionAuth = typeof McpConnectionAuth.Type;
 
 // ---------------------------------------------------------------------------
 // Stored source data — discriminated union on transport

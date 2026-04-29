@@ -6,6 +6,7 @@ export {
   McpRemoteSourceConfig,
   McpStdioSourceConfig,
   McpAuthConfig,
+  McpConnectionAuth,
   SecretMetadata,
   ConfigHeaderValue,
   SECRET_REF_PREFIX,
@@ -22,8 +23,14 @@ export {
 } from "./write";
 
 export type { ConfigFileSink, ConfigFileSinkOptions } from "./sink";
+export { makeFileConfigSink } from "./sink";
+
 export {
-  makeFileConfigSink,
   headerToConfigValue,
   headersToConfigValues,
-} from "./sink";
+  headerFromConfigValue,
+  headersFromConfigValues,
+  mcpAuthToConfig,
+  mcpAuthFromConfig,
+  type PluginHeaderValue,
+} from "./transform";
