@@ -1,7 +1,9 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { matchPattern, type ToolPolicyAction } from "@executor/sdk";
 import {
+  policiesAtom,
   sourceToolsAtom,
   sourcesAtom,
   sourceAtom,
@@ -18,6 +20,26 @@ import { Button } from "../components/button";
 import { Badge } from "../components/badge";
 import { Skeleton } from "../components/skeleton";
 
+// Client-side policy resolution. The /policies page is the source of
+// truth for ordering (innermost-scope-first then position ASC) and the
+// list endpoint already sorts that way, so a linear scan against the
+// list is enough — no need to re-sort here. Mirrors the server's
+// `resolveToolPolicy` for the parts that matter to the UI badge.
+const resolvePolicyForTool = (
+  toolId: string,
+  policies: readonly {
+    readonly pattern: string;
+    readonly action: ToolPolicyAction;
+  }[],
+): { readonly action: ToolPolicyAction; readonly pattern: string } | undefined => {
+  for (const p of policies) {
+    if (matchPattern(p.pattern, toolId)) {
+      return { action: p.action, pattern: p.pattern };
+    }
+  }
+  return undefined;
+};
+
 export function SourceDetailPage(props: {
   namespace: string;
   sourcePlugins?: readonly SourcePlugin[];
@@ -26,6 +48,7 @@ export function SourceDetailPage(props: {
   const scopeId = useScope();
   const source = useAtomValue(sourceAtom(namespace, scopeId));
   const tools = useAtomValue(sourceToolsAtom(namespace, scopeId));
+  const policies = useAtomValue(policiesAtom(scopeId));
   const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
   const doRemove = useAtomSet(removeSource, { mode: "promise" });
@@ -62,6 +85,14 @@ export function SourceDetailPage(props: {
     return sourcePlugins.find((p) => p.key === sourceData.kind) ?? null;
   }, [sourceData, sourcePlugins]);
 
+  // Policies are pre-sorted by the server in evaluation order
+  // (innermost scope first, then position ASC). The matcher walks the
+  // list and stops at the first hit, mirroring server-side resolution.
+  const policyList = useMemo(
+    () => (Result.isSuccess(policies) ? policies.value : []),
+    [policies],
+  );
+
   const sourceTools: ToolSummary[] = useMemo(() => {
     if (!Result.isSuccess(tools)) return [];
     return tools.value.map((t) => ({
@@ -69,8 +100,9 @@ export function SourceDetailPage(props: {
       name: t.name,
       pluginKey: t.pluginId,
       description: t.description,
+      policy: resolvePolicyForTool(t.id, policyList),
     }));
-  }, [tools]);
+  }, [tools, policyList]);
 
   const selectedTool = useMemo(
     () => sourceTools.find((t) => t.id === selectedToolId) ?? null,
@@ -235,6 +267,7 @@ export function SourceDetailPage(props: {
                       toolName={selectedTool.name}
                       toolDescription={selectedTool.description}
                       scopeId={scopeId}
+                      policy={selectedTool.policy}
                     />
                   ) : (
                     <ToolDetailEmpty hasTools={sourceTools.length > 0} />

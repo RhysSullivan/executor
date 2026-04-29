@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, SearchIcon, XIcon } from "lucide-react";
+import type { ToolPolicyAction } from "@executor/sdk";
 import { Button } from "./button";
 import { Input } from "./input";
 import { cn } from "../lib/utils";
@@ -13,7 +14,37 @@ export interface ToolSummary {
   readonly name: string;
   readonly pluginKey: string;
   readonly description?: string;
+  /** Effective policy applied to this tool, if any. Omitted when no rule
+   *  matches — caller should treat that as "fall through to plugin
+   *  annotation". */
+  readonly policy?: {
+    readonly action: ToolPolicyAction;
+    readonly pattern: string;
+  };
 }
+
+// Color + label for the per-row policy indicator. Mirrors the badges on
+// the /policies page so the same action looks the same everywhere.
+const POLICY_INDICATOR: Record<
+  ToolPolicyAction,
+  { readonly label: string; readonly dot: string; readonly text: string }
+> = {
+  approve: {
+    label: "Auto-approve",
+    dot: "bg-emerald-500",
+    text: "text-emerald-600 dark:text-emerald-400",
+  },
+  require_approval: {
+    label: "Require approval",
+    dot: "bg-amber-500",
+    text: "text-amber-600 dark:text-amber-400",
+  },
+  block: {
+    label: "Blocked",
+    dot: "bg-destructive",
+    text: "text-destructive",
+  },
+};
 
 type TreeNode = {
   segment: string;
@@ -360,6 +391,9 @@ function ToolLeafRow(props: {
   search: string;
 }) {
   const label = props.tool.name.split(".").pop() ?? props.tool.name;
+  const indicator = props.tool.policy
+    ? POLICY_INDICATOR[props.tool.policy.action]
+    : null;
   return (
     <Button
       ref={props.buttonRef}
@@ -370,12 +404,23 @@ function ToolLeafRow(props: {
         props.active
           ? "bg-primary/15 text-foreground ring-1 ring-inset ring-primary/40 hover:bg-primary/20"
           : "text-foreground/80 hover:bg-accent/60 hover:text-foreground",
+        props.tool.policy?.action === "block" && !props.active && "opacity-60",
       )}
       style={{ paddingLeft: rowIndent(props.depth) + 20, paddingRight: 12 }}
     >
       <span className="flex-1 truncate text-left font-mono">
         {highlightMatch(label, props.search)}
       </span>
+      {indicator && (
+        <span
+          aria-label={`${indicator.label} (matched ${props.tool.policy!.pattern})`}
+          title={`${indicator.label} (matched ${props.tool.policy!.pattern})`}
+          className={cn(
+            "shrink-0 size-1.5 rounded-full",
+            indicator.dot,
+          )}
+        />
+      )}
     </Button>
   );
 }

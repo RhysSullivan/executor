@@ -42,9 +42,14 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
     .handle("tools", ({ path }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
+        // Source detail is a management view — include policy-blocked
+        // tools so users can see and unblock them from the same place
+        // they review the source's other tools. The page renders a
+        // policy badge per tool to make the state visible.
         const tools = yield* executor.tools.list({
           sourceId: path.sourceId,
           includeAnnotations: false,
+          includeBlocked: true,
         });
         return tools.map((t) => ({
           id: ToolId.make(t.id),
