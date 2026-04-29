@@ -60,11 +60,52 @@ const PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource/
 const PROTECTED_RESOURCE_METADATA_URL = `${RESOURCE_ORIGIN}${PROTECTED_RESOURCE_METADATA_PATH}`;
 const RESOURCE_URL = `${RESOURCE_ORIGIN}${MCP_PATH}`;
 
-const WWW_AUTHENTICATE = [
-  'Bearer error="unauthorized"',
-  'error_description="Authorization needed"',
-  `resource_metadata="${PROTECTED_RESOURCE_METADATA_URL}"`,
-].join(", ");
+type McpUnauthorizedReason = "missing_bearer" | "invalid_token";
+
+type McpAuthorizedResult = {
+  readonly _tag: "Authorized";
+  readonly token: VerifiedToken;
+};
+
+type McpUnauthorizedResult = {
+  readonly _tag: "Unauthorized";
+  readonly reason: McpUnauthorizedReason;
+  readonly description?: string;
+};
+
+export type McpAuthResult = McpAuthorizedResult | McpUnauthorizedResult;
+
+export const mcpAuthorized = (token: VerifiedToken): McpAuthorizedResult => ({
+  _tag: "Authorized",
+  token,
+});
+
+export const mcpUnauthorized = (
+  reason: McpUnauthorizedReason,
+  description?: string,
+): McpUnauthorizedResult => ({
+  _tag: "Unauthorized",
+  reason,
+  description,
+});
+
+const quoteAuthParam = (value: string) =>
+  `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+
+const bearerChallenge = (auth: McpUnauthorizedResult) => {
+  const params =
+    auth.reason === "missing_bearer"
+      ? [`resource_metadata=${quoteAuthParam(PROTECTED_RESOURCE_METADATA_URL)}`]
+      : [
+          'error="invalid_token"',
+          `error_description=${quoteAuthParam(
+            auth.description ?? "The access token is invalid or expired",
+          )}`,
+          `resource_metadata=${quoteAuthParam(PROTECTED_RESOURCE_METADATA_URL)}`,
+        ];
+
+  return `Bearer ${params.join(", ")}`;
+};
 
 // ---------------------------------------------------------------------------
 // Response helpers
@@ -76,13 +117,14 @@ const jsonResponse = (body: unknown, status = 200) =>
 const jsonRpcError = (status: number, code: number, message: string) =>
   HttpServerResponse.unsafeJson({ jsonrpc: "2.0", error: { code, message }, id: null }, { status });
 
-const unauthorized = HttpServerResponse.unsafeJson(
-  { error: "unauthorized" },
-  {
-    status: 401,
-    headers: { ...CORS_ALLOW_ORIGIN, "www-authenticate": WWW_AUTHENTICATE },
-  },
-);
+const unauthorized = (auth: McpUnauthorizedResult) =>
+  HttpServerResponse.unsafeJson(
+    { error: "unauthorized" },
+    {
+      status: 401,
+      headers: { ...CORS_ALLOW_ORIGIN, "www-authenticate": bearerChallenge(auth) },
+    },
+  );
 
 const corsPreflight = HttpServerResponse.empty({
   status: 204,
@@ -98,7 +140,7 @@ export class McpAuth extends Context.Tag("@executor/cloud/McpAuth")<
   {
     readonly verifyBearer: (
       request: Request,
-    ) => Effect.Effect<VerifiedToken | null, McpJwtVerificationError>;
+    ) => Effect.Effect<McpAuthResult, McpJwtVerificationError>;
   }
 >() {}
 
@@ -139,7 +181,7 @@ export const McpAuthLive = Layer.succeed(McpAuth, {
     const authHeader = request.headers.get("authorization");
     if (!authHeader?.startsWith(BEARER_PREFIX)) {
       yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_bearer" });
-      return null;
+      return mcpUnauthorized("missing_bearer");
     }
     const verified = yield* verifyJwt(authHeader.slice(BEARER_PREFIX.length)).pipe(
       Effect.catchTag("McpJwtVerificationError", (error) => {
@@ -149,20 +191,26 @@ export const McpAuthLive = Layer.succeed(McpAuth, {
             "mcp.auth.outcome": "invalid",
             "mcp.auth.invalid_reason": error.reason,
           });
-          return null;
+          return mcpUnauthorized(
+            "invalid_token",
+            error.reason === "expired"
+              ? "The access token expired"
+              : "The access token is invalid",
+          );
         });
       }),
     );
-    if (!verified) return null;
+    if (!verified) return mcpUnauthorized("invalid_token", "The access token is invalid");
+    if ("_tag" in verified) return verified;
     if (!verified.accountId) {
       yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
-      return null;
+      return mcpUnauthorized("invalid_token", "The access token is invalid");
     }
     yield* Effect.annotateCurrentSpan({
       "mcp.auth.outcome": "verified",
       "mcp.auth.has_organization": !!verified.organizationId,
     });
-    return verified;
+    return mcpAuthorized(verified);
   }),
 });
 
@@ -797,14 +845,18 @@ export const mcpApp: Effect.Effect<
   if (route === "oauth-authorization-server") return yield* authorizationServerMetadata;
 
   const auth = yield* McpAuth;
-  const token = yield* auth.verifyBearer(request);
+  const authResult = yield* auth.verifyBearer(request);
 
   // Annotate before dispatch so even 401s show up with what we know. Only
   // POST bodies are JSON-RPC payloads worth parsing; GET (SSE) and DELETE
   // don't carry one.
-  yield* annotateMcpRequest(request, { token, parseBody: request.method === "POST" });
+  yield* annotateMcpRequest(request, {
+    token: authResult._tag === "Authorized" ? authResult.token : null,
+    parseBody: request.method === "POST",
+  });
 
-  if (!token) return unauthorized;
+  if (authResult._tag === "Unauthorized") return unauthorized(authResult);
+  const token = authResult.token;
   switch (request.method) {
     case "POST":
       return yield* dispatchPost(request, token);

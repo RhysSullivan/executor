@@ -351,7 +351,10 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
         }),
       );
       expect(response.status).toBe(401);
-      expect(response.headers.get("www-authenticate") ?? "").toContain(
+      const wwwAuth = response.headers.get("www-authenticate") ?? "";
+      expect(wwwAuth).toContain('Bearer error="invalid_token"');
+      expect(wwwAuth).toContain('error_description="The access token is invalid"');
+      expect(wwwAuth).toContain(
         "https://test-resource.example.com/.well-known/oauth-protected-resource/mcp",
       );
       const body = yield* Effect.promise(() => response.json());

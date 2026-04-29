@@ -186,7 +186,8 @@ describe("/mcp unauthorized", () => {
     const response = await mcpPost({ body: INITIALIZE_REQUEST });
     expect(response.status).toBe(401);
     const wwwAuth = response.headers.get("www-authenticate") ?? "";
-    expect(wwwAuth).toContain('Bearer error="unauthorized"');
+    expect(wwwAuth).toContain("Bearer resource_metadata=");
+    expect(wwwAuth).not.toContain("error=");
     expect(wwwAuth).toContain('resource_metadata="');
     expect(wwwAuth).toContain(
       "https://test-resource.example.com/.well-known/oauth-protected-resource/mcp",

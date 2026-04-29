@@ -24,7 +24,9 @@ import {
   McpOrganizationAuth,
   McpOrganizationAuthLive,
   classifyMcpPath,
+  mcpAuthorized,
   mcpApp,
+  mcpUnauthorized,
 } from "./mcp";
 import { organizations } from "./services/schema";
 import { parseTestBearer } from "./test-bearer";
@@ -36,8 +38,9 @@ const TestMcpAuthLive = Layer.succeed(McpAuth, {
   verifyBearer: (request) =>
     Effect.sync(() => {
       const header = request.headers.get("authorization");
-      if (!header?.startsWith("Bearer ")) return null;
-      return parseTestBearer(header.slice("Bearer ".length));
+      if (!header?.startsWith("Bearer ")) return mcpUnauthorized("missing_bearer");
+      const token = parseTestBearer(header.slice("Bearer ".length));
+      return token ? mcpAuthorized(token) : mcpUnauthorized("invalid_token");
     }),
 });
 
