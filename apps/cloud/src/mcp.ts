@@ -30,6 +30,14 @@ import { authorizeOrganization } from "./auth/authorize-organization";
 import { UserStoreService } from "./auth/context";
 import { CoreSharedServices } from "./api/core-shared-services";
 import { DbService } from "./services/db";
+import { peekAndAnnotate } from "./mcp/response-peek";
+import {
+  authTemporarilyUnavailable,
+  CORS_ALLOW_ORIGIN,
+  jsonResponse,
+  jsonRpcError,
+  unauthorized,
+} from "./mcp/responses";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,8 +52,6 @@ const jwks = createRemoteJWKSet(new URL(`${AUTHKIT_DOMAIN}/oauth2/jwks`));
 const BEARER_PREFIX = "Bearer ";
 const INTERNAL_ACCOUNT_ID_HEADER = "x-executor-mcp-account-id";
 const INTERNAL_ORGANIZATION_ID_HEADER = "x-executor-mcp-organization-id";
-
-const CORS_ALLOW_ORIGIN = { "access-control-allow-origin": "*" } as const;
 
 const CORS_PREFLIGHT_HEADERS = {
   ...CORS_ALLOW_ORIGIN,
@@ -89,43 +95,6 @@ export const mcpUnauthorized = (
   description,
 });
 
-const quoteAuthParam = (value: string) =>
-  `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
-
-const bearerChallenge = (auth: McpUnauthorizedResult) => {
-  const params =
-    auth.reason === "missing_bearer"
-      ? [`resource_metadata=${quoteAuthParam(PROTECTED_RESOURCE_METADATA_URL)}`]
-      : [
-          'error="invalid_token"',
-          `error_description=${quoteAuthParam(
-            auth.description ?? "The access token is invalid or expired",
-          )}`,
-          `resource_metadata=${quoteAuthParam(PROTECTED_RESOURCE_METADATA_URL)}`,
-        ];
-
-  return `Bearer ${params.join(", ")}`;
-};
-
-// ---------------------------------------------------------------------------
-// Response helpers
-// ---------------------------------------------------------------------------
-
-const jsonResponse = (body: unknown, status = 200) =>
-  HttpServerResponse.unsafeJson(body, { status, headers: CORS_ALLOW_ORIGIN });
-
-const jsonRpcError = (status: number, code: number, message: string) =>
-  HttpServerResponse.unsafeJson({ jsonrpc: "2.0", error: { code, message }, id: null }, { status });
-
-const unauthorized = (auth: McpUnauthorizedResult) =>
-  HttpServerResponse.unsafeJson(
-    { error: "unauthorized" },
-    {
-      status: 401,
-      headers: { ...CORS_ALLOW_ORIGIN, "www-authenticate": bearerChallenge(auth) },
-    },
-  );
-
 const corsPreflight = HttpServerResponse.empty({
   status: 204,
   headers: CORS_PREFLIGHT_HEADERS,
@@ -162,11 +131,7 @@ const verifyJwt = (token: string) =>
 
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
-const McpOrganizationAuthServices = Layer.mergeAll(
-  DbLive,
-  UserStoreLive,
-  CoreSharedServices,
-);
+const McpOrganizationAuthServices = Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
 
 export const McpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth, {
   authorize: (accountId, organizationId) =>
@@ -193,9 +158,7 @@ export const McpAuthLive = Layer.succeed(McpAuth, {
           });
           return mcpUnauthorized(
             "invalid_token",
-            error.reason === "expired"
-              ? "The access token expired"
-              : "The access token is invalid",
+            error.reason === "expired" ? "The access token expired" : "The access token is invalid",
           );
         });
       }),
@@ -444,167 +407,6 @@ const authorizationServerMetadata = Effect.promise(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Response-body peek for JSON-RPC error attrs
-// ---------------------------------------------------------------------------
-//
-// The MCP protocol wraps protocol-level failures (malformed envelope, method
-// not found, invalid params) as `{ error: { code, message } }` in the
-// JSON-RPC response body with HTTP 200 — none of which surface at the HTTP
-// layer or as an Effect failure. Same for tool results carrying
-// `isError: true`. To make those visible in Axiom we peek the first
-// JSON-RPC message out of the DO's response and stamp it onto the
-// surrounding `mcp.request` span.
-//
-// Only applied to non-streaming response shapes (POST/DELETE). GET hops
-// onto a long-lived SSE channel we don't want to consume.
-// ---------------------------------------------------------------------------
-
-type SandboxOutcome = {
-  readonly status?: string;
-  readonly error?: { readonly kind?: string; readonly message?: string };
-};
-
-type JsonRpcErrorBody = {
-  readonly jsonrpc?: string;
-  readonly error?: { readonly code?: number; readonly message?: string };
-  readonly result?: {
-    readonly isError?: boolean;
-    readonly structuredContent?: SandboxOutcome;
-  };
-};
-
-const responseBodyShape = (body: string): string => {
-  const trimmed = body.trimStart();
-  if (!trimmed) return "empty";
-  if (trimmed.startsWith("{")) return "json-object";
-  if (trimmed.startsWith("[")) return "json-array";
-  if (trimmed.startsWith("event:") || trimmed.startsWith("data:")) return "sse";
-  if (trimmed.startsWith("<")) return "html-or-xml";
-  return "other";
-};
-
-const parseFirstJsonRpc = (contentType: string, body: string): JsonRpcErrorBody | null => {
-  if (!body) return null;
-  try {
-    if (contentType.includes("text/event-stream")) {
-      // Grab the first `data:` line from the first SSE event.
-      for (const line of body.split(/\r?\n/)) {
-        if (line.startsWith("data:")) return JSON.parse(line.slice(5).trimStart());
-      }
-      return null;
-    }
-    if (contentType.includes("application/json")) {
-      return JSON.parse(body);
-    }
-    return null;
-  } catch {
-    return null;
-  }
-};
-
-const rpcResponseAttrs = (payload: JsonRpcErrorBody | null): Record<string, unknown> => {
-  // Require a JSON-RPC 2.0 envelope so we don't false-positive on other
-  // JSON shapes the edge happens to return (e.g. the auth-failure body
-  // `{ "error": "unauthorized" }` — not a JSON-RPC error).
-  if (!payload || payload.jsonrpc !== "2.0") return {};
-  const attrs: Record<string, unknown> = {};
-  const err = payload.error;
-  if (err && typeof err === "object") {
-    attrs["mcp.rpc.is_error"] = true;
-    if (typeof err.code === "number") attrs["mcp.rpc.error.code"] = err.code;
-    if (typeof err.message === "string") {
-      attrs["mcp.rpc.error.message"] = err.message.slice(0, 500);
-    }
-  }
-  if (payload.result?.isError === true) {
-    attrs["mcp.tool.result.is_error"] = true;
-  }
-  const sc = payload.result?.structuredContent;
-  if (sc && typeof sc.status === "string") {
-    attrs["mcp.tool.sandbox.status"] = sc.status;
-    if (sc.error?.kind) attrs["mcp.tool.sandbox.error.kind"] = sc.error.kind;
-    if (typeof sc.error?.message === "string") {
-      attrs["mcp.tool.sandbox.error.message"] = sc.error.message.slice(0, 500);
-    }
-  }
-  return attrs;
-};
-
-const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
-  Effect.gen(function* () {
-    const contentType = response.headers.get("content-type") ?? "";
-    if (response.status === 202) {
-      // MCP Streamable HTTP accepts notification-only POSTs with 202 and no body.
-      yield* Effect.annotateCurrentSpan({
-        "mcp.response.status_code": response.status,
-        "mcp.response.content_type": contentType,
-        "mcp.response.body.shape": "empty",
-        "mcp.response.body.length": 0,
-        "mcp.response.jsonrpc.detected": false,
-      });
-      const headers = new Headers(response.headers);
-      headers.delete("content-type");
-      headers.delete("content-length");
-      return new Response(null, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
-    }
-    if (!response.body) {
-      yield* Effect.annotateCurrentSpan({
-        "mcp.response.status_code": response.status,
-        "mcp.response.content_type": contentType,
-        "mcp.response.body.shape": "empty",
-        "mcp.response.body.length": 0,
-        "mcp.response.jsonrpc.detected": false,
-      });
-      return response;
-    }
-    // The DO can return a streaming SSE response for older in-memory
-    // sessions, so `response.text()` blocks on the
-    // entire downstream execution — RPC into the dynamic Worker, tool
-    // invocations back to the host, result serialisation. Carving this
-    // into its own span pins "worker drain time" on the trace so you can
-    // tell worker-side waiting apart from any pre/post work on the edge.
-    const text = yield* Effect.promise(() => response.text()).pipe(
-      Effect.withSpan("mcp.peek_response", {
-        attributes: {
-          "http.response.content_type": contentType,
-          "http.response.status_code": response.status,
-        },
-      }),
-    );
-    const payload = parseFirstJsonRpc(contentType, text);
-    yield* Effect.annotateCurrentSpan({
-      "mcp.response.status_code": response.status,
-      "mcp.response.content_type": contentType,
-      "mcp.response.body.length": text.length,
-      "mcp.response.body.shape": responseBodyShape(text),
-      "mcp.response.jsonrpc.detected": payload?.jsonrpc === "2.0",
-    });
-    const attrs = rpcResponseAttrs(payload);
-    if (Object.keys(attrs).length > 0) {
-      yield* Effect.annotateCurrentSpan(attrs);
-    }
-    // Internal-error code -32603 means our server failed handling a
-    // structurally valid request. Unlike -32601 / -32602 ("the client
-    // fucked up"), this is a real bug in our code — route to Sentry so
-    // we get alerted. Protocol-level client errors stay in Axiom.
-    if (payload?.error?.code === -32603) {
-      yield* Effect.sync(() => {
-        const msg = payload.error?.message ?? "unknown";
-        Sentry.captureException(new Error(`MCP internal error (-32603): ${msg}`));
-      });
-    }
-    return new Response(text, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
-  });
-
-// ---------------------------------------------------------------------------
 // DO dispatch
 // ---------------------------------------------------------------------------
 
@@ -845,18 +647,29 @@ export const mcpApp: Effect.Effect<
   if (route === "oauth-authorization-server") return yield* authorizationServerMetadata;
 
   const auth = yield* McpAuth;
-  const authResult = yield* auth.verifyBearer(request);
+  const authResult = yield* auth.verifyBearer(request).pipe(Effect.either);
+
+  if (authResult._tag === "Left") {
+    yield* annotateMcpRequest(request, {
+      token: null,
+      parseBody: request.method === "POST",
+    });
+    return yield* authTemporarilyUnavailable(authResult.left);
+  }
+  const authValue = authResult.right;
 
   // Annotate before dispatch so even 401s show up with what we know. Only
   // POST bodies are JSON-RPC payloads worth parsing; GET (SSE) and DELETE
   // don't carry one.
   yield* annotateMcpRequest(request, {
-    token: authResult._tag === "Authorized" ? authResult.token : null,
+    token: authValue._tag === "Authorized" ? authValue.token : null,
     parseBody: request.method === "POST",
   });
 
-  if (authResult._tag === "Unauthorized") return unauthorized(authResult);
-  const token = authResult.token;
+  if (authValue._tag === "Unauthorized") {
+    return unauthorized(authValue, PROTECTED_RESOURCE_METADATA_URL);
+  }
+  const token = authValue.token;
   switch (request.method) {
     case "POST":
       return yield* dispatchPost(request, token);

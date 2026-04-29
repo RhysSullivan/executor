@@ -335,6 +335,23 @@ export class McpSessionDO extends DurableObject {
     }).pipe(Effect.orDie);
   }
 
+  private installRuntime(
+    sessionMeta: SessionMeta,
+    options: {
+      readonly dbHandle: DbHandle;
+      readonly enableJsonResponse: boolean;
+    },
+  ) {
+    const self = this;
+    return Effect.gen(function* () {
+      const runtime = yield* self.createConnectedRuntime(sessionMeta, options);
+      self.dbHandle = options.dbHandle;
+      self.mcpServer = runtime.mcpServer;
+      self.transport = runtime.transport;
+      self.initialized = true;
+    });
+  }
+
   private restoreRuntimeFromStorage(request: Request): Effect.Effect<"restored" | "missing_meta"> {
     const self = this;
     return Effect.gen(function* () {
@@ -349,14 +366,14 @@ export class McpSessionDO extends DurableObject {
       }
 
       yield* self.closeRuntime();
-      self.dbHandle = makeLongLivedDb();
-      const runtime = yield* self.createConnectedRuntime(sessionMeta, {
-        dbHandle: self.dbHandle,
-        enableJsonResponse: request.method !== "GET",
+      const dbHandle = makeLongLivedDb();
+      yield* self.installRuntime(sessionMeta, {
+        dbHandle,
+        // GET always returns an SSE stream regardless of this option, but the
+        // session-scoped transport is reused by later POSTs. Keep JSON mode on
+        // across cold restores so a GET reconnect cannot poison future POSTs.
+        enableJsonResponse: true,
       });
-      self.mcpServer = runtime.mcpServer;
-      self.transport = runtime.transport;
-      self.initialized = true;
       yield* Effect.promise(() => self.markActivity()).pipe(
         Effect.withSpan("McpSessionDO.markActivity"),
       );
@@ -373,6 +390,26 @@ export class McpSessionDO extends DurableObject {
       }),
       Effect.orDie,
     );
+  }
+
+  private ensureJsonResponseTransportForPost(request: Request): Effect.Effect<void> {
+    const self = this;
+    return Effect.gen(function* () {
+      if (request.method !== "POST" || self.transportJsonResponseMode === true) return;
+
+      const sessionMeta = yield* self.loadSessionMeta();
+      if (!sessionMeta) return;
+
+      yield* self.closeRuntime();
+      const dbHandle = makeLongLivedDb();
+      yield* self.installRuntime(sessionMeta, {
+        dbHandle,
+        enableJsonResponse: true,
+      });
+      yield* Effect.annotateCurrentSpan({
+        "mcp.session.transport_upgraded_json_response": true,
+      });
+    }).pipe(Effect.withSpan("McpSessionDO.ensureJsonResponseTransportForPost"), Effect.orDie);
   }
 
   private validateSessionOwner(request: Request): Effect.Effect<Response | null> {
@@ -551,9 +588,14 @@ export class McpSessionDO extends DurableObject {
       });
     }
 
-    const transport = this.transport;
     const self = this;
     return Effect.gen(function* () {
+      yield* self.ensureJsonResponseTransportForPost(request);
+      const transport = self.transport;
+      if (!transport) {
+        return jsonRpcError(404, -32001, "Session timed out due to inactivity — please reconnect");
+      }
+
       yield* Effect.promise(() => self.markActivity()).pipe(
         Effect.withSpan("McpSessionDO.markActivity"),
       );

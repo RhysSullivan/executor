@@ -24,12 +24,7 @@
 // MCP session coverage lives in `mcp-miniflare.e2e.node.test.ts`.
 // ---------------------------------------------------------------------------
 
-import {
-  env,
-  runDurableObjectAlarm,
-  runInDurableObject,
-  SELF,
-} from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -108,6 +103,16 @@ const mcpPost = (init: McpPostInit): Promise<Response> => {
   });
 };
 
+const mcpGet = (init: { readonly bearer: string; readonly sessionId: string }): Promise<Response> =>
+  SELF.fetch(MCP_URL, {
+    method: "GET",
+    headers: {
+      accept: "text/event-stream",
+      authorization: `Bearer ${init.bearer}`,
+      "mcp-session-id": init.sessionId,
+    },
+  });
+
 const seedOrg = async (id: string, name = "MCP Flow Org"): Promise<void> => {
   const response = await SELF.fetch(`${BASE}/__test__/seed-org`, {
     method: "POST",
@@ -146,9 +151,7 @@ describe("/mcp CORS preflight", () => {
 
     expect(response.status).toBe(204);
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
-    expect(response.headers.get("access-control-allow-methods")).toBe(
-      "GET, POST, DELETE, OPTIONS",
-    );
+    expect(response.headers.get("access-control-allow-methods")).toBe("GET, POST, DELETE, OPTIONS");
     const allowedHeaders = response.headers.get("access-control-allow-headers") ?? "";
     expect(allowedHeaders).toContain("mcp-session-id");
     expect(allowedHeaders).toContain("authorization");
@@ -214,6 +217,24 @@ describe("/mcp verified token without org", () => {
     expect(body.jsonrpc).toBe("2.0");
     expect(body.error.code).toBe(-32001);
     expect(body.error.message).toMatch(/No organization/i);
+  });
+});
+
+describe("/mcp transient auth failure", () => {
+  it("returns a retryable JSON-RPC error instead of a generic 500", async () => {
+    const response = await mcpPost({
+      bearer: "test-system-error",
+      body: TOOLS_LIST_REQUEST,
+    });
+    expect(response.status).toBe(503);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    const body = (await response.json()) as {
+      jsonrpc: string;
+      error: { code: number; message: string };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.error.code).toBe(-32001);
+    expect(body.error.message).toMatch(/temporarily unavailable/i);
   });
 });
 
@@ -322,6 +343,53 @@ describe("/mcp session restore", () => {
       body: TOOLS_LIST_REQUEST,
     });
     expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      readonly jsonrpc: string;
+      readonly result?: { readonly tools?: ReadonlyArray<{ readonly name: string }> };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.result?.tools?.some((tool) => tool.name === "execute")).toBe(true);
+  }, 15_000);
+
+  it("keeps JSON POST responses after a session is restored by a GET reconnect", async () => {
+    const orgId = nextOrgId();
+    const accountId = nextAccountId();
+    const bearer = makeTestBearer(accountId, orgId);
+    await seedOrg(orgId);
+
+    const initializeResponse = await mcpPost({
+      bearer,
+      body: INITIALIZE_REQUEST,
+    });
+    expect(initializeResponse.status).toBe(200);
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    const ns = env.MCP_SESSION;
+    const stub = ns.get(ns.idFromString(sessionId!));
+    await runInDurableObject(stub, async (instance) => {
+      await Effect.runPromise(
+        (instance as unknown as { closeRuntime: () => Effect.Effect<void> }).closeRuntime(),
+      );
+    });
+
+    const getResponse = await mcpGet({ bearer, sessionId: sessionId! });
+    expect(getResponse.status).toBe(200);
+    expect(getResponse.headers.get("content-type") ?? "").toContain("text/event-stream");
+    await getResponse.body?.cancel().catch(() => undefined);
+
+    const response = await Promise.race([
+      mcpPost({
+        bearer,
+        sessionId,
+        body: TOOLS_LIST_REQUEST,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("POST did not return after GET restore")), 5_000),
+      ),
+    ]);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type") ?? "").toContain("application/json");
     const body = (await response.json()) as {
       readonly jsonrpc: string;
       readonly result?: { readonly tools?: ReadonlyArray<{ readonly name: string }> };

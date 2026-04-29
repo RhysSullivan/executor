@@ -28,6 +28,7 @@ import {
   mcpApp,
   mcpUnauthorized,
 } from "./mcp";
+import { McpJwtVerificationError } from "./mcp-auth";
 import { organizations } from "./services/schema";
 import { parseTestBearer } from "./test-bearer";
 import { DoTelemetryLive } from "./services/telemetry";
@@ -36,10 +37,17 @@ export { McpSessionDO } from "./mcp-session";
 
 const TestMcpAuthLive = Layer.succeed(McpAuth, {
   verifyBearer: (request) =>
-    Effect.sync(() => {
+    Effect.gen(function* () {
       const header = request.headers.get("authorization");
       if (!header?.startsWith("Bearer ")) return mcpUnauthorized("missing_bearer");
-      const token = parseTestBearer(header.slice("Bearer ".length));
+      const rawToken = header.slice("Bearer ".length);
+      if (rawToken === "test-system-error") {
+        return yield* Effect.fail(new McpJwtVerificationError({
+          cause: new Error("simulated jwks fetch failure"),
+          reason: "system",
+        }));
+      }
+      const token = parseTestBearer(rawToken);
       return token ? mcpAuthorized(token) : mcpUnauthorized("invalid_token");
     }),
 });

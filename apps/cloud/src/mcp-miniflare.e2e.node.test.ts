@@ -58,20 +58,14 @@ const ApproveGroup = HttpApiGroup.make("approve").add(
 const UpstreamApi = HttpApi.make("approveApi").add(ApproveGroup);
 
 const ApproveHandlers = HttpApiBuilder.group(UpstreamApi, "approve", (h) =>
-  h.handle("approveThing", () =>
-    Effect.succeed(new ApprovedResponse({ approved: true })),
-  ),
+  h.handle("approveThing", () => Effect.succeed(new ApprovedResponse({ approved: true }))),
 );
 
-const UpstreamApiLive = HttpApiBuilder.api(UpstreamApi).pipe(
-  Layer.provide(ApproveHandlers),
-);
+const UpstreamApiLive = HttpApiBuilder.api(UpstreamApi).pipe(Layer.provide(ApproveHandlers));
 
 const UpstreamServeLayer = HttpApiBuilder.serve().pipe(
   Layer.provide(UpstreamApiLive),
-  Layer.provideMerge(
-    NodeHttpServer.layer(() => createServer(), { port: 0, host: "127.0.0.1" }),
-  ),
+  Layer.provideMerge(NodeHttpServer.layer(() => createServer(), { port: 0, host: "127.0.0.1" })),
 );
 
 // ---------------------------------------------------------------------------
@@ -187,7 +181,9 @@ const TelemetryReceiverLive = Layer.scoped(
           return;
         }
         let body = "";
-        req.on("data", (chunk) => { body += chunk; });
+        req.on("data", (chunk) => {
+          body += chunk;
+        });
         req.on("end", () => {
           try {
             const payload = JSON.parse(body) as OtlpPayload;
@@ -232,10 +228,7 @@ const TelemetryReceiverLive = Layer.scoped(
     Effect.map((t) => ({
       tracesUrl: t.tracesUrl,
       spans: () => [...t.store],
-      waitForSpan: async (
-        predicate: (s: CapturedSpan) => boolean,
-        timeoutMs = 5_000,
-      ) => {
+      waitForSpan: async (predicate: (s: CapturedSpan) => boolean, timeoutMs = 5_000) => {
         const deadline = Date.now() + timeoutMs;
         for (;;) {
           const hit = t.store.find(predicate);
@@ -322,218 +315,525 @@ const connectClient = async (
   return client;
 };
 
+const initializeSession = async (baseUrl: URL, bearer: string): Promise<string> => {
+  const response = await fetch(new URL("/mcp", baseUrl), {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${bearer}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "init",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "mcp-miniflare-manual", version: "0" },
+      },
+    }),
+  });
+  expect(response.status).toBe(200);
+  const sessionId = response.headers.get("mcp-session-id");
+  expect(sessionId).toEqual(expect.any(String));
+  await response.text();
+
+  const initialized = await fetch(new URL("/mcp", baseUrl), {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${bearer}`,
+      "content-type": "application/json",
+      "mcp-session-id": sessionId ?? "",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    }),
+  });
+  expect(initialized.status).toBe(202);
+  await initialized.text();
+
+  return sessionId ?? "";
+};
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it) => {
-  it.effect("returns 401 for malformed bearer tokens through the production auth layer", () =>
-    Effect.gen(function* () {
-      const { baseUrl } = yield* Worker;
-      const response = yield* Effect.promise(() =>
-        fetch(new URL("/__test__/real-auth-mcp", baseUrl), {
+  it.effect(
+    "returns 401 for malformed bearer tokens through the production auth layer",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl } = yield* Worker;
+        const response = yield* Effect.promise(() =>
+          fetch(new URL("/__test__/real-auth-mcp", baseUrl), {
+            method: "POST",
+            headers: {
+              accept: "application/json, text/event-stream",
+              authorization: "Bearer bogus",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "mcp-miniflare-invalid-bearer", version: "0" },
+              },
+            }),
+          }),
+        );
+        expect(response.status).toBe(401);
+        const wwwAuth = response.headers.get("www-authenticate") ?? "";
+        expect(wwwAuth).toContain('Bearer error="invalid_token"');
+        expect(wwwAuth).toContain('error_description="The access token is invalid"');
+        expect(wwwAuth).toContain(
+          "https://test-resource.example.com/.well-known/oauth-protected-resource/mcp",
+        );
+        const body = yield* Effect.promise(() => response.json());
+        expect(body).toEqual({ error: "unauthorized" });
+      }),
+    30_000,
+  );
+
+  it.effect(
+    "completes the initialize handshake via SDK",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const orgId = nextOrgId();
+        yield* Effect.promise(() => seedOrg(orgId, "Miniflare Org"));
+        const client = yield* Effect.promise(() =>
+          connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
+        );
+        expect(client.getServerVersion()?.name).toBe("executor");
+        yield* Effect.promise(() => client.close());
+      }),
+    30_000,
+  );
+
+  it.effect(
+    "lists the execute tool after handshake",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const orgId = nextOrgId();
+        yield* Effect.promise(() => seedOrg(orgId, "List Tools Org"));
+        const client = yield* Effect.promise(() =>
+          connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
+        );
+        const { tools } = yield* Effect.promise(() => client.listTools());
+        expect(tools.map((t) => t.name)).toContain("execute");
+        yield* Effect.promise(() => client.close());
+      }),
+    30_000,
+  );
+
+  it.effect(
+    "executes code end-to-end via tools/call",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const orgId = nextOrgId();
+        yield* Effect.promise(() => seedOrg(orgId, "Execute Org"));
+        const client = yield* Effect.promise(() =>
+          connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
+        );
+        const result = yield* Effect.promise(() =>
+          client.callTool({ name: "execute", arguments: { code: "return 1 + 2" } }),
+        );
+        expect(result.isError).not.toBe(true);
+        const content = (result.content ?? []) as Array<{ type: string; text?: string }>;
+        expect(content.find((c) => c.type === "text")?.text ?? "").toContain("3");
+        yield* Effect.promise(() => client.close());
+      }),
+    30_000,
+  );
+
+  it.effect(
+    "replaces duplicate standalone SSE GET streams for the same session",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const orgId = nextOrgId();
+        const bearer = makeTestBearer(nextAccountId(), orgId);
+        yield* Effect.promise(() => seedOrg(orgId, "Duplicate SSE Org"));
+        const sessionId = yield* Effect.promise(() => initializeSession(baseUrl, bearer));
+
+        const getHeaders = {
+          accept: "text/event-stream",
+          authorization: `Bearer ${bearer}`,
+          "mcp-protocol-version": "2025-11-25",
+          "mcp-session-id": sessionId,
+        };
+        const first = yield* Effect.promise(() =>
+          fetch(new URL("/mcp", baseUrl), { method: "GET", headers: getHeaders }),
+        );
+        expect(first.status).toBe(200);
+
+        const second = yield* Effect.promise(() =>
+          fetch(new URL("/mcp", baseUrl), { method: "GET", headers: getHeaders }),
+        );
+        expect(second.status).toBe(200);
+        expect(second.headers.get("content-type") ?? "").toContain("text/event-stream");
+
+        yield* Effect.promise(async () => {
+          await first.body?.cancel().catch(() => undefined);
+        });
+        yield* Effect.promise(async () => {
+          await second.body?.cancel().catch(() => undefined);
+        });
+      }),
+    30_000,
+  );
+
+  it.effect(
+    "does not replace the active standalone SSE stream for an invalid GET",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const orgId = nextOrgId();
+        const bearer = makeTestBearer(nextAccountId(), orgId);
+        yield* Effect.promise(() => seedOrg(orgId, "Invalid SSE Replacement Org"));
+        const sessionId = yield* Effect.promise(() => initializeSession(baseUrl, bearer));
+
+        const getHeaders = {
+          accept: "text/event-stream",
+          authorization: `Bearer ${bearer}`,
+          "mcp-protocol-version": "2025-11-25",
+          "mcp-session-id": sessionId,
+        };
+        const first = yield* Effect.promise(() =>
+          fetch(new URL("/mcp", baseUrl), { method: "GET", headers: getHeaders }),
+        );
+        expect(first.status).toBe(200);
+        const firstReader = first.body?.getReader();
+        expect(firstReader).toBeDefined();
+
+        const invalid = yield* Effect.promise(() =>
+          fetch(new URL("/mcp", baseUrl), {
+            method: "GET",
+            headers: { ...getHeaders, "mcp-protocol-version": "1999-01-01" },
+          }),
+        );
+        expect(invalid.status).toBe(400);
+        yield* Effect.promise(() => invalid.text());
+
+        const firstRead = yield* Effect.promise(() =>
+          Promise.race([
+            firstReader!.read().then(() => "closed"),
+            new Promise<"open">((resolve) => setTimeout(() => resolve("open"), 100)),
+          ]),
+        );
+        expect(firstRead).toBe("open");
+
+        yield* Effect.promise(async () => {
+          await firstReader?.cancel().catch(() => undefined);
+        });
+      }),
+    30_000,
+  );
+
+  it.effect(
+    "returns tools/call results while standalone SSE GET reconnects churn",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const orgId = nextOrgId();
+        const bearer = makeTestBearer(nextAccountId(), orgId);
+        yield* Effect.promise(() => seedOrg(orgId, "SSE Reconnect Churn Org"));
+        const sessionId = yield* Effect.promise(() => initializeSession(baseUrl, bearer));
+
+        const getHeaders = {
+          accept: "text/event-stream",
+          authorization: `Bearer ${bearer}`,
+          "mcp-protocol-version": "2025-11-25",
+          "mcp-session-id": sessionId,
+        };
+
+        const openSse = () =>
+          fetch(new URL("/mcp", baseUrl), { method: "GET", headers: getHeaders });
+
+        const postResult = fetch(new URL("/mcp", baseUrl), {
           method: "POST",
           headers: {
             accept: "application/json, text/event-stream",
-            authorization: "Bearer bogus",
+            authorization: `Bearer ${bearer}`,
             "content-type": "application/json",
+            "mcp-protocol-version": "2025-11-25",
+            "mcp-session-id": sessionId,
           },
           body: JSON.stringify({
             jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
+            id: "search",
+            method: "tools/call",
             params: {
-              protocolVersion: "2025-06-18",
-              capabilities: {},
-              clientInfo: { name: "mcp-miniflare-invalid-bearer", version: "0" },
+              name: "execute",
+              arguments: {
+                code: [
+                  "await new Promise((resolve) => setTimeout(resolve, 1_000));",
+                  'return await tools.search({ namespace: "vercel_api", query: "list domains", limit: 8 });',
+                ].join("\n"),
+              },
             },
           }),
-        }),
-      );
-      expect(response.status).toBe(401);
-      const wwwAuth = response.headers.get("www-authenticate") ?? "";
-      expect(wwwAuth).toContain('Bearer error="invalid_token"');
-      expect(wwwAuth).toContain('error_description="The access token is invalid"');
-      expect(wwwAuth).toContain(
-        "https://test-resource.example.com/.well-known/oauth-protected-resource/mcp",
-      );
-      const body = yield* Effect.promise(() => response.json());
-      expect(body).toEqual({ error: "unauthorized" });
-    }), 30_000,
+        });
+
+        const reconnects = yield* Effect.promise(async () => {
+          const responses: Array<Response> = [];
+          for (let i = 0; i < 35; i++) {
+            const response = await openSse();
+            expect(response.status).toBe(200);
+            responses.push(response);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          return responses;
+        });
+
+        const response = yield* Effect.promise(() =>
+          Promise.race([
+            postResult,
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error("tools/call did not return during SSE churn")),
+                5_000,
+              ),
+            ),
+          ]),
+        );
+        expect(response.status).toBe(200);
+        const body = (yield* Effect.promise(() => response.json())) as {
+          readonly jsonrpc?: string;
+          readonly id?: string;
+          readonly result?: { readonly content?: ReadonlyArray<{ readonly text?: string }> };
+          readonly error?: unknown;
+        };
+        expect(body).toMatchObject({ jsonrpc: "2.0", id: "search" });
+        expect(body.error).toBeUndefined();
+        expect(body.result).toBeDefined();
+
+        yield* Effect.promise(async () => {
+          await Promise.all(
+            reconnects.map((response) => response.body?.cancel().catch(() => undefined)),
+          );
+        });
+      }),
+    30_000,
   );
 
-  it.effect("completes the initialize handshake via SDK", () =>
-    Effect.gen(function* () {
-      const { baseUrl, seedOrg } = yield* Worker;
-      const orgId = nextOrgId();
-      yield* Effect.promise(() => seedOrg(orgId, "Miniflare Org"));
-      const client = yield* Effect.promise(() =>
-        connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
-      );
-      expect(client.getServerVersion()?.name).toBe("executor");
-      yield* Effect.promise(() => client.close());
-    }), 30_000,
+  it.effect(
+    "returns both overlapping tools/call responses when JSON-RPC ids collide",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const orgId = nextOrgId();
+        const bearer = makeTestBearer(nextAccountId(), orgId);
+        yield* Effect.promise(() => seedOrg(orgId, "Overlapping Request Id Org"));
+        const sessionId = yield* Effect.promise(() => initializeSession(baseUrl, bearer));
+
+        const postExecute = (code: string) =>
+          fetch(new URL("/mcp", baseUrl), {
+            method: "POST",
+            headers: {
+              accept: "application/json, text/event-stream",
+              authorization: `Bearer ${bearer}`,
+              "content-type": "application/json",
+              "mcp-protocol-version": "2025-11-25",
+              "mcp-session-id": sessionId,
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "tools/call",
+              params: { name: "execute", arguments: { code } },
+            }),
+          });
+
+        const first = postExecute(
+          ["await new Promise((resolve) => setTimeout(resolve, 500));", 'return "first";'].join(
+            "\n",
+          ),
+        );
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)));
+        const second = postExecute('return "second";');
+
+        const responses = yield* Effect.promise(() =>
+          Promise.race([
+            Promise.all([first, second]),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error("overlapping tools/call requests did not both return")),
+                5_000,
+              ),
+            ),
+          ]),
+        );
+
+        expect(responses.map((response) => response.status)).toEqual([200, 200]);
+        const bodies = yield* Effect.promise(() =>
+          Promise.all(
+            responses.map(
+              (response) =>
+                response.json() as Promise<{
+                  readonly result?: {
+                    readonly content?: ReadonlyArray<{ readonly text?: string }>;
+                  };
+                  readonly error?: unknown;
+                }>,
+            ),
+          ),
+        );
+        expect(
+          bodies.some((body) => body.result?.content?.some((item) => item.text?.includes("first"))),
+        ).toBe(true);
+        expect(
+          bodies.some((body) =>
+            body.result?.content?.some((item) => item.text?.includes("second")),
+          ),
+        ).toBe(true);
+        expect(bodies.every((body) => body.error === undefined)).toBe(true);
+      }),
+    30_000,
   );
 
-  it.effect("lists the execute tool after handshake", () =>
-    Effect.gen(function* () {
-      const { baseUrl, seedOrg } = yield* Worker;
-      const orgId = nextOrgId();
-      yield* Effect.promise(() => seedOrg(orgId, "List Tools Org"));
-      const client = yield* Effect.promise(() =>
-        connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
-      );
-      const { tools } = yield* Effect.promise(() => client.listTools());
-      expect(tools.map((t) => t.name)).toContain("execute");
-      yield* Effect.promise(() => client.close());
-    }), 30_000,
+  it.effect(
+    "round-trips approval elicitation for a POST openapi operation",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const { specJson } = yield* Upstream;
+        const orgId = nextOrgId();
+        yield* Effect.promise(() => seedOrg(orgId, "Elicit Org"));
+
+        const client = yield* Effect.promise(() =>
+          connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId), {
+            withElicitation: true,
+          }),
+        );
+
+        let elicitCount = 0;
+        client.setRequestHandler(ElicitRequestSchema, async () => {
+          elicitCount++;
+          return { action: "accept" as const, content: {} };
+        });
+
+        // User code inside `execute` (1) registers the upstream as an OpenAPI
+        // source and (2) invokes its POST operation. `annotationsForOperation`
+        // marks the POST as `requiresApproval: true`, which fires
+        // `enforceApproval` in the executor; that goes through the MCP
+        // elicitation handler and lands on `client.setRequestHandler` above.
+        // Tool id is `<namespace>.<group>.<operation>` — Effect's
+        // `HttpApiGroup` name ("approve") becomes part of the sandbox path,
+        // so the invocation reads `tools.approveapi.approve.approveThing`.
+        const code = [
+          `await tools.openapi.addSource({ spec: ${JSON.stringify(specJson)}, namespace: "approveapi" });`,
+          `return await tools.approveapi.approve.approveThing({});`,
+        ].join("\n");
+        const result = yield* Effect.promise(() =>
+          client.callTool({ name: "execute", arguments: { code } }),
+        );
+        expect(result.isError).not.toBe(true);
+        expect(elicitCount).toBeGreaterThan(0);
+        const text =
+          ((result.content ?? []) as Array<{ type: string; text?: string }>).find(
+            (c) => c.type === "text",
+          )?.text ?? "";
+        expect(text).toContain("approved");
+
+        yield* Effect.promise(() => client.close());
+      }),
+    30_000,
   );
 
-  it.effect("executes code end-to-end via tools/call", () =>
-    Effect.gen(function* () {
-      const { baseUrl, seedOrg } = yield* Worker;
-      const orgId = nextOrgId();
-      yield* Effect.promise(() => seedOrg(orgId, "Execute Org"));
-      const client = yield* Effect.promise(() =>
-        connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
-      );
-      const result = yield* Effect.promise(() =>
-        client.callTool({ name: "execute", arguments: { code: "return 1 + 2" } }),
-      );
-      expect(result.isError).not.toBe(true);
-      const content = (result.content ?? []) as Array<{ type: string; text?: string }>;
-      expect(content.find((c) => c.type === "text")?.text ?? "").toContain("3");
-      yield* Effect.promise(() => client.close());
-    }), 30_000,
+  it.effect(
+    "reports the McpSessionDO.handleRequest span via the OTLP exporter",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const receiver = yield* TelemetryReceiver;
+        const orgId = nextOrgId();
+        yield* Effect.promise(() => seedOrg(orgId, "Telemetry Org"));
+        const client = yield* Effect.promise(() =>
+          connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
+        );
+        // Trigger the DO through a multi-step flow so we can assert that
+        // handleRequest spans are reported for every DO hit, not just init.
+        yield* Effect.promise(() => client.listTools());
+        yield* Effect.promise(() =>
+          client.callTool({ name: "execute", arguments: { code: "return 1 + 2" } }),
+        );
+        yield* Effect.promise(() => client.close());
+
+        // The initialize POST carries no session-id; subsequent requests do.
+        // Assert on one of the session-id'd handleRequest spans so we verify
+        // attribute propagation beyond the degenerate init case.
+        const handleSpan = yield* Effect.promise(() =>
+          receiver.waitForSpan(
+            (s) =>
+              s.name === "McpSessionDO.handleRequest" &&
+              s.attributes["mcp.request.session_id_present"] === true,
+          ),
+        );
+        expect(handleSpan.attributes["mcp.request.method"]).toBeDefined();
+        // 200 for normal POSTs, 202 for notifications/initialized.
+        expect([200, 202]).toContain(handleSpan.attributes["mcp.response.status_code"]);
+        expect(handleSpan.attributes["mcp.response.content_type"]).toEqual(expect.any(String));
+        expect(handleSpan.attributes["mcp.transport.enable_json_response"]).toBe(true);
+
+        // init runs once per new session and should appear on the initialize POST.
+        yield* Effect.promise(() => receiver.waitForSpan((s) => s.name === "McpSessionDO.init"));
+      }),
+    30_000,
   );
-
-  it.effect("round-trips approval elicitation for a POST openapi operation", () =>
-    Effect.gen(function* () {
-      const { baseUrl, seedOrg } = yield* Worker;
-      const { specJson } = yield* Upstream;
-      const orgId = nextOrgId();
-      yield* Effect.promise(() => seedOrg(orgId, "Elicit Org"));
-
-      const client = yield* Effect.promise(() =>
-        connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId), {
-          withElicitation: true,
-        }),
-      );
-
-      let elicitCount = 0;
-      client.setRequestHandler(ElicitRequestSchema, async () => {
-        elicitCount++;
-        return { action: "accept" as const, content: {} };
-      });
-
-      // User code inside `execute` (1) registers the upstream as an OpenAPI
-      // source and (2) invokes its POST operation. `annotationsForOperation`
-      // marks the POST as `requiresApproval: true`, which fires
-      // `enforceApproval` in the executor; that goes through the MCP
-      // elicitation handler and lands on `client.setRequestHandler` above.
-      // Tool id is `<namespace>.<group>.<operation>` — Effect's
-      // `HttpApiGroup` name ("approve") becomes part of the sandbox path,
-      // so the invocation reads `tools.approveapi.approve.approveThing`.
-      const code = [
-        `await tools.openapi.addSource({ spec: ${JSON.stringify(specJson)}, namespace: "approveapi" });`,
-        `return await tools.approveapi.approve.approveThing({});`,
-      ].join("\n");
-      const result = yield* Effect.promise(() =>
-        client.callTool({ name: "execute", arguments: { code } }),
-      );
-      expect(result.isError).not.toBe(true);
-      expect(elicitCount).toBeGreaterThan(0);
-      const text = ((result.content ?? []) as Array<{ type: string; text?: string }>)
-        .find((c) => c.type === "text")?.text ?? "";
-      expect(text).toContain("approved");
-
-      yield* Effect.promise(() => client.close());
-    }), 30_000,
-  );
-
-  it.effect("reports the McpSessionDO.handleRequest span via the OTLP exporter", () =>
-    Effect.gen(function* () {
-      const { baseUrl, seedOrg } = yield* Worker;
-      const receiver = yield* TelemetryReceiver;
-      const orgId = nextOrgId();
-      yield* Effect.promise(() => seedOrg(orgId, "Telemetry Org"));
-      const client = yield* Effect.promise(() =>
-        connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
-      );
-      // Trigger the DO through a multi-step flow so we can assert that
-      // handleRequest spans are reported for every DO hit, not just init.
-      yield* Effect.promise(() => client.listTools());
-      yield* Effect.promise(() =>
-        client.callTool({ name: "execute", arguments: { code: "return 1 + 2" } }),
-      );
-      yield* Effect.promise(() => client.close());
-
-      // The initialize POST carries no session-id; subsequent requests do.
-      // Assert on one of the session-id'd handleRequest spans so we verify
-      // attribute propagation beyond the degenerate init case.
-      const handleSpan = yield* Effect.promise(() =>
-        receiver.waitForSpan(
-          (s) =>
-            s.name === "McpSessionDO.handleRequest" &&
-            s.attributes["mcp.request.session_id_present"] === true,
-        ),
-      );
-      expect(handleSpan.attributes["mcp.request.method"]).toBeDefined();
-      // 200 for normal POSTs, 202 for notifications/initialized.
-      expect([200, 202]).toContain(handleSpan.attributes["mcp.response.status_code"]);
-      expect(handleSpan.attributes["mcp.response.content_type"]).toEqual(expect.any(String));
-      expect(handleSpan.attributes["mcp.transport.enable_json_response"]).toBe(true);
-
-      // init runs once per new session and should appear on the initialize POST.
-      yield* Effect.promise(() =>
-        receiver.waitForSpan((s) => s.name === "McpSessionDO.init"),
-      );
-    }), 30_000,
-  );
-
 });
 
 layer(TestEnv, { timeout: 60_000 })("cloud MCP request-id telemetry", (it) => {
-  it.effect("exports MCP JSON-RPC request ids for request-shaped ids", () =>
-    Effect.gen(function* () {
-      const { baseUrl, seedOrg } = yield* Worker;
-      const receiver = yield* TelemetryReceiver;
-      const orgId = nextOrgId();
-      const accountId = nextAccountId();
-      const requestId = `req_${crypto.randomUUID().replace(/-/g, "")}`;
-      yield* Effect.promise(() => seedOrg(orgId, "Request Id Org"));
+  it.effect(
+    "exports MCP JSON-RPC request ids for request-shaped ids",
+    () =>
+      Effect.gen(function* () {
+        const { baseUrl, seedOrg } = yield* Worker;
+        const receiver = yield* TelemetryReceiver;
+        const orgId = nextOrgId();
+        const accountId = nextAccountId();
+        const requestId = `req_${crypto.randomUUID().replace(/-/g, "")}`;
+        yield* Effect.promise(() => seedOrg(orgId, "Request Id Org"));
 
-      const response = yield* Effect.promise(() =>
-        fetch(new URL("/mcp", baseUrl), {
-          method: "POST",
-          headers: {
-            accept: "application/json, text/event-stream",
-            authorization: `Bearer ${makeTestBearer(accountId, orgId)}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: requestId,
-            method: "initialize",
-            params: {
-              protocolVersion: "2025-06-18",
-              capabilities: {},
-              clientInfo: { name: "mcp-request-id-e2e", version: "0" },
+        const response = yield* Effect.promise(() =>
+          fetch(new URL("/mcp", baseUrl), {
+            method: "POST",
+            headers: {
+              accept: "application/json, text/event-stream",
+              authorization: `Bearer ${makeTestBearer(accountId, orgId)}`,
+              "content-type": "application/json",
             },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: requestId,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "mcp-request-id-e2e", version: "0" },
+              },
+            }),
           }),
-        }),
-      );
-      expect(response.status).toBe(200);
-      yield* Effect.promise(() => response.text());
+        );
+        expect(response.status).toBe(200);
+        yield* Effect.promise(() => response.text());
 
-      const annotateSpan = yield* Effect.promise(() =>
-        receiver.waitForSpan(
-          (s) =>
-            s.name === "mcp.request.annotate" &&
-            s.attributes["mcp.rpc.id"] === requestId,
-        ),
-      );
-      expect(annotateSpan.attributes["mcp.rpc.method"]).toBe("initialize");
-    }), 30_000,
+        const annotateSpan = yield* Effect.promise(() =>
+          receiver.waitForSpan(
+            (s) => s.name === "mcp.request.annotate" && s.attributes["mcp.rpc.id"] === requestId,
+          ),
+        );
+        expect(annotateSpan.attributes["mcp.rpc.method"]).toBe("initialize");
+      }),
+    30_000,
   );
 });
