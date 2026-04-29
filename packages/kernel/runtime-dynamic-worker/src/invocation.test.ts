@@ -254,6 +254,24 @@ describe("makeDynamicWorkerExecutor", () => {
     expect(result.result).toBeNull();
   });
 
+  it("surfaces message-bearing object tool errors in execution result", async () => {
+    const executor = makeDynamicWorkerExecutor({ loader });
+    const invoker = {
+      invoke: () =>
+        Effect.fail({
+          code: "invalid_query",
+          message: 'Field with name "DisplayName" does not exist',
+        }),
+    } satisfies SandboxToolInvoker;
+
+    const result = await Effect.runPromise(
+      executor.execute("async () => { return await tools.records.query({}); }", invoker),
+    );
+
+    expect(result.error).toBe('Field with name "DisplayName" does not exist');
+    expect(result.result).toBeNull();
+  });
+
   it("handles multiple tool calls in sequence", async () => {
     const executor = makeDynamicWorkerExecutor({ loader });
     const invoker = makeInvoker(({ path }) => {

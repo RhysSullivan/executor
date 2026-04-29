@@ -45,16 +45,17 @@ const toError = (cause: unknown): Error =>
 
 const toErrorMessage = (cause: unknown): string => {
   if (typeof cause === "object" && cause !== null) {
-    const stack = "stack" in cause && typeof cause.stack === "string" ? cause.stack : undefined;
     const message =
       "message" in cause && typeof cause.message === "string" ? cause.message : undefined;
 
-    if (stack) {
-      return stack;
-    }
-
     if (message) {
       return message;
+    }
+
+    const stack = "stack" in cause && typeof cause.stack === "string" ? cause.stack : undefined;
+
+    if (stack) {
+      return stack;
     }
   }
 

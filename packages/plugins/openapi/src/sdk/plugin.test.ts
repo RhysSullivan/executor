@@ -105,6 +105,13 @@ class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
   "x-static": Schema.optional(Schema.String),
 }) {}
 
+class QueryValidationError extends Schema.TaggedError<QueryValidationError>()(
+  "QueryValidationError",
+  {
+    message: Schema.String,
+  },
+) {}
+
 const ItemsGroup = HttpApiGroup.make("items")
   .add(HttpApiEndpoint.get("listItems", "/items").addSuccess(Schema.Array(Item)))
   .add(
@@ -112,7 +119,13 @@ const ItemsGroup = HttpApiGroup.make("items")
       .setPath(Schema.Struct({ itemId: Schema.NumberFromString }))
       .addSuccess(Item),
   )
-  .add(HttpApiEndpoint.get("echoHeaders", "/echo-headers").addSuccess(EchoHeaders));
+  .add(HttpApiEndpoint.get("echoHeaders", "/echo-headers").addSuccess(EchoHeaders))
+  .add(
+    HttpApiEndpoint.get("queryRows", "/records/rows/:entryTypeId")
+      .setPath(Schema.Struct({ entryTypeId: Schema.String }))
+      .addSuccess(Schema.Unknown)
+      .addError(QueryValidationError, { status: 400 }),
+  );
 
 const TestApi = HttpApi.make("testApi").add(ItemsGroup);
 
@@ -148,6 +161,13 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
           "x-static": req.headers["x-static"],
         });
       }),
+    )
+    .handle("queryRows", () =>
+      Effect.fail(
+        new QueryValidationError({
+          message: 'Field with name "DisplayName" does not exist',
+        }),
+      ),
     ),
 );
 
@@ -275,7 +295,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         autoApprove,
       )) as { sourceId: string; toolCount: number };
 
-      expect(result).toEqual({ sourceId: "runtime", toolCount: 3 });
+      expect(result).toEqual({ sourceId: "runtime", toolCount: 4 });
       expect((yield* executor.tools.list()).map((t) => t.id)).toContain(
         "runtime.items.listItems",
       );
@@ -451,6 +471,47 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       )) as { data: unknown; error: unknown };
       expect(result.error).toBeNull();
       expect(result.data).toEqual({ id: 2, name: "Gadget" });
+    }),
+  );
+
+  it.effect("surfaces structured validation errors from OpenAPI tool calls", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
+        }),
+      );
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: TEST_SCOPE,
+        namespace: "records",
+        baseUrl: "",
+      });
+
+      const result = (yield* executor.tools.invoke(
+        "records.items.queryRows",
+        {
+          entryTypeId: "18538",
+          query: JSON.stringify([{ DisplayName: "Example" }]),
+          limit: 10,
+          skip: 0,
+        },
+        autoApprove,
+      )) as { data: unknown; error: unknown };
+
+      expect(result.data).toBeNull();
+      expect(result.error).toEqual(
+        expect.objectContaining({
+          message: 'Field with name "DisplayName" does not exist',
+        }),
+      );
     }),
   );
 

@@ -196,6 +196,15 @@ export const renderWorkerError = (error: SerializedWorkerError): string => {
     return error.primary;
   }
 
+  if (
+    typeof error.primary === "object" &&
+    error.primary !== null &&
+    "message" in error.primary &&
+    typeof error.primary.message === "string"
+  ) {
+    return error.primary.message;
+  }
+
   if (typeof error.primary === "object" && error.primary !== null) {
     try {
       return JSON.stringify(error.primary);

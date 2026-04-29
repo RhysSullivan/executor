@@ -22,6 +22,31 @@ const extractSourceNamespace = (path: string): string => {
   return idx === -1 ? path : path.slice(0, idx);
 };
 
+const stringifyUnknown = (value: unknown): string => {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const hasStringMessage = (value: unknown): value is { readonly message: string } =>
+  value !== null &&
+  typeof value === "object" &&
+  "message" in value &&
+  typeof value.message === "string";
+
+const messageFromErrorLike = (value: unknown): string | undefined => {
+  if (value instanceof Error || hasStringMessage(value)) {
+    return value.message;
+  }
+  return undefined;
+};
+
+const renderToolErrorMessage = (error: unknown): string =>
+  messageFromErrorLike(error) ??
+  (typeof error === "undefined" ? "Tool execution failed" : stringifyUnknown(error));
+
 /**
  * Bridges QuickJS `tools.someSource.someOp(args)` calls into
  * `executor.tools.invoke(toolId, args)`.
@@ -63,7 +88,13 @@ export const makeExecutorToolInvoker = (
       (r as { error?: unknown }).error !== null &&
       (r as { error?: unknown }).error !== undefined
     ) {
-      return yield* Effect.fail((r as { error: unknown }).error);
+      const error = (r as { error: unknown }).error;
+      return yield* Effect.fail(
+        new ExecutionToolError({
+          message: renderToolErrorMessage(error),
+          cause: error,
+        }),
+      );
     }
     if (r !== null && typeof r === "object" && "data" in r) {
       return (r as { data: unknown }).data;

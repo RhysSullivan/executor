@@ -10,7 +10,7 @@ import {
 } from "@executor/sdk";
 import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import { createExecutionEngine } from "./engine";
-import { describeTool, searchTools } from "./tool-invoker";
+import { describeTool, makeExecutorToolInvoker, searchTools } from "./tool-invoker";
 
 const codeExecutor = makeQuickJsExecutor();
 
@@ -99,6 +99,33 @@ const crmPlugin = definePlugin(() => ({
           description: "List CRM contacts",
           inputSchema: EmptyInputSchema,
           handler: () => Effect.succeed([]),
+        },
+      ],
+    },
+  ],
+}));
+
+const errorPlugin = definePlugin(() => ({
+  id: "error-test" as const,
+  storage: () => ({}),
+  staticSources: () => [
+    {
+      id: "records",
+      kind: "in-memory",
+      name: "Records",
+      tools: [
+        {
+          name: "queryRows",
+          description: "Query rows",
+          inputSchema: EmptyInputSchema,
+          handler: () =>
+            Effect.succeed({
+              data: null,
+              error: {
+                message: 'Field with name "DisplayName" does not exist',
+                code: "invalid_query",
+              },
+            }),
         },
       ],
     },
@@ -250,6 +277,27 @@ describe("tool discovery", () => {
       );
       expect(invalidSearch.error).toBeUndefined();
       expect(String(invalidSearch.result)).toContain("tools.search expects an object");
+    }),
+  );
+
+  it.effect("converts message-bearing tool error results into execution errors", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [errorPlugin()] as const }),
+      );
+      const invoker = makeExecutorToolInvoker(executor, {
+        invokeOptions: { onElicitation: acceptAll },
+      });
+
+      const error = yield* Effect.flip(
+        invoker.invoke({ path: "records.queryRows", args: {} }),
+      );
+
+      expect(error).toEqual(
+        expect.objectContaining({
+          message: 'Field with name "DisplayName" does not exist',
+        }),
+      );
     }),
   );
 });
