@@ -103,7 +103,7 @@ executor resume --execution-id exec_123
 
 ```bash
 executor web                        # start runtime + web UI
-executor daemon run                 # run persistent local daemon
+executor daemon run                 # start persistent local daemon in background
 executor daemon status              # show daemon status
 executor daemon stop                # stop daemon
 executor daemon restart             # restart daemon

@@ -207,47 +207,35 @@ const resolveDaemonTarget = (baseUrl: string) =>
     };
   });
 
-const ensureDaemon = (
-  baseUrl: string,
-): Effect.Effect<string, Error, FileSystem.FileSystem | PlatformPath.Path> =>
+// Serialize daemon startup behind a filesystem lock so concurrent CLI invocations don't
+// each spawn their own daemon. The post-lock pointer recheck catches the case where
+// another invocation finished bootstrapping while we were waiting for the lock.
+const spawnAndWaitForDaemon = (input: {
+  host: string;
+  scopeId: string;
+  preferredPort: number;
+  allowedHosts: ReadonlyArray<string>;
+}): Effect.Effect<string, Error, FileSystem.FileSystem | PlatformPath.Path> =>
   Effect.gen(function* () {
-    const resolvedTarget = yield* resolveDaemonTarget(baseUrl);
-    if (yield* isServerReachable(resolvedTarget.baseUrl)) {
-      return resolvedTarget.baseUrl;
-    }
-
-    const parsed = yield* parseDaemonUrl(baseUrl);
-    const scopeId = currentDaemonScopeId();
-    const host = canonicalDaemonHost(parsed.hostname);
-
-    if (!canAutoStartLocalDaemonForHost(host)) {
-      return yield* Effect.fail(
-        new Error(
-          [
-            `Executor daemon is not reachable at ${baseUrl}.`,
-            "Auto-start is only supported for local hosts.",
-            `Start it manually: ${cliPrefix} daemon run --port ${parsed.port} --hostname ${host}`,
-          ].join("\n"),
-        ),
-      );
-    }
-
-    const lock = yield* acquireDaemonStartLock({ hostname: host, scopeId });
+    const lock = yield* acquireDaemonStartLock({ hostname: input.host, scopeId: input.scopeId });
 
     try {
-      const existing = yield* resolveDaemonTarget(baseUrl);
-      if (yield* isServerReachable(existing.baseUrl)) {
-        return existing.baseUrl;
+      const existing = yield* readDaemonPointer({ hostname: input.host, scopeId: input.scopeId });
+      if (existing && isPidAlive(existing.pid)) {
+        const existingUrl = daemonBaseUrl(existing.hostname, existing.port);
+        if (yield* isServerReachable(existingUrl)) {
+          return existingUrl;
+        }
       }
 
       const selectedPort = yield* chooseDaemonPort({
-        preferredPort: parsed.port,
-        hostname: host,
+        preferredPort: input.preferredPort,
+        hostname: input.host,
       });
 
-      if (selectedPort !== parsed.port) {
+      if (selectedPort !== input.preferredPort) {
         console.error(
-          `Port ${parsed.port} is in use. Starting daemon on available port ${selectedPort} instead.`,
+          `Port ${input.preferredPort} is in use. Starting daemon on available port ${selectedPort} instead.`,
         );
       }
 
@@ -255,17 +243,20 @@ const ensureDaemon = (
         try: () =>
           buildDaemonSpawnSpec({
             port: selectedPort,
-            hostname: host,
+            hostname: input.host,
             isDevMode,
             scriptPath: script,
             executablePath: process.execPath,
+            allowedHosts: input.allowedHosts,
           }),
         catch: (cause) =>
-          cause instanceof Error ? cause : new Error(`Failed to build daemon command: ${String(cause)}`),
+          cause instanceof Error
+            ? cause
+            : new Error(`Failed to build daemon command: ${String(cause)}`),
       });
 
-      const startBaseUrl = daemonBaseUrl(host, selectedPort);
-      console.error(`Starting daemon on ${host}:${selectedPort}...`);
+      const startBaseUrl = daemonBaseUrl(input.host, selectedPort);
+      console.error(`Starting daemon on ${input.host}:${selectedPort}...`);
       yield* spawnDetached({
         command: spec.command,
         args: spec.args,
@@ -283,7 +274,7 @@ const ensureDaemon = (
           new Error(
             [
               `Daemon did not become reachable at ${startBaseUrl} within ${DAEMON_BOOT_TIMEOUT_MS}ms.`,
-              `Run in foreground to inspect logs: ${cliPrefix} daemon run --port ${selectedPort} --hostname ${host}`,
+              `Run in foreground to inspect logs: ${cliPrefix} daemon run --foreground --port ${selectedPort} --hostname ${input.host}`,
             ].join("\n"),
           ),
         );
@@ -293,6 +284,42 @@ const ensureDaemon = (
     } finally {
       yield* releaseDaemonStartLock(lock).pipe(Effect.ignore);
     }
+  });
+
+// Auto-start a local daemon on demand so commands like `executor call` work without the
+// user having to run `daemon run` first. Refuses non-local hosts because spawning a
+// daemon process on the user's behalf only makes sense when "the user's machine" is
+// also where the request will land.
+const ensureDaemon = (
+  baseUrl: string,
+): Effect.Effect<string, Error, FileSystem.FileSystem | PlatformPath.Path> =>
+  Effect.gen(function* () {
+    const resolvedTarget = yield* resolveDaemonTarget(baseUrl);
+    if (yield* isServerReachable(resolvedTarget.baseUrl)) {
+      return resolvedTarget.baseUrl;
+    }
+
+    const parsed = yield* parseDaemonUrl(baseUrl);
+    const host = canonicalDaemonHost(parsed.hostname);
+
+    if (!canAutoStartLocalDaemonForHost(host)) {
+      return yield* Effect.fail(
+        new Error(
+          [
+            `Executor daemon is not reachable at ${baseUrl}.`,
+            "Auto-start is only supported for local hosts.",
+            `Start it manually: ${cliPrefix} daemon run --port ${parsed.port} --hostname ${host}`,
+          ].join("\n"),
+        ),
+      );
+    }
+
+    return yield* spawnAndWaitForDaemon({
+      host,
+      scopeId: resolvedTarget.scopeId,
+      preferredPort: parsed.port,
+      allowedHosts: [],
+    });
   }).pipe(Effect.mapError(toError));
 
 const stopDaemon = (
@@ -561,6 +588,45 @@ const runDaemonSession = (input: {
       yield* removeDaemonPointer({ hostname: daemonHost, scopeId }).pipe(Effect.ignore);
     }
   });
+
+// `executor daemon run` defaults to detached so the user gets their shell back, but the
+// command is idempotent: re-running while a daemon is already up should report success
+// (matching the auto-start behaviour) rather than fail or spawn a duplicate.
+const runBackgroundDaemonStart = (input: {
+  port: number;
+  hostname: string;
+  allowedHosts: ReadonlyArray<string>;
+}): Effect.Effect<void, Error, FileSystem.FileSystem | PlatformPath.Path> =>
+  Effect.gen(function* () {
+    const host = canonicalDaemonHost(input.hostname);
+    const requestedUrl = daemonBaseUrl(host, input.port);
+    const target = yield* resolveDaemonTarget(requestedUrl);
+
+    if (yield* isServerReachable(target.baseUrl)) {
+      console.log(`Daemon already running at ${target.baseUrl}.`);
+      return;
+    }
+
+    if (!canAutoStartLocalDaemonForHost(host)) {
+      return yield* Effect.fail(
+        new Error(
+          [
+            `Cannot background a daemon for non-local host ${host}.`,
+            `Use --foreground or bind to localhost / 127.0.0.1.`,
+          ].join("\n"),
+        ),
+      );
+    }
+
+    const startBaseUrl = yield* spawnAndWaitForDaemon({
+      host,
+      scopeId: target.scopeId,
+      preferredPort: input.port,
+      allowedHosts: input.allowedHosts,
+    });
+
+    console.log(`Daemon ready on ${startBaseUrl}`);
+  }).pipe(Effect.mapError(toError));
 
 // ---------------------------------------------------------------------------
 // Stdio MCP session
@@ -1223,14 +1289,25 @@ const daemonRunCommand = Command.make(
           "Additional hostname permitted in the Host header (repeatable). localhost/127.0.0.1 are always allowed.",
         ),
       ),
+    foreground: Options.boolean("foreground")
+      .pipe(Options.withDefault(false))
+      .pipe(
+        Options.withDescription(
+          "Run the daemon in this process instead of detaching. Useful for inspecting logs.",
+        ),
+      ),
     scope,
   },
-  ({ port, scope, hostname, allowedHost }) =>
+  ({ port, scope, hostname, allowedHost, foreground }) =>
     Effect.gen(function* () {
       applyScope(scope);
-      yield* runDaemonSession({ port, hostname, allowedHosts: allowedHost });
+      if (foreground) {
+        yield* runDaemonSession({ port, hostname, allowedHosts: allowedHost });
+      } else {
+        yield* runBackgroundDaemonStart({ port, hostname, allowedHosts: allowedHost });
+      }
     }),
-).pipe(Command.withDescription("Run the local executor daemon"));
+).pipe(Command.withDescription("Run the local executor daemon (background by default)"));
 
 const daemonStatusCommand = Command.make(
   "status",

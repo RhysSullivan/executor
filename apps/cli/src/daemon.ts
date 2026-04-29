@@ -58,8 +58,18 @@ export const buildDaemonSpawnSpec = (input: {
   readonly isDevMode: boolean;
   readonly scriptPath: string | undefined;
   readonly executablePath: string;
+  readonly allowedHosts?: ReadonlyArray<string>;
 }): DaemonSpawnSpec => {
-  const daemonArgs = ["daemon", "run", "--port", String(input.port), "--hostname", input.hostname];
+  const daemonArgs = [
+    "daemon",
+    "run",
+    "--port",
+    String(input.port),
+    "--hostname",
+    input.hostname,
+    "--foreground",
+    ...(input.allowedHosts ?? []).flatMap((h) => ["--allowed-host", h]),
+  ];
 
   if (input.isDevMode) {
     if (!input.scriptPath) {

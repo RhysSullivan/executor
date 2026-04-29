@@ -39,6 +39,8 @@ executor daemon restart
 
 `executor call`, `executor resume`, and `executor tools …` auto-start a local daemon if one isn't running. The daemon pointer is scope-aware, and if the default port is busy the CLI transparently picks an open one — so two projects can run side-by-side without collisions.
 
+`executor daemon run` now backgrounds by default. Pass `--foreground` to keep it attached for log inspection.
+
 ### OpenTelemetry everywhere
 Tool dispatch, plugins, storage, schema, and transport are now fully instrumented with OTEL spans, and the runtime is threaded through dispatch so spans actually export in all runtimes.
 

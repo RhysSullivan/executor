@@ -52,6 +52,7 @@ describe("daemon bootstrap helpers", () => {
       "4788",
       "--hostname",
       "localhost",
+      "--foreground",
     ]);
   });
 
@@ -72,6 +73,32 @@ describe("daemon bootstrap helpers", () => {
       "5000",
       "--hostname",
       "127.0.0.1",
+      "--foreground",
+    ]);
+  });
+
+  it("propagates allowed hosts as repeated flags", () => {
+    const spec = buildDaemonSpawnSpec({
+      port: 4788,
+      hostname: "0.0.0.0",
+      isDevMode: false,
+      scriptPath: undefined,
+      executablePath: "/usr/local/bin/executor",
+      allowedHosts: ["my.box", "other.host"],
+    });
+
+    expect(spec.args).toEqual([
+      "daemon",
+      "run",
+      "--port",
+      "4788",
+      "--hostname",
+      "0.0.0.0",
+      "--foreground",
+      "--allowed-host",
+      "my.box",
+      "--allowed-host",
+      "other.host",
     ]);
   });
 
