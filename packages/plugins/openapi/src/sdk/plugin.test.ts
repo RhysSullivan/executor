@@ -11,6 +11,8 @@ import {
 } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 
+import { createExecutionEngine, formatExecuteResult } from "@executor/execution";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   createExecutor,
   type DBAdapter,
@@ -105,6 +107,13 @@ class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
   "x-static": Schema.optional(Schema.String),
 }) {}
 
+class DealCloudQueryError extends Schema.TaggedError<DealCloudQueryError>()(
+  "DealCloudQueryError",
+  {
+    message: Schema.String,
+  },
+) {}
+
 const ItemsGroup = HttpApiGroup.make("items")
   .add(HttpApiEndpoint.get("listItems", "/items").addSuccess(Schema.Array(Item)))
   .add(
@@ -112,7 +121,13 @@ const ItemsGroup = HttpApiGroup.make("items")
       .setPath(Schema.Struct({ itemId: Schema.NumberFromString }))
       .addSuccess(Item),
   )
-  .add(HttpApiEndpoint.get("echoHeaders", "/echo-headers").addSuccess(EchoHeaders));
+  .add(HttpApiEndpoint.get("echoHeaders", "/echo-headers").addSuccess(EchoHeaders))
+  .add(
+    HttpApiEndpoint.get("queryRows", "/dealcloud/rows/:entryTypeId")
+      .setPath(Schema.Struct({ entryTypeId: Schema.String }))
+      .addSuccess(Schema.Unknown)
+      .addError(DealCloudQueryError, { status: 400 }),
+  );
 
 const TestApi = HttpApi.make("testApi").add(ItemsGroup);
 
@@ -148,6 +163,13 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
           "x-static": req.headers["x-static"],
         });
       }),
+    )
+    .handle("queryRows", () =>
+      Effect.fail(
+        new DealCloudQueryError({
+          message: 'Field with name "Name" does not exist',
+        }),
+      ),
     ),
 );
 
@@ -275,7 +297,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         autoApprove,
       )) as { sourceId: string; toolCount: number };
 
-      expect(result).toEqual({ sourceId: "runtime", toolCount: 3 });
+      expect(result).toEqual({ sourceId: "runtime", toolCount: 4 });
       expect((yield* executor.tools.list()).map((t) => t.id)).toContain(
         "runtime.items.listItems",
       );
@@ -451,6 +473,93 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       )) as { data: unknown; error: unknown };
       expect(result.error).toBeNull();
       expect(result.data).toEqual({ id: 2, name: "Gadget" });
+    }),
+  );
+
+  it.effect("surfaces DealCloud-style bad field errors from OpenAPI tool calls", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
+        }),
+      );
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: TEST_SCOPE,
+        namespace: "dealcloud",
+        baseUrl: "",
+      });
+
+      const result = (yield* executor.tools.invoke(
+        "dealcloud.items.queryRows",
+        {
+          entryTypeId: "18538",
+          query: JSON.stringify([{ Name: "Suno" }]),
+          limit: 10,
+          skip: 0,
+        },
+        autoApprove,
+      )) as { data: unknown; error: unknown };
+
+      expect(result.data).toBeNull();
+      expect(result.error).toEqual(
+        expect.objectContaining({
+          message: 'Field with name "Name" does not exist',
+        }),
+      );
+    }),
+  );
+
+  it.effect("surfaces DealCloud-style bad field errors through execute", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
+        }),
+      );
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: TEST_SCOPE,
+        namespace: "dealcloud",
+        baseUrl: "",
+      });
+
+      const engine = createExecutionEngine({
+        executor,
+        codeExecutor: makeQuickJsExecutor({ timeoutMs: 5_000 }),
+      });
+      const result = yield* engine.execute(
+        `
+        return await tools.dealcloud.items.queryRows({
+          entryTypeId: "18538",
+          query: JSON.stringify([{ Name: "Suno" }]),
+          limit: 10,
+          skip: 0
+        });
+        `,
+        { onElicitation: () => Effect.succeed({ action: "accept" as const }) },
+      );
+      const formatted = formatExecuteResult(result);
+
+      expect(formatted.isError).toBe(true);
+      expect(formatted.text).toContain('Field with name "Name" does not exist');
+      expect(formatted.structured.error).toContain(
+        'Field with name "Name" does not exist',
+      );
     }),
   );
 
