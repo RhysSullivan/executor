@@ -171,8 +171,12 @@ function PolicyRow(props: {
     action: ToolPolicyAction;
     position: number;
   };
+  isFirst: boolean;
+  isLast: boolean;
   onRemove: () => void;
   onChangeAction: (action: ToolPolicyAction) => void;
+  onMoveToTop: () => void;
+  onMoveToBottom: () => void;
 }) {
   return (
     <CardStackEntry>
@@ -223,6 +227,18 @@ function PolicyRow(props: {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem
+              disabled={props.isFirst}
+              onClick={props.onMoveToTop}
+            >
+              Move to top
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={props.isLast}
+              onClick={props.onMoveToBottom}
+            >
+              Move to bottom
+            </DropdownMenuItem>
             <DropdownMenuItem
               className="text-destructive focus:text-destructive text-sm"
               onClick={props.onRemove}
@@ -285,6 +301,14 @@ export function PoliciesPage() {
     });
   };
 
+  const handleMove = async (id: string, position: number) => {
+    await doUpdate({
+      path: { scopeId, policyId: PolicyId.make(id) },
+      payload: { position },
+      reactivityKeys: policyWriteKeys,
+    });
+  };
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
@@ -319,37 +343,53 @@ export function PoliciesPage() {
               <p className="text-sm text-destructive">Failed to load policies</p>
             </div>
           ),
-          onSuccess: ({ value }) => (
-            <CardStack>
-              <CardStackHeader>Active policies</CardStackHeader>
-              <CardStackContent>
-                {value.length === 0 ? (
-                  <CardStackEntry>
-                    <CardStackEntryContent>
-                      <CardStackEntryDescription>
-                        No policies yet. Tools fall back to their plugin's
-                        default approval behavior.
-                      </CardStackEntryDescription>
-                    </CardStackEntryContent>
-                  </CardStackEntry>
-                ) : (
-                  value.map((p) => (
-                    <PolicyRow
-                      key={p.id}
-                      policy={{
-                        id: p.id,
-                        pattern: p.pattern,
-                        action: p.action,
-                        position: p.position,
-                      }}
-                      onRemove={() => handleRemove(p.id)}
-                      onChangeAction={(action) => handleUpdate(p.id, action)}
-                    />
-                  ))
-                )}
-              </CardStackContent>
-            </CardStack>
-          ),
+          onSuccess: ({ value }) => {
+            // Sort by position so optimistic position updates reorder the list
+            // immediately. Server returns rows in this order too, so this
+            // converges with the canonical order on refresh.
+            const sorted = [...value].sort((a, b) => a.position - b.position);
+            const minPosition =
+              sorted.length > 0 ? sorted[0]!.position : 0;
+            const maxPosition =
+              sorted.length > 0 ? sorted[sorted.length - 1]!.position : 0;
+            return (
+              <CardStack>
+                <CardStackHeader>Active policies</CardStackHeader>
+                <CardStackContent>
+                  {sorted.length === 0 ? (
+                    <CardStackEntry>
+                      <CardStackEntryContent>
+                        <CardStackEntryDescription>
+                          No policies yet. Tools fall back to their plugin's
+                          default approval behavior.
+                        </CardStackEntryDescription>
+                      </CardStackEntryContent>
+                    </CardStackEntry>
+                  ) : (
+                    sorted.map((p, i) => (
+                      <PolicyRow
+                        key={p.id}
+                        policy={{
+                          id: p.id,
+                          pattern: p.pattern,
+                          action: p.action,
+                          position: p.position,
+                        }}
+                        isFirst={i === 0}
+                        isLast={i === sorted.length - 1}
+                        onRemove={() => handleRemove(p.id)}
+                        onChangeAction={(action) => handleUpdate(p.id, action)}
+                        onMoveToTop={() => handleMove(p.id, minPosition - 1)}
+                        onMoveToBottom={() =>
+                          handleMove(p.id, maxPosition + 1)
+                        }
+                      />
+                    ))
+                  )}
+                </CardStackContent>
+              </CardStack>
+            );
+          },
         })}
       </div>
     </div>
