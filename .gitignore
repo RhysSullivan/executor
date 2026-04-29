@@ -69,3 +69,6 @@ executor.jsonc
 # Warden local scan outputs
 .warden/
 .warden-runs/
+
+# Fallow local analysis cache
+.fallow/

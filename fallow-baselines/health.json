@@ -1,0 +1,953 @@
+{
+  "finding_counts": {
+    "apps/cli/src/build.ts": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "apps/cli/src/daemon-state.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cli/src/main.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 3
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 9
+      }
+    },
+    "apps/cli/src/release.ts": {
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cli/src/tooling.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "apps/cloud/drizzle.config.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/scripts/migrate-connections.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "apps/cloud/scripts/migrate-mcp-connections.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/api/autumn.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/auth/handlers.ts": {
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "apps/cloud/src/auth/middleware-live.ts": {
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "apps/cloud/src/auth/workos.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/mcp-auth.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/mcp-session.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/mcp.ts": {
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 6
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "apps/cloud/src/org/handlers.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/routes/billing.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/routes/billing_.plans.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/routes/org.tsx": {
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "apps/cloud/src/services/db.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/services/telemetry.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/start.ts": {
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "apps/cloud/src/test-bearer.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/test-worker.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/web/pages/onboarding.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/cloud/src/web/shell.tsx": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "apps/desktop/src/main.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "apps/local/src/serve.ts": {
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "apps/local/src/server/config-sync.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "apps/local/src/server/mcp.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "apps/local/src/server/migrate-connections.ts": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "crap_critical": {
+        "count": 4
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "apps/local/src/web/shell.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "apps/local/vite.config.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "apps/marketing/src/pages/api/detect.ts": {
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/core/cli/src/commands/generate.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/core/cli/src/generators/drizzle.ts": {
+      "complexity_critical": {
+        "count": 4
+      },
+      "crap_critical": {
+        "count": 4
+      }
+    },
+    "packages/core/cli/src/utils/get-config.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/core/config/src/write.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/core/env/src/index.ts": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/core/execution/src/engine.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/core/execution/src/tool-invoker.ts": {
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/core/sdk/src/executor.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 5
+      }
+    },
+    "packages/core/sdk/src/promise-executor.ts": {
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "packages/core/sdk/src/schema-refs.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/core/sdk/src/schema-types.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/core/storage-core/src/factory.ts": {
+      "complexity_critical": {
+        "count": 6
+      },
+      "crap_critical": {
+        "count": 6
+      },
+      "crap_high": {
+        "count": 4
+      }
+    },
+    "packages/core/storage-core/src/testing/memory.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/core/storage-drizzle/src/adapter.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 6
+      },
+      "crap_moderate": {
+        "count": 6
+      }
+    },
+    "packages/hosts/mcp/src/server.ts": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "packages/kernel/core/src/code-recovery.ts": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 3
+      }
+    },
+    "packages/kernel/core/src/json-schema.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/kernel/core/src/validation.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/kernel/runtime-deno-subprocess/src/deno-subprocess-worker.mjs": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/kernel/runtime-deno-subprocess/src/index.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/kernel/runtime-dynamic-worker/src/executor.ts": {
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/kernel/runtime-quickjs/src/index.ts": {
+      "crap_critical": {
+        "count": 2
+      }
+    },
+    "packages/kernel/runtime-secure-exec/src/index.ts": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/file-secrets/src/index.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/plugins/google-discovery/src/react/AddGoogleDiscoverySource.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/plugins/google-discovery/src/react/EditGoogleDiscoverySource.tsx": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/plugins/google-discovery/src/react/GoogleDiscoverySignInButton.tsx": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/google-discovery/src/sdk/document.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/plugins/google-discovery/src/sdk/invoke.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/plugins/graphql/src/react/AddGraphqlSource.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/plugins/graphql/src/react/EditGraphqlSource.tsx": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/plugins/graphql/src/sdk/extract.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "packages/plugins/graphql/src/sdk/invoke.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/plugins/graphql/src/sdk/plugin.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/mcp/src/api/handlers.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/mcp/src/react/AddMcpSource.tsx": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "crap_critical": {
+        "count": 3
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "packages/plugins/mcp/src/react/EditMcpSource.tsx": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/mcp/src/react/McpSignInButton.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/plugins/mcp/src/sdk/plugin.ts": {
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/oauth2/src/http.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/oauth2/src/index.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/plugins/oauth2/src/react.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/onepassword/src/react/OnePasswordSettings.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/onepassword/src/sdk/service.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/openapi/src/react/AddOpenApiSource.tsx": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 3
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 4
+      }
+    },
+    "packages/plugins/openapi/src/react/EditOpenApiSource.tsx": {
+      "complexity_critical": {
+        "count": 4
+      },
+      "crap_critical": {
+        "count": 4
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/plugins/openapi/src/react/OpenApiSourceSummary.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/plugins/openapi/src/sdk/credential-status.ts": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/plugins/openapi/src/sdk/invoke.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "complexity_high": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/openapi/src/sdk/plugin.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 4
+      }
+    },
+    "packages/plugins/openapi/src/sdk/preview.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/workos-vault/src/sdk/client.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/workos-vault/src/sdk/plugin.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/plugins/workos-vault/src/sdk/secret-store.ts": {
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/react/src/api/optimistic.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/card-stack.tsx": {
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "packages/react/src/components/carousel.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/chart.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 3
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/code-block.tsx": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/command-palette.tsx": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/copy-button.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/expandable-code-block.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/field.tsx": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/form.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/markdown.tsx": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/react/src/components/mcp-install-card.tsx": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/schema-explorer.tsx": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "crap_critical": {
+        "count": 4
+      },
+      "crap_high": {
+        "count": 4
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/sheet.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/sidebar.tsx": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/toggle-group.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/components/tool-detail.tsx": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/react/src/components/tool-tree.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 6
+      }
+    },
+    "packages/react/src/lib/shiki.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/react/src/pages/connections.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/pages/policies.tsx": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/pages/secrets.tsx": {
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/pages/source-detail.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/react/src/pages/sources.tsx": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/react/src/plugins/headers-list.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/react/src/plugins/secret-header-auth.tsx": {
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "packages/react/src/plugins/secret-picker.tsx": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/react/src/plugins/source-identity.tsx": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "scripts/clean.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "scripts/publish-packages.ts": {
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    }
+  },
+  "runtime_coverage_findings": [],
+  "target_keys": []
+}

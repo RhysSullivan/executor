@@ -1,0 +1,126 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "apps/cli/src/main.ts",
+    "apps/cloud/src/server.ts",
+    "apps/cloud/src/start.ts",
+    "apps/cloud/src/test-worker.ts",
+    "apps/cloud/src/api.ts",
+    "apps/cloud/src/routes/**/*.{ts,tsx}",
+    "apps/local/src/routes/**/*.{ts,tsx}",
+    "scripts/*.ts",
+    "apps/*/scripts/*.ts",
+    "autumn.config.ts",
+    "apps/*/autumn.config.ts",
+    "apps/*/vitest*.config.ts",
+    "packages/*/*/vitest.config.ts"
+  ],
+  "dynamicallyLoaded": [
+    "apps/desktop/src/preload.ts",
+    "packages/kernel/runtime-deno-subprocess/src/deno-subprocess-worker.mjs"
+  ],
+  "ignorePatterns": [
+    ".fallow/**",
+    ".reference/**",
+    ".tanstack/**",
+    ".turbo/**",
+    ".warden/**",
+    ".warden-runs/**",
+    "coverage/**",
+    "dist/**",
+    "node_modules/**",
+    "out/**",
+    "**/*.d.ts",
+    "**/*.gen.ts",
+    "**/*.generated.ts",
+    "**/routeTree.gen.ts"
+  ],
+  "ignoreDependencies": [
+    "bun"
+  ],
+  "usedClassMembers": [
+    "_tag",
+    "NoOp",
+    {
+      "extends": "DurableObject",
+      "members": [
+        "init",
+        "handleRequest",
+        "alarm",
+        "clearSession"
+      ]
+    }
+  ],
+  "overrides": [
+    {
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx",
+        "**/*.e2e.ts",
+        "**/*.e2e.tsx",
+        "**/*.node.test.ts",
+        "**/*.node.test.tsx",
+        "**/__test-harness__/**",
+        "**/test-stubs/**"
+      ],
+      "rules": {
+        "unused-files": "off",
+        "unused-exports": "off",
+        "unused-types": "off",
+        "unused-class-members": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/cloud/src/routes/__root.tsx"
+      ],
+      "rules": {
+        "unresolved-imports": "off"
+      }
+    }
+  ],
+  "duplicates": {
+    "mode": "mild",
+    "minTokens": 50,
+    "minLines": 5,
+    "threshold": 5,
+    "ignore": [
+      "**/*.test.ts",
+      "**/*.test.tsx",
+      "**/*.spec.ts",
+      "**/*.spec.tsx",
+      "**/*.e2e.ts",
+      "**/*.e2e.tsx",
+      "**/*.gen.ts",
+      "**/*.generated.ts",
+      "**/routeTree.gen.ts",
+      "**/__test-harness__/**",
+      "**/test-stubs/**"
+    ]
+  },
+  "health": {
+    "maxCyclomatic": 20,
+    "maxCognitive": 15,
+    "maxCrap": 30,
+    "ignore": [
+      "**/*.test.ts",
+      "**/*.test.tsx",
+      "**/*.spec.ts",
+      "**/*.spec.tsx",
+      "**/*.e2e.ts",
+      "**/*.e2e.tsx",
+      "**/*.gen.ts",
+      "**/*.generated.ts",
+      "**/routeTree.gen.ts",
+      "**/__test-harness__/**",
+      "**/test-stubs/**"
+    ]
+  },
+  "audit": {
+    "deadCodeBaseline": "fallow-baselines/dead-code.json",
+    "healthBaseline": "fallow-baselines/health.json",
+    "dupesBaseline": "fallow-baselines/dupes.json"
+  }
+}
