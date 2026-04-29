@@ -8,6 +8,7 @@ import {
   type ElicitationHandler,
 } from "./elicitation";
 import {
+  effectivePolicyFromSorted,
   isValidPattern,
   matchPattern,
   resolveToolPolicy,
@@ -146,6 +147,57 @@ describe("resolveToolPolicy", () => {
     );
     expect(result?.action).toBe("approve");
     expect(result?.policyId).toBe("inner");
+  });
+});
+
+describe("effectivePolicyFromSorted", () => {
+  const POL = (
+    id: string,
+    pattern: string,
+    action: "approve" | "require_approval" | "block",
+  ) => ({ id, pattern, action });
+
+  it("returns user policy when one matches", () => {
+    const result = effectivePolicyFromSorted(
+      "vercel.dns.create",
+      [POL("a", "vercel.dns.*", "block")],
+      true,
+    );
+    expect(result).toEqual({
+      action: "block",
+      source: "user",
+      pattern: "vercel.dns.*",
+      policyId: "a",
+    });
+  });
+
+  it("falls back to plugin default require_approval", () => {
+    const result = effectivePolicyFromSorted("vercel.dns.create", [], true);
+    expect(result).toEqual({
+      action: "require_approval",
+      source: "plugin-default",
+    });
+  });
+
+  it("falls back to plugin default approve when annotation is false/undefined", () => {
+    expect(
+      effectivePolicyFromSorted("vercel.dns.create", [], false),
+    ).toEqual({ action: "approve", source: "plugin-default" });
+    expect(effectivePolicyFromSorted("vercel.dns.create", [])).toEqual({
+      action: "approve",
+      source: "plugin-default",
+    });
+  });
+
+  it("user policy wins over plugin default", () => {
+    // Plugin default would be require_approval; user explicitly approves.
+    const result = effectivePolicyFromSorted(
+      "vercel.dns.create",
+      [POL("a", "vercel.dns.create", "approve")],
+      true,
+    );
+    expect(result.action).toBe("approve");
+    expect(result.source).toBe("user");
   });
 });
 

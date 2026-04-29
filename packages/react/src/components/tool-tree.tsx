@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, SearchIcon, XIcon } from "lucide-react";
-import type { ToolPolicyAction } from "@executor/sdk";
+import type { EffectivePolicy, ToolPolicyAction } from "@executor/sdk";
 import { Button } from "./button";
 import { Input } from "./input";
 import { cn } from "../lib/utils";
@@ -14,40 +14,55 @@ export interface ToolSummary {
   readonly name: string;
   readonly pluginKey: string;
   readonly description?: string;
-  /** Effective policy applied to this tool, if any. Omitted when no rule
-   *  matches — caller should treat that as "fall through to plugin
-   *  annotation". */
-  readonly policy?: {
-    readonly action: ToolPolicyAction;
-    readonly pattern: string;
-  };
-  /** Plugin-derived default — what would happen if no user policy
-   *  matched. Used for the muted "default" indicator on rows that
-   *  don't have an explicit policy. */
-  readonly defaultRequiresApproval?: boolean;
+  /** Resolved policy for this tool — combines user-authored rules and
+   *  plugin defaults into one answer. Always present. UI distinguishes
+   *  user vs default purely via `policy.source`. */
+  readonly policy: EffectivePolicy;
 }
 
 // Color + label for the per-row policy indicator. Mirrors the badges on
 // the /policies page so the same action looks the same everywhere.
 const POLICY_INDICATOR: Record<
   ToolPolicyAction,
-  { readonly label: string; readonly dot: string; readonly text: string }
+  { readonly label: string; readonly dot: string; readonly ring: string }
 > = {
   approve: {
     label: "Auto-approve",
     dot: "bg-emerald-500",
-    text: "text-emerald-600 dark:text-emerald-400",
+    ring: "ring-emerald-500/70",
   },
   require_approval: {
     label: "Require approval",
     dot: "bg-amber-500",
-    text: "text-amber-600 dark:text-amber-400",
+    ring: "ring-amber-500/70",
   },
   block: {
     label: "Blocked",
     dot: "bg-destructive",
-    text: "text-destructive",
+    ring: "ring-destructive/70",
   },
+};
+
+// What the dot looks like for a given effective policy. Auto-approve as
+// a plugin default is silent (the safe state — no point cluttering every
+// row); everything else gets a dot. User policies are filled, plugin
+// defaults are hollow rings.
+const indicatorFor = (policy: EffectivePolicy) => {
+  if (policy.source === "plugin-default" && policy.action === "approve") {
+    return null;
+  }
+  const ind = POLICY_INDICATOR[policy.action];
+  const filled = policy.source === "user";
+  const label =
+    policy.source === "user"
+      ? `${ind.label} (matched ${policy.pattern})`
+      : `Plugin default: ${ind.label}`;
+  return {
+    label,
+    className: filled
+      ? ind.dot
+      : cn("bg-transparent ring-1", ind.ring),
+  };
 };
 
 type TreeNode = {
@@ -395,16 +410,7 @@ function ToolLeafRow(props: {
   search: string;
 }) {
   const label = props.tool.name.split(".").pop() ?? props.tool.name;
-  const indicator = props.tool.policy
-    ? POLICY_INDICATOR[props.tool.policy.action]
-    : null;
-  // No user policy: surface the plugin's default when it gates approval.
-  // Auto-approve-by-default is silent (the safe state — no point cluttering
-  // every row with a green dot). Rendered as a hollow ring instead of a
-  // filled dot so users can tell user-set rules apart from defaults at a
-  // glance.
-  const defaultIsRequiresApproval =
-    !props.tool.policy && props.tool.defaultRequiresApproval === true;
+  const indicator = indicatorFor(props.tool.policy);
   return (
     <Button
       ref={props.buttonRef}
@@ -415,26 +421,20 @@ function ToolLeafRow(props: {
         props.active
           ? "bg-primary/15 text-foreground ring-1 ring-inset ring-primary/40 hover:bg-primary/20"
           : "text-foreground/80 hover:bg-accent/60 hover:text-foreground",
-        props.tool.policy?.action === "block" && !props.active && "opacity-60",
+        props.tool.policy.action === "block" && !props.active && "opacity-60",
       )}
       style={{ paddingLeft: rowIndent(props.depth) + 20, paddingRight: 12 }}
     >
       <span className="flex-1 truncate text-left font-mono">
         {highlightMatch(label, props.search)}
       </span>
-      {indicator ? (
+      {indicator && (
         <span
-          aria-label={`${indicator.label} (matched ${props.tool.policy!.pattern})`}
-          title={`${indicator.label} (matched ${props.tool.policy!.pattern})`}
-          className={cn("shrink-0 size-1.5 rounded-full", indicator.dot)}
+          aria-label={indicator.label}
+          title={indicator.label}
+          className={cn("shrink-0 size-1.5 rounded-full", indicator.className)}
         />
-      ) : defaultIsRequiresApproval ? (
-        <span
-          aria-label="Plugin default: Require approval"
-          title="Plugin default: Require approval"
-          className="shrink-0 size-1.5 rounded-full ring-1 ring-amber-500/70 bg-transparent"
-        />
-      ) : null}
+      )}
     </Button>
   );
 }

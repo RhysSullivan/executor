@@ -1,7 +1,12 @@
 import { useMemo, useState } from "react";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { toolSchemaAtom } from "../api/atoms";
-import { ScopeId, ToolId, type ToolPolicyAction } from "@executor/sdk";
+import {
+  ScopeId,
+  ToolId,
+  type EffectivePolicy,
+  type ToolPolicyAction,
+} from "@executor/sdk";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { Markdown } from "./markdown";
@@ -24,6 +29,30 @@ const POLICY_VARIANT: Record<
   approve: "secondary",
   require_approval: "outline",
   block: "destructive",
+};
+
+// Render the effective policy as a badge. User policies show the
+// matched pattern; plugin defaults read "Default: <action>". Silent for
+// the auto-approve plugin default — that's the safe state and the
+// header would just be noise.
+const policyBadgeFor = (policy: EffectivePolicy) => {
+  if (policy.source === "plugin-default" && policy.action === "approve") {
+    return null;
+  }
+  if (policy.source === "user") {
+    return {
+      variant: POLICY_VARIANT[policy.action],
+      title: `Matched policy: ${policy.pattern}`,
+      text: `${POLICY_LABEL[policy.action]} · ${policy.pattern}`,
+      className: "font-mono text-[10px]",
+    };
+  }
+  return {
+    variant: "outline" as const,
+    title: "No matching policy — plugin default applies",
+    text: `Default: ${POLICY_LABEL[policy.action]}`,
+    className: "text-[10px] text-muted-foreground",
+  };
 };
 
 function EmptySection(props: { title: string; message: string }) {
@@ -66,16 +95,9 @@ export function ToolDetail(props: {
   toolName: string;
   toolDescription?: string;
   scopeId: ScopeId;
-  /** Effective policy for this tool, when one matches. Surfaces in the
-   *  header so users see the active rule without leaving the source view. */
-  policy?: {
-    readonly action: ToolPolicyAction;
-    readonly pattern: string;
-  };
-  /** Plugin-derived default approval state. Shown in the header as a
-   *  muted "default" badge when no user policy matches, so users can
-   *  see why a tool prompts even without a policy in effect. */
-  defaultRequiresApproval?: boolean;
+  /** Resolved effective policy — user-authored or plugin-default,
+   *  unified into one shape. Surfaces in the header. */
+  policy?: EffectivePolicy;
 }) {
   const toolContract = useAtomValue(toolSchemaAtom(props.scopeId, props.toolId as ToolId));
   const [tab, setTab] = useState<"schema" | "typescript">("schema");
@@ -118,23 +140,20 @@ export function ToolDetail(props: {
           <div className="mt-1 flex items-center gap-2">
             <h3 className="text-base font-semibold text-foreground truncate">{displayName}</h3>
             <CopyButton value={props.toolId} label="Copy tool ID" />
-            {props.policy ? (
-              <Badge
-                variant={POLICY_VARIANT[props.policy.action]}
-                title={`Matched policy: ${props.policy.pattern}`}
-                className="font-mono text-[10px]"
-              >
-                {POLICY_LABEL[props.policy.action]} · {props.policy.pattern}
-              </Badge>
-            ) : props.defaultRequiresApproval ? (
-              <Badge
-                variant="outline"
-                title="No matching policy — plugin default applies"
-                className="text-[10px] text-muted-foreground"
-              >
-                Default: Require approval
-              </Badge>
-            ) : null}
+            {(() => {
+              if (!props.policy) return null;
+              const badge = policyBadgeFor(props.policy);
+              if (!badge) return null;
+              return (
+                <Badge
+                  variant={badge.variant}
+                  title={badge.title}
+                  className={badge.className}
+                >
+                  {badge.text}
+                </Badge>
+              );
+            })()}
           </div>
           {props.toolDescription && (
             <div className="mt-1.5 max-w-lg text-sm text-muted-foreground line-clamp-2">

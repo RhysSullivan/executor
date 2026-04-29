@@ -55,6 +55,28 @@ export interface PolicyMatch {
 }
 
 // ---------------------------------------------------------------------------
+// Effective policy — the single answer to "what happens when this tool is
+// invoked?". Combines the user policy layer with the plugin's default
+// `requiresApproval` annotation. Callers (UI, agents, telemetry) shouldn't
+// need to know the layering — they ask once and render one thing.
+//
+// `source` distinguishes user-authored rules from plugin-derived defaults
+// purely for display ("Matched: vercel.*" vs "Plugin default"). The
+// `action` is what actually drives behavior at invoke time.
+// ---------------------------------------------------------------------------
+
+export type PolicySource = "user" | "plugin-default";
+
+export interface EffectivePolicy {
+  readonly action: ToolPolicyAction;
+  readonly source: PolicySource;
+  /** Matched pattern; populated only when `source === "user"`. */
+  readonly pattern?: string;
+  /** Policy row id; populated only when `source === "user"`. */
+  readonly policyId?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Pattern matching. v1 grammar:
 //   - exact:        `vercel.dns.create`     matches only that id
 //   - subtree:      `vercel.dns.*`          matches anything starting with `vercel.dns.`
@@ -124,6 +146,62 @@ export const resolveToolPolicy = (
     }
   }
   return undefined;
+};
+
+// ---------------------------------------------------------------------------
+// Layered resolution — one call returns the effective policy combining
+// user-authored rules and the plugin's default `requiresApproval`
+// annotation. Use this anywhere a UI / agent / log needs the final answer
+// without knowing about the layering.
+//
+// Two flavors:
+//   - `resolveEffectivePolicy` takes raw rows + a scopeRank, mirrors
+//      `resolveToolPolicy`. Used server-side.
+//   - `effectivePolicyFromSorted` takes a pre-sorted list of public
+//      `ToolPolicy` projections; for clients that already received
+//      policies in evaluation order from the API.
+// ---------------------------------------------------------------------------
+
+const liftPlugin = (
+  defaultRequiresApproval: boolean | undefined,
+): EffectivePolicy =>
+  defaultRequiresApproval
+    ? { action: "require_approval", source: "plugin-default" }
+    : { action: "approve", source: "plugin-default" };
+
+const liftUser = (match: PolicyMatch): EffectivePolicy => ({
+  action: match.action,
+  source: "user",
+  pattern: match.pattern,
+  policyId: match.policyId,
+});
+
+export const resolveEffectivePolicy = (
+  toolId: string,
+  policies: readonly ToolPolicyRow[],
+  scopeRank: (row: { scope_id: unknown }) => number,
+  defaultRequiresApproval?: boolean,
+): EffectivePolicy => {
+  const match = resolveToolPolicy(toolId, policies, scopeRank);
+  return match ? liftUser(match) : liftPlugin(defaultRequiresApproval);
+};
+
+export const effectivePolicyFromSorted = (
+  toolId: string,
+  sortedPolicies: readonly Pick<ToolPolicy, "pattern" | "action" | "id">[],
+  defaultRequiresApproval?: boolean,
+): EffectivePolicy => {
+  for (const p of sortedPolicies) {
+    if (matchPattern(p.pattern, toolId)) {
+      return {
+        action: p.action,
+        source: "user",
+        pattern: p.pattern,
+        policyId: p.id,
+      };
+    }
+  }
+  return liftPlugin(defaultRequiresApproval);
 };
 
 // ---------------------------------------------------------------------------

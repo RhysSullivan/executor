@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { matchPattern, type ToolPolicyAction } from "@executor/sdk";
+import { effectivePolicyFromSorted } from "@executor/sdk";
 import {
   policiesAtom,
   sourceToolsAtom,
@@ -19,26 +19,6 @@ import type { SourcePlugin } from "../plugins/source-plugin";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
 import { Skeleton } from "../components/skeleton";
-
-// Client-side policy resolution. The /policies page is the source of
-// truth for ordering (innermost-scope-first then position ASC) and the
-// list endpoint already sorts that way, so a linear scan against the
-// list is enough — no need to re-sort here. Mirrors the server's
-// `resolveToolPolicy` for the parts that matter to the UI badge.
-const resolvePolicyForTool = (
-  toolId: string,
-  policies: readonly {
-    readonly pattern: string;
-    readonly action: ToolPolicyAction;
-  }[],
-): { readonly action: ToolPolicyAction; readonly pattern: string } | undefined => {
-  for (const p of policies) {
-    if (matchPattern(p.pattern, toolId)) {
-      return { action: p.action, pattern: p.pattern };
-    }
-  }
-  return undefined;
-};
 
 export function SourceDetailPage(props: {
   namespace: string;
@@ -100,8 +80,7 @@ export function SourceDetailPage(props: {
       name: t.name,
       pluginKey: t.pluginId,
       description: t.description,
-      policy: resolvePolicyForTool(t.id, policyList),
-      defaultRequiresApproval: t.requiresApproval,
+      policy: effectivePolicyFromSorted(t.id, policyList, t.requiresApproval),
     }));
   }, [tools, policyList]);
 
@@ -269,7 +248,6 @@ export function SourceDetailPage(props: {
                       toolDescription={selectedTool.description}
                       scopeId={scopeId}
                       policy={selectedTool.policy}
-                      defaultRequiresApproval={selectedTool.defaultRequiresApproval}
                     />
                   ) : (
                     <ToolDetailEmpty hasTools={sourceTools.length > 0} />

@@ -80,12 +80,16 @@ export {
   matchPattern,
   isValidPattern,
   resolveToolPolicy,
+  resolveEffectivePolicy,
+  effectivePolicyFromSorted,
   rowToToolPolicy,
   ToolPolicyActionSchema,
   type ToolPolicy,
   type CreateToolPolicyInput,
   type UpdateToolPolicyInput,
   type PolicyMatch,
+  type EffectivePolicy,
+  type PolicySource,
 } from "./policies";
 
 // Secrets
