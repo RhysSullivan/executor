@@ -83,6 +83,25 @@ export const connection = sqliteTable("connection", {
   index("connection_provider_idx").on(table.provider),
 ]);
 
+export const tool_policy = sqliteTable("tool_policy", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  pattern: text('pattern').notNull(),
+  action: text('action').notNull(),
+  // Fractional-indexing key (Jira lexorank style). Lex-ordered text;
+  // always subdivisible by lengthening, so reorders never run out of
+  // room.
+  position: text('position').notNull(),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  // List queries are always WHERE scope_id = ? ORDER BY position, so
+  // the composite index serves both the filter and the sort from one
+  // btree.
+  index("tool_policy_scope_id_position_idx").on(table.scope_id, table.position),
+]);
+
 export const openapi_source = sqliteTable("openapi_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
