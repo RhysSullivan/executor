@@ -1,0 +1,67 @@
+---
+interface Props {
+  subtitle?: string
+  subtitleColor?: string
+  leftTitle: string
+  leftDescription: string
+  leftSubtitle?: string
+  leftSubtitleColor?: string
+  rightTitle: string
+  rightDescription: string
+  rightSubtitle?: string
+  rightSubtitleColor?: string
+}
+const { subtitle, subtitleColor, leftTitle, leftDescription, leftSubtitle, leftSubtitleColor, rightTitle, rightDescription, rightSubtitle, rightSubtitleColor } = Astro.props
+---
+
+<section class="py-20 px-6">
+  <div class="mx-auto w-full max-w-5xl">
+    <div class="grid max-md:divide-y md:grid-cols-2 md:divide-x divide-border">
+      <!-- Left column -->
+      <div class="row-span-2 grid grid-rows-subgrid gap-8 pb-12 md:pr-12">
+        <div>
+          {(leftSubtitle || subtitle) && (
+            <span
+              class="text-[13px] font-semibold tracking-[0.04em] uppercase mb-3 block"
+              style={(leftSubtitleColor || subtitleColor) ? `color: ${leftSubtitleColor || subtitleColor}` : undefined}
+            >
+              {leftSubtitle || subtitle}
+            </span>
+          )}
+          <h3 class="text-foreground text-xl font-semibold">{leftTitle}</h3>
+          <p class="text-muted-foreground mt-4 text-lg leading-[1.6]">{leftDescription}</p>
+        </div>
+        <div aria-hidden="true" class="relative">
+          <div class="before:bg-bg before:border-border after:border-border after:bg-bg/50 before:z-[1] group relative -mx-4 px-4 pt-6 before:absolute before:inset-x-6 before:bottom-0 before:top-4 before:rounded-2xl before:border after:absolute after:inset-x-9 after:bottom-0 after:top-2 after:rounded-2xl after:border">
+            <div class="bg-card ring-1 ring-border shadow-xl shadow-black/[0.06] relative z-10 overflow-hidden rounded-2xl">
+              <slot name="left" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right column -->
+      <div class="row-span-2 grid grid-rows-subgrid gap-8 pb-12 max-md:pt-12 md:pl-12">
+        <div>
+          {rightSubtitle && (
+            <span
+              class="text-[13px] font-semibold tracking-[0.04em] uppercase mb-3 block"
+              style={rightSubtitleColor ? `color: ${rightSubtitleColor}` : undefined}
+            >
+              {rightSubtitle}
+            </span>
+          )}
+          <h3 class="text-foreground text-xl font-semibold">{rightTitle}</h3>
+          <p class="text-muted-foreground mt-4 text-lg leading-[1.6]">{rightDescription}</p>
+        </div>
+        <div aria-hidden="true" class="relative">
+          <div class="before:bg-bg before:border-border after:border-border after:bg-bg/50 before:z-[1] group relative -mx-4 px-4 pt-6 before:absolute before:inset-x-6 before:bottom-0 before:top-4 before:rounded-2xl before:border after:absolute after:inset-x-9 after:bottom-0 after:top-2 after:rounded-2xl after:border">
+            <div class="bg-card ring-1 ring-border shadow-xl shadow-black/[0.06] relative z-10 overflow-hidden rounded-2xl">
+              <slot name="right" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

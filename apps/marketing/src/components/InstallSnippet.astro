@@ -1,0 +1,90 @@
+---
+const managers = [
+  { id: "pnpm", label: "pnpm", cmd: "pnpm add executor" },
+  { id: "npm", label: "npm", cmd: "npx executor@latest" },
+  { id: "yarn", label: "yarn", cmd: "yarn add executor" },
+  { id: "bun", label: "bun", cmd: "bunx executor@latest" },
+];
+---
+
+<div class="relative w-full rounded-lg border border-stone-200 bg-[#F9F9F8] overflow-hidden" id="install-snippet">
+  <!-- Tab bar -->
+  <div class="flex items-center gap-2 border-b border-stone-200 px-3 py-1.5">
+    <!-- Terminal icon -->
+    <div class="flex size-4 items-center justify-center rounded-sm bg-stone-800">
+      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 7l5 5l-5 5"></path>
+        <path d="M12 19l7 0"></path>
+      </svg>
+    </div>
+
+    <!-- Tabs -->
+    {managers.map((m) => (
+      <button
+        data-tab={m.id}
+        data-cmd={m.cmd}
+        class:list={[
+          "install-tab h-7 rounded-md border px-2 text-sm font-medium cursor-pointer transition-colors",
+          m.id === "npm"
+            ? "border-stone-200 bg-white text-stone-900"
+            : "border-transparent text-stone-400 hover:text-stone-600",
+        ]}
+      >
+        {m.label}
+      </button>
+    ))}
+
+    <!-- Spacer -->
+    <div class="flex-1"></div>
+
+    <!-- Copy button -->
+    <button
+      id="copy-btn"
+      class="flex size-7 items-center justify-center rounded-md opacity-60 hover:opacity-100 cursor-pointer transition-opacity"
+      title="Copy to clipboard"
+    >
+      <svg id="copy-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-stone-500">
+        <path d="M7 7m0 2.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667z"></path>
+        <path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"></path>
+      </svg>
+      <svg id="check-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-500 hidden">
+        <path d="M5 12l5 5l10 -10"></path>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Command -->
+  <div class="px-4 py-3.5">
+    <code id="install-cmd" class="font-mono text-sm text-stone-900">npx executor@latest</code>
+  </div>
+</div>
+
+<script>
+  const tabs = document.querySelectorAll<HTMLButtonElement>(".install-tab");
+  const cmdEl = document.getElementById("install-cmd")!;
+  const copyBtn = document.getElementById("copy-btn")!;
+  const copyIcon = document.getElementById("copy-icon")!;
+  const checkIcon = document.getElementById("check-icon")!;
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      tabs.forEach((t) => {
+        t.classList.remove("border-stone-200", "bg-white", "text-stone-900");
+        t.classList.add("border-transparent", "text-stone-400");
+      });
+      tab.classList.add("border-stone-200", "bg-white", "text-stone-900");
+      tab.classList.remove("border-transparent", "text-stone-400");
+      cmdEl.textContent = tab.dataset.cmd!;
+    });
+  });
+
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(cmdEl.textContent!.trim());
+    copyIcon.classList.add("hidden");
+    checkIcon.classList.remove("hidden");
+    setTimeout(() => {
+      copyIcon.classList.remove("hidden");
+      checkIcon.classList.add("hidden");
+    }, 1500);
+  });
+</script>

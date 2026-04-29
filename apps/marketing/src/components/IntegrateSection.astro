@@ -1,0 +1,99 @@
+---
+import { Code } from 'astro:components'
+
+const code = `import { createExecutor } from "@executor/sdk/promise";
+import { mcpPlugin } from "@executor/plugin-mcp/promise";
+import { openApiPlugin } from "@executor/plugin-openapi/promise";
+import { createExecutionEngine } from "@executor/execution";
+
+const executor = await createExecutor({
+  scope: { name: "demo" },
+  plugins: [mcpPlugin(), openApiPlugin()] as const,
+});
+
+await executor.mcp.addSource({
+  transport: "remote",
+  name: "Linear",
+  endpoint: "https://mcp.linear.app/sse",
+});
+
+await executor.openapi.addSpec({
+  spec: "https://api.slack.com/specs/openapi/v2.0.json",
+  namespace: "slack",
+});
+
+const engine = createExecutionEngine({ executor });
+
+const { result } = await engine.execute(\`
+  const [issues, channels] = await Promise.all([
+    tools.linear.list_issues({ limit: 5 }),
+    tools.slack.conversations_list({ limit: 5 }),
+  ]);
+  return { issues, channels };
+\`, { onElicitation: async () => ({ action: "accept" }) });
+
+console.log(result);
+await executor.close();`
+---
+
+<section id="integrate" class="py-24 px-6">
+  <div class="mx-auto max-w-5xl">
+    <div class="grid md:grid-cols-[1fr_2fr] gap-12 items-start">
+      <!-- Left: title (sticky) -->
+      <div class="md:sticky md:top-24">
+        <span class="text-[13px] font-semibold tracking-[0.04em] uppercase mb-3 block" style="color: oklch(72% 0.19 195);">SDK</span>
+        <h2 class="text-foreground text-xl font-semibold">Integrate into your LLM apps</h2>
+        <p class="text-muted-foreground mt-4 text-lg leading-[1.6]">Drop the SDK into any Node.js app to give your agents access to all your credentials in Executor.</p>
+        <a href="https://github.com/RhysSullivan/executor" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[14px] text-muted-foreground hover:text-foreground transition-colors mt-4">Read more &rarr;</a>
+      </div>
+
+      <!-- Right: code card -->
+      <div>
+        <div class="relative overflow-hidden rounded-2xl bg-card shadow-xs ring-1 ring-border pt-6">
+          <!-- Window chrome -->
+          <div class="relative z-10 px-3">
+            <div class="flex gap-1.5 px-3">
+              <div class="bg-muted-foreground/10 border-foreground/5 size-2 rounded-full border"></div>
+              <div class="bg-muted-foreground/10 border-foreground/5 size-2 rounded-full border"></div>
+              <div class="bg-muted-foreground/10 border-foreground/5 size-2 rounded-full border"></div>
+            </div>
+          </div>
+
+          <!-- Code block -->
+          <div class="integrate-code overflow-auto px-6 pb-6 pt-4">
+            <Code code={code} lang="typescript" theme="github-light" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .integrate-code :global(pre) {
+    background: transparent !important;
+    padding: 0;
+    margin: 0;
+    border: none;
+  }
+
+  .integrate-code :global(code) {
+    font-size: 13px;
+    line-height: 1.7;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  }
+
+  .integrate-code :global(.line::before) {
+    content: counter(line);
+    counter-increment: line;
+    display: inline-block;
+    width: 2ch;
+    margin-right: 1.5em;
+    text-align: right;
+    color: oklch(0.7 0 0);
+  }
+
+  .integrate-code :global(pre > code) {
+    counter-reset: line;
+  }
+</style>
