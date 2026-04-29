@@ -481,8 +481,12 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const remaining = yield* executor.tools.list();
       const ids = remaining.map((t) => t.id).sort();
+      // The openapi plugin also ships skills under its own sourceId
+      // (see notes/skills.md). ASCII sort puts uppercase `addSource`
+      // before lowercase `adding-a-source`.
       expect(ids).toEqual([
         "openapi.addSource",
+        "openapi.adding-a-source",
         "openapi.previewSpec",
       ]);
     }),

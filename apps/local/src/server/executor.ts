@@ -38,6 +38,7 @@ import { graphqlPlugin } from "@executor/plugin-graphql";
 import { keychainPlugin } from "@executor/plugin-keychain";
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 import { onepasswordPlugin } from "@executor/plugin-onepassword";
+import { skillsPlugin } from "@executor/plugin-skills";
 
 // In dev mode the drizzle folder sits next to the source tree. In a compiled
 // binary the files are inlined via the build-time gen module below, and we
@@ -102,6 +103,10 @@ const createLocalPlugins = (configFile: ConfigFileSink) =>
     keychainPlugin(),
     fileSecretsPlugin(),
     onepasswordPlugin(),
+    // Global / cross-cutting skills slot. Per-source skills (like the
+    // openapi playbook) are declared by their owning plugin under its
+    // own sourceId — see notes/skills.md.
+    skillsPlugin(),
   ] as const;
 
 type LocalPlugins = ReturnType<typeof createLocalPlugins>;
