@@ -23,6 +23,7 @@ export const ReactivityKey = {
   secrets: "secrets",
   connections: "connections",
   scope: "scope",
+  policies: "policies",
   // cloud-only resources
   orgMembers: "org:members",
   orgDomains: "org:domains",
@@ -47,6 +48,14 @@ export const connectionWriteKeys = [
 
 /** Mutations that change scope membership/info. */
 export const scopeWriteKeys = [ReactivityKey.scope] as const;
+
+/** Mutations that mutate tool policies. Also touches `tools` because
+ *  `tools.list` filters blocked tools — adding/removing a `block`
+ *  policy changes what the tools page shows. */
+export const policyWriteKeys = [
+  ReactivityKey.policies,
+  ReactivityKey.tools,
+] as const;
 
 /** Cloud-only: org membership mutations. */
 export const orgMemberWriteKeys = [ReactivityKey.orgMembers] as const;

@@ -5,6 +5,7 @@ export { SecretsApi } from "./secrets/api";
 export { ConnectionsApi } from "./connections/api";
 export { ExecutionsApi } from "./executions/api";
 export { ScopeApi } from "./scope/api";
+export { PoliciesApi } from "./policies/api";
 export {
   InternalError,
   ErrorCapture,

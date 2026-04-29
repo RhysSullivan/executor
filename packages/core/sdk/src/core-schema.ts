@@ -148,6 +148,32 @@ export const coreSchema = {
       updated_at: { type: "date", required: true },
     },
   },
+  // User-authored overrides for tool permissions. Each row is one rule:
+  // a glob-ish pattern + an action (approve / require_approval / block).
+  // Resolution walks the scope stack innermost-first, then `position`
+  // ascending within each scope; first match wins. Plugin-derived
+  // annotations from `resolveAnnotations` apply only when no rule
+  // matches.
+  //
+  // Pattern grammar (v1):
+  //   - `vercel.dns.create`  exact tool id
+  //   - `vercel.dns.*`       any tool whose id starts with `vercel.dns.`
+  //   - `vercel.*`           plugin-wide
+  // No `**`, no brace expansion, no leading `*`.
+  tool_policy: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      pattern: { type: "string", required: true },
+      /** "approve" | "require_approval" | "block". */
+      action: { type: "string", required: true },
+      /** Lower position = higher precedence within a scope. New rules
+       *  default to the top (smallest position). */
+      position: { type: "number", required: true, index: true },
+      created_at: { type: "date", required: true },
+      updated_at: { type: "date", required: true },
+    },
+  },
 } as const satisfies DBSchema;
 
 export type CoreSchema = typeof coreSchema;
@@ -175,6 +201,35 @@ export type ConnectionRow = InferDBFieldsOutput<
   CoreSchema["connection"]["fields"]
 > &
   Record<string, unknown>;
+
+export type ToolPolicyRow = InferDBFieldsOutput<
+  CoreSchema["tool_policy"]["fields"]
+> &
+  Record<string, unknown>;
+
+// ---------------------------------------------------------------------------
+// Tool policy — user-authored override of the default approval behavior.
+// `action` tells the executor what to do at invoke time and at search /
+// list time:
+//   - approve          : skip the upfront approval prompt, just run.
+//   - require_approval : force an approval prompt even if the plugin's
+//                        annotations would have skipped it.
+//   - block            : invisible to search / list, hard-fail at invoke
+//                        with `ToolBlockedError`.
+// Mid-invocation elicitations (`mayElicit`) are NOT affected by policies.
+// ---------------------------------------------------------------------------
+
+export type ToolPolicyAction = "approve" | "require_approval" | "block";
+
+export const TOOL_POLICY_ACTIONS = [
+  "approve",
+  "require_approval",
+  "block",
+] as const satisfies readonly ToolPolicyAction[];
+
+export const isToolPolicyAction = (value: unknown): value is ToolPolicyAction =>
+  typeof value === "string" &&
+  (TOOL_POLICY_ACTIONS as readonly string[]).includes(value);
 
 // ---------------------------------------------------------------------------
 // Tool annotations — default-policy metadata the executor consults

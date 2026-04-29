@@ -83,6 +83,20 @@ export const connection = pgTable("connection", {
   index("connection_provider_idx").on(table.provider),
 ]);
 
+export const tool_policy = pgTable("tool_policy", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  pattern: text('pattern').notNull(),
+  action: text('action').notNull(),
+  position: bigint('position', { mode: 'number' }).notNull(),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("tool_policy_scope_id_idx").on(table.scope_id),
+  index("tool_policy_position_idx").on(table.position),
+]);
+
 export const openapi_source = pgTable("openapi_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),

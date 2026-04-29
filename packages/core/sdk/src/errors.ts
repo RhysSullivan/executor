@@ -40,6 +40,18 @@ export class NoHandlerError extends Schema.TaggedError<NoHandlerError>()(
   },
 ) {}
 
+/** Tool invocation was rejected because a workspace `tool_policy` rule
+ *  with `action: "block"` matched. `pattern` is the matched policy
+ *  pattern so callers / agents can render a useful "this is blocked
+ *  by your `vercel.dns.*` rule" message. */
+export class ToolBlockedError extends Schema.TaggedError<ToolBlockedError>()(
+  "ToolBlockedError",
+  {
+    toolId: ToolId,
+    pattern: Schema.String,
+  },
+) {}
+
 // ---------------------------------------------------------------------------
 // Source lifecycle
 // ---------------------------------------------------------------------------
@@ -138,6 +150,7 @@ export type ExecutorError =
   | ToolInvocationError
   | PluginNotLoadedError
   | NoHandlerError
+  | ToolBlockedError
   | SourceNotFoundError
   | SourceRemovalNotAllowedError
   | SecretNotFoundError

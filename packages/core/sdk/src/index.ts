@@ -32,6 +32,7 @@ export { Scope } from "./scope";
 export {
   ToolNotFoundError,
   ToolInvocationError,
+  ToolBlockedError,
   NoHandlerError,
   SourceNotFoundError,
   SourceRemovalNotAllowedError,
@@ -58,6 +59,8 @@ export {
 // Core schema
 export {
   coreSchema,
+  isToolPolicyAction,
+  TOOL_POLICY_ACTIONS,
   type CoreSchema,
   type SourceInput,
   type SourceInputTool,
@@ -66,9 +69,24 @@ export {
   type DefinitionRow,
   type SecretRow,
   type ConnectionRow,
+  type ToolPolicyRow,
+  type ToolPolicyAction,
   type DefinitionsInput,
   type ToolAnnotations,
 } from "./core-schema";
+
+// Tool policies
+export {
+  matchPattern,
+  isValidPattern,
+  resolveToolPolicy,
+  rowToToolPolicy,
+  ToolPolicyActionSchema,
+  type ToolPolicy,
+  type CreateToolPolicyInput,
+  type UpdateToolPolicyInput,
+  type PolicyMatch,
+} from "./policies";
 
 // Secrets
 export {

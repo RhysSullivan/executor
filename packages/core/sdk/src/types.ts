@@ -107,4 +107,9 @@ export interface ToolListFilter {
   readonly query?: string;
   /** Resolve plugin-derived annotations. Defaults to true. */
   readonly includeAnnotations?: boolean;
+  /** Include tools whose effective `tool_policy` is `block`. Defaults to
+   *  `false` so the agent-facing surfaces (`searchTools`, sandbox `tools.list`)
+   *  silently omit blocked tools. The settings UI for managing policies
+   *  should pass `true` so users can author rules against blocked tools. */
+  readonly includeBlocked?: boolean;
 }

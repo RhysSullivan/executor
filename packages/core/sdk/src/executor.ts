@@ -23,12 +23,14 @@ import {
 } from "./connections";
 import {
   coreSchema,
+  isToolPolicyAction,
   type ConnectionRow,
   type CoreSchema,
   type DefinitionsInput,
   type SourceInput,
   type SourceRow,
   type ToolAnnotations,
+  type ToolPolicyRow,
   type ToolRow,
 } from "./core-schema";
 import {
@@ -47,10 +49,20 @@ import {
   PluginNotLoadedError,
   SecretOwnedByConnectionError,
   SourceRemovalNotAllowedError,
+  ToolBlockedError,
   ToolInvocationError,
   ToolNotFoundError,
 } from "./errors";
 import { ConnectionId, ScopeId, SecretId, ToolId } from "./ids";
+import {
+  isValidPattern,
+  resolveToolPolicy,
+  rowToToolPolicy,
+  type CreateToolPolicyInput,
+  type PolicyMatch,
+  type ToolPolicy,
+  type UpdateToolPolicyInput,
+} from "./policies";
 import type {
   AnyPlugin,
   Elicit,
@@ -142,6 +154,7 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     ) => Effect.Effect<
       unknown,
       | ToolNotFoundError
+      | ToolBlockedError
       | PluginNotLoadedError
       | NoHandlerError
       | ToolInvocationError
@@ -226,6 +239,29 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     >;
     readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
     readonly providers: () => Effect.Effect<readonly string[]>;
+  };
+
+  readonly policies: {
+    /** All policies visible across the executor's scope stack, sorted
+     *  by (innermost-scope-first, position ascending) — i.e. the order
+     *  in which they're evaluated by first-match-wins. */
+    readonly list: () => Effect.Effect<readonly ToolPolicy[], StorageFailure>;
+    /** Create a new policy. Defaults to the top of the target scope's
+     *  list (highest precedence) when `position` is omitted. */
+    readonly create: (
+      input: CreateToolPolicyInput,
+    ) => Effect.Effect<ToolPolicy, StorageFailure>;
+    readonly update: (
+      input: UpdateToolPolicyInput,
+    ) => Effect.Effect<ToolPolicy, StorageFailure>;
+    readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
+    /** Resolve the effective policy for a tool id by walking the scope-
+     *  stacked policy list with first-match-wins semantics. Returns
+     *  `undefined` when no rule matches (caller falls back to the
+     *  plugin's `resolveAnnotations` output). */
+    readonly resolve: (
+      toolId: string,
+    ) => Effect.Effect<PolicyMatch | undefined, StorageFailure>;
   };
 
   readonly close: () => Effect.Effect<void, StorageFailure>;
@@ -1944,11 +1980,37 @@ export const createExecutor = <
         for (const row of dynamicDeduped) {
           out.push(rowToTool(row, annotations.get(row.id)));
         }
-        const result = filter ? out.filter((t) => toolMatchesFilter(t, filter)) : out;
+        const filtered = filter
+          ? out.filter((t) => toolMatchesFilter(t, filter))
+          : out;
+
+        // Drop tools blocked by user policy unless the caller explicitly
+        // asked to see them (the settings UI does, agent surfaces don't).
+        // One findMany covers the entire scope stack; resolution per
+        // tool is in-memory.
+        let result = filtered;
+        let blockedCount = 0;
+        if (filter?.includeBlocked !== true) {
+          const policies = yield* loadAllPolicies();
+          if (policies.length > 0) {
+            const kept: Tool[] = [];
+            for (const tool of filtered) {
+              const match = resolveToolPolicy(tool.id, policies, scopeRank);
+              if (match?.action === "block") {
+                blockedCount++;
+                continue;
+              }
+              kept.push(tool);
+            }
+            result = kept;
+          }
+        }
+
         yield* Effect.annotateCurrentSpan({
           "executor.tools.static_count": staticTools.size,
           "executor.tools.dynamic_count": dynamicDeduped.length,
           "executor.tools.result_count": result.length,
+          "executor.tools.blocked_count": blockedCount,
         });
         return result;
       }).pipe(Effect.withSpan("executor.tools.list"));
@@ -2130,18 +2192,51 @@ export const createExecutor = <
         });
     };
 
+    // ------------------------------------------------------------------
+    // Tool policies — user-authored overrides of the plugin-derived
+    // approval annotations. Resolution walks the scope-stacked policy
+    // table with first-match-wins ordering (innermost scope first, then
+    // `position` ascending). The result either short-circuits invoke
+    // (`block`), forces approval (`require_approval`), skips approval
+    // (`approve`), or returns `undefined` so the plugin annotation is
+    // used as today.
+    // ------------------------------------------------------------------
+
+    const loadAllPolicies = () =>
+      core.findMany({ model: "tool_policy" });
+
+    const resolveToolPolicyForId = (toolId: string) =>
+      Effect.gen(function* () {
+        const policies = yield* loadAllPolicies();
+        return resolveToolPolicy(toolId, policies, scopeRank);
+      });
+
     const enforceApproval = (
       annotations: ToolAnnotations | undefined,
       toolId: string,
       args: unknown,
       options: InvokeOptions | undefined,
+      policy: PolicyMatch | undefined,
     ) =>
       Effect.gen(function* () {
-        if (!annotations?.requiresApproval) return;
+        // approve → never prompt regardless of plugin annotation.
+        if (policy?.action === "approve") return;
+
+        // require_approval → always prompt. If the plugin already had a
+        // description, prefer it; otherwise show the matched pattern so
+        // the user can see *why* the prompt fired.
+        const policyForcesApproval = policy?.action === "require_approval";
+        if (!policyForcesApproval && !annotations?.requiresApproval) return;
+
         const handler = resolveElicitationHandler(options);
         const tid = ToolId.make(toolId);
+        const message = annotations?.approvalDescription
+          ? annotations.approvalDescription
+          : policyForcesApproval && policy
+            ? `Approve ${toolId}? (matched policy: ${policy.pattern})`
+            : `Approve ${toolId}?`;
         const request = new FormElicitation({
-          message: annotations.approvalDescription ?? `Approve ${toolId}?`,
+          message,
           requestedSchema: {},
         });
         const response = yield* handler({ toolId: tid, args, request });
@@ -2174,6 +2269,19 @@ export const createExecutor = <
             ),
           );
 
+        // Resolve the user-authored policy first. A `block` rule
+        // short-circuits both the static and dynamic paths before any
+        // plugin code runs.
+        const policy = yield* resolveToolPolicyForId(toolId).pipe(
+          Effect.withSpan("executor.tool.resolve_policy"),
+        );
+        if (policy?.action === "block") {
+          return yield* new ToolBlockedError({
+            toolId: ToolId.make(toolId),
+            pattern: policy.pattern,
+          });
+        }
+
         // Static path — O(1) map lookup, no DB hit.
         const staticEntry = staticTools.get(toolId);
         if (staticEntry) {
@@ -2188,6 +2296,7 @@ export const createExecutor = <
             toolId,
             args,
             options,
+            policy,
           ).pipe(Effect.withSpan("executor.tool.enforce_approval"));
           return yield* wrapInvocationError(
             staticEntry.tool.handler({
@@ -2237,9 +2346,11 @@ export const createExecutor = <
         // has a resolver. Cheap because the plugin typically already
         // needs to load its enrichment data to invoke the tool —
         // implementations should structure their resolver + invokeTool
-        // around a single storage read.
+        // around a single storage read. Skipped entirely when the user
+        // policy is `approve` — the prompt is going to be skipped no
+        // matter what the plugin says, so don't pay for the lookup.
         let annotations: ToolAnnotations | undefined;
-        if (runtime.plugin.resolveAnnotations) {
+        if (policy?.action !== "approve" && runtime.plugin.resolveAnnotations) {
           const map = yield* runtime.plugin
             .resolveAnnotations({
               ctx: runtime.ctx,
@@ -2249,7 +2360,7 @@ export const createExecutor = <
             .pipe(Effect.withSpan("executor.tool.resolve_annotations"));
           annotations = map[toolId];
         }
-        yield* enforceApproval(annotations, toolId, args, options).pipe(
+        yield* enforceApproval(annotations, toolId, args, options, policy).pipe(
           Effect.withSpan("executor.tool.enforce_approval"),
         );
 
@@ -2376,6 +2487,155 @@ export const createExecutor = <
         return "missing";
       });
 
+    // ------------------------------------------------------------------
+    // Policies — CRUD surface backed by the `tool_policy` core table.
+    // The cloud settings UI is one consumer; plugins call the same API
+    // when they programmatically manage policies.
+    //
+    // `list` orders rows the same way resolution does — innermost scope
+    // first, then position ascending — so the UI can render the
+    // evaluation order without re-sorting.
+    // ------------------------------------------------------------------
+    const policiesList = () =>
+      Effect.gen(function* () {
+        const rows = yield* loadAllPolicies();
+        const sorted = [...rows].sort((a, b) => {
+          const sa = scopeRank(a);
+          const sb = scopeRank(b);
+          if (sa !== sb) return sa - sb;
+          return (a.position as number) - (b.position as number);
+        });
+        return sorted.map((row) => rowToToolPolicy(row));
+      }).pipe(Effect.withSpan("executor.policies.list"));
+
+    const policiesCreate = (input: CreateToolPolicyInput) =>
+      Effect.gen(function* () {
+        if (!isValidPattern(input.pattern)) {
+          return yield* new StorageError({
+            message:
+              `Invalid tool policy pattern "${input.pattern}". ` +
+              `Patterns must be exact tool ids ("a.b.c") or trailing ` +
+              `wildcards ("a.b.*"); leading "*" and "**" are not supported.`,
+            cause: undefined,
+          });
+        }
+        if (!isToolPolicyAction(input.action)) {
+          return yield* new StorageError({
+            message:
+              `Invalid tool policy action "${String(input.action)}". ` +
+              `Expected "approve" | "require_approval" | "block".`,
+            cause: undefined,
+          });
+        }
+
+        // Default position: top of the target scope's list (smallest
+        // position - 1). Lets newly-created rules win against existing
+        // ones, which matches the v1 design — users typically add a
+        // rule to override behavior they're seeing right now, not as a
+        // background fallback.
+        let position = input.position;
+        if (position === undefined) {
+          const existing = yield* core.findMany({
+            model: "tool_policy",
+            where: [{ field: "scope_id", value: input.scope }],
+          });
+          let min = 0;
+          for (const row of existing) {
+            const p = row.position as number;
+            if (p < min) min = p;
+          }
+          position = min - 1;
+        }
+
+        const id = `pol_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+        const now = new Date();
+        yield* core.create({
+          model: "tool_policy",
+          data: {
+            id,
+            scope_id: input.scope,
+            pattern: input.pattern,
+            action: input.action,
+            position,
+            created_at: now,
+            updated_at: now,
+          },
+          forceAllowId: true,
+        });
+        return rowToToolPolicy({
+          id,
+          scope_id: input.scope,
+          pattern: input.pattern,
+          action: input.action,
+          position,
+          created_at: now,
+          updated_at: now,
+        } as ToolPolicyRow);
+      }).pipe(Effect.withSpan("executor.policies.create"));
+
+    const policiesUpdate = (input: UpdateToolPolicyInput) =>
+      Effect.gen(function* () {
+        if (input.pattern !== undefined && !isValidPattern(input.pattern)) {
+          return yield* new StorageError({
+            message: `Invalid tool policy pattern "${input.pattern}".`,
+            cause: undefined,
+          });
+        }
+        if (input.action !== undefined && !isToolPolicyAction(input.action)) {
+          return yield* new StorageError({
+            message: `Invalid tool policy action "${String(input.action)}".`,
+            cause: undefined,
+          });
+        }
+
+        const rows = yield* core.findMany({
+          model: "tool_policy",
+          where: [{ field: "id", value: input.id }],
+        });
+        const row = findInnermost(rows);
+        if (!row) {
+          return yield* new StorageError({
+            message: `Tool policy "${input.id}" not found.`,
+            cause: undefined,
+          });
+        }
+
+        const updated: ToolPolicyRow = {
+          ...row,
+          pattern: input.pattern ?? row.pattern,
+          action: input.action ?? row.action,
+          position: input.position ?? row.position,
+          updated_at: new Date(),
+        };
+        yield* core.update({
+          model: "tool_policy",
+          where: [
+            { field: "id", value: input.id },
+            { field: "scope_id", value: row.scope_id as string },
+          ],
+          update: {
+            pattern: updated.pattern as string,
+            action: updated.action as string,
+            position: updated.position as number,
+            updated_at: updated.updated_at as Date,
+          },
+        });
+        return rowToToolPolicy(updated);
+      }).pipe(Effect.withSpan("executor.policies.update"));
+
+    const policiesRemove = (id: string) =>
+      core
+        .deleteMany({
+          model: "tool_policy",
+          where: [{ field: "id", value: id }],
+        })
+        .pipe(Effect.asVoid, Effect.withSpan("executor.policies.remove"));
+
+    const policiesResolve = (toolId: string) =>
+      resolveToolPolicyForId(toolId).pipe(
+        Effect.withSpan("executor.policies.resolve"),
+      );
+
     const close = () =>
       Effect.gen(function* () {
         for (const runtime of runtimes.values()) {
@@ -2429,6 +2689,13 @@ export const createExecutor = <
             () =>
               Array.from(connectionProviders.keys()) as readonly string[],
           ),
+      },
+      policies: {
+        list: policiesList,
+        create: policiesCreate,
+        update: policiesUpdate,
+        remove: policiesRemove,
+        resolve: policiesResolve,
       },
       close,
     };

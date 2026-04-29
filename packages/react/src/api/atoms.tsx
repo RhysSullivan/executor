@@ -71,6 +71,13 @@ export const connectionsAtom = (scopeId: ScopeId) =>
     reactivityKeys: [ReactivityKey.connections],
   });
 
+export const policiesAtom = (scopeId: ScopeId) =>
+  ExecutorApiClient.query("policies", "list", {
+    path: { scopeId },
+    timeToLive: "30 seconds",
+    reactivityKeys: [ReactivityKey.policies],
+  });
+
 // ---------------------------------------------------------------------------
 // Mutation atoms — reactivityKeys must be passed at call site (effect-atom
 // does not accept them at definition time). See `reactivity-keys.tsx` for the
@@ -91,3 +98,9 @@ export const removeSource = ExecutorApiClient.mutation("sources", "remove");
 export const refreshSource = ExecutorApiClient.mutation("sources", "refresh");
 
 export const detectSource = ExecutorApiClient.mutation("sources", "detect");
+
+export const createPolicy = ExecutorApiClient.mutation("policies", "create");
+
+export const updatePolicy = ExecutorApiClient.mutation("policies", "update");
+
+export const removePolicy = ExecutorApiClient.mutation("policies", "remove");
