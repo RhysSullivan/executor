@@ -64,6 +64,7 @@ const actionVariants: Record<
 // ---------------------------------------------------------------------------
 
 const matchesPattern = (pattern: string, toolId: string): boolean => {
+  if (pattern === "*") return true;
   if (pattern === toolId) return true;
   if (pattern.endsWith(".*")) {
     const prefix = pattern.slice(0, -2);
@@ -75,6 +76,7 @@ const matchesPattern = (pattern: string, toolId: string): boolean => {
 
 const isValidPattern = (pattern: string): boolean => {
   if (pattern.length === 0) return false;
+  if (pattern === "*") return true;
   if (pattern.startsWith(".") || pattern.endsWith(".")) return false;
   if (pattern.includes("..")) return false;
   if (pattern.startsWith("*")) return false;
@@ -114,16 +116,18 @@ function AddPolicyForm(props: {
       <div className="flex flex-col gap-1">
         <label className="text-xs font-medium text-foreground/80">Pattern</label>
         <Input
-          placeholder="vercel.dns.* or vercel.dns.create"
+          placeholder="vercel.dns.* or *"
           value={pattern}
           onChange={(e) => setPattern(e.target.value)}
           className="font-mono text-sm"
         />
         <p className="text-xs text-muted-foreground">
-          Exact tool id or trailing wildcard. Examples:{" "}
-          <code className="font-mono">vercel.dns.create</code>,{" "}
+          Exact tool id, trailing wildcard, or{" "}
+          <code className="font-mono">*</code> for every tool. Examples:{" "}
+          <code className="font-mono">*</code>,{" "}
+          <code className="font-mono">vercel.*</code>,{" "}
           <code className="font-mono">vercel.dns.*</code>,{" "}
-          <code className="font-mono">vercel.*</code>.
+          <code className="font-mono">vercel.dns.create</code>.
         </p>
       </div>
       <div className="flex flex-col gap-1">

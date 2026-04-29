@@ -2514,8 +2514,9 @@ export const createExecutor = <
           return yield* new StorageError({
             message:
               `Invalid tool policy pattern "${input.pattern}". ` +
-              `Patterns must be exact tool ids ("a.b.c") or trailing ` +
-              `wildcards ("a.b.*"); leading "*" and "**" are not supported.`,
+              `Patterns must be "*" (every tool), an exact tool id ("a.b.c"), ` +
+              `or a trailing wildcard ("a.b.*"). Leading "*" prefixes ` +
+              `("*foo", "*.foo") and "**" are not supported.`,
             cause: undefined,
           });
         }

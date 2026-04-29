@@ -78,14 +78,16 @@ export interface EffectivePolicy {
 
 // ---------------------------------------------------------------------------
 // Pattern matching. v1 grammar:
+//   - universal:    `*`                     matches every tool id
 //   - exact:        `vercel.dns.create`     matches only that id
 //   - subtree:      `vercel.dns.*`          matches anything starting with `vercel.dns.`
 //   - plugin-wide:  `vercel.*`              matches anything starting with `vercel.`
-// `*` is only meaningful as the trailing segment after a dot. Patterns that
-// don't end in `.*` are treated as exact-id matches.
+// `*` is only meaningful as a complete trailing segment (or as the
+// entire pattern). Patterns without a wildcard are exact-id matches.
 // ---------------------------------------------------------------------------
 
 export const matchPattern = (pattern: string, toolId: string): boolean => {
+  if (pattern === "*") return true;
   if (pattern === toolId) return true;
   if (pattern.endsWith(".*")) {
     const prefix = pattern.slice(0, -2);
@@ -102,6 +104,7 @@ export const matchPattern = (pattern: string, toolId: string): boolean => {
 
 export const isValidPattern = (pattern: string): boolean => {
   if (pattern.length === 0) return false;
+  if (pattern === "*") return true;
   if (pattern.startsWith(".") || pattern.endsWith(".")) return false;
   if (pattern.includes("..")) return false;
   if (pattern.startsWith("*")) return false;

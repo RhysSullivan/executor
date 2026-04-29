@@ -156,10 +156,11 @@ export const coreSchema = {
   // matches.
   //
   // Pattern grammar (v1):
+  //   - `*`                  every tool id (universal)
   //   - `vercel.dns.create`  exact tool id
   //   - `vercel.dns.*`       any tool whose id starts with `vercel.dns.`
   //   - `vercel.*`           plugin-wide
-  // No `**`, no brace expansion, no leading `*`.
+  // No `**`, no brace expansion, no leading-`*` prefixes (`*foo`, `*.foo`).
   tool_policy: {
     fields: {
       id: { type: "string", required: true },

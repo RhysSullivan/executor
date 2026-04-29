@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import type { ToolPolicyRow } from "./core-schema";
+import { PolicyId } from "./ids";
 import { createExecutor } from "./executor";
 import {
   ElicitationResponse,
@@ -45,6 +46,12 @@ describe("matchPattern", () => {
     // otherwise `vercel.dns.*` would silently capture `vercel.dnstool`.
     expect(matchPattern("vercel.dns.*", "vercel.dnstool")).toBe(false);
   });
+
+  it("matches every tool id when the pattern is bare *", () => {
+    expect(matchPattern("*", "vercel.dns.create")).toBe(true);
+    expect(matchPattern("*", "github.repos.list")).toBe(true);
+    expect(matchPattern("*", "x")).toBe(true);
+  });
 });
 
 describe("isValidPattern", () => {
@@ -56,12 +63,15 @@ describe("isValidPattern", () => {
     expect(isValidPattern("a.b.*")).toBe(true);
   });
 
+  it("accepts the universal pattern", () => {
+    expect(isValidPattern("*")).toBe(true);
+  });
+
   it("rejects malformed shapes", () => {
     expect(isValidPattern("")).toBe(false);
     expect(isValidPattern(".a")).toBe(false);
     expect(isValidPattern("a.")).toBe(false);
     expect(isValidPattern("a..b")).toBe(false);
-    expect(isValidPattern("*")).toBe(false);
     expect(isValidPattern("*.a")).toBe(false);
     expect(isValidPattern("a.*.b")).toBe(false);
     expect(isValidPattern("a*")).toBe(false);
@@ -155,7 +165,7 @@ describe("effectivePolicyFromSorted", () => {
     id: string,
     pattern: string,
     action: "approve" | "require_approval" | "block",
-  ) => ({ id, pattern, action });
+  ) => ({ id: PolicyId.make(id), pattern, action });
 
   it("returns user policy when one matches", () => {
     const result = effectivePolicyFromSorted(
@@ -167,7 +177,7 @@ describe("effectivePolicyFromSorted", () => {
       action: "block",
       source: "user",
       pattern: "vercel.dns.*",
-      policyId: "a",
+      policyId: PolicyId.make("a"),
     });
   });
 
