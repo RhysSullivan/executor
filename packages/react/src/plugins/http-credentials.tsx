@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { PlusIcon } from "lucide-react";
-import type { ScopeId } from "@executor/sdk";
+import type { ScopeId, SecretBackedValue } from "@executor/sdk";
 
 import { Button } from "../components/button";
 import { CardStack, CardStackContent, CardStackEntry } from "../components/card-stack";
@@ -15,12 +15,7 @@ import {
 } from "./secret-header-auth";
 import type { SecretPickerSecret } from "./secret-picker";
 
-export type SecretBackedValue =
-  | string
-  | {
-      readonly secretId: string;
-      readonly prefix?: string;
-    };
+export type { SecretBackedValue };
 
 export type QueryParamState = {
   name: string;

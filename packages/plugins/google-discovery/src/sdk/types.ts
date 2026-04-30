@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { SecretBackedValue } from "@executor/sdk";
 
 export const GoogleDiscoveryHttpMethod = Schema.Literal(
   "get",
@@ -90,15 +91,8 @@ export const GoogleDiscoveryAuth = Schema.Union(
 );
 export type GoogleDiscoveryAuth = typeof GoogleDiscoveryAuth.Type;
 
-export const GoogleDiscoveryCredentialValue = Schema.Union(
-  Schema.String,
-  Schema.Struct({
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-);
-export type GoogleDiscoveryCredentialValue =
-  typeof GoogleDiscoveryCredentialValue.Type;
+export const GoogleDiscoveryCredentialValue = SecretBackedValue;
+export type GoogleDiscoveryCredentialValue = typeof GoogleDiscoveryCredentialValue.Type;
 
 export const GoogleDiscoveryFetchCredentials = Schema.Struct({
   headers: Schema.optional(
@@ -108,8 +102,7 @@ export const GoogleDiscoveryFetchCredentials = Schema.Struct({
     Schema.Record({ key: Schema.String, value: GoogleDiscoveryCredentialValue }),
   ),
 });
-export type GoogleDiscoveryFetchCredentials =
-  typeof GoogleDiscoveryFetchCredentials.Type;
+export type GoogleDiscoveryFetchCredentials = typeof GoogleDiscoveryFetchCredentials.Type;
 
 export class GoogleDiscoveryStoredSourceData extends Schema.Class<GoogleDiscoveryStoredSourceData>(
   "GoogleDiscoveryStoredSourceData",

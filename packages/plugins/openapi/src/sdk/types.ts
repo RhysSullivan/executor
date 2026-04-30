@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
+import { ConnectionId, ScopeId, SecretBackedValue, SecretId } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // Branded IDs
@@ -61,10 +61,9 @@ export class EncodingObject extends Schema.Class<EncodingObject>("EncodingObject
 export class MediaBinding extends Schema.Class<MediaBinding>("MediaBinding")({
   contentType: Schema.String,
   schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
-  encoding: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: EncodingObject }),
-    { as: "Option" },
-  ),
+  encoding: Schema.optionalWith(Schema.Record({ key: Schema.String, value: EncodingObject }), {
+    as: "Option",
+  }),
 }) {}
 
 export class OperationRequestBody extends Schema.Class<OperationRequestBody>(
@@ -137,13 +136,7 @@ export class OperationBinding extends Schema.Class<OperationBinding>("OperationB
  * A header value — either a static string or a reference to a secret.
  * Stored as JSON-serializable data.
  */
-export const HeaderValue = Schema.Union(
-  Schema.String,
-  Schema.Struct({
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-);
+export const HeaderValue = SecretBackedValue;
 export type HeaderValue = typeof HeaderValue.Type;
 
 export class ConfiguredHeaderBinding extends Schema.Class<ConfiguredHeaderBinding>(
@@ -154,10 +147,7 @@ export class ConfiguredHeaderBinding extends Schema.Class<ConfiguredHeaderBindin
   prefix: Schema.optional(Schema.String),
 }) {}
 
-export const ConfiguredHeaderValue = Schema.Union(
-  Schema.String,
-  ConfiguredHeaderBinding,
-);
+export const ConfiguredHeaderValue = Schema.Union(Schema.String, ConfiguredHeaderBinding);
 export type ConfiguredHeaderValue = typeof ConfiguredHeaderValue.Type;
 
 export const OpenApiSourceBindingValue = Schema.Union(

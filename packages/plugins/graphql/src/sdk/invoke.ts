@@ -1,5 +1,6 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { resolveSecretBackedMap } from "@executor/sdk";
 
 import { GraphqlInvocationError } from "./errors";
 import { type HeaderValue, type OperationBinding, InvocationResult } from "./types";
@@ -17,33 +18,14 @@ export const resolveHeaders = (
     (acc, [, value]) => (typeof value === "string" ? acc : acc + 1),
     0,
   );
-  return Effect.gen(function* () {
-    // Resolve secret-backed headers in parallel. Missing / failing
-    // lookups drop the header rather than fail the invocation, same
-    // as the serial version.
-    const values = yield* Effect.all(
-      entries.map(([name, value]) =>
-        typeof value === "string"
-          ? Effect.succeed<{ readonly name: string; readonly value: string | null }>({
-              name,
-              value,
-            })
-          : secrets.get(value.secretId).pipe(
-              Effect.catchAll(() => Effect.succeed<string | null>(null)),
-              Effect.map((secret) => ({
-                name,
-                value: secret === null ? null : value.prefix ? `${value.prefix}${secret}` : secret,
-              })),
-            ),
-      ),
-      { concurrency: "unbounded" },
-    );
-    const resolved: Record<string, string> = {};
-    for (const { name, value } of values) {
-      if (value !== null) resolved[name] = value;
-    }
-    return resolved;
+  return resolveSecretBackedMap({
+    values: headers,
+    getSecret: (secretId) =>
+      secrets.get(secretId).pipe(Effect.catchAll(() => Effect.succeed(null))),
+    missing: "drop",
+    onMissing: () => undefined as never,
   }).pipe(
+    Effect.map((resolved) => resolved ?? {}),
     Effect.withSpan("plugin.graphql.secret.resolve", {
       attributes: {
         "plugin.graphql.headers.total": entries.length,

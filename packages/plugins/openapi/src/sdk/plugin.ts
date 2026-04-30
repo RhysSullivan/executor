@@ -8,6 +8,7 @@ import {
   SecretId,
   SourceDetectionResult,
   definePlugin,
+  resolveSecretBackedMap,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -471,39 +472,31 @@ const resolveConfiguredHeaders = (
     return resolved;
   });
 
-const resolveHeaderValue = (
+const resolveHeaderValues = (
   ctx: PluginCtx<OpenapiStore>,
-  name: string,
-  value: HeaderValue,
-): Effect.Effect<string, OpenApiOAuthError | StorageFailure> => {
-  if (typeof value === "string") return Effect.succeed(value);
-  return ctx.secrets.get(value.secretId).pipe(
-    Effect.mapError((err) =>
+  values: Record<string, HeaderValue> | undefined,
+): Effect.Effect<Record<string, string>, OpenApiOAuthError | StorageFailure> =>
+  resolveSecretBackedMap({
+    values,
+    getSecret: ctx.secrets.get,
+    onMissing: (name) =>
+      new OpenApiOAuthError({
+        message: `Secret not found for "${name}"`,
+      }),
+    onError: (err, name) =>
       "_tag" in err && err._tag === "SecretOwnedByConnectionError"
         ? new OpenApiOAuthError({
             message: `Secret not found for "${name}"`,
           })
         : err,
+  }).pipe(
+    Effect.mapError((err) =>
+      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+        ? new OpenApiOAuthError({ message: "Secret resolution failed" })
+        : err,
     ),
-    Effect.flatMap((secret) =>
-      secret === null
-        ? Effect.fail(
-            new OpenApiOAuthError({
-              message: `Secret not found for "${name}"`,
-            }),
-          )
-        : Effect.succeed(value.prefix ? `${value.prefix}${secret}` : secret),
-    ),
+    Effect.map((resolved) => resolved ?? {}),
   );
-};
-
-const resolveHeaderValues = (
-  ctx: PluginCtx<OpenapiStore>,
-  values: Record<string, HeaderValue> | undefined,
-): Effect.Effect<Record<string, string>, OpenApiOAuthError | StorageFailure> =>
-  Effect.forEach(Object.entries(values ?? {}), ([name, value]) =>
-    Effect.map(resolveHeaderValue(ctx, name, value), (resolved) => [name, resolved] as const),
-  ).pipe(Effect.map((entries) => Object.fromEntries(entries)));
 
 const resolveOAuthConnectionId = (
   ctx: PluginCtx<OpenapiStore>,

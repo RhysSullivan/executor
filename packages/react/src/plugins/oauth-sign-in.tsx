@@ -5,14 +5,11 @@ import { cancelOAuth, startOAuth } from "../api/atoms";
 import { openOAuthPopup, type OAuthPopupResult } from "../api/oauth-popup";
 import { useScope } from "../api/scope-context";
 import { Button } from "../components/button";
-import { OAUTH_POPUP_MESSAGE_TYPE, type OAuthStrategy } from "@executor/sdk";
-
-type SecretBackedValue =
-  | string
-  | {
-      readonly secretId: string;
-      readonly prefix?: string;
-    };
+import {
+  OAUTH_POPUP_MESSAGE_TYPE,
+  type OAuthStrategy,
+  type SecretBackedValue,
+} from "@executor/sdk";
 
 export type OAuthCompletionPayload = {
   readonly connectionId: string;

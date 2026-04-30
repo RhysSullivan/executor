@@ -1,4 +1,7 @@
 import { Schema } from "effect";
+import { SecretBackedMap, SecretBackedValue } from "@executor/sdk";
+
+export { SecretBackedMap, SecretBackedValue };
 
 // ---------------------------------------------------------------------------
 // Remote transport type
@@ -46,18 +49,8 @@ export type McpConnectionAuth = typeof McpConnectionAuth.Type;
 // Stored source data — discriminated union on transport
 // ---------------------------------------------------------------------------
 
-export const SecretBackedValue = Schema.Union(
-  Schema.String,
-  Schema.Struct({
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-);
-export type SecretBackedValue = typeof SecretBackedValue.Type;
-
 /** Common fields for remote string map schemas */
 const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
-const SecretBackedMap = Schema.Record({ key: Schema.String, value: SecretBackedValue });
 
 export const McpRemoteSourceData = Schema.Struct({
   transport: Schema.Literal("remote"),
