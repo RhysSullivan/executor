@@ -4,6 +4,7 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { cancelOAuth, startOAuth } from "../api/atoms";
 import { openOAuthPopup, type OAuthPopupResult } from "../api/oauth-popup";
 import { useScope } from "../api/scope-context";
+import { Button } from "../components/button";
 import { OAUTH_POPUP_MESSAGE_TYPE, type OAuthStrategy } from "@executor/sdk";
 
 type SecretBackedValue =
@@ -230,4 +231,30 @@ export function useOAuthPopupFlow<
     openAuthorization,
     cancel,
   };
+}
+
+export function OAuthSignInButton(props: {
+  readonly busy: boolean;
+  readonly error: string | null;
+  readonly isConnected: boolean;
+  readonly onSignIn: () => void;
+  readonly reconnectingLabel?: string;
+  readonly signingInLabel?: string;
+  readonly reconnectLabel?: string;
+  readonly signInLabel?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {props.error && <span className="text-xs text-destructive">{props.error}</span>}
+      <Button variant="outline" size="sm" onClick={props.onSignIn} disabled={props.busy}>
+        {props.busy
+          ? props.isConnected
+            ? (props.reconnectingLabel ?? "Reconnecting...")
+            : (props.signingInLabel ?? "Signing in...")
+          : props.isConnected
+            ? (props.reconnectLabel ?? "Reconnect")
+            : (props.signInLabel ?? "Sign in")}
+      </Button>
+    </div>
+  );
 }

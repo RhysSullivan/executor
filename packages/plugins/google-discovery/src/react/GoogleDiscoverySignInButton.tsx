@@ -4,8 +4,8 @@ import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 import { connectionsAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { Button } from "@executor/react/components/button";
 import {
+  OAuthSignInButton,
   oauthCallbackUrl,
   useOAuthPopupFlow,
   type OAuthCompletionPayload,
@@ -96,17 +96,13 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
   if (!oauth2) return null;
 
   return (
-    <div className="flex items-center gap-2">
-      {oauth.error && <span className="text-xs text-destructive">{oauth.error}</span>}
-      <Button variant="outline" size="sm" onClick={() => void handleSignIn()} disabled={oauth.busy}>
-        {oauth.busy
-          ? isConnected
-            ? "Reconnecting…"
-            : "Signing in…"
-          : isConnected
-            ? "Reconnect"
-            : "Sign in"}
-      </Button>
-    </div>
+    <OAuthSignInButton
+      busy={oauth.busy}
+      error={oauth.error}
+      isConnected={isConnected}
+      onSignIn={() => void handleSignIn()}
+      reconnectingLabel="Reconnecting…"
+      signingInLabel="Signing in…"
+    />
   );
 }
