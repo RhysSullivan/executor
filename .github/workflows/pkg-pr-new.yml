@@ -85,8 +85,12 @@ jobs:
       # Explicit list (not `plugins/*`) — must match PUBLIC_PACKAGE_DIRS
       # in scripts/publish-packages.ts. Globbing would pick up unprepared
       # private packages that would publish with broken refs.
+      #
+      # No --compact: it requires every package already exist on npm to
+      # generate short URLs. New packages aren't published yet, and
+      # --compact aborts the whole run when it can't resolve them.
       - run: >
-          npx pkg-pr-new publish --bun --compact
+          npx pkg-pr-new publish --bun
           './apps/cli/dist/executor'
           './packages/core/storage-core'
           './packages/core/sdk'
