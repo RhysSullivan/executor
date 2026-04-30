@@ -17,20 +17,12 @@ import {
   OAuthStartError,
   OAuthStrategySchema,
   ScopeId,
+  SecretBackedMap,
 } from "@executor/sdk";
 
 import { InternalError } from "../observability";
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
-const SecretBackedValue = Schema.Union(
-  Schema.String,
-  Schema.Struct({
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-);
-const SecretBackedMap = Schema.Record({ key: Schema.String, value: SecretBackedValue });
-
 // ---------------------------------------------------------------------------
 // Probe — decide between dynamic-DCR and paste-your-credentials flows
 // ---------------------------------------------------------------------------
@@ -42,9 +34,7 @@ const ProbePayload = Schema.Struct({
 });
 
 const ProbeResponse = Schema.Struct({
-  resourceMetadata: Schema.NullOr(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-  ),
+  resourceMetadata: Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
   resourceMetadataUrl: Schema.NullOr(Schema.String),
   authorizationServerMetadata: Schema.NullOr(
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
@@ -91,9 +81,7 @@ const StartResponse = Schema.Struct({
    *  `client-credentials` (no redirect). */
   authorizationUrl: Schema.NullOr(Schema.String),
   /** Filled for strategies that mint the Connection inline. */
-  completedConnection: Schema.NullOr(
-    Schema.Struct({ connectionId: Schema.String }),
-  ),
+  completedConnection: Schema.NullOr(Schema.Struct({ connectionId: Schema.String })),
 });
 
 // ---------------------------------------------------------------------------

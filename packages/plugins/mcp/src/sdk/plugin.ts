@@ -5,6 +5,7 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.
 import {
   SourceDetectionResult,
   definePlugin,
+  resolveSecretBackedMap as resolveSharedSecretBackedMap,
   type PluginCtx,
   type StorageFailure,
 } from "@executor/sdk";
@@ -15,21 +16,11 @@ import {
   type McpBindingStore,
   type McpStoredSource,
 } from "./binding-store";
-import {
-  createMcpConnector,
-  type ConnectorInput,
-  type McpConnection,
-} from "./connection";
+import { createMcpConnector, type ConnectorInput, type McpConnection } from "./connection";
 import { discoverTools } from "./discover";
-import {
-  McpConnectionError,
-  McpToolDiscoveryError,
-} from "./errors";
+import { McpConnectionError, McpToolDiscoveryError } from "./errors";
 import { invokeMcpTool } from "./invoke";
-import {
-  deriveMcpNamespace,
-  type McpToolManifestEntry,
-} from "./manifest";
+import { deriveMcpNamespace, type McpToolManifestEntry } from "./manifest";
 import { probeMcpEndpointShape } from "./probe-shape";
 import {
   McpToolBinding,
@@ -200,38 +191,26 @@ const remoteConnectionError = (message: string) =>
 const mcpDiscoveryError = (message: string) =>
   new McpToolDiscoveryError({ stage: "list_tools", message });
 
-const resolveSecretBackedValue = (
-  value: SecretBackedValue,
-  ctx: PluginCtx<McpBindingStore>,
-): Effect.Effect<string, McpConnectionError | StorageFailure> => {
-  if (typeof value === "string") return Effect.succeed(value);
-  return ctx.secrets.get(value.secretId).pipe(
-    Effect.mapError((err) =>
-      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
-        ? remoteConnectionError(`Failed to resolve secret "${value.secretId}"`)
-        : err,
-    ),
-    Effect.flatMap((secret) =>
-      secret === null
-        ? Effect.fail(remoteConnectionError(`Failed to resolve secret "${value.secretId}"`))
-        : Effect.succeed(value.prefix ? `${value.prefix}${secret}` : secret),
-    ),
-  );
-};
-
 const resolveSecretBackedMap = (
   values: Record<string, SecretBackedValue> | undefined,
   ctx: PluginCtx<McpBindingStore>,
-): Effect.Effect<Record<string, string> | undefined, McpConnectionError | StorageFailure> => {
-  if (!values) return Effect.succeed(undefined);
-  return Effect.forEach(Object.entries(values), ([key, value]) =>
-    Effect.map(resolveSecretBackedValue(value, ctx), (resolved) => [key, resolved] as const),
-  ).pipe(
-    Effect.map((entries) =>
-      entries.length > 0 ? Object.fromEntries(entries) : undefined,
+): Effect.Effect<Record<string, string> | undefined, McpConnectionError | StorageFailure> =>
+  resolveSharedSecretBackedMap({
+    values,
+    getSecret: ctx.secrets.get,
+    onMissing: (_name, value) =>
+      remoteConnectionError(`Failed to resolve secret "${value.secretId}"`),
+    onError: (err, _name, value) =>
+      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+        ? remoteConnectionError(`Failed to resolve secret "${value.secretId}"`)
+        : err,
+  }).pipe(
+    Effect.mapError((err) =>
+      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+        ? remoteConnectionError("Failed to resolve secret")
+        : err,
     ),
   );
-};
 
 const plainStringMap = (
   values: Record<string, SecretBackedValue> | undefined,
@@ -279,13 +258,15 @@ const resolveConnectorInput = (
 
     const auth = sd.auth;
     if (auth.kind === "header") {
-      const val = yield* ctx.secrets.get(auth.secretId).pipe(
-        Effect.mapError((err) =>
-          "_tag" in err && err._tag === "SecretOwnedByConnectionError"
-            ? remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`)
-            : err,
-        ),
-      );
+      const val = yield* ctx.secrets
+        .get(auth.secretId)
+        .pipe(
+          Effect.mapError((err) =>
+            "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+              ? remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`)
+              : err,
+          ),
+        );
       if (val === null) {
         return yield* Effect.fail(
           remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`),
@@ -304,9 +285,7 @@ const resolveConnectorInput = (
           Effect.mapError((err) =>
             remoteConnectionError(
               `Failed to resolve OAuth connection "${auth.connectionId}": ${
-                "message" in err
-                  ? (err as { message: string }).message
-                  : String(err)
+                "message" in err ? (err as { message: string }).message : String(err)
               }`,
             ),
           ),
@@ -332,25 +311,15 @@ const resolveConnectorInput = (
 // ---------------------------------------------------------------------------
 
 interface McpRuntime {
-  readonly connectionCache: ScopedCache.ScopedCache<
-    string,
-    McpConnection,
-    McpConnectionError
-  >;
-  readonly pendingConnectors: Map<
-    string,
-    Effect.Effect<McpConnection, McpConnectionError>
-  >;
+  readonly connectionCache: ScopedCache.ScopedCache<string, McpConnection, McpConnectionError>;
+  readonly pendingConnectors: Map<string, Effect.Effect<McpConnection, McpConnectionError>>;
   readonly cacheScope: Scope.CloseableScope;
 }
 
 const makeRuntime = (): Effect.Effect<McpRuntime, never> =>
   Effect.gen(function* () {
     const cacheScope = yield* Scope.make();
-    const pendingConnectors = new Map<
-      string,
-      Effect.Effect<McpConnection, McpConnectionError>
-    >();
+    const pendingConnectors = new Map<string, Effect.Effect<McpConnection, McpConnectionError>>();
     const connectionCache = yield* ScopedCache.make({
       lookup: (key: string) =>
         Effect.acquireRelease(
@@ -366,8 +335,7 @@ const makeRuntime = (): Effect.Effect<McpRuntime, never> =>
             }
             return connector;
           }),
-          (connection) =>
-            Effect.promise(() => connection.close().catch(() => {})),
+          (connection) => Effect.promise(() => connection.close().catch(() => {})),
         ),
       capacity: 64,
       timeToLive: Duration.minutes(5),
@@ -444,540 +412,484 @@ const toMcpConfigEntry = (
   return entry;
 };
 
-export const mcpPlugin = definePlugin(
-  (options?: McpPluginOptions) => {
-    const allowStdio = options?.dangerouslyAllowStdioMCP ?? false;
-    // Per-plugin-instance runtime holder. Captured by closures in
-    // `extension`, `invokeTool`, and `close`, so all three see the same
-    // connection cache across a single createExecutor lifecycle.
-    const runtimeRef: { current: McpRuntime | null } = { current: null };
+export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
+  const allowStdio = options?.dangerouslyAllowStdioMCP ?? false;
+  // Per-plugin-instance runtime holder. Captured by closures in
+  // `extension`, `invokeTool`, and `close`, so all three see the same
+  // connection cache across a single createExecutor lifecycle.
+  const runtimeRef: { current: McpRuntime | null } = { current: null };
 
-    const ensureRuntime = (): Effect.Effect<McpRuntime, never> =>
-      runtimeRef.current
-        ? Effect.succeed(runtimeRef.current)
-        : makeRuntime().pipe(
-            Effect.tap((rt) =>
-              Effect.sync(() => {
-                runtimeRef.current = rt;
-              }),
-            ),
-          );
-
-    return {
-      id: "mcp" as const,
-      schema: mcpSchema,
-      storage: (deps): McpBindingStore => makeMcpStore(deps),
-
-      extension: (ctx) => {
-        const probeEndpoint = (input: string | McpProbeEndpointInput) =>
-          Effect.gen(function* () {
-            const endpoint = typeof input === "string" ? input : input.endpoint;
-            const trimmed = endpoint.trim();
-            if (!trimmed) {
-              return yield* Effect.fail(
-                remoteConnectionError("Endpoint URL is required"),
-              );
-            }
-
-            const name = yield* Effect.try(
-              () => new URL(trimmed).hostname,
-            ).pipe(Effect.orElseSucceed(() => "mcp"));
-            const namespace = deriveMcpNamespace({ endpoint: trimmed });
-
-            const probeHeaders =
-              typeof input === "string"
-                ? undefined
-                : yield* resolveSecretBackedMap(input.headers, ctx);
-            const probeQueryParams =
-              typeof input === "string"
-                ? undefined
-                : yield* resolveSecretBackedMap(input.queryParams, ctx);
-
-            const connector = createMcpConnector({
-              transport: "remote",
-              endpoint: trimmed,
-              headers: probeHeaders,
-              queryParams: probeQueryParams,
-            });
-
-            const result = yield* discoverTools(connector).pipe(
-              Effect.map((m) => ({ ok: true as const, manifest: m })),
-              Effect.catchAll(() =>
-                Effect.succeed({ ok: false as const, manifest: null }),
-              ),
-              Effect.withSpan("mcp.plugin.discover_tools"),
-            );
-
-            if (result.ok && result.manifest) {
-              return {
-                connected: true,
-                requiresOAuth: false,
-                name: result.manifest.server?.name ?? name,
-                namespace,
-                toolCount: result.manifest.tools.length,
-                serverName: result.manifest.server?.name ?? null,
-              } satisfies McpProbeResult;
-            }
-
-            // Before asking the core OAuth service to look for metadata,
-            // confirm the endpoint actually speaks MCP. An OAuth-protected
-            // non-MCP service (e.g. a GraphQL API whose host publishes
-            // RFC 9728 + 8414 metadata) would otherwise pass the OAuth
-            // probe and be misclassified as MCP. The shape probe rejects
-            // anything whose initialize response isn't 2xx or 401+Bearer.
-            const shape = yield* probeMcpEndpointShape(trimmed, {
-              headers: probeHeaders,
-              queryParams: probeQueryParams,
-            });
-            if (shape.kind !== "mcp") {
-              return yield* Effect.fail(
-                remoteConnectionError(
-                  shape.kind === "not-mcp"
-                    ? `Endpoint does not look like an MCP server: ${shape.reason}`
-                    : `Could not reach endpoint: ${shape.reason}`,
-                ),
-              );
-            }
-
-            const probeResult = yield* ctx.oauth
-              .probe({
-                endpoint: trimmed,
-                headers: probeHeaders,
-                queryParams: probeQueryParams,
-              })
-              .pipe(
-                Effect.map(() => true),
-                Effect.catchAll(() => Effect.succeed(false)),
-                Effect.withSpan("mcp.plugin.probe_oauth"),
-              );
-
-            if (probeResult) {
-              return {
-                connected: false,
-                requiresOAuth: true,
-                name,
-                namespace,
-                toolCount: null,
-                serverName: null,
-              } satisfies McpProbeResult;
-            }
-
-            return yield* Effect.fail(
-              remoteConnectionError(
-                "MCP server requires authentication but OAuth discovery failed",
-              ),
-            );
-          }).pipe(
-            Effect.withSpan("mcp.plugin.probe_endpoint", {
-              attributes: { "mcp.endpoint": typeof input === "string" ? input : input.endpoint },
+  const ensureRuntime = (): Effect.Effect<McpRuntime, never> =>
+    runtimeRef.current
+      ? Effect.succeed(runtimeRef.current)
+      : makeRuntime().pipe(
+          Effect.tap((rt) =>
+            Effect.sync(() => {
+              runtimeRef.current = rt;
             }),
-          );
+          ),
+        );
 
-        const configFile = options?.configFile;
+  return {
+    id: "mcp" as const,
+    schema: mcpSchema,
+    storage: (deps): McpBindingStore => makeMcpStore(deps),
 
-        const addSource = (config: McpSourceConfig) =>
-          Effect.gen(function* () {
-            const namespace = normalizeNamespace(config);
-            const sd = toStoredSourceData(config);
-
-            // Stdio sources are gated — a resolver failure there is a
-            // config error the admin must fix before the source makes
-            // sense to persist at all. For remote sources we defer the
-            // resolver failure: auth might not be ready yet (oauth2
-            // connection awaiting per-user sign-in, header secret
-            // awaiting upload) but the source row should still land so
-            // it shows up in the list and exposes a Sign-in affordance.
-            const resolved = yield* resolveConnectorInput(sd, ctx, allowStdio).pipe(
-              Effect.either,
-              Effect.withSpan("mcp.plugin.resolve_connector", {
-                attributes: {
-                  "mcp.source.namespace": namespace,
-                  "mcp.source.transport": sd.transport,
-                },
-              }),
-            );
-
-            if (resolved._tag === "Left" && sd.transport === "stdio") {
-              return yield* Effect.fail(resolved.left);
-            }
-
-            // Try discovery only if we have a live connector input.
-            // Otherwise fall straight through to the persist step with
-            // an empty manifest and surface the resolver failure to
-            // the caller at the end.
-            const discovery =
-              resolved._tag === "Right"
-                ? yield* discoverTools(createMcpConnector(resolved.right)).pipe(
-                    Effect.mapError((err) =>
-                      mcpDiscoveryError(`MCP discovery failed: ${err.message}`),
-                    ),
-                    Effect.either,
-                    Effect.withSpan("mcp.plugin.discover_tools", {
-                      attributes: { "mcp.source.namespace": namespace },
-                    }),
-                  )
-                : ({ _tag: "Left", left: resolved.left } as const);
-            const manifest =
-              discovery._tag === "Right"
-                ? discovery.right
-                : { server: undefined, tools: [] as const };
-
-            const sourceName = config.name ?? manifest.server?.name ?? namespace;
-
-            yield* ctx
-              .transaction(
-                Effect.gen(function* () {
-                  // Remove stale rows at the target scope (plugin-owned).
-                  // Pinning scope keeps a shadowed outer-scope row intact
-                  // when a per-user addSource re-uses the same namespace.
-                  yield* ctx.storage.removeBindingsByNamespace(
-                    namespace,
-                    config.scope,
-                  );
-                  yield* ctx.storage.removeSource(namespace, config.scope);
-
-                  yield* ctx.storage.putSource({
-                    namespace,
-                    scope: config.scope,
-                    name: sourceName,
-                    config: sd,
-                  });
-
-                  yield* ctx.storage.putBindings(
-                    namespace,
-                    config.scope,
-                    manifest.tools.map((e) => ({
-                      toolId: `${namespace}.${e.toolId}`,
-                      binding: toBinding(e),
-                    })),
-                  );
-
-                  yield* ctx.core.sources.register({
-                    id: namespace,
-                    scope: config.scope,
-                    kind: "mcp",
-                    name: sourceName,
-                    url: sd.transport === "remote" ? sd.endpoint : undefined,
-                    canRemove: true,
-                    canRefresh: true,
-                    canEdit: sd.transport === "remote",
-                    tools: manifest.tools.map((e) => ({
-                      name: e.toolId,
-                      description: e.description ?? `MCP tool: ${e.toolName}`,
-                      inputSchema: e.inputSchema,
-                      outputSchema: e.outputSchema,
-                    })),
-                  });
-                }),
-              )
-              .pipe(
-                Effect.withSpan("mcp.plugin.persist_source", {
-                  attributes: {
-                    "mcp.source.namespace": namespace,
-                    "mcp.source.tool_count": manifest.tools.length,
-                  },
-                }),
-              );
-
-            if (configFile) {
-              yield* configFile
-                .upsertSource(toMcpConfigEntry(namespace, sourceName, config))
-                .pipe(Effect.withSpan("mcp.plugin.config_file.upsert"));
-            }
-
-            if (discovery._tag === "Left") {
-              return yield* Effect.fail(discovery.left);
-            }
-            return { toolCount: manifest.tools.length, namespace };
-          }).pipe(
-            Effect.withSpan("mcp.plugin.add_source", {
-              attributes: {
-                "mcp.source.transport": config.transport,
-                "mcp.source.name": config.name,
-              },
-            }),
-          );
-
-        const removeSource = (namespace: string, scope: string) =>
-          Effect.gen(function* () {
-            yield* ctx
-              .transaction(
-                Effect.gen(function* () {
-                  yield* ctx.storage.removeBindingsByNamespace(namespace, scope);
-                  yield* ctx.storage.removeSource(namespace, scope);
-                  yield* ctx.core.sources.unregister(namespace);
-                }),
-              )
-              .pipe(Effect.withSpan("mcp.plugin.persist_remove"));
-            if (configFile) {
-              yield* configFile
-                .removeSource(namespace)
-                .pipe(Effect.withSpan("mcp.plugin.config_file.remove"));
-            }
-          }).pipe(
-            Effect.withSpan("mcp.plugin.remove_source", {
-              attributes: { "mcp.source.namespace": namespace },
-            }),
-          );
-
-        const refreshSource = (namespace: string, scope: string) =>
-          Effect.gen(function* () {
-            const sd = yield* ctx.storage.getSourceConfig(namespace, scope).pipe(
-              Effect.withSpan("mcp.plugin.load_source_config", {
-                attributes: { "mcp.source.namespace": namespace },
-              }),
-            );
-            if (!sd) {
-              return yield* Effect.fail(
-                remoteConnectionError(
-                  `No stored config for MCP source "${namespace}"`,
-                ),
-              );
-            }
-
-            const ci = yield* resolveConnectorInput(sd, ctx, allowStdio).pipe(
-              Effect.withSpan("mcp.plugin.resolve_connector", {
-                attributes: {
-                  "mcp.source.namespace": namespace,
-                  "mcp.source.transport": sd.transport,
-                },
-              }),
-            );
-            const manifest = yield* discoverTools(createMcpConnector(ci)).pipe(
-              Effect.mapError((err) =>
-                mcpDiscoveryError(`MCP refresh failed: ${err.message}`),
-              ),
-              Effect.withSpan("mcp.plugin.discover_tools", {
-                attributes: { "mcp.source.namespace": namespace },
-              }),
-            );
-
-            const existing = yield* ctx.storage.getSource(namespace, scope);
-            const sourceName =
-              manifest.server?.name ?? existing?.name ?? namespace;
-
-            yield* ctx
-              .transaction(
-                Effect.gen(function* () {
-                  yield* ctx.storage.removeBindingsByNamespace(namespace, scope);
-                  yield* ctx.core.sources.unregister(namespace);
-
-                  yield* ctx.storage.putBindings(
-                    namespace,
-                    scope,
-                    manifest.tools.map((e) => ({
-                      toolId: `${namespace}.${e.toolId}`,
-                      binding: toBinding(e),
-                    })),
-                  );
-                  yield* ctx.core.sources.register({
-                    id: namespace,
-                    scope,
-                    kind: "mcp",
-                    name: sourceName,
-                    url: sd.transport === "remote" ? sd.endpoint : undefined,
-                    canRemove: true,
-                    canRefresh: true,
-                    canEdit: sd.transport === "remote",
-                    tools: manifest.tools.map((e) => ({
-                      name: e.toolId,
-                      description: e.description ?? `MCP tool: ${e.toolName}`,
-                      inputSchema: e.inputSchema,
-                      outputSchema: e.outputSchema,
-                    })),
-                  });
-                }),
-              )
-              .pipe(
-                Effect.withSpan("mcp.plugin.persist_source", {
-                  attributes: {
-                    "mcp.source.namespace": namespace,
-                    "mcp.source.tool_count": manifest.tools.length,
-                  },
-                }),
-              );
-
-            return { toolCount: manifest.tools.length };
-          }).pipe(
-            Effect.withSpan("mcp.plugin.refresh_source", {
-              attributes: { "mcp.source.namespace": namespace },
-            }),
-          );
-
-        const updateSource = (
-          namespace: string,
-          scope: string,
-          input: McpUpdateSourceInput,
-        ) =>
-          Effect.gen(function* () {
-            const existing = yield* ctx.storage.getSource(namespace, scope);
-            if (!existing || existing.config.transport !== "remote") return;
-
-            const remote = existing.config;
-            const updatedConfig: McpStoredSourceData = {
-              ...remote,
-              ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
-              ...(input.headers !== undefined ? { headers: input.headers } : {}),
-              ...(input.auth !== undefined ? { auth: input.auth } : {}),
-              ...(input.queryParams !== undefined
-                ? { queryParams: input.queryParams }
-                : {}),
-            };
-
-            yield* ctx.storage.putSource({
-              namespace,
-              scope,
-              name: input.name?.trim() || existing.name,
-              config: updatedConfig,
-            });
-          }).pipe(
-            Effect.withSpan("mcp.plugin.update_source", {
-              attributes: { "mcp.source.namespace": namespace },
-            }),
-          );
-
-        const getSource = (namespace: string, scope: string) =>
-          ctx.storage.getSource(namespace, scope).pipe(
-            Effect.withSpan("mcp.plugin.get_source", {
-              attributes: { "mcp.source.namespace": namespace },
-            }),
-          );
-
-        return {
-          probeEndpoint,
-          addSource,
-          removeSource,
-          refreshSource,
-          getSource,
-          updateSource,
-        } satisfies McpPluginExtension;
-      },
-
-      invokeTool: ({ ctx, toolRow, args, elicit }) =>
+    extension: (ctx) => {
+      const probeEndpoint = (input: string | McpProbeEndpointInput) =>
         Effect.gen(function* () {
-          const runtime = yield* ensureRuntime();
-
-          // toolRow.scope_id is the resolved owning scope of the tool
-          // (innermost-wins from the executor's stack). The matching
-          // mcp_binding + mcp_source rows live at the same scope, so
-          // pin every store lookup to it instead of relying on the
-          // scoped adapter's stack-wide fall-through.
-          const toolScope = toolRow.scope_id as string;
-          const entry = yield* ctx.storage.getBinding(toolRow.id, toolScope).pipe(
-            Effect.withSpan("mcp.plugin.load_binding", {
-              attributes: { "mcp.tool.name": toolRow.id },
-            }),
-          );
-          if (!entry) {
-            return yield* Effect.fail(
-              new Error(`No MCP binding found for tool "${toolRow.id}"`),
-            );
+          const endpoint = typeof input === "string" ? input : input.endpoint;
+          const trimmed = endpoint.trim();
+          if (!trimmed) {
+            return yield* Effect.fail(remoteConnectionError("Endpoint URL is required"));
           }
 
-          const sd = yield* ctx.storage.getSourceConfig(entry.namespace, toolScope).pipe(
-            Effect.withSpan("mcp.plugin.load_source_config", {
-              attributes: { "mcp.source.namespace": entry.namespace },
-            }),
+          const name = yield* Effect.try(() => new URL(trimmed).hostname).pipe(
+            Effect.orElseSucceed(() => "mcp"),
           );
-          if (!sd) {
-            return yield* Effect.fail(
-              new Error(
-                `No MCP source config for namespace "${entry.namespace}"`,
-              ),
-            );
-          }
-
-          return yield* invokeMcpTool({
-            toolId: toolRow.id,
-            toolName: entry.binding.toolName,
-            args,
-            sourceData: sd,
-            invokerScope: ctx.scopes[0]!.id as string,
-            resolveConnector: () =>
-              resolveConnectorInput(sd, ctx, allowStdio).pipe(
-                Effect.flatMap((ci) => createMcpConnector(ci)),
-                Effect.mapError((err) =>
-                  err instanceof McpConnectionError
-                    ? err
-                    : new McpConnectionError({
-                        transport: "auto",
-                        message:
-                          err instanceof Error ? err.message : String(err),
-                      }),
-                ),
-                Effect.withSpan("mcp.plugin.resolve_connector", {
-                  attributes: {
-                    "mcp.source.namespace": entry.namespace,
-                    "mcp.source.transport": sd.transport,
-                  },
-                }),
-              ),
-            connectionCache: runtime.connectionCache,
-            pendingConnectors: runtime.pendingConnectors,
-            elicit,
-          });
-        }).pipe(
-          Effect.withSpan("mcp.plugin.invoke_tool", {
-            attributes: {
-              "mcp.tool.name": toolRow.id,
-              "mcp.tool.source_id": toolRow.source_id,
-            },
-          }),
-        ),
-
-      detect: ({ ctx, url }) =>
-        Effect.gen(function* () {
-          const trimmed = url.trim();
-          if (!trimmed) return null;
-
-          const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(
-            Effect.option,
-          );
-          if (parsed._tag === "None") return null;
-
-          const name = parsed.value.hostname || "mcp";
           const namespace = deriveMcpNamespace({ endpoint: trimmed });
+
+          const probeHeaders =
+            typeof input === "string"
+              ? undefined
+              : yield* resolveSecretBackedMap(input.headers, ctx);
+          const probeQueryParams =
+            typeof input === "string"
+              ? undefined
+              : yield* resolveSecretBackedMap(input.queryParams, ctx);
 
           const connector = createMcpConnector({
             transport: "remote",
             endpoint: trimmed,
+            headers: probeHeaders,
+            queryParams: probeQueryParams,
           });
 
-          const connected = yield* discoverTools(connector).pipe(
-            Effect.map(() => true),
-            Effect.catchAll(() => Effect.succeed(false)),
+          const result = yield* discoverTools(connector).pipe(
+            Effect.map((m) => ({ ok: true as const, manifest: m })),
+            Effect.catchAll(() => Effect.succeed({ ok: false as const, manifest: null })),
             Effect.withSpan("mcp.plugin.discover_tools"),
           );
 
-          if (connected) {
-            return new SourceDetectionResult({
-              kind: "mcp",
-              confidence: "high",
-              endpoint: trimmed,
-              name,
+          if (result.ok && result.manifest) {
+            return {
+              connected: true,
+              requiresOAuth: false,
+              name: result.manifest.server?.name ?? name,
               namespace,
-            });
+              toolCount: result.manifest.tools.length,
+              serverName: result.manifest.server?.name ?? null,
+            } satisfies McpProbeResult;
           }
 
-          // host publishes RFC 9728 + 8414 metadata) would be classified
-          // as MCP whenever the cross-plugin detector fans out to us.
-          const shape = yield* probeMcpEndpointShape(trimmed);
-          if (shape.kind !== "mcp") return null;
+          // Before asking the core OAuth service to look for metadata,
+          // confirm the endpoint actually speaks MCP. An OAuth-protected
+          // non-MCP service (e.g. a GraphQL API whose host publishes
+          // RFC 9728 + 8414 metadata) would otherwise pass the OAuth
+          // probe and be misclassified as MCP. The shape probe rejects
+          // anything whose initialize response isn't 2xx or 401+Bearer.
+          const shape = yield* probeMcpEndpointShape(trimmed, {
+            headers: probeHeaders,
+            queryParams: probeQueryParams,
+          });
+          if (shape.kind !== "mcp") {
+            return yield* Effect.fail(
+              remoteConnectionError(
+                shape.kind === "not-mcp"
+                  ? `Endpoint does not look like an MCP server: ${shape.reason}`
+                  : `Could not reach endpoint: ${shape.reason}`,
+              ),
+            );
+          }
 
-          // Confirm OAuth metadata is actually reachable. The shape
-          // probe already found a Bearer challenge; the core OAuth
-          // service's probe verifies the AS metadata resolves so we
-          // don't classify endpoints that challenge but have no
-          // discovery.
-          const probeOk = yield* ctx.oauth
-            .probe({ endpoint: trimmed })
+          const probeResult = yield* ctx.oauth
+            .probe({
+              endpoint: trimmed,
+              headers: probeHeaders,
+              queryParams: probeQueryParams,
+            })
             .pipe(
               Effect.map(() => true),
               Effect.catchAll(() => Effect.succeed(false)),
               Effect.withSpan("mcp.plugin.probe_oauth"),
             );
-          if (!probeOk) return null;
 
+          if (probeResult) {
+            return {
+              connected: false,
+              requiresOAuth: true,
+              name,
+              namespace,
+              toolCount: null,
+              serverName: null,
+            } satisfies McpProbeResult;
+          }
+
+          return yield* Effect.fail(
+            remoteConnectionError("MCP server requires authentication but OAuth discovery failed"),
+          );
+        }).pipe(
+          Effect.withSpan("mcp.plugin.probe_endpoint", {
+            attributes: { "mcp.endpoint": typeof input === "string" ? input : input.endpoint },
+          }),
+        );
+
+      const configFile = options?.configFile;
+
+      const addSource = (config: McpSourceConfig) =>
+        Effect.gen(function* () {
+          const namespace = normalizeNamespace(config);
+          const sd = toStoredSourceData(config);
+
+          // Stdio sources are gated — a resolver failure there is a
+          // config error the admin must fix before the source makes
+          // sense to persist at all. For remote sources we defer the
+          // resolver failure: auth might not be ready yet (oauth2
+          // connection awaiting per-user sign-in, header secret
+          // awaiting upload) but the source row should still land so
+          // it shows up in the list and exposes a Sign-in affordance.
+          const resolved = yield* resolveConnectorInput(sd, ctx, allowStdio).pipe(
+            Effect.either,
+            Effect.withSpan("mcp.plugin.resolve_connector", {
+              attributes: {
+                "mcp.source.namespace": namespace,
+                "mcp.source.transport": sd.transport,
+              },
+            }),
+          );
+
+          if (resolved._tag === "Left" && sd.transport === "stdio") {
+            return yield* Effect.fail(resolved.left);
+          }
+
+          // Try discovery only if we have a live connector input.
+          // Otherwise fall straight through to the persist step with
+          // an empty manifest and surface the resolver failure to
+          // the caller at the end.
+          const discovery =
+            resolved._tag === "Right"
+              ? yield* discoverTools(createMcpConnector(resolved.right)).pipe(
+                  Effect.mapError((err) =>
+                    mcpDiscoveryError(`MCP discovery failed: ${err.message}`),
+                  ),
+                  Effect.either,
+                  Effect.withSpan("mcp.plugin.discover_tools", {
+                    attributes: { "mcp.source.namespace": namespace },
+                  }),
+                )
+              : ({ _tag: "Left", left: resolved.left } as const);
+          const manifest =
+            discovery._tag === "Right"
+              ? discovery.right
+              : { server: undefined, tools: [] as const };
+
+          const sourceName = config.name ?? manifest.server?.name ?? namespace;
+
+          yield* ctx
+            .transaction(
+              Effect.gen(function* () {
+                // Remove stale rows at the target scope (plugin-owned).
+                // Pinning scope keeps a shadowed outer-scope row intact
+                // when a per-user addSource re-uses the same namespace.
+                yield* ctx.storage.removeBindingsByNamespace(namespace, config.scope);
+                yield* ctx.storage.removeSource(namespace, config.scope);
+
+                yield* ctx.storage.putSource({
+                  namespace,
+                  scope: config.scope,
+                  name: sourceName,
+                  config: sd,
+                });
+
+                yield* ctx.storage.putBindings(
+                  namespace,
+                  config.scope,
+                  manifest.tools.map((e) => ({
+                    toolId: `${namespace}.${e.toolId}`,
+                    binding: toBinding(e),
+                  })),
+                );
+
+                yield* ctx.core.sources.register({
+                  id: namespace,
+                  scope: config.scope,
+                  kind: "mcp",
+                  name: sourceName,
+                  url: sd.transport === "remote" ? sd.endpoint : undefined,
+                  canRemove: true,
+                  canRefresh: true,
+                  canEdit: sd.transport === "remote",
+                  tools: manifest.tools.map((e) => ({
+                    name: e.toolId,
+                    description: e.description ?? `MCP tool: ${e.toolName}`,
+                    inputSchema: e.inputSchema,
+                    outputSchema: e.outputSchema,
+                  })),
+                });
+              }),
+            )
+            .pipe(
+              Effect.withSpan("mcp.plugin.persist_source", {
+                attributes: {
+                  "mcp.source.namespace": namespace,
+                  "mcp.source.tool_count": manifest.tools.length,
+                },
+              }),
+            );
+
+          if (configFile) {
+            yield* configFile
+              .upsertSource(toMcpConfigEntry(namespace, sourceName, config))
+              .pipe(Effect.withSpan("mcp.plugin.config_file.upsert"));
+          }
+
+          if (discovery._tag === "Left") {
+            return yield* Effect.fail(discovery.left);
+          }
+          return { toolCount: manifest.tools.length, namespace };
+        }).pipe(
+          Effect.withSpan("mcp.plugin.add_source", {
+            attributes: {
+              "mcp.source.transport": config.transport,
+              "mcp.source.name": config.name,
+            },
+          }),
+        );
+
+      const removeSource = (namespace: string, scope: string) =>
+        Effect.gen(function* () {
+          yield* ctx
+            .transaction(
+              Effect.gen(function* () {
+                yield* ctx.storage.removeBindingsByNamespace(namespace, scope);
+                yield* ctx.storage.removeSource(namespace, scope);
+                yield* ctx.core.sources.unregister(namespace);
+              }),
+            )
+            .pipe(Effect.withSpan("mcp.plugin.persist_remove"));
+          if (configFile) {
+            yield* configFile
+              .removeSource(namespace)
+              .pipe(Effect.withSpan("mcp.plugin.config_file.remove"));
+          }
+        }).pipe(
+          Effect.withSpan("mcp.plugin.remove_source", {
+            attributes: { "mcp.source.namespace": namespace },
+          }),
+        );
+
+      const refreshSource = (namespace: string, scope: string) =>
+        Effect.gen(function* () {
+          const sd = yield* ctx.storage.getSourceConfig(namespace, scope).pipe(
+            Effect.withSpan("mcp.plugin.load_source_config", {
+              attributes: { "mcp.source.namespace": namespace },
+            }),
+          );
+          if (!sd) {
+            return yield* Effect.fail(
+              remoteConnectionError(`No stored config for MCP source "${namespace}"`),
+            );
+          }
+
+          const ci = yield* resolveConnectorInput(sd, ctx, allowStdio).pipe(
+            Effect.withSpan("mcp.plugin.resolve_connector", {
+              attributes: {
+                "mcp.source.namespace": namespace,
+                "mcp.source.transport": sd.transport,
+              },
+            }),
+          );
+          const manifest = yield* discoverTools(createMcpConnector(ci)).pipe(
+            Effect.mapError((err) => mcpDiscoveryError(`MCP refresh failed: ${err.message}`)),
+            Effect.withSpan("mcp.plugin.discover_tools", {
+              attributes: { "mcp.source.namespace": namespace },
+            }),
+          );
+
+          const existing = yield* ctx.storage.getSource(namespace, scope);
+          const sourceName = manifest.server?.name ?? existing?.name ?? namespace;
+
+          yield* ctx
+            .transaction(
+              Effect.gen(function* () {
+                yield* ctx.storage.removeBindingsByNamespace(namespace, scope);
+                yield* ctx.core.sources.unregister(namespace);
+
+                yield* ctx.storage.putBindings(
+                  namespace,
+                  scope,
+                  manifest.tools.map((e) => ({
+                    toolId: `${namespace}.${e.toolId}`,
+                    binding: toBinding(e),
+                  })),
+                );
+                yield* ctx.core.sources.register({
+                  id: namespace,
+                  scope,
+                  kind: "mcp",
+                  name: sourceName,
+                  url: sd.transport === "remote" ? sd.endpoint : undefined,
+                  canRemove: true,
+                  canRefresh: true,
+                  canEdit: sd.transport === "remote",
+                  tools: manifest.tools.map((e) => ({
+                    name: e.toolId,
+                    description: e.description ?? `MCP tool: ${e.toolName}`,
+                    inputSchema: e.inputSchema,
+                    outputSchema: e.outputSchema,
+                  })),
+                });
+              }),
+            )
+            .pipe(
+              Effect.withSpan("mcp.plugin.persist_source", {
+                attributes: {
+                  "mcp.source.namespace": namespace,
+                  "mcp.source.tool_count": manifest.tools.length,
+                },
+              }),
+            );
+
+          return { toolCount: manifest.tools.length };
+        }).pipe(
+          Effect.withSpan("mcp.plugin.refresh_source", {
+            attributes: { "mcp.source.namespace": namespace },
+          }),
+        );
+
+      const updateSource = (namespace: string, scope: string, input: McpUpdateSourceInput) =>
+        Effect.gen(function* () {
+          const existing = yield* ctx.storage.getSource(namespace, scope);
+          if (!existing || existing.config.transport !== "remote") return;
+
+          const remote = existing.config;
+          const updatedConfig: McpStoredSourceData = {
+            ...remote,
+            ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
+            ...(input.headers !== undefined ? { headers: input.headers } : {}),
+            ...(input.auth !== undefined ? { auth: input.auth } : {}),
+            ...(input.queryParams !== undefined ? { queryParams: input.queryParams } : {}),
+          };
+
+          yield* ctx.storage.putSource({
+            namespace,
+            scope,
+            name: input.name?.trim() || existing.name,
+            config: updatedConfig,
+          });
+        }).pipe(
+          Effect.withSpan("mcp.plugin.update_source", {
+            attributes: { "mcp.source.namespace": namespace },
+          }),
+        );
+
+      const getSource = (namespace: string, scope: string) =>
+        ctx.storage.getSource(namespace, scope).pipe(
+          Effect.withSpan("mcp.plugin.get_source", {
+            attributes: { "mcp.source.namespace": namespace },
+          }),
+        );
+
+      return {
+        probeEndpoint,
+        addSource,
+        removeSource,
+        refreshSource,
+        getSource,
+        updateSource,
+      } satisfies McpPluginExtension;
+    },
+
+    invokeTool: ({ ctx, toolRow, args, elicit }) =>
+      Effect.gen(function* () {
+        const runtime = yield* ensureRuntime();
+
+        // toolRow.scope_id is the resolved owning scope of the tool
+        // (innermost-wins from the executor's stack). The matching
+        // mcp_binding + mcp_source rows live at the same scope, so
+        // pin every store lookup to it instead of relying on the
+        // scoped adapter's stack-wide fall-through.
+        const toolScope = toolRow.scope_id as string;
+        const entry = yield* ctx.storage.getBinding(toolRow.id, toolScope).pipe(
+          Effect.withSpan("mcp.plugin.load_binding", {
+            attributes: { "mcp.tool.name": toolRow.id },
+          }),
+        );
+        if (!entry) {
+          return yield* Effect.fail(new Error(`No MCP binding found for tool "${toolRow.id}"`));
+        }
+
+        const sd = yield* ctx.storage.getSourceConfig(entry.namespace, toolScope).pipe(
+          Effect.withSpan("mcp.plugin.load_source_config", {
+            attributes: { "mcp.source.namespace": entry.namespace },
+          }),
+        );
+        if (!sd) {
+          return yield* Effect.fail(
+            new Error(`No MCP source config for namespace "${entry.namespace}"`),
+          );
+        }
+
+        return yield* invokeMcpTool({
+          toolId: toolRow.id,
+          toolName: entry.binding.toolName,
+          args,
+          sourceData: sd,
+          invokerScope: ctx.scopes[0]!.id as string,
+          resolveConnector: () =>
+            resolveConnectorInput(sd, ctx, allowStdio).pipe(
+              Effect.flatMap((ci) => createMcpConnector(ci)),
+              Effect.mapError((err) =>
+                err instanceof McpConnectionError
+                  ? err
+                  : new McpConnectionError({
+                      transport: "auto",
+                      message: err instanceof Error ? err.message : String(err),
+                    }),
+              ),
+              Effect.withSpan("mcp.plugin.resolve_connector", {
+                attributes: {
+                  "mcp.source.namespace": entry.namespace,
+                  "mcp.source.transport": sd.transport,
+                },
+              }),
+            ),
+          connectionCache: runtime.connectionCache,
+          pendingConnectors: runtime.pendingConnectors,
+          elicit,
+        });
+      }).pipe(
+        Effect.withSpan("mcp.plugin.invoke_tool", {
+          attributes: {
+            "mcp.tool.name": toolRow.id,
+            "mcp.tool.source_id": toolRow.source_id,
+          },
+        }),
+      ),
+
+    detect: ({ ctx, url }) =>
+      Effect.gen(function* () {
+        const trimmed = url.trim();
+        if (!trimmed) return null;
+
+        const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
+        if (parsed._tag === "None") return null;
+
+        const name = parsed.value.hostname || "mcp";
+        const namespace = deriveMcpNamespace({ endpoint: trimmed });
+
+        const connector = createMcpConnector({
+          transport: "remote",
+          endpoint: trimmed,
+        });
+
+        const connected = yield* discoverTools(connector).pipe(
+          Effect.map(() => true),
+          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.withSpan("mcp.plugin.discover_tools"),
+        );
+
+        if (connected) {
           return new SourceDetectionResult({
             kind: "mcp",
             confidence: "high",
@@ -985,49 +897,74 @@ export const mcpPlugin = definePlugin(
             name,
             namespace,
           });
-        }).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
-          Effect.withSpan("mcp.plugin.detect", {
-            attributes: { "mcp.endpoint": url },
-          }),
-        ),
+        }
 
-      // MCP tools never require approval at the tool level — elicitation is
-      // handled mid-invocation by the server via the elicit capability.
-      resolveAnnotations: ({ toolRows }) =>
-        Effect.sync(() => {
-          const out: Record<string, { requiresApproval: boolean }> = {};
-          for (const row of toolRows) {
-            out[row.id] = { requiresApproval: false };
-          }
-          return out;
+        // host publishes RFC 9728 + 8414 metadata) would be classified
+        // as MCP whenever the cross-plugin detector fans out to us.
+        const shape = yield* probeMcpEndpointShape(trimmed);
+        if (shape.kind !== "mcp") return null;
+
+        // Confirm OAuth metadata is actually reachable. The shape
+        // probe already found a Bearer challenge; the core OAuth
+        // service's probe verifies the AS metadata resolves so we
+        // don't classify endpoints that challenge but have no
+        // discovery.
+        const probeOk = yield* ctx.oauth.probe({ endpoint: trimmed }).pipe(
+          Effect.map(() => true),
+          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.withSpan("mcp.plugin.probe_oauth"),
+        );
+        if (!probeOk) return null;
+
+        return new SourceDetectionResult({
+          kind: "mcp",
+          confidence: "high",
+          endpoint: trimmed,
+          name,
+          namespace,
+        });
+      }).pipe(
+        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.withSpan("mcp.plugin.detect", {
+          attributes: { "mcp.endpoint": url },
         }),
+      ),
 
-      removeSource: ({ ctx, sourceId, scope }) =>
-        Effect.gen(function* () {
-          yield* ctx.storage.removeBindingsByNamespace(sourceId, scope);
-          yield* ctx.storage.removeSource(sourceId, scope);
-        }),
+    // MCP tools never require approval at the tool level — elicitation is
+    // handled mid-invocation by the server via the elicit capability.
+    resolveAnnotations: ({ toolRows }) =>
+      Effect.sync(() => {
+        const out: Record<string, { requiresApproval: boolean }> = {};
+        for (const row of toolRows) {
+          out[row.id] = { requiresApproval: false };
+        }
+        return out;
+      }),
 
-      refreshSource: () => Effect.void,
+    removeSource: ({ ctx, sourceId, scope }) =>
+      Effect.gen(function* () {
+        yield* ctx.storage.removeBindingsByNamespace(sourceId, scope);
+        yield* ctx.storage.removeSource(sourceId, scope);
+      }),
 
-      // Connection refresh for oauth2-minted sources is owned by the
-      // canonical `"oauth2"` ConnectionProvider that core registers via
-      // `makeOAuth2Service`. No MCP-specific provider needed.
+    refreshSource: () => Effect.void,
 
-      close: () =>
-        Effect.gen(function* () {
-          const runtime = runtimeRef.current;
-          if (runtime) {
-            runtime.pendingConnectors.clear();
-            yield* runtime.connectionCache.invalidateAll;
-            yield* Scope.close(runtime.cacheScope, Exit.void);
-            runtimeRef.current = null;
-          }
-        }).pipe(Effect.withSpan("mcp.plugin.close")),
-    };
-  },
-);
+    // Connection refresh for oauth2-minted sources is owned by the
+    // canonical `"oauth2"` ConnectionProvider that core registers via
+    // `makeOAuth2Service`. No MCP-specific provider needed.
+
+    close: () =>
+      Effect.gen(function* () {
+        const runtime = runtimeRef.current;
+        if (runtime) {
+          runtime.pendingConnectors.clear();
+          yield* runtime.connectionCache.invalidateAll;
+          yield* Scope.close(runtime.cacheScope, Exit.void);
+          runtimeRef.current = null;
+        }
+      }).pipe(Effect.withSpan("mcp.plugin.close")),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // McpPluginExtension — shape of `executor.mcp` for consumers that want
@@ -1045,10 +982,7 @@ export const mcpPlugin = definePlugin(
  * composition. `UniqueViolationError` passes through — plugins can
  * `Effect.catchTag` it if they want a friendlier user-facing error.
  */
-export type McpExtensionFailure =
-  | McpConnectionError
-  | McpToolDiscoveryError
-  | StorageFailure;
+export type McpExtensionFailure = McpConnectionError | McpToolDiscoveryError | StorageFailure;
 
 export interface McpPluginExtension {
   readonly probeEndpoint: (

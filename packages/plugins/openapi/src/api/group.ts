@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import { ScopeId, SecretBackedValue } from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
 import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
@@ -20,14 +20,6 @@ import {
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 const sourceScopeIdParam = HttpApiSchema.param("sourceScopeId", ScopeId);
-
-const SecretBackedValue = Schema.Union(
-  Schema.String,
-  Schema.Struct({
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-);
 
 const SpecFetchCredentialsPayload = Schema.Struct({
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),

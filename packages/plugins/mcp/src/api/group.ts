@@ -1,12 +1,9 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import { ScopeId, SecretBackedMap } from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
-import {
-  McpConnectionError,
-  McpToolDiscoveryError,
-} from "../sdk/errors";
+import { McpConnectionError, McpToolDiscoveryError } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
 
 // Re-export for handler use
@@ -43,15 +40,6 @@ const AuthPayload = Schema.Union(
 );
 
 const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
-const SecretBackedValue = Schema.Union(
-  Schema.String,
-  Schema.Struct({
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-);
-const SecretBackedMap = Schema.Record({ key: Schema.String, value: SecretBackedValue });
-
 // ---------------------------------------------------------------------------
 // Add source — discriminated union on transport
 // ---------------------------------------------------------------------------
@@ -169,8 +157,11 @@ export class McpGroup extends HttpApiGroup.make("mcp")
       .addSuccess(RefreshSourceResponse),
   )
   .add(
-    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
-      .addSuccess(Schema.NullOr(McpStoredSourceSchema)),
+    HttpApiEndpoint.get(
+      "getSource",
+    )`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`.addSuccess(
+      Schema.NullOr(McpStoredSourceSchema),
+    ),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`

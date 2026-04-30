@@ -1,26 +1,15 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import { ScopeId, SecretBackedValue } from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
-import {
-  GoogleDiscoveryParseError,
-  GoogleDiscoverySourceError,
-} from "../sdk/errors";
+import { GoogleDiscoveryParseError, GoogleDiscoverySourceError } from "../sdk/errors";
 import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
 
 export { HttpApiSchema };
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
-
-const SecretBackedValue = Schema.Union(
-  Schema.String,
-  Schema.Struct({
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-);
 
 const DiscoveryCredentialsPayload = Schema.Struct({
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
