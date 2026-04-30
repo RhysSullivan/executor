@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
-import { secretsAtom, setSecret } from "@executor/react/api/atoms";
+import { secretsAtom } from "@executor/react/api/atoms";
 import { usePendingSources } from "@executor/react/api/optimistic";
-import { secretWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { useScope } from "@executor/react/api/scope-context";
-import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
-import { SecretId } from "@executor/sdk";
+import type { SecretPickerSecret } from "@executor/react/plugins/secret-picker";
+import { CreatableSecretPicker } from "@executor/react/plugins/secret-header-auth";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
 import {
@@ -42,7 +42,6 @@ import {
 import { FilterTabs } from "@executor/react/components/filter-tabs";
 import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { addGoogleDiscoverySource, probeGoogleDiscovery } from "./atoms";
@@ -64,145 +63,33 @@ const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
 type GoogleAuthKind = "none" | "oauth2";
 
 // ---------------------------------------------------------------------------
-// Inline secret creation
-// ---------------------------------------------------------------------------
-
-function InlineCreateSecret(props: {
-  headerName: string;
-  suggestedId: string;
-  onCreated: (secretId: string) => void;
-  onCancel: () => void;
-}) {
-  const [secretId, setSecretIdValue] = useState(props.suggestedId);
-  const [secretName, setSecretName] = useState(props.headerName);
-  const [secretValue, setSecretValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const scopeId = useScope();
-  const doSet = useAtomSet(setSecret, { mode: "promise" });
-
-  const handleSave = async () => {
-    if (!secretId.trim() || !secretValue.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await doSet({
-        path: { scopeId },
-        payload: {
-          id: SecretId.make(secretId.trim()),
-          name: secretName.trim() || secretId.trim(),
-          value: secretValue.trim(),
-        },
-        reactivityKeys: [...secretWriteKeys],
-      });
-      props.onCreated(secretId.trim());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save secret");
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-2.5">
-      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">ID</Label>
-          <Input
-            value={secretId}
-            onChange={(e) => setSecretIdValue((e.target as HTMLInputElement).value)}
-            placeholder="google-client-secret"
-            className="h-8 text-xs font-mono"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Label
-          </Label>
-          <Input
-            value={secretName}
-            onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
-            placeholder="Client Secret"
-            className="h-8 text-xs"
-          />
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
-        <Input
-          type="password"
-          value={secretValue}
-          onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
-          placeholder="paste your client secret…"
-          className="h-8 text-xs font-mono"
-        />
-      </div>
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
-      <div className="flex justify-end gap-1.5 pt-0.5">
-        <Button variant="outline" size="xs" onClick={props.onCancel}>
-          Cancel
-        </Button>
-        <Button
-          size="xs"
-          onClick={handleSave}
-          disabled={!secretId.trim() || !secretValue.trim() || saving}
-        >
-          {saving ? "Saving…" : "Create and use"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Client secret field with inline creation
 // ---------------------------------------------------------------------------
 
 function SecretBackedField(props: {
   label: string;
   suggestedSecretId: string;
-  headerName: string;
   secretId: string | null;
   onSelect: (secretId: string | null) => void;
   secretList: readonly SecretPickerSecret[];
   placeholder: string;
   clearable?: boolean;
 }) {
-  const [creating, setCreating] = useState(false);
   const { label, secretId, onSelect, secretList, placeholder, clearable = true } = props;
-
-  if (creating) {
-    return (
-      <div className="space-y-2">
-        <Label>{label}</Label>
-        <InlineCreateSecret
-          headerName={props.headerName}
-          suggestedId={props.suggestedSecretId}
-          onCreated={(id) => {
-            onSelect(id);
-            setCreating(false);
-          }}
-          onCancel={() => setCreating(false)}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
-          <SecretPicker
+          <CreatableSecretPicker
             value={secretId}
-            onSelect={onSelect}
+            onSelect={(id) => onSelect(id)}
             secrets={secretList}
             placeholder={placeholder}
+            suggestedId={props.suggestedSecretId}
+            secretLabel={label}
           />
         </div>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={() => setCreating(true)}>
-          + New
-        </Button>
         {clearable && secretId && (
           <Button variant="outline" onClick={() => onSelect(null)}>
             Clear
@@ -725,7 +612,6 @@ export default function AddGoogleDiscoverySource(props: {
           <div className="space-y-3 rounded-xl border border-border bg-card px-4 py-4">
             <SecretBackedField
               label="OAuth Client ID"
-              headerName="Client ID"
               suggestedSecretId="google-oauth-client-id"
               secretId={clientIdSecretId}
               onSelect={setClientIdSecretId}
@@ -735,7 +621,6 @@ export default function AddGoogleDiscoverySource(props: {
             />
             <SecretBackedField
               label="OAuth Client Secret"
-              headerName="Client Secret"
               suggestedSecretId="google-oauth-client-secret"
               secretId={clientSecretSecretId}
               onSelect={setClientSecretSecretId}
