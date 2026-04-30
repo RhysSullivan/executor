@@ -18,8 +18,8 @@ import { env } from "cloudflare:workers";
 import { HttpApp, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import * as Sentry from "@sentry/cloudflare";
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { createRemoteJWKSet } from "jose";
 
+import { createCachedRemoteJWKSet } from "./jwks-cache";
 import { TelemetryLive } from "./services/telemetry";
 import {
   McpJwtVerificationError,
@@ -47,7 +47,14 @@ const AUTHKIT_DOMAIN = env.MCP_AUTHKIT_DOMAIN ?? "https://signin.executor.sh";
 const RESOURCE_ORIGIN = env.MCP_RESOURCE_ORIGIN ?? "https://executor.sh";
 const WORKOS_CLIENT_ID = env.WORKOS_CLIENT_ID;
 
-const jwks = createRemoteJWKSet(new URL(`${AUTHKIT_DOMAIN}/oauth2/jwks`));
+// Module-scope cache survives across MCP requests within the same worker
+// isolate. AuthKit's JWKS rotates on the order of hours/days, so a 1h TTL
+// dominates the upstream cooldown without sacrificing rotation safety —
+// `createCachedRemoteJWKSet` force-refreshes on key-not-found inside its
+// resolver. Production telemetry showed ~222 fetches/8h with p99 1.7s on
+// the previous default-cooldown setup; this collapses that to ~1 per
+// isolate-hour.
+const jwks = createCachedRemoteJWKSet(new URL(`${AUTHKIT_DOMAIN}/oauth2/jwks`));
 
 const BEARER_PREFIX = "Bearer ";
 const INTERNAL_ACCOUNT_ID_HEADER = "x-executor-mcp-account-id";
