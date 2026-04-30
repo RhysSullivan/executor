@@ -3,7 +3,7 @@
   "version": "0.0.5",
   "type": "module",
   "scripts": {
-    "dev": "portless run --no-tls --name executor-marketing astro dev",
+    "dev": "portless run --name executor-marketing astro dev",
     "build": "astro build",
     "preview": "astro preview",
     "deploy": "astro build && npx wrangler deploy --config dist/server/wrangler.json",
