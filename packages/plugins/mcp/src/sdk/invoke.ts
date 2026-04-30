@@ -194,12 +194,20 @@ export const invokeMcpTool = (
     const connector = input.resolveConnector();
     input.pendingConnectors.set(cacheKey, connector);
 
+    // Check cache state BEFORE acquire so the span clearly attributes
+    // tail latency to either a cold handshake (miss) or warm reuse (hit).
+    // Without this every `plugin.mcp.connection.acquire` span looks the
+    // same in Axiom and you have to cross-reference the
+    // `plugin.mcp.connection.handshake` count to back out the hit rate.
+    const cacheHit = yield* input.connectionCache.contains(cacheKey);
+
     const firstConnection = yield* input.connectionCache.get(cacheKey).pipe(
       Effect.withSpan("plugin.mcp.connection.acquire", {
         attributes: {
           "plugin.mcp.transport": transport,
           "plugin.mcp.cache_key": cacheKey,
           "plugin.mcp.attempt": 1,
+          "plugin.mcp.cache_hit": cacheHit,
         },
       }),
     );
