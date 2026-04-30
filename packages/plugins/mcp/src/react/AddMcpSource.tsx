@@ -1,11 +1,4 @@
-import {
-  useReducer,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
@@ -47,16 +40,16 @@ import {
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
+import {
+  oauthCallbackUrl,
+  oauthConnectionId,
+  useOAuthPopupFlow,
+  type OAuthCompletionPayload,
+} from "@executor/react/plugins/oauth-sign-in";
 
 type RemoteAuthMode = "none" | "header" | "oauth2";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
-import { cancelOAuth, startOAuth } from "@executor/react/api/atoms";
-import {
-  openOAuthPopup,
-  type OAuthPopupResult,
-} from "@executor/react/api/oauth-popup";
-import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
 import { probeMcpEndpoint, addMcpSource } from "./atoms";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
 
@@ -69,29 +62,11 @@ function findPreset(id: string | undefined): McpPreset | undefined {
   return mcpPresets.find((p) => p.id === id);
 }
 
-// Stable SDK connection id for an MCP source's OAuth sign-in. The same
-// id is passed into `startOAuth` AND stored on the source's auth
-// config, so at invoke time the per-user scope (which owns the user's
-// own secrets) resolves via shadowing over the source-level pointer.
-// Keyed by namespace so reconnecting mints a new connection that
-// shadows the previous one at the same scope.
-const mcpOAuthConnectionId = (namespaceSlug: string): string =>
-  `mcp-oauth2-${namespaceSlug || "default"}`;
-
 // ---------------------------------------------------------------------------
 // State machine (remote flow)
 // ---------------------------------------------------------------------------
 
-type OAuthTokens = {
-  /** Id of the SDK Connection minted by the exchange. The UI stores it
-   *  on the source's auth config as `{kind: "oauth2", connectionId}`.
-   *  DCR client info + discovery URLs are persisted on the Connection's
-   *  own `providerState` by `ctx.oauth.complete`, so the UI no longer
-   *  needs to echo them back through the source. */
-  connectionId: string;
-  expiresAt: number | null;
-  scope: string | null;
-};
+type OAuthTokens = OAuthCompletionPayload;
 
 type ProbeResult = {
   connected: boolean;
@@ -196,8 +171,7 @@ function reducer(state: State, action: Action): State {
       };
 
     case "oauth-fail":
-      if (state.step !== "oauth-starting" && state.step !== "oauth-waiting")
-        return state;
+      if (state.step !== "oauth-starting" && state.step !== "oauth-waiting") return state;
       return {
         step: "error",
         url: state.url,
@@ -212,11 +186,7 @@ function reducer(state: State, action: Action): State {
 
     case "add-start": {
       const tokens =
-        state.step === "oauth-done"
-          ? state.tokens
-          : state.step === "probed"
-            ? null
-            : null;
+        state.step === "oauth-done" ? state.tokens : state.step === "probed" ? null : null;
       const probe = "probe" in state ? state.probe : null;
       if (!probe) return state;
       return { step: "adding", url: state.url, probe, tokens };
@@ -252,14 +222,6 @@ function reducer(state: State, action: Action): State {
 }
 
 // ---------------------------------------------------------------------------
-// OAuth popup — `openOAuthPopup` from `@executor/react/api/oauth-popup`
-// is used directly; the popup message shape + channel name are shared
-// with every other OAuth-capable plugin now.
-// ---------------------------------------------------------------------------
-
-const OAUTH_RESULT_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -275,8 +237,7 @@ export default function AddMcpSource(props: {
   const rawPreset = findPreset(props.initialPreset);
   // Drop stdio presets when stdio is disabled — the caller should have
   // already filtered these out, but defence-in-depth.
-  const preset =
-    rawPreset?.transport === "stdio" && !allowStdio ? undefined : rawPreset;
+  const preset = rawPreset?.transport === "stdio" && !allowStdio ? undefined : rawPreset;
   const isStdioPreset = preset?.transport === "stdio";
 
   const [transport, setTransport] = useState<"remote" | "stdio">(
@@ -284,9 +245,7 @@ export default function AddMcpSource(props: {
   );
 
   // --- Stdio state ---
-  const [stdioCommand, setStdioCommand] = useState(
-    isStdioPreset ? preset.command : "",
-  );
+  const [stdioCommand, setStdioCommand] = useState(isStdioPreset ? preset.command : "");
   const [stdioArgs, setStdioArgs] = useState(
     isStdioPreset && preset.args ? preset.args.join(" ") : "",
   );
@@ -311,10 +270,13 @@ export default function AddMcpSource(props: {
   const scopeId = useScope();
   const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
   const doAdd = useAtomSet(addMcpSource, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
-  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
+  const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
+    popupName: "mcp-oauth",
+    popupBlockedMessage: "OAuth popup was blocked",
+    startErrorMessage: "Failed to start OAuth",
+  });
 
   const [remoteAuthMode, setRemoteAuthMode] = useState<RemoteAuthMode>("none");
   const [remoteAuthHeaders, setRemoteAuthHeaders] = useState<HeaderState[]>([
@@ -326,26 +288,21 @@ export default function AddMcpSource(props: {
     },
   ]);
   const [remoteHeaders, setRemoteHeaders] = useState<PlainHeader[]>([]);
-  const [remoteCredentials, setRemoteCredentials] = useState(() =>
-    emptyHttpCredentials(),
-  );
+  const [remoteCredentials, setRemoteCredentials] = useState(() => emptyHttpCredentials());
 
   const probe = "probe" in state ? state.probe : null;
   const tokens = "tokens" in state ? state.tokens : null;
 
   const remoteIdentity = useSourceIdentity({
-    fallbackName:
-      probe?.serverName ?? probe?.name ?? displayNameFromUrl(state.url) ?? "",
+    fallbackName: probe?.serverName ?? probe?.name ?? displayNameFromUrl(state.url) ?? "",
   });
   const isProbing = state.step === "probing";
   const isAdding = state.step === "adding";
   const isOAuthBusy =
-    state.step === "oauth-starting" || state.step === "oauth-waiting";
+    state.step === "oauth-starting" || state.step === "oauth-waiting" || oauth.busy;
   const canUseNone = probe?.requiresOAuth !== true;
   const remoteAuthHeader = remoteAuthHeaders[0];
-  const headerAuthComplete = Boolean(
-    remoteAuthHeader?.name.trim() && remoteAuthHeader?.secretId,
-  );
+  const headerAuthComplete = Boolean(remoteAuthHeader?.name.trim() && remoteAuthHeader?.secretId);
   const remoteHeadersComplete = remoteHeaders.every(
     (header) => header.name.trim() && header.value.trim(),
   );
@@ -369,18 +326,15 @@ export default function AddMcpSource(props: {
     !isOAuthBusy;
   // Probe failures are shown inline on the URL field; other failures
   // (OAuth start, add source) render in the bottom error block.
-  const probeError =
-    state.step === "error" && state.probe === null ? state.error : null;
-  const otherError =
-    state.step === "error" && state.probe !== null ? state.error : null;
+  const probeError = state.step === "error" && state.probe === null ? state.error : null;
+  const otherError = state.step === "error" && state.probe !== null ? state.error : null;
 
   // ---- Remote actions ----
 
   const handleProbe = useCallback(async () => {
     dispatch({ type: "probe-start" });
     try {
-      const { headers, queryParams } =
-        serializeHttpCredentials(remoteCredentials);
+      const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
       const result = await doProbe({
         path: { scopeId },
         payload: {
@@ -417,32 +371,10 @@ export default function AddMcpSource(props: {
     return () => clearTimeout(handle);
   }, [transport, state.step, state.url, remoteCredentials]);
 
-  const oauthCleanup = useRef<(() => void) | null>(null);
-  const oauthSessionId = useRef<string | null>(null);
-
-  const cancelActiveOAuth = useCallback(() => {
-    const sessionId = oauthSessionId.current;
-    oauthCleanup.current?.();
-    oauthCleanup.current = null;
-    oauthSessionId.current = null;
-    if (sessionId) {
-      void doCancelOAuth({
-        path: { scopeId },
-        payload: { sessionId },
-      }).catch(() => undefined);
-    }
-  }, [doCancelOAuth, scopeId]);
-
-  useEffect(() => () => cancelActiveOAuth(), [cancelActiveOAuth]);
-
   const handleRemoteCredentialsChange = useCallback(
     (next: typeof remoteCredentials) => {
       setRemoteCredentials(next);
-      if (
-        state.step === "error" ||
-        state.step === "probed" ||
-        state.step === "oauth-done"
-      ) {
+      if (state.step === "error" || state.step === "probed" || state.step === "oauth-done") {
         dispatch({ type: "set-url", url: state.url });
       }
     },
@@ -450,104 +382,46 @@ export default function AddMcpSource(props: {
   );
 
   const handleOAuth = useCallback(async () => {
-    cancelActiveOAuth();
     dispatch({ type: "oauth-start" });
-    try {
-      const redirectUrl = `${window.location.origin}/api/oauth/callback`;
-      const namespaceSlug =
-        slugifyNamespace(remoteIdentity.namespace) ||
-        slugifyNamespace(probe?.namespace ?? "") ||
-        "mcp";
-      const connectionId = mcpOAuthConnectionId(namespaceSlug);
-      const { headers, queryParams } =
-        serializeHttpCredentials(remoteCredentials);
-      const result = await doStartOAuth({
-        path: { scopeId },
-        payload: {
-          endpoint: state.url.trim(),
-          ...(Object.keys(headers).length > 0 ? { headers } : {}),
-          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
-          redirectUrl,
-          connectionId,
-          strategy: { kind: "dynamic-dcr" },
+    const namespaceSlug =
+      slugifyNamespace(remoteIdentity.namespace) ||
+      slugifyNamespace(probe?.namespace ?? "") ||
+      "mcp";
+    const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
+    await oauth.start({
+      payload: {
+        endpoint: state.url.trim(),
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+        redirectUrl: oauthCallbackUrl(),
+        connectionId: oauthConnectionId({
           pluginId: "mcp",
-          identityLabel: `${remoteIdentity.name.trim() || probe?.serverName || probe?.name || "MCP"} OAuth`,
-        },
-      });
-      if (result.authorizationUrl === null) {
+          namespace: namespaceSlug,
+        }),
+        strategy: { kind: "dynamic-dcr" },
+        pluginId: "mcp",
+        identityLabel: `${remoteIdentity.name.trim() || probe?.serverName || probe?.name || "MCP"} OAuth`,
+      },
+      onSuccess: (result) => {
         dispatch({
-          type: "oauth-fail",
-          error: "OAuth start did not produce an authorization URL",
+          type: "oauth-ok",
+          tokens: {
+            connectionId: result.connectionId,
+            expiresAt: result.expiresAt,
+            scope: result.scope,
+          },
         });
-        return;
-      }
-      dispatch({ type: "oauth-waiting", sessionId: result.sessionId });
-      oauthSessionId.current = result.sessionId;
-      oauthCleanup.current = openOAuthPopup<OAuthTokens>({
-        url: result.authorizationUrl,
-        popupName: "mcp-oauth",
-        channelName: OAUTH_RESULT_CHANNEL,
-        expectedSessionId: result.sessionId,
-        onResult: (data: OAuthPopupResult<OAuthTokens>) => {
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          if (data.ok) {
-            dispatch({
-              type: "oauth-ok",
-              tokens: {
-                connectionId: data.connectionId,
-                expiresAt: data.expiresAt,
-                scope: data.scope,
-              },
-            });
-          } else {
-            dispatch({ type: "oauth-fail", error: data.error });
-          }
-        },
-        onClosed: () => {
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          void doCancelOAuth({
-            path: { scopeId },
-            payload: { sessionId: result.sessionId },
-          }).catch(() => undefined);
-          dispatch({
-            type: "oauth-fail",
-            error:
-              "Sign-in cancelled — popup was closed before completing the flow.",
-          });
-        },
-        onOpenFailed: () => {
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          void doCancelOAuth({
-            path: { scopeId },
-            payload: { sessionId: result.sessionId },
-          }).catch(() => undefined);
-          dispatch({ type: "oauth-fail", error: "OAuth popup was blocked" });
-        },
-      });
-    } catch (e) {
-      dispatch({
-        type: "oauth-fail",
-        error: e instanceof Error ? e.message : "Failed to start OAuth",
-      });
-    }
-  }, [
-    state.url,
-    scopeId,
-    doStartOAuth,
-    doCancelOAuth,
-    cancelActiveOAuth,
-    remoteIdentity,
-    probe,
-    remoteCredentials,
-  ]);
+      },
+      onAuthorizationStarted: (result) =>
+        dispatch({ type: "oauth-waiting", sessionId: result.sessionId }),
+      onError: (error) => dispatch({ type: "oauth-fail", error }),
+    });
+  }, [state.url, remoteIdentity, probe, remoteCredentials, oauth]);
 
   const handleCancelOAuth = useCallback(() => {
-    cancelActiveOAuth();
+    oauth.cancel();
     dispatch({ type: "oauth-cancelled" });
-  }, [cancelActiveOAuth]);
+  }, [oauth]);
 
   const handleAddRemote = useCallback(async () => {
     if (!probe) return;
@@ -559,11 +433,13 @@ export default function AddMcpSource(props: {
     // runs later (via McpSignInButton) it mints the connection at the
     // user scope against the same id — innermost-wins shadowing then
     // resolves tokens per-user at invoke time.
-    const deferredOAuthConnectionId = mcpOAuthConnectionId(
-      slugifyNamespace(remoteIdentity.namespace) ||
+    const deferredOAuthConnectionId = oauthConnectionId({
+      pluginId: "mcp",
+      namespace:
+        slugifyNamespace(remoteIdentity.namespace) ||
         slugifyNamespace(probe.namespace ?? "") ||
         "mcp",
-    );
+    });
     const auth =
       remoteAuthMode === "header" && headerAuth?.secretId
         ? {
@@ -588,8 +464,7 @@ export default function AddMcpSource(props: {
       ...headers,
       ...credentials.headers,
     };
-    const displayName =
-      remoteIdentity.name.trim() || probe.serverName || probe.name;
+    const displayName = remoteIdentity.name.trim() || probe.serverName || probe.name;
     const slugNamespace = slugifyNamespace(remoteIdentity.namespace);
     const placeholderId = slugNamespace || `pending:${crypto.randomUUID()}`;
     const placeholder = beginAdd({
@@ -698,25 +573,14 @@ export default function AddMcpSource(props: {
     } finally {
       placeholder.done();
     }
-  }, [
-    stdioCommand,
-    stdioArgs,
-    stdioEnv,
-    stdioIdentity,
-    doAdd,
-    scopeId,
-    props,
-    beginAdd,
-  ]);
+  }, [stdioCommand, stdioArgs, stdioEnv, stdioIdentity, doAdd, scopeId, props, beginAdd]);
 
   // ---- Render ----
 
   return (
     <div className="flex flex-1 flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">
-          Add MCP Source
-        </h1>
+        <h1 className="text-xl font-semibold text-foreground">Add MCP Source</h1>
         <p className="mt-1 text-[13px] text-muted-foreground">
           Connect to an MCP server to discover and use its tools.
         </p>
@@ -763,9 +627,7 @@ export default function AddMcpSource(props: {
                     <SourceFavicon url={state.url} size={32} />
                   </CardStackEntryMedia>
                   <CardStackEntryContent>
-                    <CardStackEntryTitle>
-                      {probe.serverName ?? probe.name}
-                    </CardStackEntryTitle>
+                    <CardStackEntryTitle>{probe.serverName ?? probe.name}</CardStackEntryTitle>
                     <CardStackEntryDescription>
                       {probe.connected
                         ? `${probe.toolCount} tool${probe.toolCount !== 1 ? "s" : ""} available`
@@ -816,11 +678,7 @@ export default function AddMcpSource(props: {
             <CardStackContent className="border-t-0">
               <CardStackEntryField
                 label="Server URL"
-                hint={
-                  probeError
-                    ? undefined
-                    : "Supports Streamable HTTP and SSE transports."
-                }
+                hint={probeError ? undefined : "Supports Streamable HTTP and SSE transports."}
               >
                 <div className="relative">
                   <Input
@@ -871,10 +729,7 @@ export default function AddMcpSource(props: {
           />
 
           {probe && (
-            <SourceIdentityFields
-              identity={remoteIdentity}
-              namePlaceholder="e.g. Linear"
-            />
+            <SourceIdentityFields identity={remoteIdentity} namePlaceholder="e.g. Linear" />
           )}
 
           {/* Authentication */}
@@ -917,8 +772,8 @@ export default function AddMcpSource(props: {
                         Sign in
                       </Button>
                       <p className="text-[11px] text-muted-foreground">
-                        Optional — you can save the source now and each user can
-                        sign in from the source detail page later.
+                        Optional — you can save the source now and each user can sign in from the
+                        source detail page later.
                       </p>
                     </div>
                   )}
@@ -926,9 +781,7 @@ export default function AddMcpSource(props: {
                   {!tokens && state.step === "oauth-starting" && (
                     <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
                       <Spinner className="size-3.5" />
-                      <span className="text-xs text-muted-foreground">
-                        Starting authorization…
-                      </span>
+                      <span className="text-xs text-muted-foreground">Starting authorization…</span>
                     </div>
                   )}
 
@@ -951,11 +804,7 @@ export default function AddMcpSource(props: {
 
                   {tokens && (
                     <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        className="size-3.5 text-emerald-500"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" className="size-3.5 text-emerald-500">
                         <path
                           d="M3 8.5l3 3 7-7"
                           stroke="currentColor"
@@ -980,8 +829,8 @@ export default function AddMcpSource(props: {
               <div>
                 <Label>Additional headers</Label>
                 <p className="mt-1 text-[12px] text-muted-foreground">
-                  Plaintext headers sent with every request. Use authentication
-                  for secret-backed auth headers.
+                  Plaintext headers sent with every request. Use authentication for secret-backed
+                  auth headers.
                 </p>
               </div>
 
@@ -991,19 +840,13 @@ export default function AddMcpSource(props: {
                     <AddPlainHeaderRow
                       leading={<span>No headers</span>}
                       onClick={() =>
-                        setRemoteHeaders((headers) => [
-                          ...headers,
-                          { name: "", value: "" },
-                        ])
+                        setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
                       }
                     />
                   ) : (
                     <>
                       {remoteHeaders.map((header, index) => (
-                        <CardStackEntry
-                          key={index}
-                          className="flex-col items-stretch gap-2"
-                        >
+                        <CardStackEntry key={index} className="flex-col items-stretch gap-2">
                           <div className="flex items-center justify-between">
                             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                               Header
@@ -1015,9 +858,7 @@ export default function AddMcpSource(props: {
                               className="text-muted-foreground hover:text-destructive"
                               onClick={() =>
                                 setRemoteHeaders((headers) =>
-                                  headers.filter(
-                                    (_, headerIndex) => headerIndex !== index,
-                                  ),
+                                  headers.filter((_, headerIndex) => headerIndex !== index),
                                 )
                               }
                             >
@@ -1037,9 +878,7 @@ export default function AddMcpSource(props: {
                                       headerIndex === index
                                         ? {
                                             ...current,
-                                            name: (
-                                              event.target as HTMLInputElement
-                                            ).value,
+                                            name: (event.target as HTMLInputElement).value,
                                           }
                                         : current,
                                     ),
@@ -1061,9 +900,7 @@ export default function AddMcpSource(props: {
                                       headerIndex === index
                                         ? {
                                             ...current,
-                                            value: (
-                                              event.target as HTMLInputElement
-                                            ).value,
+                                            value: (event.target as HTMLInputElement).value,
                                           }
                                         : current,
                                     ),
@@ -1078,10 +915,7 @@ export default function AddMcpSource(props: {
                       ))}
                       <AddPlainHeaderRow
                         onClick={() =>
-                          setRemoteHeaders((headers) => [
-                            ...headers,
-                            { name: "", value: "" },
-                          ])
+                          setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
                         }
                       />
                     </>
@@ -1112,7 +946,7 @@ export default function AddMcpSource(props: {
             <Button
               variant="ghost"
               onClick={() => {
-                cancelActiveOAuth();
+                oauth.cancel();
                 props.onCancel();
               }}
               disabled={isAdding}
@@ -1143,9 +977,7 @@ export default function AddMcpSource(props: {
               >
                 <Input
                   value={stdioCommand}
-                  onChange={(e) =>
-                    setStdioCommand((e.target as HTMLInputElement).value)
-                  }
+                  onChange={(e) => setStdioCommand((e.target as HTMLInputElement).value)}
                   placeholder="npx"
                   className="font-mono text-sm"
                 />
@@ -1157,9 +989,7 @@ export default function AddMcpSource(props: {
               >
                 <Input
                   value={stdioArgs}
-                  onChange={(e) =>
-                    setStdioArgs((e.target as HTMLInputElement).value)
-                  }
+                  onChange={(e) => setStdioArgs((e.target as HTMLInputElement).value)}
                   placeholder="-y chrome-devtools-mcp@latest"
                   className="font-mono text-sm"
                 />
@@ -1171,9 +1001,7 @@ export default function AddMcpSource(props: {
               >
                 <Textarea
                   value={stdioEnv}
-                  onChange={(e) =>
-                    setStdioEnv((e.target as HTMLTextAreaElement).value)
-                  }
+                  onChange={(e) => setStdioEnv((e.target as HTMLTextAreaElement).value)}
                   placeholder={"KEY=value\nANOTHER=value"}
                   rows={3}
                   maxRows={10}
@@ -1183,10 +1011,7 @@ export default function AddMcpSource(props: {
             </CardStackContent>
           </CardStack>
 
-          <SourceIdentityFields
-            identity={stdioIdentity}
-            namePlaceholder="My MCP Server"
-          />
+          <SourceIdentityFields identity={stdioIdentity} namePlaceholder="My MCP Server" />
 
           {/* Stdio error */}
           {stdioError && (
@@ -1196,17 +1021,10 @@ export default function AddMcpSource(props: {
           )}
 
           <FloatActions>
-            <Button
-              variant="ghost"
-              onClick={props.onCancel}
-              disabled={stdioAdding}
-            >
+            <Button variant="ghost" onClick={props.onCancel} disabled={stdioAdding}>
               Cancel
             </Button>
-            <Button
-              onClick={handleAddStdio}
-              disabled={!stdioCommand.trim() || stdioAdding}
-            >
+            <Button onClick={handleAddStdio} disabled={!stdioCommand.trim() || stdioAdding}>
               {stdioAdding ? (
                 <>
                   <Spinner className="size-3.5" /> Adding…
@@ -1241,18 +1059,8 @@ function AddPlainHeaderRow({
       className="flex w-full items-center justify-between gap-4 px-4 py-3 text-sm text-muted-foreground outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent/40 focus-visible:bg-accent/40"
     >
       <span className="min-w-0 flex-1 text-left">{leading}</span>
-      <svg
-        aria-hidden
-        viewBox="0 0 16 16"
-        fill="none"
-        className="size-4 shrink-0"
-      >
-        <path
-          d="M8 3.5v9M3.5 8h9"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
+      <svg aria-hidden viewBox="0 0 16 16" fill="none" className="size-4 shrink-0">
+        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     </button>
   );

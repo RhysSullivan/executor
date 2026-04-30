@@ -1,15 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
-import { cancelOAuth, startOAuth } from "@executor/react/api/atoms";
-import {
-  openOAuthPopup,
-  type OAuthPopupResult,
-} from "@executor/react/api/oauth-popup";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
-import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
 import {
   HttpCredentialsEditor,
   httpCredentialsValid,
@@ -22,6 +16,12 @@ import {
   SourceIdentityFields,
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
+import {
+  oauthCallbackUrl,
+  oauthConnectionId,
+  useOAuthPopupFlow,
+  type OAuthCompletionPayload,
+} from "@executor/react/plugins/oauth-sign-in";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { Button } from "@executor/react/components/button";
 import { FilterTabs } from "@executor/react/components/filter-tabs";
@@ -39,15 +39,6 @@ import type { HeaderValue } from "../sdk/types";
 
 type AuthMode = "none" | "oauth2";
 
-type OAuthTokens = {
-  connectionId: string;
-  expiresAt: number | null;
-  scope: string | null;
-};
-
-const graphqlOAuthConnectionId = (namespaceSlug: string): string =>
-  `graphql-oauth2-${namespaceSlug || "default"}`;
-
 export default function AddGraphqlSource(props: {
   onComplete: () => void;
   onCancel: () => void;
@@ -57,29 +48,26 @@ export default function AddGraphqlSource(props: {
   const identity = useSourceIdentity({
     fallbackName: displayNameFromUrl(endpoint) ?? "",
   });
-  const [credentials, setCredentials] = useState<HttpCredentialsState>(
-    initialGraphqlCredentials,
-  );
+  const [credentials, setCredentials] = useState<HttpCredentialsState>(initialGraphqlCredentials);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("none");
-  const [tokens, setTokens] = useState<OAuthTokens | null>(null);
-  const [oauthBusy, setOauthBusy] = useState(false);
-  const oauthCleanup = useRef<(() => void) | null>(null);
-  const oauthSessionId = useRef<string | null>(null);
+  const [tokens, setTokens] = useState<OAuthCompletionPayload | null>(null);
 
   const scopeId = useScope();
   const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
-  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
+  const oauth = useOAuthPopupFlow({
+    popupName: "graphql-oauth",
+    startErrorMessage: "Failed to start OAuth",
+  });
 
   const canAdd =
     endpoint.trim().length > 0 &&
     httpCredentialsValid(credentials) &&
     (authMode === "none" || tokens !== null) &&
-    !oauthBusy;
+    !oauth.busy;
 
   const sourceIdentity = useCallback(() => {
     const trimmedEndpoint = endpoint.trim();
@@ -87,116 +75,41 @@ export default function AddGraphqlSource(props: {
       slugifyNamespace(identity.namespace) ||
       slugifyNamespace(displayNameFromUrl(trimmedEndpoint) ?? "") ||
       "graphql";
-    const displayName =
-      identity.name.trim() || displayNameFromUrl(trimmedEndpoint) || namespace;
+    const displayName = identity.name.trim() || displayNameFromUrl(trimmedEndpoint) || namespace;
     return { trimmedEndpoint, namespace, displayName };
   }, [endpoint, identity.name, identity.namespace]);
 
-  const cancelActiveOAuth = useCallback(() => {
-    const sessionId = oauthSessionId.current;
-    oauthCleanup.current?.();
-    oauthCleanup.current = null;
-    oauthSessionId.current = null;
-    if (sessionId) {
-      void doCancelOAuth({
-        path: { scopeId },
-        payload: { sessionId },
-      }).catch(() => undefined);
-    }
-  }, [doCancelOAuth, scopeId]);
-
-  useEffect(() => () => cancelActiveOAuth(), [cancelActiveOAuth]);
-
   const handleOAuth = useCallback(async () => {
     if (!endpoint.trim() || !httpCredentialsValid(credentials)) return;
-    cancelActiveOAuth();
-    setOauthBusy(true);
     setAddError(null);
     const { trimmedEndpoint, namespace, displayName } = sourceIdentity();
     const { headers, queryParams } = serializeHttpCredentials(credentials);
-    try {
-      const result = await doStartOAuth({
-        path: { scopeId },
-        payload: {
-          endpoint: trimmedEndpoint,
-          ...(Object.keys(headers).length > 0 ? { headers } : {}),
-          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
-          redirectUrl: `${window.location.origin}/api/oauth/callback`,
-          connectionId: graphqlOAuthConnectionId(namespace),
-          strategy: { kind: "dynamic-dcr" },
-          pluginId: "graphql",
-          identityLabel: `${displayName} OAuth`,
-        },
-      });
-      if (result.authorizationUrl === null) {
-        setOauthBusy(false);
-        setAddError("OAuth start did not produce an authorization URL");
-        return;
-      }
-      oauthSessionId.current = result.sessionId;
-      oauthCleanup.current = openOAuthPopup<OAuthTokens>({
-        url: result.authorizationUrl,
-        popupName: "graphql-oauth",
-        channelName: OAUTH_POPUP_MESSAGE_TYPE,
-        expectedSessionId: result.sessionId,
-        onResult: (data: OAuthPopupResult<OAuthTokens>) => {
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          setOauthBusy(false);
-          if (data.ok) {
-            setTokens({
-              connectionId: data.connectionId,
-              expiresAt: data.expiresAt,
-              scope: data.scope,
-            });
-          } else {
-            setAddError(data.error);
-          }
-        },
-        onClosed: () => {
-          const sessionId = result.sessionId;
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          void doCancelOAuth({
-            path: { scopeId },
-            payload: { sessionId },
-          }).catch(() => undefined);
-          setOauthBusy(false);
-          setAddError(
-            "Sign-in cancelled — popup was closed before completing the flow.",
-          );
-        },
-        onOpenFailed: () => {
-          const sessionId = result.sessionId;
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          void doCancelOAuth({
-            path: { scopeId },
-            payload: { sessionId },
-          }).catch(() => undefined);
-          setOauthBusy(false);
-          setAddError("Sign-in popup was blocked by the browser");
-        },
-      });
-    } catch (e) {
-      setOauthBusy(false);
-      setAddError(e instanceof Error ? e.message : "Failed to start OAuth");
-    }
-  }, [
-    endpoint,
-    credentials,
-    scopeId,
-    doStartOAuth,
-    doCancelOAuth,
-    cancelActiveOAuth,
-    sourceIdentity,
-  ]);
+    await oauth.start({
+      payload: {
+        endpoint: trimmedEndpoint,
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+        redirectUrl: oauthCallbackUrl(),
+        connectionId: oauthConnectionId({ pluginId: "graphql", namespace }),
+        strategy: { kind: "dynamic-dcr" },
+        pluginId: "graphql",
+        identityLabel: `${displayName} OAuth`,
+      },
+      onSuccess: (result) => {
+        setTokens({
+          connectionId: result.connectionId,
+          expiresAt: result.expiresAt,
+          scope: result.scope,
+        });
+      },
+      onError: setAddError,
+    });
+  }, [endpoint, credentials, oauth, sourceIdentity]);
 
   const handleAdd = async () => {
     setAdding(true);
     setAddError(null);
-    const { headers: headerMap, queryParams } =
-      serializeHttpCredentials(credentials);
+    const { headers: headerMap, queryParams } = serializeHttpCredentials(credentials);
 
     const { trimmedEndpoint, namespace, displayName } = sourceIdentity();
     const placeholder = beginAdd({
@@ -238,9 +151,7 @@ export default function AddGraphqlSource(props: {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <h1 className="text-xl font-semibold text-foreground">
-        Add GraphQL Source
-      </h1>
+      <h1 className="text-xl font-semibold text-foreground">Add GraphQL Source</h1>
 
       <CardStack>
         <CardStackContent className="border-t-0">
@@ -250,9 +161,7 @@ export default function AddGraphqlSource(props: {
           >
             <Input
               value={endpoint}
-              onChange={(e) =>
-                setEndpoint((e.target as HTMLInputElement).value)
-              }
+              onChange={(e) => setEndpoint((e.target as HTMLInputElement).value)}
               placeholder="https://api.example.com/graphql"
               className="font-mono text-sm"
             />
@@ -260,10 +169,7 @@ export default function AddGraphqlSource(props: {
         </CardStackContent>
       </CardStack>
 
-      <SourceIdentityFields
-        identity={identity}
-        namePlaceholder="e.g. Shopify API"
-      />
+      <SourceIdentityFields identity={identity} namePlaceholder="e.g. Shopify API" />
 
       <HttpCredentialsEditor
         credentials={credentials}
@@ -275,9 +181,7 @@ export default function AddGraphqlSource(props: {
 
       <section className="space-y-2.5">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-foreground">
-            Authentication
-          </span>
+          <span className="text-sm font-medium text-foreground">Authentication</span>
           <FilterTabs<AuthMode>
             tabs={[
               { value: "none", label: "None" },
@@ -308,13 +212,9 @@ export default function AddGraphqlSource(props: {
               size="sm"
               className="ml-auto h-7 px-2 text-xs"
               onClick={() => void handleOAuth()}
-              disabled={
-                !endpoint.trim() ||
-                !httpCredentialsValid(credentials) ||
-                oauthBusy
-              }
+              disabled={!endpoint.trim() || !httpCredentialsValid(credentials) || oauth.busy}
             >
-              {oauthBusy ? "Signing in..." : tokens ? "Reconnect" : "Sign in"}
+              {oauth.busy ? "Signing in..." : tokens ? "Reconnect" : "Sign in"}
             </Button>
           </div>
         )}
@@ -331,7 +231,7 @@ export default function AddGraphqlSource(props: {
         <Button
           variant="ghost"
           onClick={() => {
-            cancelActiveOAuth();
+            oauth.cancel();
             props.onCancel();
           }}
           disabled={adding}

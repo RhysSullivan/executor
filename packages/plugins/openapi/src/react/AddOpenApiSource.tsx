@@ -2,18 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
-import {
-  ConnectionId,
-  OAUTH_POPUP_MESSAGE_TYPE,
-  ScopeId,
-  SecretId,
-} from "@executor/sdk";
-import { cancelOAuth } from "@executor/react/api/atoms";
-
-import {
-  openOAuthPopup,
-  type OAuthPopupResult,
-} from "@executor/react/api/oauth-popup";
+import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
 import { useScope, useUserScope } from "@executor/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 
@@ -32,6 +21,11 @@ import {
   serializeHttpCredentials,
   type HttpCredentialsState,
 } from "@executor/react/plugins/http-credentials";
+import {
+  oauthCallbackUrl,
+  useOAuthPopupFlow,
+  type OAuthCompletionPayload,
+} from "@executor/react/plugins/oauth-sign-in";
 import {
   CreatableSecretPicker,
   matchPresetKey,
@@ -91,7 +85,6 @@ import {
   type ServerVariable,
 } from "../sdk/types";
 
-export const OPENAPI_OAUTH_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
 export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
 export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 
@@ -246,8 +239,6 @@ export default function AddOpenApiSource(props: {
   } | null>(null);
   const [startingOAuth, setStartingOAuth] = useState(false);
   const [oauth2Error, setOauth2Error] = useState<string | null>(null);
-  const oauthCleanup = useRef<(() => void) | null>(null);
-  const oauthSessionId = useRef<string | null>(null);
 
   // Submit
   const [adding, setAdding] = useState(false);
@@ -258,10 +249,15 @@ export default function AddOpenApiSource(props: {
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
   const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
-  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
+  const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
+    popupName: OPENAPI_OAUTH_POPUP_NAME,
+    popupBlockedMessage: "OAuth popup was blocked by the browser",
+    popupClosedMessage: "OAuth cancelled - popup was closed before completing the flow.",
+    startErrorMessage: "Failed to start OAuth",
+  });
 
   // Keep the latest handleAnalyze in a ref so the debounced effect doesn't
   // need it as a dependency (it closes over fresh state).
@@ -323,10 +319,7 @@ export default function AddOpenApiSource(props: {
   }
 
   const oauth2Presets: readonly OAuth2Preset[] = preview?.oauth2Presets ?? [];
-  const oauth2RedirectUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
-      : OPENAPI_OAUTH_CALLBACK_PATH;
+  const oauth2RedirectUrl = oauthCallbackUrl(OPENAPI_OAUTH_CALLBACK_PATH);
   // Stable source id derivation. Matches the value `handleAdd` sends as
   // `namespace`, and is also the default credential key when the user
   // does not provide a more explicit shared connection id.
@@ -372,6 +365,7 @@ export default function AddOpenApiSource(props: {
         })
       : null;
   const hasHeaders = Object.keys(configuredHeaders).length > 0;
+  const oauth2Busy = startingOAuth || oauth.busy;
 
   const canAdd = preview !== null && resolvedBaseUrl.length > 0;
 
@@ -474,9 +468,7 @@ export default function AddOpenApiSource(props: {
 
   const handleConnectOAuth2 = useCallback(async () => {
     if (!selectedOAuth2Preset || !oauth2ClientIdSecretId || !preview) return;
-    oauthCleanup.current?.();
-    oauthCleanup.current = null;
-    setStartingOAuth(true);
+    oauth.cancel();
     setOauth2Error(null);
     try {
       const displayName = identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
@@ -488,10 +480,10 @@ export default function AddOpenApiSource(props: {
         // is mandatory; the backend exchanges tokens inline and returns a
         // completed OAuth2Auth we can attach to the source directly.
         if (!oauth2ClientSecretSecretId) {
-          setStartingOAuth(false);
           setOauth2Error("client_credentials requires a client secret");
           return;
         }
+        setStartingOAuth(true);
         const response = await doStartOAuth({
           path: { scopeId },
           payload: {
@@ -525,82 +517,52 @@ export default function AddOpenApiSource(props: {
       );
       const issuerUrl = inferOAuthIssuerUrl(authorizationUrl);
 
-      const response = await doStartOAuth({
-        path: { scopeId },
-        payload: {
-          sourceId: resolvedSourceId,
-          connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
-          displayName,
-          securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-          flow: "authorizationCode",
-          authorizationUrl,
-          issuerUrl,
-          tokenUrl,
-          redirectUrl: oauth2RedirectUrl,
-          clientIdSecretId: oauth2ClientIdSecretId,
-          clientSecretSecretId: oauth2ClientSecretSecretId,
-          scopes: [...oauth2SelectedScopes],
-        },
-      });
-
-      if (response.flow !== "authorizationCode") {
-        setStartingOAuth(false);
-        setOauth2Error("Unexpected response flow from server");
-        return;
-      }
-
-      oauthSessionId.current = response.sessionId;
-      oauthCleanup.current = openOAuthPopup<{ connectionId: string }>({
-        url: response.authorizationUrl,
-        popupName: OPENAPI_OAUTH_POPUP_NAME,
-        channelName: OPENAPI_OAUTH_CHANNEL,
-        expectedSessionId: response.sessionId,
-        onResult: (result: OAuthPopupResult<{ connectionId: string }>) => {
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          setStartingOAuth(false);
-          if (result.ok) {
-            setOauth2AuthState({
-              fingerprint: selectedOAuth2Fingerprint,
-              auth: new OAuth2Auth({
-                kind: "oauth2",
-                connectionId: result.connectionId,
-                securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-                flow: "authorizationCode",
-                tokenUrl,
-                authorizationUrl,
-                issuerUrl,
-                clientIdSecretId: oauth2ClientIdSecretId,
-                clientSecretSecretId: oauth2ClientSecretSecretId,
-                scopes: [...oauth2SelectedScopes],
-              }),
-            });
-            setOauth2Error(null);
-          } else {
-            setOauth2Error(result.error);
+      await oauth.openAuthorization({
+        run: async () => {
+          const response = await doStartOAuth({
+            path: { scopeId },
+            payload: {
+              sourceId: resolvedSourceId,
+              connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
+              displayName,
+              securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+              flow: "authorizationCode",
+              authorizationUrl,
+              issuerUrl,
+              tokenUrl,
+              redirectUrl: oauth2RedirectUrl,
+              clientIdSecretId: oauth2ClientIdSecretId,
+              clientSecretSecretId: oauth2ClientSecretSecretId,
+              scopes: [...oauth2SelectedScopes],
+            },
+          });
+          if (response.flow !== "authorizationCode") {
+            throw new Error("Unexpected response flow from server");
           }
+          return {
+            sessionId: response.sessionId,
+            authorizationUrl: response.authorizationUrl,
+          };
         },
-        onClosed: () => {
-          // User closed the popup without completing the flow.
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          void doCancelOAuth({
-            path: { scopeId },
-            payload: { sessionId: response.sessionId },
-          }).catch(() => undefined);
-          setStartingOAuth(false);
-          setOauth2Error("OAuth cancelled — popup was closed before completing the flow.");
+        onSuccess: (result) => {
+          setOauth2AuthState({
+            fingerprint: selectedOAuth2Fingerprint,
+            auth: new OAuth2Auth({
+              kind: "oauth2",
+              connectionId: result.connectionId,
+              securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+              flow: "authorizationCode",
+              tokenUrl,
+              authorizationUrl,
+              issuerUrl,
+              clientIdSecretId: oauth2ClientIdSecretId,
+              clientSecretSecretId: oauth2ClientSecretSecretId,
+              scopes: [...oauth2SelectedScopes],
+            }),
+          });
+          setOauth2Error(null);
         },
-        onOpenFailed: () => {
-          oauthCleanup.current = null;
-          oauthSessionId.current = null;
-          void doCancelOAuth({
-            path: { scopeId },
-            payload: { sessionId: response.sessionId },
-          }).catch(() => undefined);
-          setStartingOAuth(false);
-          setOauth2Error("OAuth popup was blocked by the browser");
-        },
+        onError: setOauth2Error,
       });
     } catch (e) {
       setStartingOAuth(false);
@@ -615,28 +577,18 @@ export default function AddOpenApiSource(props: {
     resolvedBaseUrl,
     preview,
     doStartOAuth,
-    doCancelOAuth,
     scopeId,
     identity.name,
     resolvedSourceId,
     selectedOAuth2Fingerprint,
+    oauth,
   ]);
 
   const handleCancelOAuth2 = useCallback(() => {
-    const sessionId = oauthSessionId.current;
-    if (sessionId) {
-      void doCancelOAuth({ path: { scopeId }, payload: { sessionId } }).catch(
-        () => undefined,
-      );
-    }
-    oauthCleanup.current?.();
-    oauthCleanup.current = null;
-    oauthSessionId.current = null;
+    oauth.cancel();
     setStartingOAuth(false);
     setOauth2Error(null);
-  }, [doCancelOAuth, scopeId]);
-
-  useEffect(() => () => oauthCleanup.current?.(), []);
+  }, [oauth]);
 
   const handleAdd = async () => {
     setAdding(true);
@@ -1175,7 +1127,7 @@ export default function AddOpenApiSource(props: {
                       Disconnect
                     </Button>
                   </div>
-                ) : startingOAuth ? (
+                ) : oauth2Busy ? (
                   <div className="flex items-center gap-2">
                     <div className="flex flex-1 items-center gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2 text-[11px] text-muted-foreground">
                       <Spinner className="size-3.5" />

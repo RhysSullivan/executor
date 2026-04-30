@@ -1,20 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 
-import {
-  openOAuthPopup,
-  type OAuthPopupResult,
-} from "@executor/react/api/oauth-popup";
-import {
-  cancelOAuth,
-  connectionsAtom,
-  sourceAtom,
-} from "@executor/react/api/atoms";
+import { connectionsAtom, sourceAtom } from "@executor/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor/react/api/scope-context";
-import {
-  connectionWriteKeys,
-  sourceWriteKeys,
-} from "@executor/react/api/reactivity-keys";
+import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { Button } from "@executor/react/components/button";
 import { CopyButton } from "@executor/react/components/copy-button";
 import {
@@ -32,6 +21,11 @@ import { sourceWriteKeys as openApiWriteKeys } from "@executor/react/api/reactiv
 import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
 import { CreatableSecretPicker } from "@executor/react/plugins/secret-header-auth";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
+import {
+  oauthCallbackUrl,
+  useOAuthPopupFlow,
+  type OAuthCompletionPayload,
+} from "@executor/react/plugins/oauth-sign-in";
 
 import {
   openApiSourceAtom,
@@ -43,7 +37,6 @@ import {
 } from "./atoms";
 import {
   OPENAPI_OAUTH_CALLBACK_PATH,
-  OPENAPI_OAUTH_CHANNEL,
   OPENAPI_OAUTH_POPUP_NAME,
   inferOAuthIssuerUrl,
   resolveOAuthUrl,
@@ -121,9 +114,7 @@ const effectiveBindingForScope = (
   ranks: ReadonlyMap<string, number>,
 ) =>
   rows.find(
-    (row) =>
-      row.slot === slot &&
-      scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
+    (row) => row.slot === slot && scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
   ) ?? null;
 
 const isSecretBindingValue = (
@@ -174,18 +165,16 @@ export default function EditOpenApiSource(props: {
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
-  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
+  const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
+    popupName: OPENAPI_OAUTH_POPUP_NAME,
+    popupBlockedMessage: "OAuth popup was blocked by the browser",
+    startErrorMessage: "Failed to connect OAuth",
+  });
 
-  const source =
-    Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
-  const bindingRows =
-    Result.isSuccess(bindingsResult) ? bindingsResult.value : [];
-  const connections =
-    Result.isSuccess(connectionsResult) ? connectionsResult.value : [];
-  const oauth2RedirectUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
-      : OPENAPI_OAUTH_CALLBACK_PATH;
+  const source = Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
+  const bindingRows = Result.isSuccess(bindingsResult) ? bindingsResult.value : [];
+  const connections = Result.isSuccess(connectionsResult) ? connectionsResult.value : [];
+  const oauth2RedirectUrl = oauthCallbackUrl(OPENAPI_OAUTH_CALLBACK_PATH);
 
   const [name, setName] = useState(source?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(source?.config.baseUrl ?? "");
@@ -202,9 +191,6 @@ export default function EditOpenApiSource(props: {
     userScope !== sourceScopeId ? userScope : sourceScopeId,
   );
   const sourceSaveSeq = useRef(0);
-  const oauthCleanup = useRef<(() => void) | null>(null);
-
-  useEffect(() => () => oauthCleanup.current?.(), []);
 
   useEffect(() => {
     if (!source) return;
@@ -262,15 +248,7 @@ export default function EditOpenApiSource(props: {
     }, 600);
 
     return () => window.clearTimeout(timeout);
-  }, [
-    baseUrl,
-    doUpdate,
-    loadedSourceKey,
-    name,
-    props.sourceId,
-    source,
-    sourceScopeId,
-  ]);
+  }, [baseUrl, doUpdate, loadedSourceKey, name, props.sourceId, source, sourceScopeId]);
 
   const secretSlots = useMemo(() => {
     if (!source) return [] as SlotDef[];
@@ -336,11 +314,7 @@ export default function EditOpenApiSource(props: {
     );
   }
 
-  const setSecretBinding = async (
-    targetScope: ScopeId,
-    slot: string,
-    secretId: string,
-  ) => {
+  const setSecretBinding = async (targetScope: ScopeId, slot: string, secretId: string) => {
     const inputKey = `${targetScope}:${slot}`;
     const trimmed = secretId.trim();
     if (!trimmed) return;
@@ -406,7 +380,11 @@ export default function EditOpenApiSource(props: {
       setError("Client ID must be bound before connecting");
       return;
     }
-    if (oauth2.flow === "clientCredentials" && (!clientSecretBinding || !isSecretBindingValue(clientSecretBinding.value))) {
+    const clientIdSecretId = clientIdBinding.value.secretId;
+    if (
+      oauth2.flow === "clientCredentials" &&
+      (!clientSecretBinding || !isSecretBindingValue(clientSecretBinding.value))
+    ) {
       setError("Client secret must be bound before connecting");
       return;
     }
@@ -448,7 +426,7 @@ export default function EditOpenApiSource(props: {
             securitySchemeName: oauth2.securitySchemeName,
             flow: "clientCredentials",
             tokenUrl,
-            clientIdSecretId: clientIdBinding.value.secretId,
+            clientIdSecretId,
             clientSecretSecretId: clientSecretValue!.secretId,
             scopes: [...oauth2.scopes],
           },
@@ -480,85 +458,57 @@ export default function EditOpenApiSource(props: {
         source.config.baseUrl ?? "",
       );
       const issuerUrl = oauth2.issuerUrl ?? inferOAuthIssuerUrl(authorizationUrl);
-      const redirectUrl =
-        typeof window !== "undefined"
-          ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
-          : OPENAPI_OAUTH_CALLBACK_PATH;
-      const response = await doStartOAuth({
-        path: { scopeId: displayScope },
-        payload: {
-          sourceId: props.sourceId,
-          connectionId,
-          tokenScope: targetScope,
-          displayName,
-          securitySchemeName: oauth2.securitySchemeName,
-          flow: "authorizationCode",
-          authorizationUrl,
-          issuerUrl,
-          tokenUrl,
-          redirectUrl,
-          clientIdSecretId: clientIdBinding.value.secretId,
-          clientSecretSecretId:
-            clientSecretBinding && isSecretBindingValue(clientSecretBinding.value)
-              ? clientSecretBinding.value.secretId
-              : undefined,
-          scopes: [...oauth2.scopes],
-        },
-      });
-      if (response.flow !== "authorizationCode") {
-        throw new Error("Unexpected OAuth response");
-      }
-      oauthCleanup.current = openOAuthPopup({
-        url: response.authorizationUrl,
-        popupName: OPENAPI_OAUTH_POPUP_NAME,
-        channelName: OPENAPI_OAUTH_CHANNEL,
-        expectedSessionId: response.sessionId,
-        onResult: async (result: OAuthPopupResult<{ connectionId: string }>) => {
-          oauthCleanup.current = null;
-          if (!result.ok) {
-            setError(result.error);
-            setPendingOAuthConnection(null);
-            setBusyKey(null);
-            return;
+      await oauth.openAuthorization({
+        run: async () => {
+          const response = await doStartOAuth({
+            path: { scopeId: displayScope },
+            payload: {
+              sourceId: props.sourceId,
+              connectionId,
+              tokenScope: targetScope,
+              displayName,
+              securitySchemeName: oauth2.securitySchemeName,
+              flow: "authorizationCode",
+              authorizationUrl,
+              issuerUrl,
+              tokenUrl,
+              redirectUrl: oauth2RedirectUrl,
+              clientIdSecretId,
+              clientSecretSecretId:
+                clientSecretBinding && isSecretBindingValue(clientSecretBinding.value)
+                  ? clientSecretBinding.value.secretId
+                  : undefined,
+              scopes: [...oauth2.scopes],
+            },
+          });
+          if (response.flow !== "authorizationCode") {
+            throw new Error("Unexpected OAuth response");
           }
-          try {
-            await doSetBinding({
-              path: { scopeId: displayScope },
-              payload: {
-                sourceId: props.sourceId,
-                sourceScope,
-                scope: targetScope,
-                slot: oauth2.connectionSlot,
-                value: {
-                  kind: "connection",
-                  connectionId: ConnectionId.make(result.connectionId),
-                },
+          return {
+            sessionId: response.sessionId,
+            authorizationUrl: response.authorizationUrl,
+          };
+        },
+        onSuccess: async (result) => {
+          await doSetBinding({
+            path: { scopeId: displayScope },
+            payload: {
+              sourceId: props.sourceId,
+              sourceScope,
+              scope: targetScope,
+              slot: oauth2.connectionSlot,
+              value: {
+                kind: "connection",
+                connectionId: ConnectionId.make(result.connectionId),
               },
-              reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
-            });
-          } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to save OAuth binding");
-          } finally {
-            setPendingOAuthConnection(null);
-            setBusyKey(null);
-          }
-        },
-        onClosed: () => {
-          oauthCleanup.current = null;
-          void doCancelOAuth({
-            path: { scopeId: targetScope },
-            payload: { sessionId: response.sessionId },
-          }).catch(() => undefined);
+            },
+            reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
+          });
           setPendingOAuthConnection(null);
           setBusyKey(null);
         },
-        onOpenFailed: () => {
-          oauthCleanup.current = null;
-          void doCancelOAuth({
-            path: { scopeId: targetScope },
-            payload: { sessionId: response.sessionId },
-          }).catch(() => undefined);
-          setError("OAuth popup was blocked by the browser");
+        onError: (message) => {
+          setError(message);
           setPendingOAuthConnection(null);
           setBusyKey(null);
         },
@@ -575,8 +525,8 @@ export default function EditOpenApiSource(props: {
       <div>
         <h1 className="text-xl font-semibold text-foreground">OpenAPI Source</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Shared source settings stay on the source. Credentials can be saved
-          personally or shared with the organization.
+          Shared source settings stay on the source. Credentials can be saved personally or shared
+          with the organization.
         </p>
       </div>
 
@@ -629,8 +579,7 @@ export default function EditOpenApiSource(props: {
               <CardStackEntryContent>
                 <CardStackEntryTitle>Credentials</CardStackEntryTitle>
                 <CardStackEntryDescription>
-                  Choose whether each credential is personal or shared with the
-                  organization.
+                  Choose whether each credential is personal or shared with the organization.
                 </CardStackEntryDescription>
               </CardStackEntryContent>
               <FilterTabs
@@ -647,11 +596,7 @@ export default function EditOpenApiSource(props: {
           {secretSlots
             .filter((slot) => slot.kind === "secret")
             .map((slot) => {
-              const exact = exactBindingForScope(
-                bindingRows,
-                slot.slot,
-                activeCredentialScopeId,
-              );
+              const exact = exactBindingForScope(bindingRows, slot.slot, activeCredentialScopeId);
               const effective = effectiveBindingForScope(
                 bindingRows,
                 slot.slot,
@@ -672,7 +617,10 @@ export default function EditOpenApiSource(props: {
                     ? (effective.value.secretId as string)
                     : null;
               return (
-                <CardStackEntryField key={`${slot.slot}:${activeCredentialScopeId}`} label={slot.label}>
+                <CardStackEntryField
+                  key={`${slot.slot}:${activeCredentialScopeId}`}
+                  label={slot.label}
+                >
                   <div className="space-y-2">
                     <CreatableSecretPicker
                       value={currentSecretId}
@@ -702,9 +650,7 @@ export default function EditOpenApiSource(props: {
                           variant="outline"
                           size="sm"
                           onClick={() => void clearBinding(activeCredentialScopeId, slot.slot)}
-                          disabled={
-                            busyKey === `${activeCredentialScopeId}:${slot.slot}:clear`
-                          }
+                          disabled={busyKey === `${activeCredentialScopeId}:${slot.slot}:clear`}
                         >
                           Clear
                         </Button>
@@ -757,9 +703,7 @@ export default function EditOpenApiSource(props: {
                       scopeRanks,
                     );
                   const connectionBinding =
-                    binding && isConnectionBindingValue(binding.value)
-                      ? binding.value
-                      : null;
+                    binding && isConnectionBindingValue(binding.value) ? binding.value : null;
                   const connection = connectionBinding
                     ? connections.find((entry) => entry.id === connectionBinding.connectionId)
                     : null;
@@ -771,21 +715,22 @@ export default function EditOpenApiSource(props: {
                     pendingOAuthConnection?.scopeId === activeCredentialScopeId &&
                     pendingOAuthConnection.slot === source.config.oauth2.connectionSlot;
                   const isConnected = connection !== null && connection !== undefined;
-                  const statusText = isConnecting || isPendingOAuthConnection
-                    ? "Saving OAuth connection..."
-                    : connectionBinding && bindingScopeId
-                      ? connection
-                        ? bindingScopeId === activeCredentialScopeId
-                          ? `Connected in ${activeCredentialScopeLabel.toLowerCase()} as ${
-                              connection.identityLabel ?? connection.id
-                            }`
-                          : `Using organization connection ${
-                              connection.identityLabel ?? connection.id
-                            }`
-                        : bindingScopeId === activeCredentialScopeId
-                          ? `Saved connection is missing in ${activeCredentialScopeLabel.toLowerCase()}`
-                          : "Organization connection is missing"
-                      : `No ${activeCredentialScopeLabel.toLowerCase()} connection`;
+                  const statusText =
+                    isConnecting || isPendingOAuthConnection
+                      ? "Saving OAuth connection..."
+                      : connectionBinding && bindingScopeId
+                        ? connection
+                          ? bindingScopeId === activeCredentialScopeId
+                            ? `Connected in ${activeCredentialScopeLabel.toLowerCase()} as ${
+                                connection.identityLabel ?? connection.id
+                              }`
+                            : `Using organization connection ${
+                                connection.identityLabel ?? connection.id
+                              }`
+                          : bindingScopeId === activeCredentialScopeId
+                            ? `Saved connection is missing in ${activeCredentialScopeLabel.toLowerCase()}`
+                            : "Organization connection is missing"
+                        : `No ${activeCredentialScopeLabel.toLowerCase()} connection`;
 
                   return (
                     <div className="space-y-2">
