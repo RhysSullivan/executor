@@ -138,8 +138,10 @@ const originalFetch = globalThis.fetch;
 const jwtPart = (value: unknown): string =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
-const unsignedJwt = (claims: Record<string, unknown>): string =>
-  `${jwtPart({ alg: "RS256", typ: "JWT" })}.${jwtPart(claims)}.sig`;
+const unsignedJwt = (
+  claims: Record<string, unknown>,
+  alg = "RS256",
+): string => `${jwtPart({ alg, typ: "JWT" })}.${jwtPart(claims)}.sig`;
 
 describe("exchangeAuthorizationCode", () => {
   afterEach(() => {
@@ -222,6 +224,38 @@ describe("exchangeAuthorizationCode", () => {
         code: "abc",
       }),
     );
+    expect(result.access_token).toBe("tok");
+  });
+
+  it("accepts ID token signing algorithms advertised by authorization server metadata", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt(
+          {
+            iss: "https://railway.com",
+            aud: "cid",
+            sub: "user-1",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            iat: Math.floor(Date.now() / 1000),
+          },
+          "ES256",
+        ),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      exchangeAuthorizationCode({
+        tokenUrl: "https://backboard.railway.com/oauth/token",
+        issuerUrl: "https://railway.com",
+        clientId: "cid",
+        redirectUrl: "https://app.example.com/cb",
+        codeVerifier: "verifier",
+        code: "abc",
+        idTokenSigningAlgValuesSupported: ["ES256"],
+      }),
+    );
+
     expect(result.access_token).toBe("tok");
   });
 
@@ -377,6 +411,36 @@ describe("refreshAccessToken", () => {
         refreshToken: "old",
       }),
     );
+    expect(result.access_token).toBe("tok2");
+  });
+
+  it("accepts refreshed ID token signing algorithms advertised by authorization server metadata", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt(
+          {
+            iss: "https://railway.com",
+            aud: "cid",
+            sub: "user-1",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            iat: Math.floor(Date.now() / 1000),
+          },
+          "ES256",
+        ),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      refreshAccessToken({
+        tokenUrl: "https://backboard.railway.com/oauth/token",
+        issuerUrl: "https://railway.com",
+        clientId: "cid",
+        refreshToken: "old",
+        idTokenSigningAlgValuesSupported: ["ES256"],
+      }),
+    );
+
     expect(result.access_token).toBe("tok2");
   });
 });

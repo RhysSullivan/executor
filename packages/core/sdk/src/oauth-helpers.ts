@@ -156,9 +156,20 @@ const asFromTokenUrl = (tokenUrl: string): oauth.AuthorizationServer => {
 const asFromTokenUrlAndIssuer = (
   tokenUrl: string,
   issuerUrl: string | null | undefined,
+  options: {
+    readonly idTokenSigningAlgValuesSupported?: readonly string[];
+  } = {},
 ): oauth.AuthorizationServer => {
   const as = asFromTokenUrl(tokenUrl);
-  return issuerUrl ? { ...as, issuer: issuerUrl } : as;
+  const withIssuer = issuerUrl ? { ...as, issuer: issuerUrl } : as;
+  return options.idTokenSigningAlgValuesSupported
+    ? {
+        ...withIssuer,
+        id_token_signing_alg_values_supported: [
+          ...options.idTokenSigningAlgValuesSupported,
+        ],
+      }
+    : withIssuer;
 };
 
 const isLoopbackHttpUrl = (value: string): boolean => {
@@ -226,6 +237,7 @@ export type ExchangeAuthorizationCodeInput = {
   readonly codeVerifier: string;
   readonly code: string;
   readonly clientAuth?: ClientAuthMethod;
+  readonly idTokenSigningAlgValuesSupported?: readonly string[];
   readonly timeoutMs?: number;
 };
 
@@ -234,7 +246,10 @@ export const exchangeAuthorizationCode = (
 ): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
   Effect.tryPromise({
     try: async () => {
-      const as = asFromTokenUrlAndIssuer(input.tokenUrl, input.issuerUrl);
+      const as = asFromTokenUrlAndIssuer(input.tokenUrl, input.issuerUrl, {
+        idTokenSigningAlgValuesSupported:
+          input.idTokenSigningAlgValuesSupported,
+      });
       const client: oauth.Client = { client_id: input.clientId };
       const clientAuth = pickClientAuth(
         input.clientSecret,
@@ -327,6 +342,7 @@ export type RefreshAccessTokenInput = {
   readonly scopes?: readonly string[];
   readonly scopeSeparator?: string;
   readonly clientAuth?: ClientAuthMethod;
+  readonly idTokenSigningAlgValuesSupported?: readonly string[];
   readonly timeoutMs?: number;
 };
 
@@ -335,7 +351,10 @@ export const refreshAccessToken = (
 ): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
   Effect.tryPromise({
     try: async () => {
-      const as = asFromTokenUrlAndIssuer(input.tokenUrl, input.issuerUrl);
+      const as = asFromTokenUrlAndIssuer(input.tokenUrl, input.issuerUrl, {
+        idTokenSigningAlgValuesSupported:
+          input.idTokenSigningAlgValuesSupported,
+      });
       const client: oauth.Client = { client_id: input.clientId };
       const clientAuth = pickClientAuth(
         input.clientSecret,

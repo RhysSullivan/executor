@@ -123,6 +123,9 @@ export const OAuthProviderState = Schema.Union(
     issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     authorizationServerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     authorizationServerMetadataUrl: Schema.NullOr(Schema.String),
+    idTokenSigningAlgValuesSupported: Schema.optional(
+      Schema.Array(Schema.String),
+    ),
     /** DCR-minted client_id. Embedded inline (not a secret) — DCR
      *  clients are public-ish by design; the secret part (if the AS
      *  issued one) is a separate secret row. */

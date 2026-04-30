@@ -85,6 +85,7 @@ export const OAuthAuthorizationServerMetadataSchema = Schema.Struct({
   revocation_endpoint: Schema.optional(Schema.String),
   introspection_endpoint: Schema.optional(Schema.String),
   userinfo_endpoint: Schema.optional(Schema.String),
+  id_token_signing_alg_values_supported: Schema.optional(StringArray),
 }).pipe(Schema.annotations({ identifier: "OAuthAuthorizationServerMetadata" }));
 export type OAuthAuthorizationServerMetadata =
   typeof OAuthAuthorizationServerMetadataSchema.Type;

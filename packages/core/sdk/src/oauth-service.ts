@@ -857,6 +857,10 @@ export const makeOAuth2Service = (
               authorizationServerUrl: payload.authorizationServerUrl,
               authorizationServerMetadataUrl:
                 payload.authorizationServerMetadataUrl,
+              idTokenSigningAlgValuesSupported:
+                (payload.authorizationServerMetadata as {
+                  id_token_signing_alg_values_supported?: string[];
+                }).id_token_signing_alg_values_supported,
               clientId: (payload.clientInformation as { client_id: string })
                 .client_id,
               clientSecretSecretId: dynamicClientSecretSecretId,
@@ -949,6 +953,7 @@ export const makeOAuth2Service = (
       const md = payload.authorizationServerMetadata as {
         token_endpoint: string;
         issuer?: string;
+        id_token_signing_alg_values_supported?: string[];
       };
       const ci = payload.clientInformation as {
         client_id: string;
@@ -963,6 +968,8 @@ export const makeOAuth2Service = (
         redirectUrl,
         codeVerifier: payload.codeVerifier,
         code,
+        idTokenSigningAlgValuesSupported:
+          md.id_token_signing_alg_values_supported,
         clientAuth:
           ci.token_endpoint_auth_method === "client_secret_basic"
             ? "basic"
@@ -1246,6 +1253,10 @@ export const makeOAuth2Service = (
                   ? state.scopeSeparator
                   : undefined,
               clientAuth: state.clientAuth,
+              idTokenSigningAlgValuesSupported:
+                state.kind === "dynamic-dcr"
+                  ? state.idTokenSigningAlgValuesSupported
+                  : undefined,
             })).pipe(
           Effect.mapError(
             (err) =>
