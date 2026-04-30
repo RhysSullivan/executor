@@ -34,6 +34,7 @@ import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
 import { Spinner } from "@executor/react/components/spinner";
 import { addGraphqlSource } from "./atoms";
+import { initialGraphqlCredentials } from "./defaults";
 import type { HeaderValue } from "../sdk/types";
 
 type AuthMode = "none" | "oauth2";
@@ -56,17 +57,9 @@ export default function AddGraphqlSource(props: {
   const identity = useSourceIdentity({
     fallbackName: displayNameFromUrl(endpoint) ?? "",
   });
-  const [credentials, setCredentials] = useState<HttpCredentialsState>({
-    headers: [
-      {
-        name: "Authorization",
-        prefix: "Bearer ",
-        presetKey: "bearer",
-        secretId: null,
-      },
-    ],
-    queryParams: [],
-  });
+  const [credentials, setCredentials] = useState<HttpCredentialsState>(
+    initialGraphqlCredentials,
+  );
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("none");
