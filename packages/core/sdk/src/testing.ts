@@ -39,5 +39,9 @@ export const makeTestConfig = <
     adapter: makeMemoryAdapter({ schema }),
     blobs: makeInMemoryBlobStore(),
     plugins: options?.plugins,
+    // Tests default to auto-accepting elicitation prompts. Override via
+    // a wrapping spread if a test exercises a real handler:
+    //   { ...makeTestConfig(...), onElicitation: customHandler }
+    onElicitation: "accept-all",
   };
 };

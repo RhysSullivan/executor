@@ -99,5 +99,6 @@ export const createScopedExecutor = (
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
   });

@@ -21,34 +21,11 @@ import {
   createExecutor as createEffectExecutor,
   collectSchemas,
   type Executor as EffectExecutor,
-  type InvokeOptions,
+  type OnElicitation,
 } from "./executor";
 import { ScopeId } from "./ids";
 import type { AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
-
-// ---------------------------------------------------------------------------
-// invoke-options guard at the Promise layer — the Effect path also
-// asserts this, but mirroring it here yields a cleaner synchronous stack
-// trace that points at the consumer call site rather than at
-// `Effect.runPromise`. This is a programmer-error TypeError; we don't
-// default `onElicitation` to `accept-all` because silently
-// auto-accepting elicitation prompts could skip approvals or leak data
-// via user-input prompts.
-// ---------------------------------------------------------------------------
-
-const MISSING_ON_ELICITATION_MESSAGE =
-  'executor.tools.invoke(...) requires an options object with `onElicitation`. ' +
-  'Pass `{ onElicitation: "accept-all" }` for non-interactive contexts, ' +
-  "or a handler `(ctx) => Promise<ElicitationResponse>` for interactive ones.";
-
-const assertInvokeOptionsAtPromiseLayer = (
-  options: InvokeOptions | undefined,
-): void => {
-  if (options == null || options.onElicitation == null) {
-    throw new TypeError(MISSING_ON_ELICITATION_MESSAGE);
-  }
-};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,6 +78,14 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
    */
   readonly scopes?: readonly { readonly id?: string; readonly name?: string }[];
   readonly plugins?: TPlugins;
+  /**
+   * How to respond when a tool requests user input mid-invocation. Pass
+   * `"accept-all"` for tests / non-interactive hosts, or a handler
+   * `(ctx) => Promise<ElicitationResponse>` for interactive ones.
+   * Required at construction so per-invoke calls don't have to thread
+   * an options arg.
+   */
+  readonly onElicitation: OnElicitation;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,13 +146,13 @@ const promisifyDeep = <T>(value: T): Promisified<T> => {
 export const createExecutor = async <
   const TPlugins extends readonly AnyPlugin[] = [],
 >(
-  config?: ExecutorConfig<TPlugins>,
+  config: ExecutorConfig<TPlugins>,
 ): Promise<Executor<TPlugins>> => {
-  const plugins = (config?.plugins ?? []) as unknown as TPlugins;
+  const plugins = (config.plugins ?? []) as unknown as TPlugins;
   const schema = collectSchemas(plugins);
 
   const scopes =
-    config?.scopes && config.scopes.length > 0
+    config.scopes && config.scopes.length > 0
       ? config.scopes.map(
           (s, i) =>
             new Scope({
@@ -189,6 +174,7 @@ export const createExecutor = async <
     adapter: makeMemoryAdapter({ schema }),
     blobs: makeInMemoryBlobStore(),
     plugins,
+    onElicitation: config.onElicitation,
   };
 
   // The SDK has no observability requirement; storage failures surface
@@ -201,45 +187,5 @@ export const createExecutor = async <
     createEffectExecutor(effectConfig),
   );
 
-  const promised = promisifyDeep(effectExecutor) as Executor<TPlugins>;
-  const promisedAny = promised as unknown as {
-    tools: {
-      invoke: (
-        toolId: string,
-        args: unknown,
-        options?: InvokeOptions,
-      ) => Promise<unknown>;
-      [key: string]: unknown;
-    };
-    [key: string]: unknown;
-  };
-
-  // Wrap tools.invoke to surface the missing-options TypeError
-  // synchronously at the consumer call site. The Effect-layer
-  // `assertInvokeOptions` would still fire if this guard is bypassed —
-  // this wrapper just produces a cleaner stack trace.
-  const originalInvoke = promisedAny.tools.invoke;
-  const guardedInvoke = (
-    toolId: string,
-    args: unknown,
-    options?: InvokeOptions,
-  ) => {
-    assertInvokeOptionsAtPromiseLayer(options);
-    return originalInvoke(toolId, args, options);
-  };
-
-  return new Proxy(promisedAny, {
-    get(target, prop, receiver) {
-      if (prop === "tools") {
-        const tools = target.tools;
-        return new Proxy(tools, {
-          get(toolsTarget, toolsProp, toolsReceiver) {
-            if (toolsProp === "invoke") return guardedInvoke;
-            return Reflect.get(toolsTarget, toolsProp, toolsReceiver);
-          },
-        });
-      }
-      return Reflect.get(target, prop, receiver);
-    },
-  }) as unknown as Executor<TPlugins>;
+  return promisifyDeep(effectExecutor) as Executor<TPlugins>;
 };

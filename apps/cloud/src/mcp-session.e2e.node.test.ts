@@ -122,7 +122,13 @@ const buildScopedExecutor = (
       name: scopeName,
       createdAt: new Date(),
     });
-    return yield* createExecutor({ scopes: [scope], adapter, blobs, plugins });
+    return yield* createExecutor({
+      scopes: [scope],
+      adapter,
+      blobs,
+      plugins,
+      onElicitation: "accept-all",
+    });
   });
 
 // Builds a scope, wires a real execution engine + MCP server, and yields

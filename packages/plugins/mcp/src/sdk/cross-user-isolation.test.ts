@@ -60,6 +60,7 @@ const makeSharedOrgExecutors = () =>
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
     const execA = yield* makeFor(aInnerId);

@@ -292,7 +292,13 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
   });
 
   const executor = await Effect.runPromise(
-    createExecutor({ scopes: [scope], adapter, blobs, plugins }),
+    createExecutor({
+      scopes: [scope],
+      adapter,
+      blobs,
+      plugins,
+      onElicitation: "accept-all",
+    }),
   );
 
   const engine = createExecutionEngine({

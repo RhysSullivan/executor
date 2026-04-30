@@ -284,6 +284,7 @@ describe("createExecutor", () => {
       const executor = yield* createExecutor({
         ...config,
         adapter: recordFindMany(config.adapter, findManyCalls),
+        onElicitation: "accept-all",
       });
       yield* executor.test.addThing("thing1", "hello");
       yield* executor.test.addThing("thing2", "goodbye");
@@ -1085,6 +1086,7 @@ const makeSharedTenantExecutors = () =>
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
     const execA = yield* makeOne("scope-a");
@@ -1199,6 +1201,7 @@ describe("tenant isolation (SDK)", () => {
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
       yield* exec.secrets.set(
@@ -1325,12 +1328,14 @@ const makeLayeredExecutors = () =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     const execInner = yield* createExecutor({
       scopes: [innerScope, outerScope],
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     return { execOuter, execInner, outerId, innerId };
   });
@@ -1509,12 +1514,14 @@ const makeMarkerExecutors = () =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     const execInner = yield* createExecutor({
       scopes: [innerScope, outerScope],
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     return { execOuter, execInner, outerId, innerId };
   });
@@ -1746,6 +1753,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
         const execInner = yield* createExecutor({
           scopes: [
@@ -1755,6 +1763,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
 
         yield* execOuter.ref.register("S");

@@ -1,4 +1,4 @@
-import { type Plugin } from "@executor/sdk/core";
+import { type Plugin } from "@executor-js/sdk/core";
 
 import {
   fileSecretsPlugin as fileSecretsPluginEffect,
@@ -9,10 +9,9 @@ import {
 export type { FileSecretsPluginConfig } from "./index";
 
 // Explicit return type so the emitted dist/promise.d.ts references
-// `import("@executor/sdk/core").Plugin` (where `Plugin` lives) rather than
-// `import("@executor/sdk").Plugin` (the Promise surface, which doesn't
-// re-export Plugin). The publish-time scope rename rewrites
-// `@executor/sdk/core` to `@executor-js/sdk/core` consistently.
+// `import("@executor-js/sdk/core").Plugin` (where `Plugin` lives) rather
+// than `import("@executor-js/sdk").Plugin` (the Promise surface, which
+// doesn't re-export Plugin).
 export const fileSecretsPlugin = (
   config?: FileSecretsPluginConfig,
 ): Plugin<"fileSecrets", FileSecretsExtension, Record<string, never>, undefined> =>

@@ -24,7 +24,7 @@ export {
 } from "./types";
 export type { ToolAnnotations } from "./core-schema";
 export type { AnyPlugin, PluginExtensions } from "./plugin";
-export type { InvokeOptions } from "./executor";
+export type { OnElicitation, InvokeOptions } from "./executor";
 
 // Elicitation — Promise invoke returns raw values, but consumers still
 // may want to reference request/response shapes.

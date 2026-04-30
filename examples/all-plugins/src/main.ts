@@ -87,6 +87,7 @@ const config = {
   adapter: makeMemoryAdapter({ schema: collectSchemas(plugins) }),
   blobs: makeInMemoryBlobStore(),
   plugins,
+  onElicitation: "accept-all" as const,
 };
 
 // Silence the unused-import warning for workos-vault (kept in scope as

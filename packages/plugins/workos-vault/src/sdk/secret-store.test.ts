@@ -364,12 +364,14 @@ const makeLayeredExecutors = (client: WorkOSVaultClient) =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     const execInner = yield* createExecutor({
       scopes: [innerScope, outerScope],
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     return { execOuter, execInner, outerId, innerId, adapter };
   });
@@ -536,6 +538,7 @@ const makeExecutorForScope = (
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
   });
 

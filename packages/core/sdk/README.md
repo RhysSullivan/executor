@@ -4,8 +4,6 @@ A TypeScript SDK for building executors that wire together tool sources, secrets
 
 The default surface is `Promise`-based — plugins are built on [Effect](https://effect.website/) under the hood, but consumers never have to touch it.
 
-> The package is published as `@executor-js/*` (the short `@executor` scope was already taken on npm). Source-level imports inside the monorepo still use `@executor/*`; the publish step rewrites them at pack time.
-
 ## Install
 
 ```sh
@@ -19,7 +17,12 @@ npm install @executor-js/sdk
 ```ts
 import { createExecutor } from "@executor-js/sdk";
 
-const executor = await createExecutor();
+const executor = await createExecutor({
+  // Required: how to respond when a tool requests user input mid-call.
+  // `"accept-all"` auto-approves every prompt — fine for tests/automation.
+  // For an interactive host, pass a handler `(ctx) => Promise<ElicitationResponse>`.
+  onElicitation: "accept-all",
+});
 
 const tools = await executor.tools.list();
 console.log(`scope=${executor.scopes[0]!.id} tools=${tools.length}`);
@@ -27,29 +30,33 @@ console.log(`scope=${executor.scopes[0]!.id} tools=${tools.length}`);
 await executor.close();
 ```
 
-`createExecutor()` returns an executor backed by an in-memory store and a default scope (`default-scope`). Without plugins it has no tools or secret providers — the surface is still there, it just enumerates empty. Add plugins to contribute tools, secret providers, and per-plugin extension methods.
+`createExecutor` returns an executor backed by an in-memory store and a default scope (`default-scope`). Without plugins it has no tools or secret providers — the surface is still there, it just enumerates empty. Add plugins to contribute tools, secret providers, and per-plugin extension methods.
 
 To invoke a tool once one is registered:
 
 ```ts
 import { createExecutor } from "@executor-js/sdk";
 
-const executor = await createExecutor();
+const executor = await createExecutor({ onElicitation: "accept-all" });
 
 const tools = await executor.tools.list();
 const target = tools[0];
 if (target) {
-  // `onElicitation` is required at runtime — pass "accept-all" for
-  // tests/automation, or a real handler for an interactive host.
-  const result = await executor.tools.invoke(
-    target.id,
-    { /* args matching target.inputSchema */ },
-    { onElicitation: "accept-all" },
-  );
+  const result = await executor.tools.invoke(target.id, {
+    /* args matching target.inputSchema */
+  });
   console.log(result);
 }
 
 await executor.close();
+```
+
+Pass an `options` object only if you need to override the executor-level handler for a single call (rare — typically used by hosts that bridge per-client elicitation channels):
+
+```ts
+await executor.tools.invoke(target.id, args, {
+  onElicitation: customHandler,
+});
 ```
 
 ## Two import paths
@@ -110,6 +117,7 @@ export const memorySecretsPlugin = definePlugin(
 // the plugin's extension is reachable as `executor.memorySecrets`.
 const executor = await createExecutor({
   plugins: [memorySecretsPlugin({ initial: { greeting: "hello" } })] as const,
+  onElicitation: "accept-all",
 });
 
 console.log(executor.memorySecrets.label); // "in-memory secrets"
