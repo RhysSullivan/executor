@@ -1,6 +1,7 @@
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useEffect } from "react";
 import { Atom } from "@effect-atom/atom";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { usePostHog } from "posthog-js/react";
 import { ReactivityKey } from "@executor/react/api/reactivity-keys";
 
 import { CloudApiClient } from "./client";
@@ -55,6 +56,7 @@ export const useAuth = () => useContext(AuthContext);
 
 const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
   const result = useAtomValue(authAtom);
+  const posthog = usePostHog();
 
   const state: AuthState = Result.match(result, {
     onInitial: () => ({ status: "loading" as const }),
@@ -65,6 +67,28 @@ const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
     }),
     onFailure: () => ({ status: "unauthenticated" as const }),
   });
+
+  useEffect(() => {
+    if (!posthog) return;
+    if (state.status === "authenticated") {
+      posthog.identify(state.user.id, {
+        email: state.user.email,
+        name: state.user.name,
+      });
+      if (state.organization) {
+        posthog.group("organization", state.organization.id, {
+          name: state.organization.name,
+        });
+      }
+    } else if (state.status === "unauthenticated") {
+      posthog.reset();
+    }
+  }, [
+    posthog,
+    state.status,
+    state.status === "authenticated" ? state.user.id : null,
+    state.status === "authenticated" ? state.organization?.id ?? null : null,
+  ]);
 
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
 };

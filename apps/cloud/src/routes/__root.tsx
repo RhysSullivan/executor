@@ -2,6 +2,8 @@ import React from "react";
 import * as Sentry from "@sentry/react";
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { AutumnProvider } from "autumn-js/react";
+import posthog from "posthog-js";
+import { PostHogProvider } from "posthog-js/react";
 import { ExecutorProvider } from "@executor/react/api/provider";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { Toaster } from "@executor/react/components/sonner";
@@ -18,6 +20,15 @@ if (typeof window !== "undefined" && import.meta.env.VITE_PUBLIC_SENTRY_DSN) {
     tracesSampleRate: 0,
     replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1.0,
+  });
+}
+
+if (typeof window !== "undefined" && import.meta.env.VITE_PUBLIC_POSTHOG_KEY) {
+  posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_KEY, {
+    api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST ?? `${window.location.origin}/ingest`,
+    ui_host: "https://us.posthog.com",
+    defaults: "2025-05-24",
+    person_profiles: "identified_only",
   });
 }
 
@@ -63,9 +74,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   return (
-    <AuthProvider>
-      <AuthGate />
-    </AuthProvider>
+    <PostHogProvider client={posthog}>
+      <AuthProvider>
+        <AuthGate />
+      </AuthProvider>
+    </PostHogProvider>
   );
 }
 

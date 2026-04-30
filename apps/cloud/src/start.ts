@@ -106,6 +106,36 @@ const sentryTunnelMiddleware = createMiddleware({ type: "request" }).server(
 );
 
 // ---------------------------------------------------------------------------
+// PostHog reverse proxy — the browser SDK targets `/ingest/*` (configured in
+// routes/__root.tsx) and we forward to PostHog's ingest + asset hosts. Keeps
+// events flowing past adblockers that match *.posthog.com. See
+// https://posthog.com/docs/advanced/proxy/cloudflare
+// ---------------------------------------------------------------------------
+
+const POSTHOG_INGEST_HOST = "us.i.posthog.com";
+const POSTHOG_ASSETS_HOST = "us-assets.i.posthog.com";
+
+const posthogProxyMiddleware = createMiddleware({ type: "request" }).server(
+  ({ pathname, request, next }) => {
+    if (pathname !== "/ingest" && !pathname.startsWith("/ingest/")) {
+      return next();
+    }
+
+    const url = new URL(request.url);
+    url.hostname = pathname.startsWith("/ingest/static/")
+      ? POSTHOG_ASSETS_HOST
+      : POSTHOG_INGEST_HOST;
+    url.protocol = "https:";
+    url.port = "";
+    url.pathname = pathname.replace(/^\/ingest/, "") || "/";
+
+    const upstream = new Request(url, request);
+    upstream.headers.delete("cookie");
+    return fetch(upstream);
+  },
+);
+
+// ---------------------------------------------------------------------------
 // API middleware — routes /api/* to the Effect HTTP layer
 // ---------------------------------------------------------------------------
 
@@ -125,6 +155,7 @@ export const startInstance = createStart(() => ({
     marketingMiddleware,
     mcpRequestMiddleware,
     sentryTunnelMiddleware,
+    posthogProxyMiddleware,
     apiRequestMiddleware,
   ],
 }));

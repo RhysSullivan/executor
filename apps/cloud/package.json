@@ -63,6 +63,7 @@
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "jose": "^5.6.3",
+    "posthog-js": "^1.372.5",
     "postgres": "^3.4.9",
     "react": "catalog:",
     "react-dom": "catalog:",

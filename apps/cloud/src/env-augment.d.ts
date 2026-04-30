@@ -12,6 +12,8 @@ declare global {
       AXIOM_TRACES_SAMPLE_RATIO?: string;
       SENTRY_DSN?: string;
       VITE_PUBLIC_SENTRY_DSN?: string;
+      VITE_PUBLIC_POSTHOG_KEY?: string;
+      VITE_PUBLIC_POSTHOG_HOST?: string;
 
       // Datastore. Prod uses HYPERDRIVE when the binding exists; direct
       // DATABASE_URL is only selected when explicitly requested for local/test.
