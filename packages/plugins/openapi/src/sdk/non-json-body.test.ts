@@ -1,4 +1,3 @@
-// @ts-nocheck
 // ---------------------------------------------------------------------------
 // Dispatch tests for non-JSON request bodies.
 //

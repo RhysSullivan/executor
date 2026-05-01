@@ -1,4 +1,3 @@
-// @ts-nocheck
 // ---------------------------------------------------------------------------
 // End-to-end shape test for multi-user bearer-token auth on the OpenAPI
 // plugin. Models the Vercel-style scenario:

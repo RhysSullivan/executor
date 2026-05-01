@@ -1,4 +1,3 @@
-// @ts-nocheck
 // ---------------------------------------------------------------------------
 // Tests for OAuth2 flow extraction in previewSpec. Covers:
 //   - authorizationCode flow extraction (URLs + scopes)

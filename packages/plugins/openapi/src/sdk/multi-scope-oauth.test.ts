@@ -1,4 +1,3 @@
-// @ts-nocheck
 // ---------------------------------------------------------------------------
 // End-to-end shape test for multi-scope OAuth on the OpenAPI plugin.
 //
@@ -76,7 +75,7 @@ const TestLayer = HttpRouter.serve(ApiLive, { disableListenLog: true, disableLog
 const originalFetch = globalThis.fetch;
 
 const mockTokenFetch = (tokenByCode: Record<string, string>) => {
-  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof _input === "string" ? _input : _input.toString();
     if (!url.includes("token.example.com")) {
       return originalFetch(_input, init);
@@ -104,7 +103,7 @@ const mockTokenFetch = (tokenByCode: Record<string, string>) => {
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
-  };
+  }, { preconnect: originalFetch.preconnect });
 };
 
 afterEach(() => {
@@ -494,7 +493,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // user's row ends up with a token minted from *their own*
       // credential resolution.
       const tokenCalls: string[] = [];
-      globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      globalThis.fetch = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof _input === "string" ? _input : _input.toString();
         if (!url.includes("token.example.com")) {
           return originalFetch(_input, init);
@@ -515,7 +514,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
-      };
+      }, { preconnect: originalFetch.preconnect });
 
       const startInput = {
         connectionId: "shared-petstore-oauth",

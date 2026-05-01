@@ -1,4 +1,3 @@
-// @ts-nocheck
 // This script runs inside the Deno subprocess.
 // It communicates with the host process via line-delimited JSON over stdin/stdout.
 // All IPC messages are prefixed with @@executor-ipc@@ to distinguish from user output.

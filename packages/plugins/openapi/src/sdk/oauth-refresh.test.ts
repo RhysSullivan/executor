@@ -1,4 +1,3 @@
-// @ts-nocheck
 // ---------------------------------------------------------------------------
 // End-to-end refresh behaviour for the OpenAPI plugin's oauth2 connection
 // provider.
@@ -88,10 +87,10 @@ type TokenCall = {
 };
 
 const mockTokenFetch = (
-  handler: (body: URLSearchParams) => Effect.Effect<Response> | Promise<Response>,
+  handler: (body: URLSearchParams) => Effect.Effect<Response, never, never> | Promise<Response>,
 ) => {
   const calls: TokenCall[] = [];
-  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof _input === "string" ? _input : _input.toString();
     if (!url.includes("token.example.com")) {
       return originalFetch(_input, init);
@@ -105,11 +104,9 @@ const mockTokenFetch = (
     const body = new URLSearchParams(bodyText);
     calls.push({ body });
     const out = handler(body);
-    if (out && typeof (out as Promise<Response>).then === "function") {
-      return await (out as Promise<Response>);
-    }
-    return await Effect.runPromise(out as Effect.Effect<Response>);
-  };
+    if (Effect.isEffect(out)) return await Effect.runPromise(out);
+    return await out;
+  }, { preconnect: originalFetch.preconnect });
   return { calls };
 };
 
@@ -193,9 +190,9 @@ const makeExecutor = () =>
     return { executor, scopeId, baseUrl };
   });
 
-type ExecutorValue = Effect.Effect.Success<
-  ReturnType<typeof makeExecutor>
->["executor"];
+type EffectSuccess<T> = T extends Effect.Effect<infer A, unknown, unknown> ? A : never;
+
+type ExecutorValue = EffectSuccess<ReturnType<typeof makeExecutor>>["executor"];
 
 // Seed an authorizationCode Connection with an already-expired access
 // token and a stored refresh token. The test's mock token endpoint

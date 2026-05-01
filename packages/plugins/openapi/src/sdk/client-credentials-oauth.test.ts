@@ -1,4 +1,3 @@
-// @ts-nocheck
 // ---------------------------------------------------------------------------
 // End-to-end test for the OAuth2 `client_credentials` grant on an OpenAPI
 // source. A spec that declares ONLY a `clientCredentials` flow (no
@@ -85,7 +84,7 @@ const mockClientCredentialsFetch = (args: {
   readonly expiresIn?: number;
 }) => {
   let callIndex = 0;
-  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof _input === "string" ? _input : _input.toString();
     if (!url.includes("token.example.com")) {
       return originalFetch(_input, init);
@@ -114,7 +113,7 @@ const mockClientCredentialsFetch = (args: {
       status: 200,
       headers: { "content-type": "application/json" },
     });
-  };
+  }, { preconnect: originalFetch.preconnect });
 };
 
 afterEach(() => {

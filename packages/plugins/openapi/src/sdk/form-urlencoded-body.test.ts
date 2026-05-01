@@ -1,4 +1,3 @@
-// @ts-nocheck
 // ---------------------------------------------------------------------------
 // Regression test for non-JSON request-body serialization.
 //

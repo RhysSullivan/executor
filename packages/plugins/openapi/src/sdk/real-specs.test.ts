@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Parse / extract / preview coverage against a big real-world spec.
 // DB-touching behaviour (addSpec, removeSpec, tool registration) moved
 // to apps/cloud/src/services/sources-api.node.test.ts — those run
