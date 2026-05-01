@@ -42,16 +42,23 @@ const PUBLIC_PACKAGE_DIRS = [
   "packages/plugins/openapi",
 ] as const;
 
-const parseArgs = (argv: ReadonlyArray<string>): { dryRun: boolean } => {
+const parseArgs = (
+  argv: ReadonlyArray<string>,
+): { dryRun: boolean; prepareOnly: boolean } => {
   let dryRun = false;
+  let prepareOnly = false;
   for (const arg of argv) {
     if (arg === "--dry-run") {
       dryRun = true;
       continue;
     }
+    if (arg === "--prepare-only") {
+      prepareOnly = true;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
-  return { dryRun };
+  return { dryRun, prepareOnly };
 };
 
 const resolveChannel = (version: string): Channel => (version.includes("-") ? "beta" : "latest");
@@ -321,13 +328,36 @@ const publishPackage = async (
   await $`npm ${args}`.cwd(pkgDir);
 };
 
+/**
+ * Rewrite-in-place mode for the pkg.pr.new preview workflow. pkg-pr-new runs
+ * `bun pm pack` against each workspace package directly, which can't see our
+ * `publishConfig.exports` overrides or resolve `workspace:*` references. This
+ * walks every public package, applies the same rewrites `publishPackage`
+ * does, and intentionally leaves them mutated — the CI job is ephemeral and
+ * the workflow tears down right after pkg-pr-new finishes.
+ */
+const prepareOnePackage = async (
+  pkgDir: string,
+  publishable: ReadonlySet<string>,
+  publishableVersions: ReadonlyMap<string, string>,
+) => {
+  const { name, version } = await readPackageMeta(pkgDir);
+  if (!existsSync(join(pkgDir, "dist"))) {
+    throw new Error(`Missing dist/ in ${pkgDir}. Did you run 'bun run build:packages'?`);
+  }
+  console.log(`[prepare] ${name}@${version}`);
+  await applyWorkspaceVersions(pkgDir, publishable, publishableVersions);
+  await applyPublishConfig(pkgDir);
+};
+
 const main = async () => {
-  const { dryRun } = parseArgs(process.argv.slice(2));
+  const { dryRun, prepareOnly } = parseArgs(process.argv.slice(2));
 
   // Each package's own version determines its dist-tag (pre-release versions
   // with `-` publish to `beta`, everything else to `latest`). Packages are
   // only skipped when their current version is already on npm.
-  console.log(`Publishing ${PACKAGE_SCOPE} packages${dryRun ? " [dry-run]" : ""}`);
+  const mode = prepareOnly ? " [prepare-only]" : dryRun ? " [dry-run]" : "";
+  console.log(`Publishing ${PACKAGE_SCOPE} packages${mode}`);
 
   await $`bun run build:packages`.cwd(repoRoot);
 
@@ -339,6 +369,13 @@ const main = async () => {
     const pkg = await readPackageMeta(join(repoRoot, relDir));
     publishable.add(pkg.name);
     publishableVersions.set(pkg.name, pkg.version);
+  }
+
+  if (prepareOnly) {
+    for (const relDir of PUBLIC_PACKAGE_DIRS) {
+      await prepareOnePackage(join(repoRoot, relDir), publishable, publishableVersions);
+    }
+    return;
   }
 
   for (const relDir of PUBLIC_PACKAGE_DIRS) {
