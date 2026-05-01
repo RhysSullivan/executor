@@ -1,12 +1,36 @@
 {
   "name": "@executor-js/config",
   "version": "1.4.3",
-  "private": true,
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/config",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/core/config"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        }
+      }
+    }
+  },
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "typecheck:slow": "tsc --noEmit"
@@ -20,6 +44,7 @@
   "devDependencies": {
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
+    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

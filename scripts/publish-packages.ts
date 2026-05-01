@@ -31,6 +31,7 @@ const PUBLIC_PACKAGE_DIRS = [
   "packages/kernel/core",
   "packages/kernel/runtime-quickjs",
   "packages/core/sdk",
+  "packages/core/config",
   "packages/core/execution",
   "packages/core/cli",
   "packages/plugins/file-secrets",
