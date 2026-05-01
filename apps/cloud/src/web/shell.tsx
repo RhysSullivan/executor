@@ -32,6 +32,7 @@ import { CommandPalette } from "@executor-js/react/components/command-palette";
 import { openApiSourcePlugin } from "@executor-js/plugin-openapi/react";
 import { mcpSourcePlugin } from "@executor-js/plugin-mcp/react";
 import { graphqlSourcePlugin } from "@executor-js/plugin-graphql/react";
+import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { AUTH_PATHS } from "../auth/api";
 import { organizationsAtom, switchOrganization, useAuth } from "./auth";
 import {
@@ -157,7 +158,10 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
 
   const handleSwitch = async (organizationId: string) => {
     if (organizationId === props.activeOrganizationId) return;
-    const exit = await doSwitchOrganization({ payload: { organizationId } });
+    const exit = await doSwitchOrganization({
+      payload: { organizationId },
+      reactivityKeys: authWriteKeys,
+    });
     if (Exit.isSuccess(exit)) window.location.reload();
   };
 
