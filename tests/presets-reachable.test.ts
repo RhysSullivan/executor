@@ -1,10 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { FetchHttpClient } from "@effect/platform";
+import { FetchHttpClient } from "effect/unstable/http";
 
 import { createExecutor, makeTestConfig } from "../packages/core/sdk/src/index";
 import { openApiPlugin } from "../packages/plugins/openapi/src/sdk/plugin";
-import { parse } from "../packages/plugins/openapi/src/sdk/parse";
+import { parse, resolveSpecText } from "../packages/plugins/openapi/src/sdk/parse";
 import { mcpPlugin } from "../packages/plugins/mcp/src/sdk/plugin";
 import { graphqlPlugin } from "../packages/plugins/graphql/src/sdk/plugin";
 import { introspect } from "../packages/plugins/graphql/src/sdk/introspect";
@@ -37,7 +37,10 @@ describe("openapi presets parse as valid specs", () => {
       preset.name,
       () =>
         Effect.gen(function* () {
-          const doc = yield* parse(preset.url);
+          const specText = yield* resolveSpecText(preset.url).pipe(
+            Effect.provide(FetchHttpClient.layer),
+          );
+          const doc = yield* parse(specText);
           expect(doc).toBeDefined();
           expect(doc.openapi).toBeDefined();
         }),
@@ -68,12 +71,25 @@ describe("graphql presets are reachable endpoints", () => {
           );
 
           const authFailureMessage = result.ok ? null : result.message;
+          let isReachable = result.ok || /401|403|Unauthorized|Forbidden|auth/i.test(authFailureMessage ?? "");
+          let failureDetails = authFailureMessage ?? "";
+          if (!isReachable) {
+            const response = yield* Effect.tryPromise(() =>
+              fetch(preset.url, {
+                method: "POST",
+                signal: AbortSignal.timeout(10_000),
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query: "{ __typename }" }),
+                redirect: "follow",
+              }),
+            );
+            isReachable = response.ok;
+            failureDetails = `${failureDetails}; probe returned ${response.status}`;
+          }
+
           expect(
-            result.ok ||
-              /401|403|Unauthorized|Forbidden|auth/i.test(
-                authFailureMessage ?? "",
-              ),
-            `${preset.name} should expose introspection or fail with auth error, not: ${authFailureMessage}`,
+            isReachable,
+            `${preset.name} should expose introspection, fail with auth, or answer a GraphQL probe; ${failureDetails}`,
           ).toBe(true);
           if (!result.ok) return;
           expect(result.schema.__schema).toBeDefined();

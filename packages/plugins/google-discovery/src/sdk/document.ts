@@ -20,7 +20,13 @@ const LowercaseText = Schema.String.pipe(
     encode: SchemaGetter.transform((value) => value.trim().toLowerCase()),
   }),
 );
-const TextOption = Schema.OptionFromOptional(Text).pipe(
+const TextOption = Schema.OptionFromOptional(TrimmedString).pipe(
+  Schema.decode({
+    decode: SchemaGetter.transform((value) =>
+      Option.filter(value, (text) => text.length > 0),
+    ),
+    encode: SchemaGetter.transform((value) => value),
+  }),
   Schema.withDecodingDefaultType(Effect.succeed(Option.none())),
 );
 const TextArray = Schema.optional(Schema.Array(Text)).pipe(

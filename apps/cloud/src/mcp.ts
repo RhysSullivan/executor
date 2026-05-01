@@ -2,7 +2,7 @@
 // Cloud MCP handler — Effect-native HTTP app for /mcp + /.well-known/*
 // ---------------------------------------------------------------------------
 //
-// Built on `@effect/platform`'s `HttpEffect.toWebHandler`. start.ts's
+// Built on Effect v4's unstable HTTP `HttpEffect.toWebHandler`. start.ts's
 // mcpRequestMiddleware calls `mcpFetch` and falls through to `next()` when it
 // returns `null` (non-MCP path) so TanStack Start keeps routing.
 //
