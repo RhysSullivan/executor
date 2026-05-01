@@ -1,5 +1,5 @@
 import { HttpApi, HttpApiBuilder, HttpApiClient, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpClient, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpEffect, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 
@@ -116,7 +116,12 @@ const TestRequestHandlersLive = Layer.mergeAll(
   Layer.succeed(ProtectedRequestHandlerService)({ app: ProtectedTestApp }),
 );
 
-const requestHandler = Effect.runSync(Effect.provide(ApiRequestHandler, TestRequestHandlersLive));
+const requestHandler = Effect.runSync(
+  Effect.map(
+    Effect.provide(ApiRequestHandler, TestRequestHandlersLive),
+    (app) => HttpEffect.toWebHandler(app),
+  ),
+);
 
 const TestApi = HttpApi.make("testApi")
   .add(OrgGroup)

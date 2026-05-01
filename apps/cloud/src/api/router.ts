@@ -1,4 +1,4 @@
-import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { Context, Effect } from "effect";
 
 type RequestAppService = {
@@ -30,19 +30,26 @@ export const ApiRouterApp = Effect.gen(function* () {
   const nonProtected = yield* NonProtectedRequestHandlerService;
   const autumn = yield* AutumnRequestHandlerService;
   const protectedHandler = yield* ProtectedRequestHandlerService;
+  const asRouteApp = (
+    app: Effect.Effect<
+      HttpServerResponse.HttpServerResponse,
+      unknown,
+      HttpServerRequest.HttpServerRequest
+    >,
+  ) =>
+    app.pipe(
+      Effect.catchCause(() =>
+        Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+      ),
+    );
 
-  const orgHandler = HttpEffect.toWebHandler(org.app);
-  const nonProtectedHandler = HttpEffect.toWebHandler(nonProtected.app);
-  const autumnHandler = HttpEffect.toWebHandler(autumn.app);
-  const protectedRequestHandler = HttpEffect.toWebHandler(protectedHandler.app);
+  const router = yield* HttpRouter.make;
+  yield* router.add("*", "/org/*", asRouteApp(org.app));
+  yield* router.add("*", "/auth/*", asRouteApp(nonProtected.app));
+  yield* router.add("*", "/autumn/*", asRouteApp(autumn.app));
+  yield* router.add("*", "*", asRouteApp(protectedHandler.app));
 
-  return (request: Request) => {
-    const pathname = new URL(request.url).pathname;
-    if (pathname.startsWith("/org")) return orgHandler(request);
-    if (pathname.startsWith("/auth")) return nonProtectedHandler(request);
-    if (pathname.startsWith("/autumn")) return autumnHandler(request);
-    return protectedRequestHandler(request);
-  };
+  return router.asHttpEffect();
 });
 
 export const ApiRequestHandler = ApiRouterApp;

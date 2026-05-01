@@ -1,5 +1,9 @@
 import { Effect, Layer } from "effect";
-import type { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  HttpEffect,
+  type HttpServerRequest,
+  type HttpServerResponse,
+} from "effect/unstable/http";
 import { AutumnApiApp } from "./api/autumn";
 import { NonProtectedApiApp, OrgApiApp } from "./api/layers";
 import { ProtectedApiApp } from "./api/protected";
@@ -25,5 +29,8 @@ type ApiApp = Effect.Effect<
 >;
 
 export const handleApiRequest = Effect.runSync(
-  Effect.provide(ApiRequestHandler, ApiRequestHandlersLive),
+  Effect.map(
+    Effect.provide(ApiRequestHandler, ApiRequestHandlersLive),
+    (app) => HttpEffect.toWebHandler(app),
+  ),
 );
