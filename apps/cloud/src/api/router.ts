@@ -1,12 +1,14 @@
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { Context, Effect } from "effect";
+import { Context, Effect, Scope } from "effect";
+
+export type ApiRouteApp = Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  unknown,
+  HttpServerRequest.HttpServerRequest | Scope.Scope
+>;
 
 type RequestAppService = {
-  readonly app: Effect.Effect<
-    HttpServerResponse.HttpServerResponse,
-    unknown,
-    HttpServerRequest.HttpServerRequest
-  >;
+  readonly app: ApiRouteApp;
 };
 
 export class OrgRequestHandlerService extends Context.Service<OrgRequestHandlerService, RequestAppService>()(
@@ -30,13 +32,7 @@ export const ApiRouterApp = Effect.gen(function* () {
   const nonProtected = yield* NonProtectedRequestHandlerService;
   const autumn = yield* AutumnRequestHandlerService;
   const protectedHandler = yield* ProtectedRequestHandlerService;
-  const asRouteApp = (
-    app: Effect.Effect<
-      HttpServerResponse.HttpServerResponse,
-      unknown,
-      HttpServerRequest.HttpServerRequest
-    >,
-  ) =>
+  const asRouteApp = (app: ApiRouteApp) =>
     app.pipe(
       Effect.catchCause(() =>
         Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),

@@ -1,9 +1,5 @@
 import { Effect, Layer } from "effect";
-import {
-  HttpEffect,
-  type HttpServerRequest,
-  type HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpEffect } from "effect/unstable/http";
 import { AutumnApiApp } from "./api/autumn";
 import { NonProtectedApiApp, OrgApiApp } from "./api/layers";
 import { ProtectedApiApp } from "./api/protected";
@@ -16,17 +12,11 @@ import {
 } from "./api/router";
 
 const ApiRequestHandlersLive = Layer.mergeAll(
-  Layer.succeed(OrgRequestHandlerService)({ app: OrgApiApp as ApiApp }),
-  Layer.succeed(NonProtectedRequestHandlerService)({ app: NonProtectedApiApp as ApiApp }),
-  Layer.succeed(AutumnRequestHandlerService)({ app: AutumnApiApp as ApiApp }),
-  Layer.succeed(ProtectedRequestHandlerService)({ app: ProtectedApiApp as ApiApp }),
+  Layer.succeed(OrgRequestHandlerService)({ app: OrgApiApp }),
+  Layer.succeed(NonProtectedRequestHandlerService)({ app: NonProtectedApiApp }),
+  Layer.succeed(AutumnRequestHandlerService)({ app: AutumnApiApp }),
+  Layer.succeed(ProtectedRequestHandlerService)({ app: ProtectedApiApp }),
 );
-
-type ApiApp = Effect.Effect<
-  HttpServerResponse.HttpServerResponse,
-  unknown,
-  HttpServerRequest.HttpServerRequest
->;
 
 export const handleApiRequest = Effect.runSync(
   Effect.map(

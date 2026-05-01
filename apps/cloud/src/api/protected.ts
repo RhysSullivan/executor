@@ -1,5 +1,9 @@
 import { HttpApiSwagger } from "effect/unstable/httpapi";
-import { HttpMiddleware, HttpRouter, HttpServerRequest } from "effect/unstable/http";
+import {
+  HttpMiddleware,
+  HttpRouter,
+  HttpServerRequest,
+} from "effect/unstable/http";
 import { Effect, Layer } from "effect";
 
 import { ExecutorService, ExecutionEngineService } from "@executor-js/api/server";
@@ -33,7 +37,11 @@ const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
     return { org, userId: session.userId };
   });
 
-const createProtectedApp = (userId: string, organizationId: string, organizationName: string) =>
+const createProtectedApp = (
+  userId: string,
+  organizationId: string,
+  organizationName: string,
+) =>
   Effect.gen(function* () {
     const { executor, engine } = yield* makeExecutionStack(
       userId,
@@ -51,12 +59,12 @@ const createProtectedApp = (userId: string, organizationId: string, organization
 
     const protectedApiLayer = ProtectedCloudApiLive.pipe(
       Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
-      Layer.provideMerge(requestServices),
       Layer.provideMerge(RouterConfig),
     );
 
     return yield* HttpRouter.toHttpEffect(protectedApiLayer).pipe(
       Effect.flatMap(HttpMiddleware.logger),
+      Effect.provide(requestServices),
     );
   });
 
