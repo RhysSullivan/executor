@@ -234,6 +234,7 @@ export {
 export {
   type Executor,
   type ExecutorConfig,
+  type OnElicitation,
   type InvokeOptions,
   createExecutor,
   collectSchemas,

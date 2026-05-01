@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { SecretBackedValue } from "@executor-js/sdk";
+import { SecretBackedValue } from "@executor-js/sdk/core";
 
 // ---------------------------------------------------------------------------
 // GraphQL operation kind

@@ -19,7 +19,7 @@ import { createExecutor } from "@executor-js/sdk";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 
-const executor = await createExecutor({ scope: { name: "my-app" } });
+const executor = await createExecutor({ onElicitation: "accept-all" });
 
 const engine = createExecutionEngine({
   executor,
@@ -43,13 +43,12 @@ const engine = createExecutionEngine({
 
 ```ts
 import { setQuickJSModule } from "@executor-js/runtime-quickjs";
-import { newQuickJSAsyncWASMModuleFromVariant } from "quickjs-emscripten";
-import variant from "@jitl/quickjs-ng-wasmfile-release-sync";
+import { newQuickJSWASMModule } from "quickjs-emscripten";
 
-setQuickJSModule(await newQuickJSAsyncWASMModuleFromVariant(variant));
+setQuickJSModule(await newQuickJSWASMModule());
 ```
 
-Use this when you want a different WASM variant (e.g. debug builds, QuickJS-NG) than the default bundled one.
+Use this when you want a different WASM variant (e.g. debug builds, QuickJS-NG) than the default bundled one. `newQuickJSWASMModule()` defaults to the release-sync variant; pass a different `@jitl/quickjs-*` variant to swap it.
 
 ## Status
 

@@ -85,7 +85,7 @@ export const defineSchema = <const S extends DBSchema>(schema: S): S => schema;
 // Elicit — suspends the fiber, calls the invoke-time elicitation
 // handler, resumes with the user's response. Available on both static
 // tool handlers and dynamic `invokeTool` handlers. Threaded through
-// the executor from `tools.invoke(id, args, { onElicitation })`.
+// the executor from `createExecutor({ onElicitation })`.
 // ---------------------------------------------------------------------------
 
 export type Elicit = (
@@ -237,7 +237,7 @@ export interface StaticToolHandlerInput<TStore = unknown> {
   readonly ctx: PluginCtx<TStore>;
   readonly args: unknown;
   /** Suspend the fiber to request user input. The handler passed to
-   *  `executor.tools.invoke(..., { onElicitation })` is called. */
+   *  `createExecutor({ onElicitation })` is called. */
   readonly elicit: Elicit;
 }
 

@@ -33,7 +33,7 @@
     "dev:cli": "bun run apps/cli/src/main.ts",
     "test": "turbo run test",
     "test:release:bootstrap": "vitest run tests/release-bootstrap-smoke.test.ts",
-    "build:packages": "bun run --filter='@executor-js/storage-core' build && bun run --filter='@executor-js/codemode-core' build && bun run --filter='@executor-js/runtime-quickjs' build && bun run --filter='@executor-js/sdk' build && bun run --filter='@executor-js/execution' build && bun run --filter='@executor-js/cli' build && bun run --filter='@executor-js/plugin-*' build",
+    "build:packages": "bun run --filter='@executor-js/storage-core' build && bun run --filter='@executor-js/codemode-core' build && bun run --filter='@executor-js/runtime-quickjs' build && bun run --filter='@executor-js/sdk' build && bun run --filter='@executor-js/config' build && bun run --filter='@executor-js/execution' build && bun run --filter='@executor-js/cli' build && bun run --filter='@executor-js/plugin-*' build",
     "typecheck": "turbo run typecheck",
     "typecheck:slow": "turbo run typecheck:slow",
     "ci": "bun run lint && bun run typecheck && bun run test",
@@ -54,6 +54,7 @@
     "release:publish": "bun run --cwd apps/cli release:publish",
     "release:publish:packages": "bun run scripts/publish-packages.ts",
     "release:publish:packages:dry-run": "bun run scripts/publish-packages.ts --dry-run",
+    "release:publish:packages:prepare": "bun run scripts/publish-packages.ts --prepare-only",
     "clean": "bun run scripts/clean.ts",
     "prepare": "effect-language-service patch"
   },

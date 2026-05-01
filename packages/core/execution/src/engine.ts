@@ -7,7 +7,7 @@ import type {
   ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 import { CodeExecutionError } from "@executor-js/codemode-core";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor-js/codemode-core";
 

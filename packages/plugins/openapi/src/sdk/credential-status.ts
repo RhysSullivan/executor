@@ -1,4 +1,4 @@
-import type { ConnectionId, ScopeId } from "@executor-js/sdk";
+import type { ConnectionId, ScopeId } from "@executor-js/sdk/core";
 
 import { oauth2ClientSecretSlot } from "./store";
 import type { ConfiguredHeaderValue, OpenApiSourceBindingValue } from "./types";

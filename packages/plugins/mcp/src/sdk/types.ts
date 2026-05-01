@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { SecretBackedMap, SecretBackedValue } from "@executor-js/sdk";
+import { SecretBackedMap, SecretBackedValue } from "@executor-js/sdk/core";
 
 export { SecretBackedMap, SecretBackedValue };
 

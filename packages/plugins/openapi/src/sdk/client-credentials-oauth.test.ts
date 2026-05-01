@@ -178,12 +178,14 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
       const userExec = yield* createExecutor({
         scopes: [userScope, orgScope],
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
       // Admin seeds the shared client_id + client_secret at the org.

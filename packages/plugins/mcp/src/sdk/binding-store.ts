@@ -10,7 +10,7 @@ import {
   defineSchema,
   type StorageDeps,
   type StorageFailure,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 import { McpToolBinding, McpStoredSourceData } from "./types";
 

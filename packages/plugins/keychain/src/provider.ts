@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { StorageError, type SecretProvider } from "@executor-js/sdk";
+import { StorageError, type SecretProvider } from "@executor-js/sdk/core";
 
 import { getPassword, setPassword, deletePassword } from "./keyring";
 

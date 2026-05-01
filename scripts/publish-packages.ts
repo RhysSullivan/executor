@@ -31,6 +31,7 @@ const PUBLIC_PACKAGE_DIRS = [
   "packages/kernel/core",
   "packages/kernel/runtime-quickjs",
   "packages/core/sdk",
+  "packages/core/config",
   "packages/core/execution",
   "packages/core/cli",
   "packages/plugins/file-secrets",
@@ -42,16 +43,23 @@ const PUBLIC_PACKAGE_DIRS = [
   "packages/plugins/openapi",
 ] as const;
 
-const parseArgs = (argv: ReadonlyArray<string>): { dryRun: boolean } => {
+const parseArgs = (
+  argv: ReadonlyArray<string>,
+): { dryRun: boolean; prepareOnly: boolean } => {
   let dryRun = false;
+  let prepareOnly = false;
   for (const arg of argv) {
     if (arg === "--dry-run") {
       dryRun = true;
       continue;
     }
+    if (arg === "--prepare-only") {
+      prepareOnly = true;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
-  return { dryRun };
+  return { dryRun, prepareOnly };
 };
 
 const resolveChannel = (version: string): Channel => (version.includes("-") ? "beta" : "latest");
@@ -82,11 +90,13 @@ const packageAlreadyPublished = async (name: string, version: string): Promise<b
 };
 
 type DependencyBlock = Record<string, string>;
+type PeerDependenciesMeta = Record<string, { optional?: boolean }>;
 type MutablePackageJson = {
   name?: string;
   dependencies?: DependencyBlock;
   devDependencies?: DependencyBlock;
   peerDependencies?: DependencyBlock;
+  peerDependenciesMeta?: PeerDependenciesMeta;
   optionalDependencies?: DependencyBlock;
   [key: string]: unknown;
 };
@@ -94,12 +104,20 @@ type MutablePackageJson = {
 /**
  * Resolves `workspace:*` dependencies between public packages to concrete
  * versions before packing. Returns a restore function that reverts package.json.
+ *
+ * Workspace-only `@executor-js/*` peer deps (e.g. `@executor-js/api`,
+ * `@executor-js/react`) that aren't in `publishable` are stripped from
+ * `peerDependencies` (and `peerDependenciesMeta`) entirely — they don't
+ * exist on npm, so leaving them in the packed manifest would emit
+ * install-time warnings for unresolvable packages.
  */
 const applyWorkspaceVersions = async (
   pkgDir: string,
   publishable: ReadonlySet<string>,
   publishableVersions: ReadonlyMap<string, string>,
 ): Promise<() => Promise<void>> => {
+  const isInternalScope = (key: string): boolean => key.startsWith(`${PACKAGE_SCOPE}/`);
+
   const renameDepBlock = (block: DependencyBlock | undefined): DependencyBlock | undefined => {
     if (!block) return block;
     const next: DependencyBlock = {};
@@ -107,6 +125,70 @@ const applyWorkspaceVersions = async (
     for (const [key, value] of Object.entries(block)) {
       if (publishable.has(key) && value.startsWith("workspace:")) {
         next[key] = publishableVersions.get(key) ?? value;
+        mutated = true;
+      } else if (isInternalScope(key) && !publishable.has(key)) {
+        // Workspace-only `@executor-js/*` regular dep that we don't
+        // publish (e.g. `@executor-js/api`). Strip it: it's not in the
+        // shipped runtime entries (those imports live in
+        // `src/api/*` / `src/react/*` which don't make it into the
+        // packed dist), and leaving it in would 404 at install time.
+        mutated = true;
+      } else {
+        next[key] = value;
+      }
+    }
+    return mutated ? next : block;
+  };
+
+  /**
+   * Peer-deps variant of `renameDepBlock`: resolve workspace specifiers for
+   * publishable peers, but DROP non-publishable `@executor-js/*` peers.
+   * They reference workspace-only packages (`@executor-js/api`,
+   * `@executor-js/react`) that don't exist on npm, so leaving them in
+   * the packed manifest emits install-time warnings for unresolvable
+   * packages. Non-`@executor-js` peers (`react`, `@tanstack/*`,
+   * `@effect-atom/*`, etc.) are real npm packages and pass through
+   * unchanged.
+   */
+  const renamePeerDepBlock = (
+    block: DependencyBlock | undefined,
+  ): DependencyBlock | undefined => {
+    if (!block) return block;
+    const next: DependencyBlock = {};
+    let mutated = false;
+    for (const [key, value] of Object.entries(block)) {
+      if (publishable.has(key)) {
+        next[key] = value.startsWith("workspace:")
+          ? (publishableVersions.get(key) ?? value)
+          : value;
+        if (next[key] !== value) mutated = true;
+      } else if (isInternalScope(key)) {
+        // Workspace-only `@executor-js/*` peer that we don't publish —
+        // strip it so the packed tarball doesn't reference an
+        // npm package that doesn't exist.
+        mutated = true;
+      } else {
+        next[key] = value;
+      }
+    }
+    return mutated ? next : block;
+  };
+
+  /**
+   * Strips `peerDependenciesMeta` entries that target an
+   * `@executor-js/*` peer we don't publish, mirroring `renamePeerDepBlock`
+   * so the meta block can't drift out of sync with the deps block.
+   */
+  const renamePeerMetaBlock = (
+    block: PeerDependenciesMeta | undefined,
+  ): PeerDependenciesMeta | undefined => {
+    if (!block) return block;
+    const next: PeerDependenciesMeta = {};
+    let mutated = false;
+    for (const [key, value] of Object.entries(block)) {
+      if (publishable.has(key)) {
+        next[key] = value;
+      } else if (isInternalScope(key)) {
         mutated = true;
       } else {
         next[key] = value;
@@ -120,7 +202,8 @@ const applyWorkspaceVersions = async (
   const pkg = JSON.parse(original) as MutablePackageJson;
   pkg.dependencies = renameDepBlock(pkg.dependencies);
   pkg.devDependencies = renameDepBlock(pkg.devDependencies);
-  pkg.peerDependencies = renameDepBlock(pkg.peerDependencies);
+  pkg.peerDependencies = renamePeerDepBlock(pkg.peerDependencies);
+  pkg.peerDependenciesMeta = renamePeerMetaBlock(pkg.peerDependenciesMeta);
   pkg.optionalDependencies = renameDepBlock(pkg.optionalDependencies);
   const pkgNext = `${JSON.stringify(pkg, null, 2)}\n`;
   if (pkgNext !== original) {
@@ -253,13 +336,36 @@ const publishPackage = async (
   await $`npm ${args}`.cwd(pkgDir);
 };
 
+/**
+ * Rewrite-in-place mode for the pkg.pr.new preview workflow. pkg-pr-new runs
+ * `bun pm pack` against each workspace package directly, which can't see our
+ * `publishConfig.exports` overrides or resolve `workspace:*` references. This
+ * walks every public package, applies the same rewrites `publishPackage`
+ * does, and intentionally leaves them mutated — the CI job is ephemeral and
+ * the workflow tears down right after pkg-pr-new finishes.
+ */
+const prepareOnePackage = async (
+  pkgDir: string,
+  publishable: ReadonlySet<string>,
+  publishableVersions: ReadonlyMap<string, string>,
+) => {
+  const { name, version } = await readPackageMeta(pkgDir);
+  if (!existsSync(join(pkgDir, "dist"))) {
+    throw new Error(`Missing dist/ in ${pkgDir}. Did you run 'bun run build:packages'?`);
+  }
+  console.log(`[prepare] ${name}@${version}`);
+  await applyWorkspaceVersions(pkgDir, publishable, publishableVersions);
+  await applyPublishConfig(pkgDir);
+};
+
 const main = async () => {
-  const { dryRun } = parseArgs(process.argv.slice(2));
+  const { dryRun, prepareOnly } = parseArgs(process.argv.slice(2));
 
   // Each package's own version determines its dist-tag (pre-release versions
   // with `-` publish to `beta`, everything else to `latest`). Packages are
   // only skipped when their current version is already on npm.
-  console.log(`Publishing ${PACKAGE_SCOPE} packages${dryRun ? " [dry-run]" : ""}`);
+  const mode = prepareOnly ? " [prepare-only]" : dryRun ? " [dry-run]" : "";
+  console.log(`Publishing ${PACKAGE_SCOPE} packages${mode}`);
 
   await $`bun run build:packages`.cwd(repoRoot);
 
@@ -271,6 +377,13 @@ const main = async () => {
     const pkg = await readPackageMeta(join(repoRoot, relDir));
     publishable.add(pkg.name);
     publishableVersions.set(pkg.name, pkg.version);
+  }
+
+  if (prepareOnly) {
+    for (const relDir of PUBLIC_PACKAGE_DIRS) {
+      await prepareOnePackage(join(repoRoot, relDir), publishable, publishableVersions);
+    }
+    return;
   }
 
   for (const relDir of PUBLIC_PACKAGE_DIRS) {

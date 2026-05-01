@@ -522,7 +522,9 @@ describe("blocked tools", () => {
         action: "block",
       });
       const result = yield* Effect.either(
-        executor.tools.invoke("vercel.delete", {}),
+        executor.tools.invoke("vercel.delete", {}, {
+          onElicitation: "accept-all",
+        }),
       );
       expect(result._tag).toBe("Left");
       if (result._tag === "Left") {

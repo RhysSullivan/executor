@@ -8,7 +8,7 @@ import {
   type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 import {
   headersToConfigValues,

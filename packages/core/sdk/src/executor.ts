@@ -94,30 +94,38 @@ import { buildToolTypeScriptPreview } from "./schema-types";
 import { scopeAdapter } from "./scoped-adapter";
 
 // ---------------------------------------------------------------------------
-// InvokeOptions — passed to `executor.tools.invoke(id, args, options)`.
-// The `onElicitation` handler is threaded into the `elicit` function
-// exposed on plugin ctx / InvokeToolInput. Tools that never elicit
-// simply don't call it.
+// Elicitation handler — set once at `createExecutor({ onElicitation })`
+// and threaded into every tool invocation. A tool that requests user
+// input mid-execution suspends the fiber and the handler decides how to
+// respond. Tools that never elicit simply don't trigger the handler.
 //
 // The "accept-all" sentinel is convenient for tests and CLI automation —
 // every elicitation request gets auto-accepted with an empty content
 // payload. For real interactive hosts, pass a real handler.
+//
+// Required at the executor level rather than per-invoke, so the
+// "what if a caller forgot to pass a handler" branch is structurally
+// impossible. Higher layers that need per-invocation handler control
+// (an MCP server bridging different per-client handlers, the execution
+// engine threading agent-loop callbacks) can pass an override via
+// `tools.invoke(id, args, { onElicitation })` — the executor-level
+// handler is the fallback, never null.
 // ---------------------------------------------------------------------------
 
+export type OnElicitation = ElicitationHandler | "accept-all";
+
 export interface InvokeOptions {
-  readonly onElicitation?: ElicitationHandler | "accept-all";
+  /** Override the executor-level handler for this single call. */
+  readonly onElicitation?: OnElicitation;
 }
 
 const acceptAllHandler: ElicitationHandler = () =>
   Effect.succeed(new ElicitationResponse({ action: "accept" }));
 
 const resolveElicitationHandler = (
-  options: InvokeOptions | undefined,
-): ElicitationHandler => {
-  const handler = options?.onElicitation;
-  if (!handler || handler === "accept-all") return acceptAllHandler;
-  return handler;
-};
+  onElicitation: OnElicitation,
+): ElicitationHandler =>
+  onElicitation === "accept-all" ? acceptAllHandler : onElicitation;
 
 // ---------------------------------------------------------------------------
 // Executor — public surface. Every list/invoke/schema call is a direct
@@ -290,6 +298,14 @@ export interface ExecutorConfig<
   readonly adapter: DBAdapter;
   readonly blobs: BlobStore;
   readonly plugins?: TPlugins;
+  /**
+   * How to respond when a tool requests user input mid-invocation. Pass
+   * `"accept-all"` for tests / non-interactive hosts, or a handler
+   * `(ctx) => Effect<ElicitationResponse>` for interactive ones.
+   * Required at construction so per-invoke calls don't have to thread
+   * an options arg.
+   */
+  readonly onElicitation: OnElicitation;
 }
 
 // ---------------------------------------------------------------------------
@@ -2246,8 +2262,19 @@ export const createExecutor = <
         return out;
       });
 
-    const buildElicit = (toolId: string, args: unknown, options: InvokeOptions | undefined): Elicit => {
-      const handler = resolveElicitationHandler(options);
+    const defaultElicitationHandler = resolveElicitationHandler(
+      config.onElicitation,
+    );
+    const pickHandler = (options: InvokeOptions | undefined): ElicitationHandler =>
+      options?.onElicitation
+        ? resolveElicitationHandler(options.onElicitation)
+        : defaultElicitationHandler;
+
+    const buildElicit = (
+      toolId: string,
+      args: unknown,
+      handler: ElicitationHandler,
+    ): Elicit => {
       return (request: ElicitationRequest) =>
         Effect.gen(function* () {
           const tid = ToolId.make(toolId);
@@ -2289,8 +2316,8 @@ export const createExecutor = <
       annotations: ToolAnnotations | undefined,
       toolId: string,
       args: unknown,
-      options: InvokeOptions | undefined,
       policy: PolicyMatch | undefined,
+      handler: ElicitationHandler,
     ) =>
       Effect.gen(function* () {
         // approve → never prompt regardless of plugin annotation.
@@ -2302,7 +2329,6 @@ export const createExecutor = <
         const policyForcesApproval = policy?.action === "require_approval";
         if (!policyForcesApproval && !annotations?.requiresApproval) return;
 
-        const handler = resolveElicitationHandler(options);
         const tid = ToolId.make(toolId);
         const message = annotations?.approvalDescription
           ? annotations.approvalDescription
@@ -2326,8 +2352,9 @@ export const createExecutor = <
       toolId: string,
       args: unknown,
       options?: InvokeOptions,
-    ) =>
-      Effect.gen(function* () {
+    ) => {
+      const handler = pickHandler(options);
+      return Effect.gen(function* () {
         const wrapInvocationError = <A, E>(
           effect: Effect.Effect<A, E>,
         ): Effect.Effect<A, ToolInvocationError> =>
@@ -2369,14 +2396,14 @@ export const createExecutor = <
             staticEntry.tool.annotations,
             toolId,
             args,
-            options,
             policy,
+            handler,
           ).pipe(Effect.withSpan("executor.tool.enforce_approval"));
           return yield* wrapInvocationError(
             staticEntry.tool.handler({
               ctx: staticEntry.ctx,
               args,
-              elicit: buildElicit(toolId, args, options),
+              elicit: buildElicit(toolId, args, handler),
             }),
           ).pipe(Effect.withSpan("executor.tool.handler"));
         }
@@ -2434,7 +2461,7 @@ export const createExecutor = <
             .pipe(Effect.withSpan("executor.tool.resolve_annotations"));
           annotations = map[toolId];
         }
-        yield* enforceApproval(annotations, toolId, args, options, policy).pipe(
+        yield* enforceApproval(annotations, toolId, args, policy, handler).pipe(
           Effect.withSpan("executor.tool.enforce_approval"),
         );
 
@@ -2443,7 +2470,7 @@ export const createExecutor = <
             ctx: runtime.ctx,
             toolRow: row,
             args,
-            elicit: buildElicit(toolId, args, options),
+            elicit: buildElicit(toolId, args, handler),
           }),
         ).pipe(Effect.withSpan("executor.tool.handler"));
       }).pipe(
@@ -2453,6 +2480,7 @@ export const createExecutor = <
           },
         }),
       );
+    };
 
     const removeSource = (sourceId: string) =>
       Effect.gen(function* () {

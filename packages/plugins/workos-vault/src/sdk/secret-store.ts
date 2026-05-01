@@ -7,7 +7,7 @@ import {
   type SecretProvider,
   type StorageDeps,
   type StorageFailure,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 import {
   WorkOSVaultClientError,

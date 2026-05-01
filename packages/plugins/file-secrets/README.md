@@ -17,7 +17,7 @@ import { createExecutor } from "@executor-js/sdk";
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 
 const executor = await createExecutor({
-  scope: { name: "my-app" },
+  onElicitation: "accept-all",
   plugins: [fileSecretsPlugin()] as const,
 });
 
@@ -26,11 +26,11 @@ await executor.secrets.set({
   id: "api-key",
   name: "My API Key",
   value: "secret123",
-  purpose: "authentication",
+  scope: executor.scopes[0]!.id,
 });
 
 // Read it back
-const value = await executor.secrets.resolve("api-key");
+const value = await executor.secrets.get("api-key");
 
 // Check where it's stored
 console.log("Secret file:", executor.fileSecrets.filePath);
@@ -40,10 +40,10 @@ Secrets written through `executor.secrets.set(...)` become available to every ot
 
 ## Using with Effect
 
-If you're building on `@executor-js/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor-js/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead — it returns the Effect-shaped plugin with `Effect.Effect<...>`-returning methods rather than promisified wrappers:
 
 ```ts
-import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
+import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets/core";
 ```
 
 ## Security note

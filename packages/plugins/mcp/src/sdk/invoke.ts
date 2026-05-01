@@ -19,7 +19,7 @@ import {
   UrlElicitation,
   type Elicit,
   type ElicitationRequest,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 import { McpConnectionError, McpInvocationError } from "./errors";
 import type { McpConnection } from "./connection";

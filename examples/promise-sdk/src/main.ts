@@ -14,6 +14,7 @@ import { graphqlPlugin } from "@executor-js/plugin-graphql/promise";
 const executor = await createExecutor({
   scopes: [{ id: "my-app", name: "my-app" }],
   plugins: [mcpPlugin(), openApiPlugin(), graphqlPlugin()] as const,
+  onElicitation: "accept-all",
 });
 
 // ---------------------------------------------------------------------------

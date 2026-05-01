@@ -1,4 +1,4 @@
-import type { ScopeId } from "@executor-js/sdk";
+import type { ScopeId } from "@executor-js/sdk/core";
 import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { GraphqlClient } from "./client";
 

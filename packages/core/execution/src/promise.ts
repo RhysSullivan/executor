@@ -17,7 +17,7 @@ import type {
   ElicitationContext,
   ElicitationResponse,
   Executor as PromiseExecutor,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 import type { CodeExecutionError, CodeExecutor, ExecuteResult } from "@executor-js/codemode-core";
 
 import {

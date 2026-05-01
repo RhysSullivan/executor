@@ -42,14 +42,13 @@ describe("promise/createExecutor", () => {
   it("returns Promise-shaped executor and invokes static tools", async () => {
     const executor = await createExecutor({
       plugins: [echoPlugin()] as const,
+      onElicitation: "accept-all",
     });
 
     const tools = await executor.tools.list();
     expect(tools.map((t) => t.id)).toContain("echo.ctl.say");
 
-    const out = await executor.tools.invoke("echo.ctl.say", {
-      message: "hi",
-    });
+    const out = await executor.tools.invoke("echo.ctl.say", { message: "hi" });
     expect(out).toBe("hi");
 
     await executor.close();
@@ -58,10 +57,69 @@ describe("promise/createExecutor", () => {
   it("promisifies plugin extension methods", async () => {
     const executor = await createExecutor({
       plugins: [echoPlugin()] as const,
+      onElicitation: "accept-all",
     });
 
     const greeting = await executor.echo.greet("world");
     expect(greeting).toBe("hello, world");
+
+    await executor.close();
+  });
+
+  it("per-invoke onElicitation override wins over the executor-level default", async () => {
+    // Build a tool that requires approval — the elicitation goes through
+    // `enforceApproval` (outside wrapInvocationError), so a decline
+    // surfaces as a typed `ElicitationDeclinedError` rather than a
+    // wrapped invocation error.
+    const approvedPlugin = definePlugin(() => ({
+      id: "ap" as const,
+      schema: defineSchema({}),
+      storage: () => ({}),
+      staticSources: () => [
+        {
+          id: "ap.ctl",
+          kind: "control" as const,
+          name: "Ap Ctl",
+          tools: [
+            {
+              name: "go",
+              description: "Requires approval",
+              annotations: { requiresApproval: true } as const,
+              inputSchema: { type: "object", additionalProperties: false },
+              handler: () => Effect.succeed("ran"),
+            },
+          ],
+        },
+      ],
+    }));
+
+    const executor = await createExecutor({
+      plugins: [approvedPlugin()] as const,
+      onElicitation: "accept-all", // default → auto-approve
+    });
+
+    // No override → executor-level accept-all → tool runs.
+    const ran = await executor.tools.invoke("ap.ctl.go", {});
+    expect(ran).toBe("ran");
+
+    // Override with a declining handler → rejects with ElicitationDeclinedError.
+    // Effect.runPromise rejects with a FiberFailure that wraps the typed
+    // error; both `name` and `message` carry the tag.
+    let caught: unknown;
+    try {
+      await executor.tools.invoke(
+        "ap.ctl.go",
+        {},
+        {
+          onElicitation: () =>
+            Effect.succeed({ action: "decline" as const }) as any,
+        },
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeDefined();
+    expect((caught as Error).name).toMatch(/ElicitationDeclinedError/);
 
     await executor.close();
   });

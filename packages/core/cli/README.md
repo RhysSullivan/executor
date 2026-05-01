@@ -22,7 +22,7 @@ import { mcpPlugin } from "@executor-js/plugin-mcp";
 import { openApiPlugin } from "@executor-js/plugin-openapi";
 
 export default defineExecutorConfig({
-  dialect: "postgres",
+  dialect: "pg",
   plugins: [mcpPlugin(), openApiPlugin()],
 });
 ```

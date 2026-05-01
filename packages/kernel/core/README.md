@@ -17,14 +17,22 @@ npm install @executor-js/codemode-core
 Implement a runtime that satisfies `CodeExecutor`:
 
 ```ts
-import type { CodeExecutor, SandboxToolInvoker } from "@executor-js/codemode-core";
+import type {
+  CodeExecutor,
+  ExecuteResult,
+  SandboxToolInvoker,
+} from "@executor-js/codemode-core";
 import { Effect } from "effect";
 
 export const makeMyRuntime = (): CodeExecutor => ({
   execute: (code: string, invoker: SandboxToolInvoker) =>
     Effect.gen(function* () {
-      // Spin up your sandbox, expose `invoker` as `tools.<path>(...)`, run the code,
-      // collect logs, and return an ExecuteResult.
+      // Spin up your sandbox, expose `invoker` as `tools.<path>(...)`, run
+      // the code, collect logs, and return an ExecuteResult.
+      void code;
+      void invoker;
+      const result: ExecuteResult = { result: undefined, logs: [] };
+      return result;
     }),
 });
 ```

@@ -7,7 +7,7 @@ import {
   type PluginBlobStore,
   type SecretProvider,
   type StorageFailure,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 import { OnePasswordConfig, Vault, ConnectionStatus } from "./types";
 import type { OnePasswordAuth } from "./types";

@@ -23,7 +23,7 @@ import { createExecutor } from "@executor-js/sdk";
 import { keychainPlugin } from "@executor-js/plugin-keychain";
 
 const executor = await createExecutor({
-  scope: { name: "my-app" },
+  onElicitation: "accept-all",
   plugins: [keychainPlugin()] as const,
 });
 
@@ -33,10 +33,10 @@ if (executor.keychain.isSupported) {
     id: "github-token",
     name: "GitHub Token",
     value: "ghp_...",
-    purpose: "authentication",
+    scope: executor.scopes[0]!.id,
   });
 
-  const value = await executor.secrets.resolve("github-token");
+  const value = await executor.secrets.get("github-token");
 }
 ```
 
@@ -44,10 +44,10 @@ Secrets written through this plugin are available to every other plugin that res
 
 ## Using with Effect
 
-If you're building on `@executor-js/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor-js/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead — it returns the Effect-shaped plugin with `Effect.Effect<...>`-returning methods rather than promisified wrappers:
 
 ```ts
-import { keychainPlugin } from "@executor-js/plugin-keychain";
+import { keychainPlugin } from "@executor-js/plugin-keychain/core";
 ```
 
 ## Status

@@ -12,7 +12,7 @@
 // your own `@executor-js/plugin-*` from the Effect side.
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Brand, Effect } from "effect";
 
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
@@ -21,6 +21,7 @@ import {
   createExecutor as createEffectExecutor,
   collectSchemas,
   type Executor as EffectExecutor,
+  type OnElicitation,
 } from "./executor";
 import { ScopeId } from "./ids";
 import type { AnyPlugin } from "./plugin";
@@ -28,12 +29,37 @@ import { Scope } from "./scope";
 
 // ---------------------------------------------------------------------------
 // Types
+//
+// Promise consumers shouldn't need to construct Effect `Brand`s to call into
+// the executor — branded ids (`SecretId`, `ScopeId`, `ToolId`, `PolicyId`,
+// `ConnectionId`) are typed as `string & Brand<...>` on the Effect side, but
+// at runtime they're plain strings. `Unbrand` strips brand tags from
+// parameter types (recursively, so it walks into object fields like
+// `secrets.set({ id, scope })`) so consumers can pass plain strings. Return
+// types are passed through unchanged — caller code that reads `.id` etc.
+// off a returned ref still gets the branded type for use as an opaque token.
 // ---------------------------------------------------------------------------
+
+type Unbrand<T> = T extends Brand.Brand<string>
+  ? string
+  : T extends readonly (infer U)[]
+    ? readonly Unbrand<U>[]
+    : T extends ReadonlyMap<infer K, infer V>
+      ? ReadonlyMap<Unbrand<K>, Unbrand<V>>
+      : T extends ReadonlySet<infer U>
+        ? ReadonlySet<Unbrand<U>>
+        : T extends Date
+          ? T
+          : T extends (...args: infer A) => infer R
+            ? (...args: { [I in keyof A]: Unbrand<A[I]> }) => Unbrand<R>
+            : T extends object
+              ? { readonly [K in keyof T]: Unbrand<T[K]> }
+              : T;
 
 export type Promisified<T> = T extends (
   ...args: infer A
 ) => Effect.Effect<infer R, infer _E>
-  ? (...args: A) => Promise<R>
+  ? (...args: { [I in keyof A]: Unbrand<A[I]> }) => Promise<R>
   : T extends readonly unknown[]
     ? T
     : T extends object
@@ -52,6 +78,14 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
    */
   readonly scopes?: readonly { readonly id?: string; readonly name?: string }[];
   readonly plugins?: TPlugins;
+  /**
+   * How to respond when a tool requests user input mid-invocation. Pass
+   * `"accept-all"` for tests / non-interactive hosts, or a handler
+   * `(ctx) => Promise<ElicitationResponse>` for interactive ones.
+   * Required at construction so per-invoke calls don't have to thread
+   * an options arg.
+   */
+  readonly onElicitation: OnElicitation;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,13 +146,13 @@ const promisifyDeep = <T>(value: T): Promisified<T> => {
 export const createExecutor = async <
   const TPlugins extends readonly AnyPlugin[] = [],
 >(
-  config?: ExecutorConfig<TPlugins>,
+  config: ExecutorConfig<TPlugins>,
 ): Promise<Executor<TPlugins>> => {
-  const plugins = (config?.plugins ?? []) as unknown as TPlugins;
+  const plugins = (config.plugins ?? []) as unknown as TPlugins;
   const schema = collectSchemas(plugins);
 
   const scopes =
-    config?.scopes && config.scopes.length > 0
+    config.scopes && config.scopes.length > 0
       ? config.scopes.map(
           (s, i) =>
             new Scope({
@@ -140,6 +174,7 @@ export const createExecutor = async <
     adapter: makeMemoryAdapter({ schema }),
     blobs: makeInMemoryBlobStore(),
     plugins,
+    onElicitation: config.onElicitation,
   };
 
   // The SDK has no observability requirement; storage failures surface

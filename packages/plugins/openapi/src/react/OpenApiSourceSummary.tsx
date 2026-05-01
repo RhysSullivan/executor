@@ -4,7 +4,7 @@ import { connectionsAtom, sourceAtom } from "@executor-js/react/api/atoms";
 import { Badge } from "@executor-js/react/components/badge";
 import { Button } from "@executor-js/react/components/button";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
-import { ScopeId } from "@executor-js/sdk";
+import { ScopeId } from "@executor-js/sdk/core";
 
 import { openApiSourceAtom, openApiSourceBindingsAtom } from "./atoms";
 import {

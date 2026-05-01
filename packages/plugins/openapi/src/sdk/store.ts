@@ -6,7 +6,7 @@ import {
   StorageError,
   type StorageDeps,
   type StorageFailure,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 import {
   ConfiguredHeaderValue,

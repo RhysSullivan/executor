@@ -163,6 +163,7 @@ const createLocalExecutorLayer = () => {
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
       // Sync sources from executor.jsonc (idempotent — plugins upsert).

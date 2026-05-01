@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { ConnectionId, ScopeId, SecretBackedValue, SecretId } from "@executor-js/sdk";
+import { ConnectionId, ScopeId, SecretBackedValue, SecretId } from "@executor-js/sdk/core";
 
 // ---------------------------------------------------------------------------
 // Branded IDs

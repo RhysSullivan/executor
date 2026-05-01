@@ -8,7 +8,7 @@ import {
   resolveSecretBackedMap as resolveSharedSecretBackedMap,
   type PluginCtx,
   type StorageFailure,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 import {
   makeMcpStore,

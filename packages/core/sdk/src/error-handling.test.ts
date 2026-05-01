@@ -73,6 +73,7 @@ const baseConfig = (adapter: DBAdapter) => ({
   scopes: [testScope],
   adapter,
   blobs: makeInMemoryBlobStore(),
+  onElicitation: "accept-all" as const,
 });
 
 // ---------------------------------------------------------------------------
@@ -151,6 +152,7 @@ describe("typed-error edge model — SDK", () => {
       const executor = yield* createExecutor({
         ...baseConfig(makeFailingAdapter(failure)),
         plugins: [uniqueTestPlugin()] as const,
+        onElicitation: "accept-all",
       });
 
       const result = yield* executor["uniq-test"].create("abc");

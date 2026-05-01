@@ -22,7 +22,7 @@ import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 
 const executor = await createExecutor({
-  scope: { name: "my-app" },
+  onElicitation: "accept-all",
 });
 
 const engine = createExecutionEngine({
@@ -56,6 +56,11 @@ console.log(result);
 When the host doesn't support inline elicitation, use `executeWithPause` to intercept the first request as a pause point:
 
 ```ts
+import type { ExecutionEngine } from "@executor-js/execution";
+
+declare const engine: ExecutionEngine;
+declare const code: string;
+
 const started = await engine.executeWithPause(code);
 
 if (started.status === "paused") {
@@ -71,6 +76,10 @@ if (started.status === "paused") {
 ## Workflow description for LLMs
 
 ```ts
+import type { ExecutionEngine } from "@executor-js/execution";
+
+declare const engine: ExecutionEngine;
+
 const docs = await engine.getDescription();
 // Returns the canonical "use tools.search(), then tools.describe.tool(), then call …"
 // workflow prose + per-namespace tool listing. Feed this to an LLM so it knows
@@ -79,10 +88,10 @@ const docs = await engine.getDescription();
 
 ## Using with Effect
 
-If you're building on `@executor-js/sdk` (the raw Effect entry), import from the `/core` subpath. The returned engine is Effect-native: `execute`, `executeWithPause`, and `resume` all become `Effect.Effect<...>`, and `onElicitation` is an `ElicitationHandler` returning `Effect.Effect<ElicitationResponse>`.
+If you're building on `@executor-js/sdk/core` (the raw Effect entry), import from the `/core` subpath. The returned engine is Effect-native: `execute`, `executeWithPause`, and `resume` all become `Effect.Effect<...>`, and `onElicitation` is an `ElicitationHandler` returning `Effect.Effect<ElicitationResponse>`.
 
 ```ts
-import { createExecutionEngine } from "@executor-js/execution";
+import { createExecutionEngine } from "@executor-js/execution/core";
 ```
 
 ## Status

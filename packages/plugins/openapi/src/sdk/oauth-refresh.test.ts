@@ -171,6 +171,7 @@ const makeExecutor = () =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
 
     // Seed client id + secret in the executor scope so the openapi

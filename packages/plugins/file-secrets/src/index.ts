@@ -7,7 +7,7 @@ import {
   StorageError,
   type PluginCtx,
   type SecretProvider,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 // ---------------------------------------------------------------------------
 // XDG data dir resolution

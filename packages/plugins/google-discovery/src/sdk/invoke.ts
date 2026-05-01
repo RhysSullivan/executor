@@ -1,7 +1,7 @@
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
 
-import type { PluginCtx, StorageFailure } from "@executor-js/sdk";
+import type { PluginCtx, StorageFailure } from "@executor-js/sdk/core";
 
 import {
   GoogleDiscoveryInvocationError,

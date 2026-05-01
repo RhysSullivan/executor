@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { definePlugin } from "@executor-js/sdk";
+import { definePlugin } from "@executor-js/sdk/core";
 
 import {
   makeConfiguredWorkOSVaultClient,

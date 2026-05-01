@@ -344,11 +344,15 @@ describe("graphqlPlugin", () => {
         makeTestConfig({ plugins: [graphqlPlugin()] as const }),
       );
 
-      const result = yield* executor.tools.invoke("graphql.addSource", {
-        endpoint: "http://localhost:4000/graphql",
-        introspectionJson,
-        namespace: "via_static",
-      });
+      const result = yield* executor.tools.invoke(
+        "graphql.addSource",
+        {
+          endpoint: "http://localhost:4000/graphql",
+          introspectionJson,
+          namespace: "via_static",
+        },
+        { onElicitation: "accept-all" },
+      );
       expect(result).toEqual({ toolCount: 2, namespace: "via_static" });
 
       const tools = yield* executor.tools.list();

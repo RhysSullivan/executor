@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { definePlugin, type PluginCtx } from "@executor-js/sdk";
+import { definePlugin, type PluginCtx } from "@executor-js/sdk/core";
 
 import {
   deletePassword,

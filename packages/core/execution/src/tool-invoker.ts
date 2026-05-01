@@ -6,7 +6,7 @@ import type {
   ToolSchema,
   InvokeOptions,
   Source,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import { ExecutionToolError } from "./errors";
 

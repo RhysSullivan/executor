@@ -17,17 +17,36 @@ npm install @executor-js/storage-core
 Implement an adapter:
 
 ```ts
-import { createAdapter, type DBAdapter } from "@executor-js/storage-core";
+import {
+  createAdapter,
+  type CustomAdapter,
+  type DBAdapter,
+  type DBSchema,
+} from "@executor-js/storage-core";
+
+declare const inner: CustomAdapter; // your backend's post-transform hooks
+declare const schema: DBSchema;
 
 const myAdapter: DBAdapter = createAdapter({
-  // ... your backend's query / mutation hooks
+  schema,
+  config: {
+    adapterId: "my-backend",
+    supportsJSON: true,
+    supportsDates: true,
+  },
+  adapter: inner,
 });
 ```
 
-Or grab typed query helpers for an existing schema:
+Or grab typed query helpers for an existing schema — purely a type-level
+view, no runtime cost:
 
 ```ts
-import { typedAdapter, type DBSchema } from "@executor-js/storage-core";
+import {
+  typedAdapter,
+  type DBAdapter,
+  type DBSchema,
+} from "@executor-js/storage-core";
 
 const schema = {
   secrets: {
@@ -38,19 +57,29 @@ const schema = {
   },
 } satisfies DBSchema;
 
-const db = typedAdapter(myAdapter, schema);
+declare const myAdapter: DBAdapter;
+
+const db = typedAdapter<typeof schema>(myAdapter);
 ```
 
 ## Conformance tests
 
-If you're building an adapter, use the shared conformance suite to verify your backend matches the contract:
+If you're building an adapter, use the shared conformance suite to verify your backend matches the contract. The suite is exposed as `runAdapterConformance(name, withAdapter)` from the `/testing` subpath and registers `describe` blocks against your test runner:
 
 ```ts
-import { describeDbAdapterConformance } from "@executor-js/storage-core/testing";
+import {
+  conformanceSchema,
+  runAdapterConformance,
+  type WithAdapter,
+} from "@executor-js/storage-core/testing";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
-describeDbAdapterConformance({
-  makeAdapter: async () => myAdapter,
-});
+const withAdapter: WithAdapter = (fn) => {
+  const adapter = makeMemoryAdapter({ schema: conformanceSchema });
+  return fn(adapter);
+};
+
+runAdapterConformance("memory", withAdapter);
 ```
 
 The suite runs against any `describe` from your test runner. `vitest` and `@effect/vitest` are declared as optional peer dependencies — install whichever you use.

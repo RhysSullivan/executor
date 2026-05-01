@@ -173,18 +173,21 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
       const aliceExec = yield* createExecutor({
         scopes: [aliceScope, orgScope],
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
       const bobExec = yield* createExecutor({
         scopes: [bobScope, orgScope],
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
       // -------------------------------------------------------------
@@ -437,18 +440,21 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
       const aliceExec = yield* createExecutor({
         scopes: [aliceScope, orgScope],
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
       const bobExec = yield* createExecutor({
         scopes: [bobScope, orgScope],
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
       // Org-wide default client_id at org scope. Alice then shadows

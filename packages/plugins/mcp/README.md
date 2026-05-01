@@ -17,19 +17,25 @@ import { createExecutor } from "@executor-js/sdk";
 import { mcpPlugin } from "@executor-js/plugin-mcp";
 
 const executor = await createExecutor({
-  scope: { name: "my-app" },
-  plugins: [mcpPlugin()] as const,
+  onElicitation: "accept-all",
+  // Stdio sources spawn a local subprocess and inherit `process.env` —
+  // only enable for trusted single-user contexts.
+  plugins: [mcpPlugin({ dangerouslyAllowStdioMCP: true })] as const,
 });
+
+const scope = executor.scopes[0]!.id;
 
 // Remote MCP server
 await executor.mcp.addSource({
+  scope,
   transport: "remote",
   name: "Context7",
   endpoint: "https://mcp.context7.com/mcp",
 });
 
-// Stdio MCP server
+// Stdio MCP server (requires `dangerouslyAllowStdioMCP: true` above)
 await executor.mcp.addSource({
+  scope,
   transport: "stdio",
   name: "My Server",
   command: "npx",
@@ -39,19 +45,17 @@ await executor.mcp.addSource({
 // Every MCP tool is now part of the unified catalog
 const tools = await executor.tools.list();
 
-const result = await executor.tools.invoke(
-  "context7.searchLibraries",
-  { query: "effect-ts" },
-  { onElicitation: "accept-all" },
-);
+const result = await executor.tools.invoke("context7.searchLibraries", {
+  query: "effect-ts",
+});
 ```
 
 ## Using with Effect
 
-If you're building on `@executor-js/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor-js/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead — it returns the Effect-shaped plugin with `Effect.Effect<...>`-returning methods rather than promisified wrappers:
 
 ```ts
-import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { mcpPlugin } from "@executor-js/plugin-mcp/core";
 ```
 
 ## Status
