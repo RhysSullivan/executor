@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAtomSet } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
 import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { Input } from "@executor-js/react/components/input";
 import { Label } from "@executor-js/react/components/label";

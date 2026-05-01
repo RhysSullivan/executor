@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useAtomSet } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
@@ -120,7 +120,7 @@ export default function AddGraphqlSource(props: {
     });
     try {
       await doAdd({
-        path: { scopeId },
+        params: { scopeId },
         payload: {
           endpoint: trimmedEndpoint,
           name: identity.name.trim() || undefined,

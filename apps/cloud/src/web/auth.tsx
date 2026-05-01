@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect } from "react";
-import { Atom } from "@effect-atom/atom";
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { usePostHog } from "posthog-js/react";
 import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 
@@ -58,7 +59,7 @@ const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
   const result = useAtomValue(authAtom);
   const posthog = usePostHog();
 
-  const state: AuthState = Result.match(result, {
+  const state: AuthState = AsyncResult.match(result, {
     onInitial: () => ({ status: "loading" as const }),
     onSuccess: ({ value }) => ({
       status: "authenticated" as const,
@@ -71,8 +72,8 @@ const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
   const userId = state.status === "authenticated" ? state.user.id : null;
   const email = state.status === "authenticated" ? state.user.email : null;
   const name = state.status === "authenticated" ? state.user.name : null;
-  const orgId = state.status === "authenticated" ? state.organization?.id ?? null : null;
-  const orgName = state.status === "authenticated" ? state.organization?.name ?? null : null;
+  const orgId = state.status === "authenticated" ? (state.organization?.id ?? null) : null;
+  const orgName = state.status === "authenticated" ? (state.organization?.name ?? null) : null;
   const isUnauthenticated = state.status === "unauthenticated";
 
   useEffect(() => {

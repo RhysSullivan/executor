@@ -1,6 +1,7 @@
 import { Suspense, useState, useCallback, useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Result, useAtomSet } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import type { SourceDetectionResult } from "@executor-js/sdk";
 import { detectSource } from "../api/atoms";
 import { useSourcesWithPending } from "../api/optimistic";
@@ -65,7 +66,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
     setError(null);
     try {
       const results = await doDetect({
-        path: { scopeId },
+        params: { scopeId },
         payload: { url: trimmed },
       });
       if (results.length === 0) {
@@ -163,17 +164,19 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
           <McpInstallCard />
         </div>
 
-        {Result.match(sources, {
+        {AsyncResult.match(sources, {
           onInitial: () => <SourcesGridSkeleton />,
           onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
           onSuccess: ({ value }) => {
-            const connectedSources = (value as Array<{
-              readonly id: string;
-              readonly name: string;
-              readonly kind: string;
-              readonly url?: string;
-              readonly runtime?: boolean;
-            }>).filter((source) => !source.runtime);
+            const connectedSources = (
+              value as Array<{
+                readonly id: string;
+                readonly name: string;
+                readonly kind: string;
+                readonly url?: string;
+                readonly runtime?: boolean;
+              }>
+            ).filter((source) => !source.runtime);
 
             return value.length === 0 ? (
               <div className="mb-8 flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
@@ -196,10 +199,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
               <div className="mb-8 space-y-8">
                 {connectedSources.length > 0 && (
                   <section className="space-y-3">
-                    <SourceGrid
-                      sources={connectedSources}
-                      sourcePlugins={sourcePlugins}
-                    />
+                    <SourceGrid sources={connectedSources} sourcePlugins={sourcePlugins} />
                   </section>
                 )}
               </div>

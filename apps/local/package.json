@@ -18,7 +18,7 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect-atom/atom-react": "^0.5.0",
+    "@effect/atom-react": "catalog:",
     "@effect/platform-node": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/config": "workspace:*",
@@ -38,8 +38,8 @@
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tanstack/react-router": "catalog:",
     "drizzle-orm": "catalog:",
-    "jsonc-parser": "^3.3.1",
     "effect": "catalog:",
+    "jsonc-parser": "^3.3.1",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

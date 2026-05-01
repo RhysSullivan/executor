@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { Result, useAtomValue } from "@effect-atom/atom-react";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import { connectionsAtom, sourceAtom } from "@executor-js/react/api/atoms";
 import { Badge } from "@executor-js/react/components/badge";
@@ -8,10 +9,7 @@ import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/sc
 import { ScopeId } from "@executor-js/sdk";
 
 import { openApiSourceAtom, openApiSourceBindingsAtom } from "./atoms";
-import {
-  effectiveBindingForScope,
-  missingCredentialLabels,
-} from "../sdk/credential-status";
+import { effectiveBindingForScope, missingCredentialLabels } from "../sdk/credential-status";
 
 function ConnectedBadge() {
   return (
@@ -64,49 +62,39 @@ export default function OpenApiSourceSummary(props: {
   const scopeStack = useScopeStack();
   const summaryResult = useAtomValue(sourceAtom(props.sourceId, displayScope));
   const sourceScopeId =
-    Result.isSuccess(summaryResult) && summaryResult.value?.scopeId
+    AsyncResult.isSuccess(summaryResult) && summaryResult.value?.scopeId
       ? summaryResult.value.scopeId
       : displayScope;
-  const sourceResult = useAtomValue(
-    openApiSourceAtom(ScopeId.make(sourceScopeId), props.sourceId),
-  );
+  const sourceResult = useAtomValue(openApiSourceAtom(ScopeId.make(sourceScopeId), props.sourceId));
   const bindingsResult = useAtomValue(
     openApiSourceBindingsAtom(displayScope, props.sourceId, ScopeId.make(sourceScopeId)),
   );
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 
   const source =
-    Result.isSuccess(sourceResult) && sourceResult.value
-      ? sourceResult.value
-      : null;
+    AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
 
   if (!source) return null;
   const oauth2 = source.config.oauth2;
-  const bindingsLoaded = Result.isSuccess(bindingsResult);
-  const connectionsLoaded = Result.isSuccess(connectionsResult);
+  const bindingsLoaded = AsyncResult.isSuccess(bindingsResult);
+  const connectionsLoaded = AsyncResult.isSuccess(connectionsResult);
   if (!bindingsLoaded) {
     return props.variant === "panel" ? null : <CheckingCredentialsBadge />;
   }
 
-  const bindings = Result.isSuccess(bindingsResult) ? bindingsResult.value : [];
+  const bindings = AsyncResult.isSuccess(bindingsResult) ? bindingsResult.value : [];
   if (oauth2 && !connectionsLoaded) {
     return props.variant === "panel" ? null : <CheckingCredentialsBadge />;
   }
-  const connections = Result.isSuccess(connectionsResult) ? connectionsResult.value : [];
-  const liveConnectionIds = new Set(
-    connections.map((connection) => connection.id as string),
-  );
+  const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
+  const liveConnectionIds = new Set(connections.map((connection) => connection.id as string));
   const scopeRanks = new Map(
     scopeStack.map((scope, index) => [scope.id as string, index] as const),
   );
   const credentialTargetScope = userScope;
-  const missing = missingCredentialLabels(
-    source,
-    bindings,
-    credentialTargetScope,
-    scopeRanks,
-    { liveConnectionIds },
-  );
+  const missing = missingCredentialLabels(source, bindings, credentialTargetScope, scopeRanks, {
+    liveConnectionIds,
+  });
 
   if (props.variant === "panel") {
     if (missing.length === 0) return null;
@@ -145,10 +133,7 @@ export default function OpenApiSourceSummary(props: {
       ? connectionBinding.value.connectionId
       : null;
 
-  if (
-    connectionId &&
-    connections.some((connection) => connection.id === connectionId)
-  ) {
+  if (connectionId && connections.some((connection) => connection.id === connectionId)) {
     return <ConnectedBadge />;
   }
 

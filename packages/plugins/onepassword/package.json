@@ -48,7 +48,7 @@
   "dependencies": {
     "@1password/op-js": "^0.1.13",
     "@1password/sdk": "^0.4.1-beta.1",
-    "@effect-atom/atom-react": "^0.5.0",
+    "@effect/atom-react": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "effect": "catalog:"
@@ -62,7 +62,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@effect-atom/atom-react": "^0.5.0",
+    "@effect/atom-react": "catalog:",
     "@executor-js/react": "workspace:*",
     "react": ">=18"
   },
@@ -70,7 +70,7 @@
     "react": {
       "optional": true
     },
-    "@effect-atom/atom-react": {
+    "@effect/atom-react": {
       "optional": true
     },
     "@executor-js/react": {

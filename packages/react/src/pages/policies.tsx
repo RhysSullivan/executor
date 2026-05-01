@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { generateKeyBetween } from "fractional-indexing";
 import { ChevronDownIcon } from "lucide-react";
 import { PolicyId, type ToolPolicyAction } from "@executor-js/sdk";
@@ -49,12 +50,7 @@ import { Label } from "../components/label";
 // would also throw if asked to insert "between" two equal keys.
 // ---------------------------------------------------------------------------
 
-const comparePolicy = (
-  posA: string,
-  idA: string,
-  posB: string,
-  idB: string,
-): number => {
+const comparePolicy = (posA: string, idA: string, posB: string, idB: string): number => {
   if (posA < posB) return -1;
   if (posA > posB) return 1;
   if (idA < idB) return -1;
@@ -150,9 +146,8 @@ function AddPolicyForm(props: {
           className="font-mono text-sm"
         />
         <p className="text-xs text-muted-foreground">
-          Exact tool id, trailing wildcard, or{" "}
-          <code className="font-mono">*</code> for every tool. Examples:{" "}
-          <code className="font-mono">*</code>,{" "}
+          Exact tool id, trailing wildcard, or <code className="font-mono">*</code> for every tool.
+          Examples: <code className="font-mono">*</code>,{" "}
           <code className="font-mono">vercel.*</code>,{" "}
           <code className="font-mono">vercel.dns.*</code>,{" "}
           <code className="font-mono">vercel.dns.create</code>.
@@ -160,18 +155,13 @@ function AddPolicyForm(props: {
       </div>
       <div className="flex flex-col gap-1">
         <Label className="text-xs font-medium text-foreground/80">Action</Label>
-        <Select
-          value={action}
-          onValueChange={(v) => setAction(v as ToolPolicyAction)}
-        >
+        <Select value={action} onValueChange={(v) => setAction(v as ToolPolicyAction)}>
           <SelectTrigger className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="approve">{actionLabels.approve}</SelectItem>
-            <SelectItem value="require_approval">
-              {actionLabels.require_approval}
-            </SelectItem>
+            <SelectItem value="require_approval">{actionLabels.require_approval}</SelectItem>
             <SelectItem value="block">{actionLabels.block}</SelectItem>
           </SelectContent>
         </Select>
@@ -227,9 +217,7 @@ function PolicyRow(props: {
           </SelectPrimitiveTrigger>
           <SelectContent position="popper" align="end">
             <SelectItem value="approve">{actionLabels.approve}</SelectItem>
-            <SelectItem value="require_approval">
-              {actionLabels.require_approval}
-            </SelectItem>
+            <SelectItem value="require_approval">{actionLabels.require_approval}</SelectItem>
             <SelectItem value="block">{actionLabels.block}</SelectItem>
           </SelectContent>
         </Select>
@@ -248,16 +236,10 @@ function PolicyRow(props: {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem
-              disabled={props.isFirst}
-              onClick={props.onMoveUp}
-            >
+            <DropdownMenuItem disabled={props.isFirst} onClick={props.onMoveUp}>
               Move up
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={props.isLast}
-              onClick={props.onMoveDown}
-            >
+            <DropdownMenuItem disabled={props.isLast} onClick={props.onMoveDown}>
               Move down
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -291,14 +273,11 @@ export function PoliciesPage() {
   });
   const [busy, setBusy] = useState(false);
 
-  const handleCreate = async (input: {
-    pattern: string;
-    action: ToolPolicyAction;
-  }) => {
+  const handleCreate = async (input: { pattern: string; action: ToolPolicyAction }) => {
     setBusy(true);
     try {
       await doCreate({
-        path: { scopeId },
+        params: { scopeId },
         payload: { pattern: input.pattern, action: input.action },
         reactivityKeys: policyWriteKeys,
       });
@@ -309,7 +288,7 @@ export function PoliciesPage() {
 
   const handleUpdate = async (id: string, action: ToolPolicyAction) => {
     await doUpdate({
-      path: { scopeId, policyId: PolicyId.make(id) },
+      params: { scopeId, policyId: PolicyId.make(id) },
       payload: { action },
       reactivityKeys: policyWriteKeys,
     });
@@ -317,14 +296,14 @@ export function PoliciesPage() {
 
   const handleRemove = async (id: string) => {
     await doRemove({
-      path: { scopeId, policyId: PolicyId.make(id) },
+      params: { scopeId, policyId: PolicyId.make(id) },
       reactivityKeys: policyWriteKeys,
     });
   };
 
   const handleMove = async (id: string, position: string) => {
     await doUpdate({
-      path: { scopeId, policyId: PolicyId.make(id) },
+      params: { scopeId, policyId: PolicyId.make(id) },
       payload: { position },
       reactivityKeys: policyWriteKeys,
     });
@@ -339,9 +318,8 @@ export function PoliciesPage() {
               Policies
             </h1>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              Override default approval behavior for tools. Rules are
-              evaluated top-to-bottom; the first match wins. Blocked tools
-              are hidden from agent search and fail at invoke.
+              Override default approval behavior for tools. Rules are evaluated top-to-bottom; the
+              first match wins. Blocked tools are hidden from agent search and fail at invoke.
             </p>
           </div>
         </div>
@@ -350,13 +328,11 @@ export function PoliciesPage() {
           <AddPolicyForm onSubmit={handleCreate} busy={busy} />
         </div>
 
-        {Result.match(policies, {
+        {AsyncResult.match(policies, {
           onInitial: () => (
             <div className="flex items-center gap-2 py-8">
               <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <p className="text-sm text-muted-foreground">
-                Loading policies…
-              </p>
+              <p className="text-sm text-muted-foreground">Loading policies…</p>
             </div>
           ),
           onFailure: () => (
@@ -378,34 +354,21 @@ export function PoliciesPage() {
             // `generateKeyBetween` and aren't reorderable until the server
             // confirms.
             const committed = sorted.filter((p) => p.position !== "");
-            const committedIndex = (id: string): number =>
-              committed.findIndex((p) => p.id === id);
+            const committedIndex = (id: string): number => committed.findIndex((p) => p.id === id);
             const positionAbove = (id: string): string => {
               const j = committedIndex(id);
               if (j <= 0) return generateKeyBetween(null, committed[0]!.position);
               return j === 1
                 ? generateKeyBetween(null, committed[0]!.position)
-                : generateKeyBetween(
-                    committed[j - 2]!.position,
-                    committed[j - 1]!.position,
-                  );
+                : generateKeyBetween(committed[j - 2]!.position, committed[j - 1]!.position);
             };
             const positionBelow = (id: string): string => {
               const j = committedIndex(id);
               if (j === -1 || j >= committed.length - 1)
-                return generateKeyBetween(
-                  committed[committed.length - 1]!.position,
-                  null,
-                );
+                return generateKeyBetween(committed[committed.length - 1]!.position, null);
               return j === committed.length - 2
-                ? generateKeyBetween(
-                    committed[committed.length - 1]!.position,
-                    null,
-                  )
-                : generateKeyBetween(
-                    committed[j + 1]!.position,
-                    committed[j + 2]!.position,
-                  );
+                ? generateKeyBetween(committed[committed.length - 1]!.position, null)
+                : generateKeyBetween(committed[j + 1]!.position, committed[j + 2]!.position);
             };
             return (
               <CardStack>
@@ -415,8 +378,8 @@ export function PoliciesPage() {
                     <CardStackEntry>
                       <CardStackEntryContent>
                         <CardStackEntryDescription>
-                          No policies yet. Tools fall back to their plugin's
-                          default approval behavior.
+                          No policies yet. Tools fall back to their plugin's default approval
+                          behavior.
                         </CardStackEntryDescription>
                       </CardStackEntryContent>
                     </CardStackEntry>
@@ -437,13 +400,9 @@ export function PoliciesPage() {
                           isFirst={!reorderable || j === 0}
                           isLast={!reorderable || j === committed.length - 1}
                           onRemove={() => handleRemove(p.id)}
-                          onChangeAction={(action) =>
-                            handleUpdate(p.id, action)
-                          }
+                          onChangeAction={(action) => handleUpdate(p.id, action)}
                           onMoveUp={() => handleMove(p.id, positionAbove(p.id))}
-                          onMoveDown={() =>
-                            handleMove(p.id, positionBelow(p.id))
-                          }
+                          onMoveDown={() => handleMove(p.id, positionBelow(p.id))}
                         />
                       );
                     })

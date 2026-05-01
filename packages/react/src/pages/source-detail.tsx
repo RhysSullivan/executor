@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, useAtomRefresh } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { effectivePolicyFromSorted } from "@executor-js/sdk";
 import {
   policiesOptimisticAtom,
@@ -54,7 +55,7 @@ export function SourceDetailPage(props: {
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState(false);
 
-  const sourceData = Result.isSuccess(source) ? source.value : null;
+  const sourceData = AsyncResult.isSuccess(source) ? source.value : null;
   const canRefresh = sourceData ? (sourceData.canRefresh ?? true) : false;
   const canRemove = sourceData ? (sourceData.canRemove ?? true) : false;
   const canEdit = sourceData ? (sourceData.canEdit ?? false) : false;
@@ -69,25 +70,27 @@ export function SourceDetailPage(props: {
   // (innermost scope first, then position ASC). The matcher walks the
   // list and stops at the first hit, mirroring server-side resolution.
   const policyList = useMemo(
-    () => (Result.isSuccess(policies) ? policies.value : []),
+    () => (AsyncResult.isSuccess(policies) ? policies.value : []),
     [policies],
   );
 
   const sourceTools: ToolSummary[] = useMemo(() => {
-    if (!Result.isSuccess(tools)) return [];
-    return tools.value.map((t: {
-      readonly id: string;
-      readonly name: string;
-      readonly pluginId: string;
-      readonly description?: string;
-      readonly requiresApproval?: boolean;
-    }) => ({
-      id: t.id,
-      name: t.name,
-      pluginKey: t.pluginId,
-      description: t.description,
-      policy: effectivePolicyFromSorted(t.id, policyList, t.requiresApproval),
-    }));
+    if (!AsyncResult.isSuccess(tools)) return [];
+    return tools.value.map(
+      (t: {
+        readonly id: string;
+        readonly name: string;
+        readonly pluginId: string;
+        readonly description?: string;
+        readonly requiresApproval?: boolean;
+      }) => ({
+        id: t.id,
+        name: t.name,
+        pluginKey: t.pluginId,
+        description: t.description,
+        policy: effectivePolicyFromSorted(t.id, policyList, t.requiresApproval),
+      }),
+    );
   }, [tools, policyList]);
 
   const selectedTool = useMemo(
@@ -99,7 +102,7 @@ export function SourceDetailPage(props: {
     setDeleting(true);
     try {
       await doRemove({
-        path: { scopeId, sourceId: namespace },
+        params: { scopeId, sourceId: namespace },
         reactivityKeys: sourceWriteKeys,
       });
       void navigate({ to: "/" });
@@ -113,7 +116,7 @@ export function SourceDetailPage(props: {
     setRefreshing(true);
     try {
       await doRefresh({
-        path: { scopeId, sourceId: namespace },
+        params: { scopeId, sourceId: namespace },
         reactivityKeys: sourceWriteKeys,
       });
     } finally {
@@ -137,7 +140,7 @@ export function SourceDetailPage(props: {
             <Badge className="bg-muted text-muted-foreground">built-in</Badge>
           )}
           <Badge variant="secondary">{sourceData?.kind ?? "source"}</Badge>
-          {Result.isSuccess(tools) && !editing && (
+          {AsyncResult.isSuccess(tools) && !editing && (
             <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
               {sourceTools.length} {sourceTools.length === 1 ? "tool" : "tools"}
             </span>
@@ -231,9 +234,11 @@ export function SourceDetailPage(props: {
           )}
 
           {/* Content -- split pane */}
-          {Result.match(tools, {
+          {AsyncResult.match(tools, {
             onInitial: () => <SourceDetailSkeleton />,
-            onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
+            onFailure: () => (
+              <div className="p-6 text-sm text-destructive">Failed to load tools</div>
+            ),
             onSuccess: () => (
               <div className="flex min-h-0 flex-1 overflow-hidden">
                 {/* Left: tool tree */}
@@ -277,10 +282,7 @@ function SourceDetailSkeleton() {
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="flex items-center gap-2 rounded-md px-2 py-1.5">
             <Skeleton className="size-4 shrink-0 rounded" />
-            <Skeleton
-              className="h-3.5"
-              style={{ width: `${55 + ((i * 13) % 35)}%` }}
-            />
+            <Skeleton className="h-3.5" style={{ width: `${55 + ((i * 13) % 35)}%` }} />
           </div>
         ))}
       </div>

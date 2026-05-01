@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtomSet } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
 
 import { cancelOAuth, startOAuth } from "../api/atoms";
 import { openOAuthPopup, type OAuthPopupResult } from "../api/oauth-popup";
@@ -90,7 +90,7 @@ export function useOAuthPopupFlow<
   const cancelSession = useCallback(
     (sessionId: string) => {
       void doCancelOAuth({
-        path: { scopeId },
+        params: { scopeId },
         payload: { sessionId },
       }).catch(() => undefined);
     },
@@ -209,7 +209,7 @@ export function useOAuthPopupFlow<
         onAuthorizationStarted: input.onAuthorizationStarted,
         run: () =>
           doStartOAuth({
-            path: { scopeId },
+            params: { scopeId },
             payload: {
               ...input.payload,
               redirectUrl: input.payload.redirectUrl ?? oauthCallbackUrl(callbackPath),

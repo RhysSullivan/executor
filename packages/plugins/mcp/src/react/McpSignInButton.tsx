@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
@@ -28,10 +29,9 @@ import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
 
 export default function McpSignInButton(props: { sourceId: string }) {
   const scopeId = useScope();
-  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, props.sourceId)) as Result.Result<
-    McpStoredSourceSchemaType | null,
-    unknown
-  >;
+  const sourceResult = useAtomValue(
+    mcpSourceAtom(scopeId, props.sourceId),
+  ) as AsyncResult.AsyncResult<McpStoredSourceSchemaType | null, unknown>;
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
   const doUpdate = useAtomSet(updateMcpSource as never, { mode: "promise" } as never) as (
     input: unknown,
@@ -40,10 +40,11 @@ export default function McpSignInButton(props: { sourceId: string }) {
     popupName: "mcp-oauth",
   });
 
-  const source = Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
+  const source =
+    AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
   const remote = source && source.config.transport === "remote" ? source.config : null;
   const oauth2 = remote && remote.auth.kind === "oauth2" ? remote.auth : null;
-  const connections = Result.isSuccess(connectionsResult)
+  const connections = AsyncResult.isSuccess(connectionsResult)
     ? (connectionsResult.value as readonly { readonly id: string }[])
     : null;
   const isConnected =
@@ -70,7 +71,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
       },
       onSuccess: async (result: OAuthCompletionPayload) => {
         await doUpdate({
-          path: { scopeId, namespace: props.sourceId },
+          params: { scopeId, namespace: props.sourceId },
           payload: {
             auth: { kind: "oauth2", connectionId: result.connectionId },
           },

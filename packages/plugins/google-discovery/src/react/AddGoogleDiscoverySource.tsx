@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtomSet } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
 
 import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
@@ -237,7 +237,7 @@ export default function AddGoogleDiscoverySource(props: {
     setShowScopes(false);
     try {
       const result = await doProbe({
-        path: { scopeId },
+        params: { scopeId },
         payload: { discoveryUrl: discoveryUrl.trim() },
       });
       setProbe({
@@ -333,7 +333,7 @@ export default function AddGoogleDiscoverySource(props: {
     });
     try {
       await doAdd({
-        path: { scopeId },
+        params: { scopeId },
         payload: {
           name: displayName,
           discoveryUrl: discoveryUrl.trim(),

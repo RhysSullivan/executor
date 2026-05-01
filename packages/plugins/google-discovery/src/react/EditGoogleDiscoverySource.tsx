@@ -1,4 +1,5 @@
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Badge } from "@executor-js/react/components/badge";
 import { Button } from "@executor-js/react/components/button";
@@ -15,7 +16,7 @@ export default function EditGoogleDiscoverySource({
   const scopeId = useScope();
   const sourceResult = useAtomValue(googleDiscoverySourceAtom(scopeId, sourceId));
 
-  const source = Result.isSuccess(sourceResult) ? sourceResult.value : null;
+  const source = AsyncResult.isSuccess(sourceResult) ? sourceResult.value : null;
   const config = source?.config;
   const authKind = config?.auth.kind ?? "none";
 
@@ -49,15 +50,11 @@ export default function EditGoogleDiscoverySource({
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg border border-border bg-card/50 p-3">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-                Service
-              </p>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Service</p>
               <p className="text-sm font-medium text-foreground">{config.service}</p>
             </div>
             <div className="rounded-lg border border-border bg-card/50 p-3">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-                Version
-              </p>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Version</p>
               <p className="text-sm font-medium text-foreground">{config.version}</p>
             </div>
           </div>

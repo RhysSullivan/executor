@@ -1,7 +1,8 @@
 import { useReducer, useState } from "react";
 import { Exit } from "effect";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { useCustomer } from "autumn-js/react";
 import { toast } from "sonner";
 import {
@@ -120,13 +121,15 @@ function OrgPage() {
   const doGetVerificationLink = useAtomSet(getDomainVerificationLink, { mode: "promiseExit" });
   const doUpdateOrgName = useAtomSet(updateOrgName, { mode: "promiseExit" });
   const { check, isLoading: customerLoading } = useCustomer();
-  const canUseDomains = customerLoading ? false : check({ featureId: "domain-verification" }).allowed;
+  const canUseDomains = customerLoading
+    ? false
+    : check({ featureId: "domain-verification" }).allowed;
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editName, setEditName] = useState(orgName);
   const [savingName, setSavingName] = useState(false);
   const [search, setSearch] = useState("");
 
-  const roles = Result.match(rolesResult, {
+  const roles = AsyncResult.match(rolesResult, {
     onInitial: () => [] as readonly { slug: string; name: string }[],
     onFailure: () => [] as readonly { slug: string; name: string }[],
     onSuccess: ({ value }) => value.roles,
@@ -200,19 +203,14 @@ function OrgPage() {
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="font-display text-[2rem] tracking-tight text-foreground">
-            Organization
-          </h1>
+          <h1 className="font-display text-[2rem] tracking-tight text-foreground">Organization</h1>
         </div>
 
         {/* Settings */}
         <section className="mb-10">
           <div className="flex items-end gap-3">
             <div className="min-w-0 flex-1">
-              <Label
-                htmlFor="org-name"
-                className="text-sm font-medium text-foreground"
-              >
+              <Label htmlFor="org-name" className="text-sm font-medium text-foreground">
                 Organization name
               </Label>
               <Input
@@ -265,7 +263,7 @@ function OrgPage() {
             </div>
           )}
 
-          {Result.match(domainsResult, {
+          {AsyncResult.match(domainsResult, {
             onInitial: () => (
               <div className="space-y-3">
                 {[1, 2].map((i) => (
@@ -318,170 +316,166 @@ function OrgPage() {
             className="mb-3 h-9 text-sm"
           />
 
-        {Result.match(membersResult, {
-          onInitial: () => (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
-              ))}
-            </div>
-          ),
-          onFailure: () => (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load members</p>
-            </div>
-          ),
-          onSuccess: ({ value }) => {
-            const members = value.members;
-            const filtered = search
-              ? members.filter(
-                  (m: MemberData) =>
-                    m.email.toLowerCase().includes(search.toLowerCase()) ||
-                    (m.name?.toLowerCase().includes(search.toLowerCase()) ?? false),
-                )
-              : members;
-
-            if (filtered.length === 0) {
-              return (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  {search ? "No matching members" : "No members yet"}
-                </p>
-              );
-            }
-
-            return (
-              <div className="space-y-px">
-                {filtered.map((member: MemberData) => (
-                  <div
-                    key={member.id}
-                    className="group relative grid grid-cols-[2rem_1fr_6rem_5rem_2rem] items-center gap-3 rounded-lg border border-transparent px-4 py-3 transition-all hover:bg-muted/30"
-                  >
-                    {/* Avatar */}
-                    {member.avatarUrl ? (
-                      <img src={member.avatarUrl} alt="" className="size-8 rounded-full" />
-                    ) : (
-                      <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                        {member.name
-                          ? member.name
-                              .split(" ")
-                              .map((n: string) => n[0])
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase()
-                          : member.email[0]!.toUpperCase()}
-                      </div>
-                    )}
-
-                    {/* Name + email */}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-medium text-foreground leading-none">
-                          {member.name ?? member.email}
-                        </p>
-                        {member.isCurrentUser && (
-                          <Badge className="bg-muted text-muted-foreground">You</Badge>
-                        )}
-                        {member.status === "pending" && (
-                          <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                            Invited
-                          </Badge>
-                        )}
-                      </div>
-                      {member.name && (
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground leading-none">
-                          {member.email}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Role */}
-                    <p className="text-sm text-muted-foreground capitalize leading-none">
-                      {member.role}
-                    </p>
-
-                    {/* Last active */}
-                    <p className="text-xs text-muted-foreground leading-none">
-                      {formatLastActive(member.lastActiveAt)}
-                    </p>
-
-                    {/* Actions */}
-                    {!member.isCurrentUser ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <svg viewBox="0 0 16 16" className="size-3">
-                              <circle cx="8" cy="3" r="1.2" fill="currentColor" />
-                              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
-                              <circle cx="8" cy="13" r="1.2" fill="currentColor" />
-                            </svg>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44">
-                          {roles.length > 0 && (
-                            <>
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger className="text-xs">
-                                  Change role
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent>
-                                  {roles.map((role: RoleData) => (
-                                    <DropdownMenuItem
-                                      key={role.slug}
-                                      className="text-xs"
-                                      disabled={role.slug === member.role}
-                                      onClick={() =>
-                                        handleChangeRole(member.id, role.slug, role.name)
-                                      }
-                                    >
-                                      {role.name}
-                                      {role.slug === member.role && (
-                                        <span className="ml-auto text-muted-foreground">
-                                          <svg viewBox="0 0 16 16" fill="none" className="size-3">
-                                            <path
-                                              d="M3.5 8.5L6.5 11.5L12.5 5"
-                                              stroke="currentColor"
-                                              strokeWidth="1.5"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-                                          </svg>
-                                        </span>
-                                      )}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
-                              <DropdownMenuSeparator />
-                            </>
-                          )}
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive text-sm"
-                            onClick={() => handleRemove(member.id, member.name ?? member.email)}
-                          >
-                            Remove member
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : (
-                      <div />
-                    )}
-                  </div>
+          {AsyncResult.match(membersResult, {
+            onInitial: () => (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
                 ))}
               </div>
-            );
-          },
-        })}
+            ),
+            onFailure: () => (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+                <p className="text-sm text-destructive">Failed to load members</p>
+              </div>
+            ),
+            onSuccess: ({ value }) => {
+              const members = value.members;
+              const filtered = search
+                ? members.filter(
+                    (m: MemberData) =>
+                      m.email.toLowerCase().includes(search.toLowerCase()) ||
+                      (m.name?.toLowerCase().includes(search.toLowerCase()) ?? false),
+                  )
+                : members;
+
+              if (filtered.length === 0) {
+                return (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    {search ? "No matching members" : "No members yet"}
+                  </p>
+                );
+              }
+
+              return (
+                <div className="space-y-px">
+                  {filtered.map((member: MemberData) => (
+                    <div
+                      key={member.id}
+                      className="group relative grid grid-cols-[2rem_1fr_6rem_5rem_2rem] items-center gap-3 rounded-lg border border-transparent px-4 py-3 transition-all hover:bg-muted/30"
+                    >
+                      {/* Avatar */}
+                      {member.avatarUrl ? (
+                        <img src={member.avatarUrl} alt="" className="size-8 rounded-full" />
+                      ) : (
+                        <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                          {member.name
+                            ? member.name
+                                .split(" ")
+                                .map((n: string) => n[0])
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()
+                            : member.email[0]!.toUpperCase()}
+                        </div>
+                      )}
+
+                      {/* Name + email */}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium text-foreground leading-none">
+                            {member.name ?? member.email}
+                          </p>
+                          {member.isCurrentUser && (
+                            <Badge className="bg-muted text-muted-foreground">You</Badge>
+                          )}
+                          {member.status === "pending" && (
+                            <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                              Invited
+                            </Badge>
+                          )}
+                        </div>
+                        {member.name && (
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground leading-none">
+                            {member.email}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Role */}
+                      <p className="text-sm text-muted-foreground capitalize leading-none">
+                        {member.role}
+                      </p>
+
+                      {/* Last active */}
+                      <p className="text-xs text-muted-foreground leading-none">
+                        {formatLastActive(member.lastActiveAt)}
+                      </p>
+
+                      {/* Actions */}
+                      {!member.isCurrentUser ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <svg viewBox="0 0 16 16" className="size-3">
+                                <circle cx="8" cy="3" r="1.2" fill="currentColor" />
+                                <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+                                <circle cx="8" cy="13" r="1.2" fill="currentColor" />
+                              </svg>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            {roles.length > 0 && (
+                              <>
+                                <DropdownMenuSub>
+                                  <DropdownMenuSubTrigger className="text-xs">
+                                    Change role
+                                  </DropdownMenuSubTrigger>
+                                  <DropdownMenuSubContent>
+                                    {roles.map((role: RoleData) => (
+                                      <DropdownMenuItem
+                                        key={role.slug}
+                                        className="text-xs"
+                                        disabled={role.slug === member.role}
+                                        onClick={() =>
+                                          handleChangeRole(member.id, role.slug, role.name)
+                                        }
+                                      >
+                                        {role.name}
+                                        {role.slug === member.role && (
+                                          <span className="ml-auto text-muted-foreground">
+                                            <svg viewBox="0 0 16 16" fill="none" className="size-3">
+                                              <path
+                                                d="M3.5 8.5L6.5 11.5L12.5 5"
+                                                stroke="currentColor"
+                                                strokeWidth="1.5"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              />
+                                            </svg>
+                                          </span>
+                                        )}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive text-sm"
+                              onClick={() => handleRemove(member.id, member.name ?? member.email)}
+                            >
+                              Remove member
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            },
+          })}
         </section>
 
-        <InviteDialog
-          open={inviteOpen}
-          onOpenChange={setInviteOpen}
-          roles={roles}
-        />
+        <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={roles} />
       </div>
     </div>
   );
@@ -511,19 +505,13 @@ type RoleData = {
   name: string;
 };
 
-function DomainCard({
-  domain: d,
-  onDelete,
-}: {
-  domain: DomainData;
-  onDelete: () => void;
-}) {
+function DomainCard({ domain: d, onDelete }: { domain: DomainData; onDelete: () => void }) {
   const isVerified = d.state === "verified";
   const isPending = d.state === "pending";
 
   const recordValue = d.verificationPrefix
     ? `${d.verificationPrefix}=${d.verificationToken}`
-    : d.verificationToken ?? "";
+    : (d.verificationToken ?? "");
 
   const copyPromptValue = `Add a DNS TXT record for domain verification:\n\nDomain: ${d.domain}\nRecord name: @\nRecord value: ${recordValue}\n\nPlease add this TXT record to my DNS configuration.`;
 
@@ -532,9 +520,7 @@ function DomainCard({
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-medium text-foreground">
-              {d.domain}
-            </p>
+            <p className="truncate text-sm font-medium text-foreground">{d.domain}</p>
             <Badge
               className={
                 isVerified
@@ -591,7 +577,8 @@ function DomainCard({
             </span>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
-            DNS changes can take up to 72 hours to propagate, but usually complete within a few minutes.
+            DNS changes can take up to 72 hours to propagate, but usually complete within a few
+            minutes.
           </p>
         </div>
       )}

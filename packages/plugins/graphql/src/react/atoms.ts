@@ -8,7 +8,7 @@ import { GraphqlClient } from "./client";
 
 export const graphqlSourceAtom = (scopeId: ScopeId, namespace: string) =>
   GraphqlClient.query("graphql", "getSource", {
-    path: { scopeId, namespace },
+    params: { scopeId, namespace },
     timeToLive: "15 seconds",
     reactivityKeys: [ReactivityKey.sources, ReactivityKey.tools],
   });

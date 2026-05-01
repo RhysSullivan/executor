@@ -1,12 +1,8 @@
 import { useMemo, useState } from "react";
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { toolSchemaAtom } from "../api/atoms";
-import {
-  ScopeId,
-  ToolId,
-  type EffectivePolicy,
-  type ToolPolicyAction,
-} from "@executor-js/sdk";
+import { ScopeId, ToolId, type EffectivePolicy, type ToolPolicyAction } from "@executor-js/sdk";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { Markdown } from "./markdown";
@@ -103,7 +99,7 @@ export function ToolDetail(props: {
   const [tab, setTab] = useState<"schema" | "typescript">("schema");
 
   const data = useMemo(() => {
-    if (!Result.isSuccess(toolContract)) return null;
+    if (!AsyncResult.isSuccess(toolContract)) return null;
     const v = toolContract.value;
     const definitions = Object.entries(v.typeScriptDefinitions ?? {}).map(([name, body]) => ({
       name,
@@ -145,11 +141,7 @@ export function ToolDetail(props: {
               const badge = policyBadgeFor(props.policy);
               if (!badge) return null;
               return (
-                <Badge
-                  variant={badge.variant}
-                  title={badge.title}
-                  className={badge.className}
-                >
+                <Badge variant={badge.variant} title={badge.title} className={badge.className}>
                   {badge.text}
                 </Badge>
               );
@@ -197,7 +189,7 @@ export function ToolDetail(props: {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {Result.match(toolContract, {
+        {AsyncResult.match(toolContract, {
           onInitial: () => <div className="p-5 text-sm text-muted-foreground">Loading…</div>,
           onFailure: () => <div className="p-5 text-sm text-destructive">Something went wrong</div>,
           onSuccess: () =>

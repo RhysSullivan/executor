@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { graphqlSourceAtom, updateGraphqlSource } from "./atoms";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
@@ -38,11 +39,7 @@ const graphqlOAuthConnectionId = (namespaceSlug: string): string =>
 // Edit form
 // ---------------------------------------------------------------------------
 
-function EditForm(props: {
-  sourceId: string;
-  initial: EditableSource;
-  onSave: () => void;
-}) {
+function EditForm(props: { sourceId: string; initial: EditableSource; onSave: () => void }) {
   const scopeId = useScope();
   const doUpdate = useAtomSet(updateGraphqlSource as any, { mode: "promise" } as any) as any;
   const secretList = useSecretPickerSecrets();
@@ -76,7 +73,7 @@ function EditForm(props: {
     const { headers, queryParams } = serializeHttpCredentials(credentials);
     try {
       await doUpdate({
-        path: { scopeId, namespace: props.sourceId },
+        params: { scopeId, namespace: props.sourceId },
         payload: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
@@ -107,9 +104,7 @@ function EditForm(props: {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">
-          Edit GraphQL Source
-        </h1>
+        <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Update the endpoint and authentication headers for this source.
         </p>
@@ -117,9 +112,7 @@ function EditForm(props: {
 
       <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-card-foreground">
-            {props.sourceId}
-          </p>
+          <p className="truncate text-sm font-semibold text-card-foreground">{props.sourceId}</p>
         </div>
         <Badge variant="secondary" className="text-xs">
           GraphQL
@@ -154,9 +147,7 @@ function EditForm(props: {
 
       <section className="space-y-2.5">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-foreground">
-            Authentication
-          </span>
+          <span className="text-sm font-medium text-foreground">Authentication</span>
           <FilterTabs<AuthMode>
             tabs={[
               { value: "none", label: "None" },
@@ -186,10 +177,7 @@ function EditForm(props: {
         <Button variant="ghost" onClick={props.onSave}>
           Cancel
         </Button>
-        <Button
-          onClick={handleSave}
-          disabled={(!dirty && !identityDirty) || saving}
-        >
+        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
@@ -201,23 +189,16 @@ function EditForm(props: {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function EditGraphqlSource(props: {
-  sourceId: string;
-  onSave: () => void;
-}) {
+export default function EditGraphqlSource(props: { sourceId: string; onSave: () => void }) {
   const scopeId = useScope();
   const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId) as any) as any;
 
-  if (!Result.isSuccess(sourceResult as any) || !sourceResult.value) {
+  if (!AsyncResult.isSuccess(sourceResult as any) || !sourceResult.value) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">
-            Edit GraphQL Source
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Loading configuration…
-          </p>
+          <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Loading configuration…</p>
         </div>
       </div>
     );

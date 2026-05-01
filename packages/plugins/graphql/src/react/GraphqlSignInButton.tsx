@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import { connectionsAtom } from "@executor-js/react/api/atoms";
 import { useScope } from "@executor-js/react/api/scope-context";
@@ -26,7 +27,7 @@ export default function GraphqlSignInButton(props: { sourceId: string }) {
   });
 
   const source =
-    Result.isSuccess(sourceResult as any) && sourceResult.value
+    AsyncResult.isSuccess(sourceResult as any) && sourceResult.value
       ? (sourceResult.value as {
           readonly namespace: string;
           readonly name: string;
@@ -39,7 +40,7 @@ export default function GraphqlSignInButton(props: { sourceId: string }) {
         })
       : null;
   const oauth2 = source?.auth.kind === "oauth2" ? source.auth : null;
-  const connections = Result.isSuccess(connectionsResult) ? connectionsResult.value : null;
+  const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : null;
   const isConnected =
     oauth2 !== null &&
     connections !== null &&
@@ -64,7 +65,7 @@ export default function GraphqlSignInButton(props: { sourceId: string }) {
       },
       onSuccess: async (result: OAuthCompletionPayload) => {
         await doUpdate({
-          path: { scopeId, namespace: props.sourceId },
+          params: { scopeId, namespace: props.sourceId },
           payload: {
             auth: { kind: "oauth2", connectionId: result.connectionId },
           },

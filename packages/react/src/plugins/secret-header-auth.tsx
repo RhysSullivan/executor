@@ -1,5 +1,5 @@
 import { useId, useState, type CSSProperties } from "react";
-import { useAtomSet } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
 
 import { setSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
@@ -97,7 +97,7 @@ export function InlineCreateSecret(props: {
     setError(null);
     try {
       await doSet({
-        path: { scopeId },
+        params: { scopeId },
         payload: {
           id: SecretId.make(secretId.trim()),
           name: secretName.trim() || secretId.trim(),
@@ -147,9 +147,7 @@ export function InlineCreateSecret(props: {
               onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
               placeholder="paste your token or key…"
               className="pr-9 font-mono"
-              style={
-                secretRevealed ? undefined : ({ WebkitTextSecurity: "disc" } as CSSProperties)
-              }
+              style={secretRevealed ? undefined : ({ WebkitTextSecurity: "disc" } as CSSProperties)}
             />
             <Button
               type="button"

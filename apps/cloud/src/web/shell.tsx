@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
@@ -37,11 +38,7 @@ import {
   useCreateOrganizationForm,
 } from "./components/create-organization-form";
 
-const sourcePlugins = [
-  openApiSourcePlugin,
-  mcpSourcePlugin,
-  graphqlSourcePlugin,
-];
+const sourcePlugins = [openApiSourcePlugin, mcpSourcePlugin, graphqlSourcePlugin];
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
@@ -68,7 +65,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
   const sources = useSourcesWithPending(scopeId);
 
-  return Result.match(sources, {
+  return AsyncResult.match(sources, {
     onInitial: () => (
       <div className="flex flex-col gap-1 px-2.5 py-1">
         {[80, 65, 72, 58, 68].map((w, i) => (
@@ -133,7 +130,12 @@ function initialsFor(name: string | null, email: string) {
   return email[0]!.toUpperCase();
 }
 
-function Avatar(props: { url: string | null; name: string | null; email: string; size?: "sm" | "md" }) {
+function Avatar(props: {
+  url: string | null;
+  name: string | null;
+  email: string;
+  size?: "sm" | "md";
+}) {
   const size = props.size === "md" ? "size-8" : "size-7";
   const text = props.size === "md" ? "text-sm" : "text-xs";
   if (props.url) {
@@ -158,7 +160,7 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
     if (exit._tag === "Success") window.location.reload();
   };
 
-  return Result.match(organizations, {
+  return AsyncResult.match(organizations, {
     onInitial: () => <DropdownMenuItem disabled>Loading…</DropdownMenuItem>,
     onFailure: () => <DropdownMenuItem disabled>Failed to load organizations</DropdownMenuItem>,
     onSuccess: ({ value }) =>
@@ -204,9 +206,7 @@ function UserFooter() {
   const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false);
 
   const suggestedOrganizationName =
-    auth.status === "authenticated" &&
-    auth.user.name?.trim() !== "" &&
-    auth.user.name != null
+    auth.status === "authenticated" && auth.user.name?.trim() !== "" && auth.user.name != null
       ? `${auth.user.name}'s Organization`
       : "New Organization";
 
@@ -238,11 +238,7 @@ function UserFooter() {
               variant="ghost"
               className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-1 py-1 text-left hover:bg-sidebar-active/60"
             >
-              <Avatar
-                url={auth.user.avatarUrl}
-                name={auth.user.name}
-                email={auth.user.email}
-              />
+              <Avatar url={auth.user.avatarUrl} name={auth.user.name} email={auth.user.email} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium text-foreground">
                   {auth.user.name ?? auth.user.email}
@@ -377,9 +373,19 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
-        <NavItem to="/connections" label="Connections" active={isConnections} onNavigate={props.onNavigate} />
+        <NavItem
+          to="/connections"
+          label="Connections"
+          active={isConnections}
+          onNavigate={props.onNavigate}
+        />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
-        <NavItem to="/policies" label="Policies" active={isPolicies} onNavigate={props.onNavigate} />
+        <NavItem
+          to="/policies"
+          label="Policies"
+          active={isPolicies}
+          onNavigate={props.onNavigate}
+        />
         <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 

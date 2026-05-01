@@ -1,4 +1,4 @@
-import { AtomHttpApi } from "@effect-atom/atom-react";
+import * as AtomHttpApi from "effect/unstable/reactivity/AtomHttpApi";
 import { FetchHttpClient } from "effect/unstable/http";
 import { addGroup } from "@executor-js/api";
 import { getBaseUrl } from "@executor-js/react/api/base-url";
@@ -9,9 +9,8 @@ import { GraphqlGroup } from "../api/group";
 // ---------------------------------------------------------------------------
 
 const GraphqlApi = addGroup(GraphqlGroup);
-const AtomHttpApiCompat = AtomHttpApi as any;
 
-export const GraphqlClient = AtomHttpApiCompat.Tag()("GraphqlClient", {
+export const GraphqlClient = AtomHttpApi.Service<"GraphqlClient">()("GraphqlClient", {
   api: GraphqlApi,
   httpClient: FetchHttpClient.layer,
   baseUrl: getBaseUrl(),

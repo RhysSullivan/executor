@@ -1,5 +1,6 @@
 import { useState, Suspense } from "react";
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
@@ -89,7 +90,7 @@ function AddSecretDialog(props: {
     setError(null);
     try {
       await doSet({
-        path: { scopeId },
+        params: { scopeId },
         payload: {
           id: SecretId.make(id.trim()),
           name: name.trim(),
@@ -296,7 +297,7 @@ export function SecretsPage(props: {
   const handleRemove = async (secretId: string) => {
     try {
       await doRemove({
-        path: {
+        params: {
           scopeId,
           secretId: SecretId.make(secretId),
         },
@@ -349,7 +350,7 @@ export function SecretsPage(props: {
         )}
 
         {/* Secrets list */}
-        {Result.match(secrets, {
+        {AsyncResult.match(secrets, {
           onInitial: () => (
             <div className="flex items-center gap-2 py-8">
               <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
@@ -384,18 +385,24 @@ export function SecretsPage(props: {
                     </CardStackEntryActions>
                   </CardStackEntry>
                 ) : (
-                  value.map((s: { readonly id: string; readonly name: string; readonly provider: string }) => (
-                    <SecretRow
-                      key={s.id}
-                      showProvider={showProviderInfo}
-                      secret={{
-                        id: s.id,
-                        name: s.name,
-                        provider: s.provider ? String(s.provider) : undefined,
-                      }}
-                      onRemove={() => handleRemove(s.id)}
-                    />
-                  ))
+                  value.map(
+                    (s: {
+                      readonly id: string;
+                      readonly name: string;
+                      readonly provider: string;
+                    }) => (
+                      <SecretRow
+                        key={s.id}
+                        showProvider={showProviderInfo}
+                        secret={{
+                          id: s.id,
+                          name: s.name,
+                          provider: s.provider ? String(s.provider) : undefined,
+                        }}
+                        onRemove={() => handleRemove(s.id)}
+                      />
+                    ),
+                  )
                 )}
               </CardStackContent>
             </CardStack>

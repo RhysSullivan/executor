@@ -1,9 +1,13 @@
 import { useState } from "react";
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
-import { SourceIdentityFields, useSourceIdentity } from "@executor-js/react/plugins/source-identity";
+import {
+  SourceIdentityFields,
+  useSourceIdentity,
+} from "@executor-js/react/plugins/source-identity";
 import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
 import {
   HttpCredentialsEditor,
@@ -64,7 +68,7 @@ function RemoteEditForm(props: {
     const { headers, queryParams } = serializeHttpCredentials(credentials);
     try {
       await doUpdate({
-        path: { scopeId, namespace: props.sourceId },
+        params: { scopeId, namespace: props.sourceId },
         payload: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
@@ -195,12 +199,12 @@ export default function EditMcpSource({
   readonly onSave: () => void;
 }) {
   const scopeId = useScope();
-  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, sourceId)) as Result.Result<
+  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, sourceId)) as AsyncResult.AsyncResult<
     McpStoredSourceSchemaType | null,
     unknown
   >;
 
-  if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
+  if (!AsyncResult.isSuccess(sourceResult) || !sourceResult.value) {
     return (
       <div className="space-y-6">
         <div>

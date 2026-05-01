@@ -8,7 +8,7 @@ import { OpenApiClient } from "./client";
 
 export const openApiSourceAtom = (scopeId: ScopeId, namespace: string) =>
   OpenApiClient.query("openapi", "getSource", {
-    path: { scopeId, namespace },
+    params: { scopeId, namespace },
     timeToLive: "15 seconds",
     reactivityKeys: [ReactivityKey.sources, ReactivityKey.tools],
   });
@@ -19,7 +19,7 @@ export const openApiSourceBindingsAtom = (
   sourceScopeId: ScopeId,
 ) =>
   OpenApiClient.query("openapi", "listSourceBindings", {
-    path: { scopeId, namespace, sourceScopeId },
+    params: { scopeId, namespace, sourceScopeId },
     timeToLive: "15 seconds",
     reactivityKeys: [ReactivityKey.sources, ReactivityKey.secrets, ReactivityKey.connections],
   });

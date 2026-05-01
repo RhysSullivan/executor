@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { PlusIcon } from "lucide-react";
 import { SourceFavicon } from "./source-favicon";
 import { sourcesAtom } from "../api/atoms";
@@ -47,7 +48,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
 
   const connectedSources = useMemo(
     () =>
-      Result.match(sourcesResult, {
+      AsyncResult.match(sourcesResult, {
         onInitial: () =>
           [] as Array<{
             id: string;
@@ -64,8 +65,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
             url?: string;
             runtime?: boolean;
           }>,
-        onSuccess: ({ value }) =>
-          value.filter((s: { readonly runtime?: boolean }) => !s.runtime),
+        onSuccess: ({ value }) => value.filter((s: { readonly runtime?: boolean }) => !s.runtime),
       }),
     [sourcesResult],
   );
@@ -139,17 +139,24 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
 
         {connectedSources.length > 0 && (
           <CommandGroup heading="Connected">
-            {connectedSources.map((s: { readonly id: string; readonly name: string; readonly kind: string; readonly url?: string }) => (
-              <CommandItem
-                key={`source-${s.id}`}
-                value={`connected ${s.name} ${s.id} ${s.kind}`}
-                onSelect={() => goToSource(s.id)}
-              >
-                <SourceFavicon url={s.url} />
-                <span className="flex-1 truncate">{s.name}</span>
-                <CommandShortcut>{s.kind}</CommandShortcut>
-              </CommandItem>
-            ))}
+            {connectedSources.map(
+              (s: {
+                readonly id: string;
+                readonly name: string;
+                readonly kind: string;
+                readonly url?: string;
+              }) => (
+                <CommandItem
+                  key={`source-${s.id}`}
+                  value={`connected ${s.name} ${s.id} ${s.kind}`}
+                  onSelect={() => goToSource(s.id)}
+                >
+                  <SourceFavicon url={s.url} />
+                  <span className="flex-1 truncate">{s.name}</span>
+                  <CommandShortcut>{s.kind}</CommandShortcut>
+                </CommandItem>
+              ),
+            )}
           </CommandGroup>
         )}
 

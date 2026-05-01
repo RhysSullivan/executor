@@ -1,5 +1,5 @@
 import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useAtomSet } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
@@ -340,7 +340,7 @@ export default function AddMcpSource(props: {
     try {
       const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
       const result = await doProbe({
-        path: { scopeId },
+        params: { scopeId },
         payload: {
           endpoint: state.url.trim(),
           ...(Object.keys(headers).length > 0 ? { headers } : {}),
@@ -479,7 +479,7 @@ export default function AddMcpSource(props: {
     });
     try {
       await doAdd({
-        path: { scopeId },
+        params: { scopeId },
         payload: {
           transport: "remote" as const,
           name: displayName,
@@ -559,7 +559,7 @@ export default function AddMcpSource(props: {
     });
     try {
       await doAdd({
-        path: { scopeId },
+        params: { scopeId },
         payload: {
           transport: "stdio" as const,
           name: displayName,

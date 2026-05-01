@@ -1,4 +1,4 @@
-import { RegistryProvider } from "@effect-atom/atom-react";
+import { RegistryProvider } from "@effect/atom-react";
 import * as React from "react";
 import { ScopeProvider } from "./scope-context";
 

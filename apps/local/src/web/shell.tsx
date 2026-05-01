@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomRefresh } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { sourcesAtom, toolsAtom } from "@executor-js/react/api/atoms";
 import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
 import { useScope, useScopeInfo } from "@executor-js/react/api/scope-context";
@@ -227,10 +228,8 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
   const sources = useSourcesWithPending(scopeId);
 
-  return Result.match(sources, {
-    onInitial: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>
-    ),
+  return AsyncResult.match(sources, {
+    onInitial: () => <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>,
     onFailure: () => (
       <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
     ),
@@ -320,7 +319,12 @@ function SidebarContent(props: {
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <ScopeLabel />
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
-        <NavItem to="/connections" label="Connections" active={isConnections} onNavigate={props.onNavigate} />
+        <NavItem
+          to="/connections"
+          label="Connections"
+          active={isConnections}
+          onNavigate={props.onNavigate}
+        />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
 
         {/* Sources list */}

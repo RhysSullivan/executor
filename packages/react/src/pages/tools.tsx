@@ -1,4 +1,5 @@
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { toolsAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
 import { Badge } from "../components/badge";
@@ -22,7 +23,7 @@ export function ToolsPage() {
           </div>
         </div>
 
-        {Result.match(tools, {
+        {AsyncResult.match(tools, {
           onInitial: () => <p className="text-sm text-muted-foreground">Loading tools…</p>,
           onFailure: () => <p className="text-sm text-destructive">Failed to load tools</p>,
           onSuccess: ({ value }) =>
@@ -38,33 +39,38 @@ export function ToolsPage() {
                     />
                   </svg>
                 </div>
-                <p className="text-sm font-medium text-foreground/70 mb-1">
-                  No tools registered
-                </p>
+                <p className="text-sm font-medium text-foreground/70 mb-1">No tools registered</p>
                 <p className="text-sm text-muted-foreground">
                   Add a source to start discovering tools.
                 </p>
               </div>
             ) : (
               <div className="grid gap-2">
-                {value.map((t: { readonly id: string; readonly name: string; readonly description?: string; readonly sourceId: string }) => (
-                  <div
-                    key={t.id}
-                    className="flex items-start justify-between gap-3 rounded-xl border border-border bg-card px-5 py-3.5 transition-colors hover:border-primary/25 hover:bg-card/90"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-foreground truncate font-mono">
-                        {t.name}
-                      </p>
-                      {t.description && (
-                        <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
-                          {t.description}
+                {value.map(
+                  (t: {
+                    readonly id: string;
+                    readonly name: string;
+                    readonly description?: string;
+                    readonly sourceId: string;
+                  }) => (
+                    <div
+                      key={t.id}
+                      className="flex items-start justify-between gap-3 rounded-xl border border-border bg-card px-5 py-3.5 transition-colors hover:border-primary/25 hover:bg-card/90"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground truncate font-mono">
+                          {t.name}
                         </p>
-                      )}
+                        {t.description && (
+                          <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+                            {t.description}
+                          </p>
+                        )}
+                      </div>
+                      <Badge variant="secondary">{t.sourceId}</Badge>
                     </div>
-                    <Badge variant="secondary">{t.sourceId}</Badge>
-                  </div>
-                ))}
+                  ),
+                )}
               </div>
             ),
         })}

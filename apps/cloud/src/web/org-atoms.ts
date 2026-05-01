@@ -1,4 +1,4 @@
-import { Atom } from "@effect-atom/atom";
+import * as Atom from "effect/unstable/reactivity/Atom";
 import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { CloudApiClient } from "./client";
 
@@ -27,7 +27,10 @@ export const orgDomainsAtom = Atom.refreshOnWindowFocus(
   }),
 );
 
-export const getDomainVerificationLink = CloudApiClient.mutation("org", "getDomainVerificationLink");
+export const getDomainVerificationLink = CloudApiClient.mutation(
+  "org",
+  "getDomainVerificationLink",
+);
 
 export const deleteDomain = CloudApiClient.mutation("org", "deleteDomain");
 

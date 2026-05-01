@@ -55,7 +55,7 @@
     "yaml": "^2.7.1"
   },
   "devDependencies": {
-    "@effect-atom/atom-react": "^0.5.0",
+    "@effect/atom-react": "catalog:",
     "@effect/vitest": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/react": "workspace:*",
@@ -68,7 +68,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@effect-atom/atom-react": "^0.5.0",
+    "@effect/atom-react": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/react": "workspace:*",
     "@tanstack/react-router": "catalog:",
@@ -78,7 +78,7 @@
     "react": {
       "optional": true
     },
-    "@effect-atom/atom-react": {
+    "@effect/atom-react": {
       "optional": true
     },
     "@tanstack/react-router": {

@@ -8,7 +8,7 @@ import { McpClient } from "./client";
 
 export const mcpSourceAtom = (scopeId: ScopeId, namespace: string) =>
   McpClient.query("mcp", "getSource", {
-    path: { scopeId, namespace },
+    params: { scopeId, namespace },
     timeToLive: "15 seconds",
     reactivityKeys: [ReactivityKey.sources, ReactivityKey.tools],
   });

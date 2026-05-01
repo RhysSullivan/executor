@@ -1,12 +1,10 @@
-import { useAtomSet, Result } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { ConnectionId } from "@executor-js/sdk";
 import { toast } from "sonner";
 
 import { removeConnection } from "../api/atoms";
-import {
-  useConnectionsWithPendingRemovals,
-  usePendingConnectionRemovals,
-} from "../api/optimistic";
+import { useConnectionsWithPendingRemovals, usePendingConnectionRemovals } from "../api/optimistic";
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { useScope, useScopeStack } from "../hooks/use-scope";
 import { Badge } from "../components/badge";
@@ -40,8 +38,7 @@ const providerDisplayNames: Record<string, string> = {
   "google-discovery:oauth2": "Google",
 };
 
-const displayProvider = (provider: string): string =>
-  providerDisplayNames[provider] ?? provider;
+const displayProvider = (provider: string): string => providerDisplayNames[provider] ?? provider;
 
 const connectionScopeLabel = (
   scopeId: string,
@@ -129,7 +126,7 @@ export function ConnectionsPage() {
     const pending = beginRemove(connectionId);
     try {
       await doRemove({
-        path: { scopeId, connectionId: ConnectionId.make(connectionId) },
+        params: { scopeId, connectionId: ConnectionId.make(connectionId) },
         reactivityKeys: connectionWriteKeys,
       });
     } catch (e) {
@@ -147,26 +144,22 @@ export function ConnectionsPage() {
               Connections
             </h1>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              Signed-in accounts your sources use to call their APIs.
-              Remove a connection to revoke access and drop its tokens.
+              Signed-in accounts your sources use to call their APIs. Remove a connection to revoke
+              access and drop its tokens.
             </p>
           </div>
         </div>
 
-        {Result.match(connections, {
+        {AsyncResult.match(connections, {
           onInitial: () => (
             <div className="flex items-center gap-2 py-8">
               <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <p className="text-sm text-muted-foreground">
-                Loading connections…
-              </p>
+              <p className="text-sm text-muted-foreground">Loading connections…</p>
             </div>
           ),
           onFailure: () => (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">
-                Failed to load connections
-              </p>
+              <p className="text-sm text-destructive">Failed to load connections</p>
             </div>
           ),
           onSuccess: ({ value }) => (
@@ -177,30 +170,32 @@ export function ConnectionsPage() {
                   <CardStackEntry>
                     <CardStackEntryContent>
                       <CardStackEntryDescription>
-                        No signed-in accounts yet. Add an OAuth source and
-                        its sign-in will appear here.
+                        No signed-in accounts yet. Add an OAuth source and its sign-in will appear
+                        here.
                       </CardStackEntryDescription>
                     </CardStackEntryContent>
                   </CardStackEntry>
                 ) : (
-                  value.map((c: {
-                    readonly id: string;
-                    readonly scopeId: string;
-                    readonly provider: string;
-                    readonly identityLabel: string | null;
-                  }) => (
-                    <ConnectionRow
-                      key={c.id}
-                      connection={{
-                        id: c.id,
-                        scopeId: c.scopeId,
-                        provider: c.provider,
-                        identityLabel: c.identityLabel,
-                      }}
-                      scopeStack={scopeStack}
-                      onRemove={() => handleRemove(c.id)}
-                    />
-                  ))
+                  value.map(
+                    (c: {
+                      readonly id: string;
+                      readonly scopeId: string;
+                      readonly provider: string;
+                      readonly identityLabel: string | null;
+                    }) => (
+                      <ConnectionRow
+                        key={c.id}
+                        connection={{
+                          id: c.id,
+                          scopeId: c.scopeId,
+                          provider: c.provider,
+                          identityLabel: c.identityLabel,
+                        }}
+                        scopeStack={scopeStack}
+                        onRemove={() => handleRemove(c.id)}
+                      />
+                    ),
+                  )
                 )}
               </CardStackContent>
             </CardStack>
