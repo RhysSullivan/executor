@@ -1,4 +1,4 @@
-import type { ScopeId } from "../../../../core/sdk/src/ids";
+import type { ScopeId } from "@executor-js/sdk";
 import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { GoogleDiscoveryClient } from "./client";
 

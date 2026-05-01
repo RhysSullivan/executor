@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { SecretBackedValue } from "../../../../core/sdk/src/secret-backed-value";
+import { SecretBackedValue } from "@executor-js/sdk";
 
 export const GoogleDiscoveryHttpMethod = Schema.Literals([
   "get",
@@ -93,12 +93,8 @@ export const GoogleDiscoveryCredentialValue = SecretBackedValue;
 export type GoogleDiscoveryCredentialValue = typeof GoogleDiscoveryCredentialValue.Type;
 
 export const GoogleDiscoveryFetchCredentials = Schema.Struct({
-  headers: Schema.optional(
-    Schema.Record(Schema.String, GoogleDiscoveryCredentialValue),
-  ),
-  queryParams: Schema.optional(
-    Schema.Record(Schema.String, GoogleDiscoveryCredentialValue),
-  ),
+  headers: Schema.optional(Schema.Record(Schema.String, GoogleDiscoveryCredentialValue)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, GoogleDiscoveryCredentialValue)),
 });
 export type GoogleDiscoveryFetchCredentials = typeof GoogleDiscoveryFetchCredentials.Type;
 

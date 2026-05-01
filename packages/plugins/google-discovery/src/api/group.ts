@@ -2,8 +2,8 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/ht
 import { Schema } from "effect";
 import { InternalError } from "@executor-js/api";
 
-import { ScopeId } from "../../../../core/sdk/src/ids";
-import { SecretBackedValue } from "../../../../core/sdk/src/secret-backed-value";
+import { ScopeId } from "@executor-js/sdk";
+import { SecretBackedValue } from "@executor-js/sdk";
 import { GoogleDiscoveryParseError, GoogleDiscoverySourceError } from "../sdk/errors";
 import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
 
@@ -120,26 +120,18 @@ export const GoogleDiscoveryGroup = HttpApiGroup.make("googleDiscovery")
     }),
   )
   .add(
-    HttpApiEndpoint.patch(
-      "updateSource",
-      "/scopes/:scopeId/google-discovery/sources/:namespace",
-      {
-        params: { scopeId: ScopeId, namespace: Schema.String },
-        payload: UpdateSourcePayload,
-        success: UpdateSourceResponse,
-        error: GoogleDiscoveryErrors,
-      },
-    ),
+    HttpApiEndpoint.patch("updateSource", "/scopes/:scopeId/google-discovery/sources/:namespace", {
+      params: { scopeId: ScopeId, namespace: Schema.String },
+      payload: UpdateSourcePayload,
+      success: UpdateSourceResponse,
+      error: GoogleDiscoveryErrors,
+    }),
   )
   .add(
-    HttpApiEndpoint.get(
-      "getSource",
-      "/scopes/:scopeId/google-discovery/sources/:namespace",
-      {
-        params: { scopeId: ScopeId, namespace: Schema.String },
-        success: Schema.NullOr(GoogleDiscoveryStoredSourceSchema),
-        error: GoogleDiscoveryErrors,
-      },
-    ),
-  )
-  // Errors are declared per endpoint in Effect v4.
+    HttpApiEndpoint.get("getSource", "/scopes/:scopeId/google-discovery/sources/:namespace", {
+      params: { scopeId: ScopeId, namespace: Schema.String },
+      success: Schema.NullOr(GoogleDiscoveryStoredSourceSchema),
+      error: GoogleDiscoveryErrors,
+    }),
+  );
+// Errors are declared per endpoint in Effect v4.

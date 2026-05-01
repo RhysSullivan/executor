@@ -15,16 +15,10 @@
 
 import { Effect, Schema } from "effect";
 
-import {
-  defineSchema,
-  type StorageDeps,
-} from "../../../../core/sdk/src/plugin";
-import type { StorageFailure } from "../../../../core/storage-core/src/adapter";
+import { defineSchema, type StorageDeps } from "@executor-js/sdk";
+import type { StorageFailure } from "@executor-js/sdk";
 
-import {
-  GoogleDiscoveryMethodBinding,
-  GoogleDiscoveryStoredSourceData,
-} from "./types";
+import { GoogleDiscoveryMethodBinding, GoogleDiscoveryStoredSourceData } from "./types";
 
 // ---------------------------------------------------------------------------
 // OAuth session TTL
@@ -84,8 +78,7 @@ const decodeStoredSourceData = Schema.decodeUnknownSync(GoogleDiscoveryStoredSou
 const encodeBinding = Schema.encodeSync(GoogleDiscoveryMethodBinding);
 const decodeBinding = Schema.decodeUnknownSync(GoogleDiscoveryMethodBinding);
 
-const toJsonRecord = (value: unknown): Record<string, unknown> =>
-  value as Record<string, unknown>;
+const toJsonRecord = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
 
 const decodeJson = (value: unknown): unknown => {
   if (value === null || value === undefined) return value;
@@ -138,14 +131,9 @@ export interface GoogleDiscoveryStore {
   readonly getBindingsForSource: (
     sourceId: string,
     scope: string,
-  ) => Effect.Effect<
-    ReadonlyMap<string, GoogleDiscoveryMethodBinding>,
-    StorageFailure
-  >;
+  ) => Effect.Effect<ReadonlyMap<string, GoogleDiscoveryMethodBinding>, StorageFailure>;
 
-  readonly putSource: (
-    source: GoogleDiscoveryStoredSource,
-  ) => Effect.Effect<void, StorageFailure>;
+  readonly putSource: (source: GoogleDiscoveryStoredSource) => Effect.Effect<void, StorageFailure>;
   readonly updateSourceMeta: (
     sourceId: string,
     scope: string,
@@ -154,10 +142,7 @@ export interface GoogleDiscoveryStore {
       readonly auth?: import("./types").GoogleDiscoveryAuth;
     },
   ) => Effect.Effect<void, StorageFailure>;
-  readonly removeSource: (
-    sourceId: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (sourceId: string, scope: string) => Effect.Effect<void, StorageFailure>;
   readonly getSource: (
     sourceId: string,
     scope: string,
@@ -349,6 +334,5 @@ export const makeGoogleDiscoveryStore = (
         if (!row) return null;
         return decodeStoredSourceData(decodeJson(row.config));
       }),
-
   };
 };

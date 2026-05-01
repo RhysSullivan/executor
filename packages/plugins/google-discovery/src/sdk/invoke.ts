@@ -1,13 +1,10 @@
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import type { StorageFailure } from "../../../../core/storage-core/src/adapter";
-import type { PluginCtx } from "../../../../core/sdk/src/plugin";
+import type { StorageFailure } from "@executor-js/sdk";
+import type { PluginCtx } from "@executor-js/sdk";
 
-import {
-  GoogleDiscoveryInvocationError,
-  GoogleDiscoveryOAuthError,
-} from "./errors";
+import { GoogleDiscoveryInvocationError, GoogleDiscoveryOAuthError } from "./errors";
 import type { GoogleDiscoveryStore } from "./binding-store";
 import {
   GoogleDiscoveryInvocationResult,
@@ -190,9 +187,7 @@ export const invokeGoogleDiscoveryTool = (input: {
   httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
 }): Effect.Effect<
   GoogleDiscoveryInvocationResult,
-  | GoogleDiscoveryInvocationError
-  | GoogleDiscoveryOAuthError
-  | StorageFailure
+  GoogleDiscoveryInvocationError | GoogleDiscoveryOAuthError | StorageFailure
 > =>
   Effect.gen(function* () {
     const entry = yield* input.ctx.storage.getBinding(input.toolId, input.toolScope);
@@ -217,19 +212,14 @@ export const invokeGoogleDiscoveryTool = (input: {
 
     const authHeader =
       source.auth.kind === "oauth2"
-        ? `Bearer ${yield* input.ctx.connections
-            .accessToken(source.auth.connectionId)
-            .pipe(
-              Effect.mapError(
-                (err) =>
-                  new GoogleDiscoveryOAuthError({
-                    message:
-                      "message" in err
-                        ? (err as { message: string }).message
-                        : String(err),
-                  }),
-              ),
-            )}`
+        ? `Bearer ${yield* input.ctx.connections.accessToken(source.auth.connectionId).pipe(
+            Effect.mapError(
+              (err) =>
+                new GoogleDiscoveryOAuthError({
+                  message: "message" in err ? (err as { message: string }).message : String(err),
+                }),
+            ),
+          )}`
         : undefined;
 
     const layer = input.httpClientLayer ?? FetchHttpClient.layer;

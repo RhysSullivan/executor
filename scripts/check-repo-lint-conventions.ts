@@ -10,22 +10,31 @@
 // 3. Double casts through `unknown` or `any` are banned. A narrow migration
 //    escape hatch is supported with an inline or preceding-line comment:
 //    `// lint-allow-double-cast: <required reason>`.
+// 4. Workspace packages must not import other workspace packages through
+//    relative paths. Use the package name/export surface instead.
 //
 // Run: `bun run scripts/check-repo-lint-conventions.ts`
 // Exits 1 with a punch list when violations exist.
 
 import { Glob } from "bun";
+import path from "node:path";
 import ts from "typescript";
 
 const ROOTS = ["packages", "apps", "tests"];
 const TEST_REGISTRARS = new Set(["describe", "it", "test"]);
 const ALLOW_DOUBLE_CAST = "lint-allow-double-cast:";
+const REPO_ROOT = path.resolve(import.meta.dir, "..");
+const packageRoots = await collectPackageRoots();
 
 interface Violation {
   readonly file: string;
   readonly line: number;
   readonly column: number;
-  readonly kind: "vitest-import" | "conditional-test" | "double-cast";
+  readonly kind:
+    | "vitest-import"
+    | "conditional-test"
+    | "double-cast"
+    | "cross-package-relative-import";
   readonly message: string;
 }
 
@@ -55,7 +64,19 @@ for (const root of ROOTS) {
     for (const statement of sourceFile.statements) {
       if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
         continue;
-      if (statement.moduleSpecifier.text !== "vitest") continue;
+      const specifier = statement.moduleSpecifier.text;
+      const crossPackageImport = getCrossPackageRelativeImport(path, specifier);
+      if (crossPackageImport) {
+        addViolation(
+          sourceFile,
+          path,
+          statement.moduleSpecifier,
+          "cross-package-relative-import",
+          `import ${crossPackageImport.targetPackage} via its package export instead of a relative path`,
+        );
+      }
+
+      if (specifier !== "vitest") continue;
       if (isConfigOrTooling) continue;
 
       addViolation(
@@ -108,9 +129,48 @@ console.error(
   `\nGuidance:\n` +
     `  - Import describe/it/test/expect/vi/lifecycle helpers from @effect/vitest, and assertion utilities from @effect/vitest/utils.\n` +
     `  - Keep test registration static; use explicit skip helpers instead of conditionals around describe/it/test.\n` +
-    `  - For unavoidable migration double casts, add // ${ALLOW_DOUBLE_CAST} <reason> on the same or preceding line.`,
+    `  - For unavoidable migration double casts, add // ${ALLOW_DOUBLE_CAST} <reason> on the same or preceding line.\n` +
+    `  - Import across workspace package boundaries by package name, never by ../../../ relative paths.`,
 );
 process.exit(1);
+
+async function collectPackageRoots(): Promise<ReadonlyArray<{ root: string; name: string }>> {
+  const roots: Array<{ root: string; name: string }> = [];
+  for (const root of ["packages", "apps", "examples"]) {
+    const glob = new Glob(`${root}/**/package.json`);
+    for await (const packageJsonPath of glob.scan({ cwd: REPO_ROOT })) {
+      const absolutePackageJsonPath = path.join(REPO_ROOT, packageJsonPath);
+      const json = await Bun.file(absolutePackageJsonPath).json();
+      if (typeof json.name !== "string") continue;
+      roots.push({ root: path.dirname(absolutePackageJsonPath), name: json.name });
+    }
+  }
+  return roots.sort((a, b) => b.root.length - a.root.length);
+}
+
+function getCrossPackageRelativeImport(
+  file: string,
+  specifier: string,
+): { readonly targetPackage: string } | undefined {
+  if (!specifier.startsWith(".")) return undefined;
+  const sourcePackage = findPackageRoot(path.join(REPO_ROOT, file));
+  if (!sourcePackage) return undefined;
+
+  const resolved = path.resolve(REPO_ROOT, path.dirname(file), specifier);
+  const targetPackage = findPackageRoot(resolved);
+  if (!targetPackage || targetPackage.root === sourcePackage.root) return undefined;
+
+  return { targetPackage: targetPackage.name };
+}
+
+function findPackageRoot(
+  absolutePath: string,
+): { readonly root: string; readonly name: string } | undefined {
+  const normalized = path.normalize(absolutePath);
+  return packageRoots.find(
+    (pkg) => normalized === pkg.root || normalized.startsWith(`${pkg.root}${path.sep}`),
+  );
+}
 
 function getConditionalTestRegistration(node: ts.Node): ts.Node | undefined {
   if (ts.isConditionalExpression(node)) {

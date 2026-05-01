@@ -1,4 +1,4 @@
-import type { OAuthStrategy } from "../../../../core/sdk/src/oauth";
+import type { OAuthStrategy } from "@executor-js/sdk";
 
 export const GOOGLE_DISCOVERY_OAUTH_POPUP_NAME = "google-discovery-oauth";
 

@@ -1,10 +1,10 @@
 import { Effect, Option } from "effect";
 
-import { SourceDetectionResult } from "../../../../core/sdk/src/types";
-import { definePlugin, type PluginCtx } from "../../../../core/sdk/src/plugin";
-import type { ToolAnnotations } from "../../../../core/sdk/src/core-schema";
-import type { StorageFailure } from "../../../../core/storage-core/src/adapter";
-import { resolveSecretBackedMap } from "../../../../core/sdk/src/secret-backed-value";
+import { SourceDetectionResult } from "@executor-js/sdk";
+import { definePlugin, type PluginCtx } from "@executor-js/sdk";
+import type { ToolAnnotations } from "@executor-js/sdk";
+import type { StorageFailure } from "@executor-js/sdk";
+import { resolveSecretBackedMap } from "@executor-js/sdk";
 
 import {
   googleDiscoverySchema,
@@ -321,10 +321,9 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
             description: Option.isSome(method.description) ? method.description.value : null,
           }));
           return {
-            name:
-              Option.isSome(manifest.title)
-                ? manifest.title.value
-                : `${manifest.service} ${manifest.version}`,
+            name: Option.isSome(manifest.title)
+              ? manifest.title.value
+              : `${manifest.service} ${manifest.version}`,
             title: Option.isSome(manifest.title) ? manifest.title.value : null,
             service: manifest.service,
             version: manifest.version,
