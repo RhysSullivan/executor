@@ -26,7 +26,7 @@ import type { AddressInfo } from "node:net";
 
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
-import { NodeHttpServer } from "@effect/platform-node";
+import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { Context, Effect, Layer, Schema } from "effect";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";

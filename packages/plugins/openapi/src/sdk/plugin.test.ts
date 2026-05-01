@@ -2,7 +2,7 @@ import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { HttpClient, HttpRouter, HttpServerRequest } from "effect/unstable/http";
-import { NodeHttpServer } from "@effect/platform-node";
+import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 
 import {
   createExecutor,

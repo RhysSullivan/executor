@@ -26,7 +26,7 @@ import {
   makeSqliteAdapter,
   makeSqliteBlobStore,
 } from "@executor-js/storage-file";
-import { NodeFileSystem } from "@effect/platform-node";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { makeFileConfigSink, type ConfigFileSink } from "@executor-js/config";
 import * as executorSchema from "./executor-schema";
 
