@@ -11,7 +11,14 @@ export const ToolsHandlers = HttpApiBuilder.group(ExecutorApi, "tools", (handler
     .handle("list", () =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        const tools = yield* executor.tools.list();
+        // Tools page is a management view — include policy-blocked tools
+        // (so users can unblock them) and load annotations so the row can
+        // show the plugin's default approval state when no user rule
+        // matches. Mirrors the per-source `sources.tools` handler.
+        const tools = yield* executor.tools.list({
+          includeAnnotations: true,
+          includeBlocked: true,
+        });
         return tools.map((t) => ({
           id: ToolId.make(t.id),
           pluginId: t.pluginId,
@@ -19,6 +26,7 @@ export const ToolsHandlers = HttpApiBuilder.group(ExecutorApi, "tools", (handler
           name: t.name,
           description: t.description,
           mayElicit: t.annotations?.mayElicit,
+          requiresApproval: t.annotations?.requiresApproval,
         }));
       })),
     )

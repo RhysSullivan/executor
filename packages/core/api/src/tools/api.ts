@@ -24,6 +24,7 @@ const ToolMetadataResponse = Schema.Struct({
   name: Schema.String,
   description: Schema.optional(Schema.String),
   mayElicit: Schema.optional(Schema.Boolean),
+  requiresApproval: Schema.optional(Schema.Boolean),
 });
 
 const ToolSchemaResponse = Schema.Struct({
