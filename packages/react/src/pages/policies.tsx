@@ -15,6 +15,11 @@ import { policyWriteKeys } from "../api/reactivity-keys";
 import { useScope } from "../hooks/use-scope";
 import { badgeVariants } from "../components/badge";
 import { cn } from "../lib/utils";
+import {
+  POLICY_ACTION_LABEL,
+  POLICY_ACTIONS_IN_ORDER,
+  POLICY_BADGE_VARIANT,
+} from "../lib/policy-display";
 import { Button } from "../components/button";
 import {
   CardStack,
@@ -56,25 +61,6 @@ const comparePolicy = (posA: string, idA: string, posB: string, idB: string): nu
   if (idA < idB) return -1;
   if (idA > idB) return 1;
   return 0;
-};
-
-// ---------------------------------------------------------------------------
-// Action display
-// ---------------------------------------------------------------------------
-
-const actionLabels: Record<ToolPolicyAction, string> = {
-  approve: "Auto-approve",
-  require_approval: "Require approval",
-  block: "Block",
-};
-
-const actionVariants: Record<
-  ToolPolicyAction,
-  "default" | "secondary" | "outline" | "destructive"
-> = {
-  approve: "secondary",
-  require_approval: "outline",
-  block: "destructive",
 };
 
 // ---------------------------------------------------------------------------
@@ -160,9 +146,11 @@ function AddPolicyForm(props: {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="approve">{actionLabels.approve}</SelectItem>
-            <SelectItem value="require_approval">{actionLabels.require_approval}</SelectItem>
-            <SelectItem value="block">{actionLabels.block}</SelectItem>
+            {POLICY_ACTIONS_IN_ORDER.map((a) => (
+              <SelectItem key={a} value={a}>
+                {POLICY_ACTION_LABEL[a]}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -207,18 +195,20 @@ function PolicyRow(props: {
           <SelectPrimitiveTrigger
             className={cn(
               badgeVariants({
-                variant: actionVariants[props.policy.action],
+                variant: POLICY_BADGE_VARIANT[props.policy.action],
               }),
               "cursor-pointer pr-1.5 gap-1 transition-[opacity,box-shadow] hover:opacity-80 focus-visible:outline-none data-[state=open]:ring-2 data-[state=open]:ring-ring/50",
             )}
           >
-            {actionLabels[props.policy.action]}
+            {POLICY_ACTION_LABEL[props.policy.action]}
             <ChevronDownIcon className="size-3 opacity-70" />
           </SelectPrimitiveTrigger>
           <SelectContent position="popper" align="end">
-            <SelectItem value="approve">{actionLabels.approve}</SelectItem>
-            <SelectItem value="require_approval">{actionLabels.require_approval}</SelectItem>
-            <SelectItem value="block">{actionLabels.block}</SelectItem>
+            {POLICY_ACTIONS_IN_ORDER.map((a) => (
+              <SelectItem key={a} value={a}>
+                {POLICY_ACTION_LABEL[a]}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <DropdownMenu>

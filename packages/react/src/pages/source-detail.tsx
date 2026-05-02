@@ -16,6 +16,7 @@ import { ToolTree } from "../components/tool-tree";
 import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
 import type { ToolSummary } from "../components/tool-tree";
 import { useScope } from "../hooks/use-scope";
+import { usePolicyActions } from "../hooks/use-policy-actions";
 import type { SourcePlugin } from "../plugins/source-plugin";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
@@ -34,6 +35,7 @@ export function SourceDetailPage(props: {
   const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
   const doRemove = useAtomSet(removeSource, { mode: "promise" });
   const doRefresh = useAtomSet(refreshSource, { mode: "promise" });
+  const policyActions = usePolicyActions(scopeId);
   const navigate = useNavigate();
 
   // HMR: refresh source tools when the backend is hot-reloaded
@@ -74,6 +76,16 @@ export function SourceDetailPage(props: {
     [policies],
   );
 
+  const sortedPolicies = useMemo(
+    () =>
+      [...policyList].sort((a, b) => {
+        if (a.position < b.position) return -1;
+        if (a.position > b.position) return 1;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      }),
+    [policyList],
+  );
+
   const sourceTools: ToolSummary[] = useMemo(() => {
     if (!AsyncResult.isSuccess(tools)) return [];
     return tools.value.map(
@@ -85,7 +97,10 @@ export function SourceDetailPage(props: {
         readonly requiresApproval?: boolean;
       }) => ({
         id: t.id,
-        name: t.name,
+        // Tree path + saved pattern must be the canonical tool id, so
+        // policy rules created from the row actually match at resolve
+        // time. The leaf label is still the short last segment.
+        name: t.id,
         pluginKey: t.pluginId,
         description: t.description,
         policy: effectivePolicyFromSorted(t.id, policyList, t.requiresApproval),
@@ -247,6 +262,9 @@ export function SourceDetailPage(props: {
                     tools={sourceTools}
                     selectedToolId={selectedToolId}
                     onSelect={setSelectedToolId}
+                    onSetPolicy={(pattern, action) => void policyActions.set(pattern, action)}
+                    onClearPolicy={(pattern) => void policyActions.clear(pattern)}
+                    policies={sortedPolicies}
                   />
                 </div>
 
@@ -259,6 +277,8 @@ export function SourceDetailPage(props: {
                       toolDescription={selectedTool.description}
                       scopeId={scopeId}
                       policy={selectedTool.policy}
+                      onSetPolicy={(pattern, action) => void policyActions.set(pattern, action)}
+                      onClearPolicy={(pattern) => void policyActions.clear(pattern)}
                     />
                   ) : (
                     <ToolDetailEmpty hasTools={sourceTools.length > 0} />
