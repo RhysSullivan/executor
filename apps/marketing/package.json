@@ -3,7 +3,7 @@
   "version": "0.0.5",
   "type": "module",
   "scripts": {
-    "dev": "portless run --name executor-marketing astro dev",
+    "dev": "portless --name executor-marketing astro dev",
     "build": "astro build",
     "preview": "astro preview",
     "deploy": "astro build && npx wrangler deploy --config dist/server/wrangler.json",
@@ -23,7 +23,7 @@
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {
-    "portless": "^0.10.1",
+    "@rhyssul/portless": "^0.12.0",
     "wrangler": "^4.0.0"
   },
   "engines": {

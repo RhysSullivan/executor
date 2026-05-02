@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "portless run --name executor-local bunx --bun vite dev",
+    "dev": "portless --name executor-local bunx --bun vite dev",
     "build": "bunx --bun vite build",
     "start": "bun run src/serve.ts",
     "db:schema": "node --import jiti/register ../../packages/core/cli/src/index.ts generate --config ./executor.config.ts --output ./src/server/executor-schema.ts",
@@ -44,6 +44,7 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@rhyssul/portless": "^0.12.0",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/router-plugin": "^1.167.12",
     "@types/node": "catalog:",
@@ -53,7 +54,6 @@
     "bun-types": "catalog:",
     "drizzle-kit": "catalog:",
     "jiti": "^2.6.1",
-    "portless": "^0.10.1",
     "react-grab": "^0.1.31",
     "typescript": "catalog:",
     "vite": "catalog:",
