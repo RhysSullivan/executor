@@ -305,6 +305,7 @@ function SidebarContent(props: {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
   const isConnections = props.pathname === "/connections";
+  const isPolicies = props.pathname === "/policies";
 
   return (
     <>
@@ -326,6 +327,12 @@ function SidebarContent(props: {
           onNavigate={props.onNavigate}
         />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
+        <NavItem
+          to="/policies"
+          label="Policies"
+          active={isPolicies}
+          onNavigate={props.onNavigate}
+        />
 
         {/* Sources list */}
         <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">

@@ -7,7 +7,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "portless --name executor-local bunx --bun vite dev",
+    "dev": "bun run dev:proxy && bun run dev:vite",
+    "dev:proxy": "portless proxy start --multiplex --port 1355 || true",
+    "dev:vite": "portless --name executor-local bunx --bun vite dev",
     "build": "bunx --bun vite build",
     "start": "bun run src/serve.ts",
     "db:schema": "node --import jiti/register ../../packages/core/cli/src/index.ts generate --config ./executor.config.ts --output ./src/server/executor-schema.ts",
