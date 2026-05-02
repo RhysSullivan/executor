@@ -1,6 +1,9 @@
 import { Effect, Option, Schema } from "effect";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import type { Layer } from "effect";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+
+import { OpenApiGroup } from "../api/group";
+import { OpenApiExtensionService, OpenApiHandlers } from "../api/handlers";
 
 import {
   ConnectionId,
@@ -576,13 +579,7 @@ const toOpenApiSourceConfig = (
 
 const isHttpUrl = (s: string): boolean => s.startsWith("http://") || s.startsWith("https://");
 
-export const openApiPlugin = definePlugin<
-  "openapi",
-  OpenApiPluginExtension,
-  OpenapiStore,
-  typeof openapiSchema,
-  OpenApiPluginOptions
->((options?: OpenApiPluginOptions) => {
+export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
   const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
 
   type RebuildInput = {
@@ -734,6 +731,7 @@ export const openApiPlugin = definePlugin<
 
   return {
     id: "openapi" as const,
+    packageName: "@executor-js/plugin-openapi",
     schema: openapiSchema,
     storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
@@ -1070,5 +1068,14 @@ export const openApiPlugin = definePlugin<
           namespace,
         });
       }),
+
+    // HTTP transport. `OpenApiHandlers` is the existing late-binding
+    // Layer that requires `OpenApiExtensionService`; the host satisfies
+    // it via the spec's `extensionService` Tag — at boot for local
+    // (`composePluginHandlers(plugins, executor)`), per-request for
+    // cloud (`providePluginExtensions(plugins)(executor)`).
+    routes: () => OpenApiGroup,
+    handlers: () => OpenApiHandlers,
+    extensionService: OpenApiExtensionService,
   };
 });

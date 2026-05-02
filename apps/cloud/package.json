@@ -40,6 +40,7 @@
     "@executor-js/sdk": "workspace:*",
     "@executor-js/storage-core": "workspace:*",
     "@executor-js/storage-postgres": "workspace:*",
+    "@executor-js/vite-plugin": "workspace:*",
     "@microlabs/otel-cf-workers": "^1.0.0-rc.52",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "~1.9.0",

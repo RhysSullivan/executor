@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { SourcePlugin } from "../plugins/source-plugin";
+import { useSourcePlugins } from "@executor-js/sdk/client";
 
 // ---------------------------------------------------------------------------
 // Page
@@ -11,10 +11,10 @@ export function SourcesAddPage(props: {
   url?: string;
   preset?: string;
   namespace?: string;
-  sourcePlugins: readonly SourcePlugin[];
 }) {
-  const { pluginKey, url, preset, namespace, sourcePlugins } = props;
+  const { pluginKey, url, preset, namespace } = props;
   const navigate = useNavigate();
+  const sourcePlugins = useSourcePlugins();
 
   const plugin = sourcePlugins.find((p) => p.key === pluginKey);
 

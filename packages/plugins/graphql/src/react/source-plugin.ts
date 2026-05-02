@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import type { SourcePlugin } from "@executor-js/react/plugins/source-plugin";
+import type { SourcePlugin } from "@executor-js/sdk/client";
 import { graphqlPresets } from "../sdk/presets";
 
 export const graphqlSourcePlugin: SourcePlugin = {

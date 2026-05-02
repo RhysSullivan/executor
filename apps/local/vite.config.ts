@@ -4,6 +4,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import executorVitePlugin from "@executor-js/vite-plugin";
 
 const rootPackage = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
@@ -109,6 +110,7 @@ export default defineConfig({
   },
   plugins: [
     tailwindcss(),
+    executorVitePlugin(),
     tanstackRouter({
       target: "react",
       autoCodeSplitting: true,

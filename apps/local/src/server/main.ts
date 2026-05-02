@@ -2,44 +2,36 @@ import { HttpApiBuilder, HttpApiSwagger } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
-import { addGroup, observabilityMiddleware } from "@executor-js/api";
-import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor-js/api/server";
+import { observabilityMiddleware } from "@executor-js/api";
+import {
+  CoreHandlers,
+  ExecutorService,
+  ExecutionEngineService,
+  composePluginApi,
+  composePluginHandlers,
+} from "@executor-js/api/server";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
-import {
-  OpenApiGroup,
-  OpenApiHandlers,
-  OpenApiExtensionService,
-} from "@executor-js/plugin-openapi/api";
-import { McpGroup, McpHandlers, McpExtensionService } from "@executor-js/plugin-mcp/api";
-import {
-  GoogleDiscoveryGroup,
-  GoogleDiscoveryHandlers,
-  GoogleDiscoveryExtensionService,
-} from "@executor-js/plugin-google-discovery/api";
-import {
-  OnePasswordGroup,
-  OnePasswordHandlers,
-  OnePasswordExtensionService,
-} from "@executor-js/plugin-onepassword/api";
-import {
-  GraphqlGroup,
-  GraphqlHandlers,
-  GraphqlExtensionService,
-} from "@executor-js/plugin-graphql/api";
-import { getExecutor } from "./executor";
+import executorConfig from "../../executor.config";
+import { getExecutorBundle } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 import { ErrorCaptureLive } from "./observability";
 
 // ---------------------------------------------------------------------------
-// Local server API — core + all plugin groups
+// Local server API.
+//
+// Every plugin contributes its `HttpApiGroup` and handler `Layer` through
+// the spec (`routes()` / `handlers(self)` on `PluginSpec`); the host folds
+// the group list into a single `HttpApi` and merges the handler layers
+// into the runtime. No per-plugin imports here — adding a plugin to
+// `executor.config.ts` is sufficient.
+//
+// `plugins({})` is safe at module-eval time: `.routes()` doesn't touch
+// host deps; the `configFile` parameter only matters at runtime
+// invocation. The schema-gen CLI relies on the same property.
 // ---------------------------------------------------------------------------
 
-const LocalApi = addGroup(OpenApiGroup)
-  .add(McpGroup)
-  .add(GoogleDiscoveryGroup)
-  .add(OnePasswordGroup)
-  .add(GraphqlGroup);
+const LocalApi = composePluginApi(executorConfig.plugins({}));
 
 // `ErrorCaptureLive` logs causes to the console and returns a short
 // correlation id. Provided above the handler + middleware layers so
@@ -50,15 +42,6 @@ const LocalObservability = observabilityMiddleware(LocalApi);
 
 const LocalApiBase = HttpApiBuilder.layer(LocalApi).pipe(
   Layer.provide(CoreHandlers),
-  Layer.provide(
-    Layer.mergeAll(
-      OpenApiHandlers,
-      McpHandlers,
-      GoogleDiscoveryHandlers,
-      OnePasswordHandlers,
-      GraphqlHandlers,
-    ),
-  ),
   Layer.provide(LocalObservability),
   Layer.provide(ErrorCaptureLive),
 );
@@ -83,22 +66,20 @@ const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
 };
 
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
-  const executor = await getExecutor();
+  const { executor, plugins } = await getExecutorBundle();
   const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
 
-  // Handlers wrap their own bodies with `capture(...)` — the edge
-  // translation lives per-handler, not at service construction.
-  const pluginExtensions = Layer.mergeAll(
-    Layer.succeed(OpenApiExtensionService)(executor.openapi),
-    Layer.succeed(McpExtensionService)(executor.mcp),
-    Layer.succeed(GoogleDiscoveryExtensionService)(executor.googleDiscovery),
-    Layer.succeed(OnePasswordExtensionService)(executor.onepassword),
-    Layer.succeed(GraphqlExtensionService)(executor.graphql),
-  );
+  // Spec-based plugin handlers — each plugin's `handlers(self)` Layer is
+  // built against its own bundled HttpApi for full type safety inside the
+  // plugin, and merges into the runtime `LocalApi` by group identity.
+  // Each plugin's handler bodies that yield its `*ExtensionService` are
+  // satisfied because `composePluginHandlers` provides `executor[id]` to
+  // the plugin's own `Layer.succeed(*ExtensionService)(self)` wiring.
+  const SpecPluginHandlers = composePluginHandlers(plugins, executor);
 
   const localApiLayer = LocalApiBase.pipe(
     Layer.provideMerge(HttpApiSwagger.layer(LocalApi, { path: "/docs" })),
-    Layer.provideMerge(pluginExtensions),
+    Layer.provideMerge(SpecPluginHandlers),
     Layer.provideMerge(Layer.succeed(ExecutorService)(executor)),
     Layer.provideMerge(Layer.succeed(ExecutionEngineService)(engine)),
     Layer.provideMerge(HttpServer.layerServices),

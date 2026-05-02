@@ -228,10 +228,3 @@ export const graphql_operation = sqliteTable("graphql_operation", {
   index("graphql_operation_source_id_idx").on(table.source_id),
 ]);
 
-export const blob = sqliteTable("blob", {
-  namespace: text('namespace').notNull(),
-  key: text('key').notNull(),
-  value: text('value').notNull()
-}, (table) => [
-  primaryKey({ columns: [table.namespace, table.key] }),
-]);

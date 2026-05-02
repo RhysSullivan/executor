@@ -1,17 +1,8 @@
-import * as AtomHttpApi from "effect/unstable/reactivity/AtomHttpApi";
-import { FetchHttpClient } from "effect/unstable/http";
-import { addGroup } from "@executor-js/api";
+import { createPluginAtomClient } from "@executor-js/sdk/client";
 import { getBaseUrl } from "@executor-js/react/api/base-url";
 import { OnePasswordGroup } from "../api/group";
 
-// ---------------------------------------------------------------------------
-// 1Password-aware client — core routes + onepassword routes
-// ---------------------------------------------------------------------------
-
-const OnePasswordApi = addGroup(OnePasswordGroup);
-
-export const OnePasswordClient = AtomHttpApi.Service<"OnePasswordClient">()("OnePasswordClient", {
-  api: OnePasswordApi,
-  httpClient: FetchHttpClient.layer,
+export const OnePasswordClient = createPluginAtomClient(OnePasswordGroup, {
+  pluginId: "onepassword",
   baseUrl: getBaseUrl(),
 });

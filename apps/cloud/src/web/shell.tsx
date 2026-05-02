@@ -29,9 +29,6 @@ import {
 } from "@executor-js/react/components/dropdown-menu";
 import { SourceFavicon } from "@executor-js/react/components/source-favicon";
 import { CommandPalette } from "@executor-js/react/components/command-palette";
-import { openApiSourcePlugin } from "@executor-js/plugin-openapi/react";
-import { mcpSourcePlugin } from "@executor-js/plugin-mcp/react";
-import { graphqlSourcePlugin } from "@executor-js/plugin-graphql/react";
 import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { AUTH_PATHS } from "../auth/api";
 import { organizationsAtom, switchOrganization, useAuth } from "./auth";
@@ -39,8 +36,6 @@ import {
   CreateOrganizationFields,
   useCreateOrganizationForm,
 } from "./components/create-organization-form";
-
-const sourcePlugins = [openApiSourcePlugin, mcpSourcePlugin, graphqlSourcePlugin];
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
@@ -430,7 +425,7 @@ export function Shell() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <CommandPalette sourcePlugins={sourcePlugins} />
+      <CommandPalette />
       {/* Desktop sidebar */}
       <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
         <SidebarContent pathname={pathname} />

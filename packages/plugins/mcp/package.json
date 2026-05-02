@@ -20,7 +20,8 @@
     "./promise": "./src/promise.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
-    "./presets": "./src/sdk/presets.ts"
+    "./presets": "./src/sdk/presets.ts",
+    "./client": "./src/react/plugin-client.tsx"
   },
   "publishConfig": {
     "access": "public",

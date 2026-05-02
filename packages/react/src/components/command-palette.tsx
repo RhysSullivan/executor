@@ -6,7 +6,7 @@ import { PlusIcon } from "lucide-react";
 import { SourceFavicon } from "./source-favicon";
 import { sourcesAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
-import type { SourcePlugin } from "../plugins/source-plugin";
+import { useSourcePlugins } from "@executor-js/sdk/client";
 import {
   CommandDialog,
   CommandEmpty,
@@ -27,8 +27,8 @@ import {
 //   3. Popular sources (plugin presets)
 // ---------------------------------------------------------------------------
 
-export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }) {
-  const { sourcePlugins } = props;
+export function CommandPalette() {
+  const sourcePlugins = useSourcePlugins();
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const scopeId = useScope();

@@ -1,5 +1,5 @@
 import { lazy, type ComponentProps, type ComponentType } from "react";
-import type { SourcePlugin } from "@executor-js/react/plugins/source-plugin";
+import type { SourcePlugin } from "@executor-js/sdk/client";
 import { mcpPresets } from "../sdk/presets";
 
 const LazyAddMcpSource = lazy(() => import("./AddMcpSource"));

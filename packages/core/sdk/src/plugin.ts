@@ -1,4 +1,5 @@
-import type { Effect } from "effect";
+import type { Context, Effect, Layer } from "effect";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
 import type {
   DBAdapter,
   DBSchema,
@@ -310,8 +311,20 @@ export interface PluginSpec<
   TExtension extends object = Record<string, never>,
   TStore = unknown,
   TSchema extends DBSchema | undefined = DBSchema | undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TExtensionService extends Context.Service<any, any> | undefined = undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
 > {
   readonly id: TId;
+  /** npm package name. The Vite plugin uses this to derive the
+   *  `./client` import path for the frontend bundle (so the same
+   *  `executor.config.ts` drives both server and client) — `${packageName}/client`
+   *  is what gets bundled. The author writes the same string they
+   *  publish to npm; no transforms, no scope conventions. Required for
+   *  plugins that ship a `./client` entry; can be omitted for SDK-only
+   *  plugins (no client bundle = nothing to resolve). */
+  readonly packageName?: string;
   /** Plugin-declared schema. Merged with coreSchema and other plugins'
    *  schemas at executor startup via `collectSchemas`. The type flows
    *  into the `storage` factory's `deps.adapter` as a `TypedAdapter<TSchema>`
@@ -338,6 +351,54 @@ export interface PluginSpec<
   readonly staticSources?: (
     self: NoInfer<TExtension>,
   ) => readonly StaticSourceDecl<TStore>[];
+
+  /** HttpApiGroup contributed by this plugin. Composed into the host's
+   *  `HttpApi` via the `addGroup` helper at runtime. The host mounts
+   *  the group at `/_executor/plugins/{id}/...` (or wherever the
+   *  plugin declares its base path) with the host's auth + scope
+   *  middleware applied. Endpoints automatically appear in the
+   *  executor OpenAPI doc and the typed reactive client.
+   *
+   *  Type is `HttpApiGroup.Any` because the host composes a runtime
+   *  array of groups with no compile-time way to track the full union.
+   *  Per-endpoint typing lives inside the plugin — its `handlers`
+   *  Layer is built against its own bundled `HttpApi.make("foo").add(FooApi)`
+   *  for full `.handle("name", ...)` inference, and its client imports
+   *  the same group directly. */
+  readonly routes?: () => HttpApiGroup.Any;
+
+  /** Handlers Layer for this plugin's group. Built by the plugin against
+   *  its own bundled API for full type safety on `.handle("name", ...)`,
+   *  composes into the host's runtime `FullApi` because
+   *  `HttpApiBuilder.group` keys the layer by group identity, not by the
+   *  surrounding API.
+   *
+   *  Late-binding: the layer leaves the plugin's extension as a Service
+   *  Tag requirement (see `extensionService` below). The host satisfies
+   *  it however its runtime wants:
+   *    - local: at boot via `Layer.succeed(extensionService)(executor[id])`
+   *      (see `composePluginHandlers`)
+   *    - cloud: per-request via `Effect.provideService(extensionService,
+   *      requestExecutor[id])` in the auth middleware
+   *
+   *  The Layer's channels are typed `any` because `Layer<RIn, E, ROut>`'s
+   *  `ROut` is contravariant — the host accepts any layer here and merges
+   *  them; per-plugin requirements flow through the merge. */
+  readonly handlers?: () => THandlersLayer;
+
+  /** Service tag the plugin's `handlers` layer requires. Set by plugins
+   *  whose handlers consume their extension via a `Context.Service` tag
+   *  (the established pattern: `*Handlers` reads `*ExtensionService`).
+   *  The host binds the tag to the live extension — at boot for local,
+   *  per request for cloud. Pairs with `handlers`; either both fields
+   *  are set or neither.
+   *
+   *  Inferred via the `TExtensionService` generic so the per-plugin
+   *  Service class identity propagates through `composePluginHandlers`,
+   *  `composePluginHandlerLayer`, and `providePluginExtensions` —
+   *  cloud's per-request middleware needs the precise tag for layer
+   *  satisfaction. */
+  readonly extensionService?: TExtensionService;
 
   /** Invoke a dynamic tool. Called when the executor's static-handler
    *  map doesn't have the toolId. The plugin reads its own enrichment
@@ -427,7 +488,18 @@ export interface Plugin<
   TExtension extends object = Record<string, never>,
   TStore = unknown,
   TSchema extends DBSchema | undefined = DBSchema | undefined,
-> extends PluginSpec<TId, TExtension, TStore, TSchema> {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TExtensionService extends Context.Service<any, any> | undefined = undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
+> extends PluginSpec<
+    TId,
+    TExtension,
+    TStore,
+    TSchema,
+    TExtensionService,
+    THandlersLayer
+  > {}
 
 // ---------------------------------------------------------------------------
 // definePlugin — factory-returning-spec. Options from the author factory
@@ -441,11 +513,22 @@ export type ConfiguredPlugin<
   TStore,
   TOptions extends object,
   TSchema extends DBSchema | undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TExtensionService extends Context.Service<any, any> | undefined = undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
 > = (
   options?: TOptions & {
     readonly storage?: (deps: StorageDeps<TSchema>) => TStore;
   },
-) => Plugin<TId, TExtension, TStore, TSchema>;
+) => Plugin<
+  TId,
+  TExtension,
+  TStore,
+  TSchema,
+  TExtensionService,
+  THandlersLayer
+>;
 
 // eslint-disable-next-line @typescript-eslint/ban-types
 export function definePlugin<
@@ -454,11 +537,30 @@ export function definePlugin<
   TStore,
   TSchema extends DBSchema | undefined = undefined,
   TOptions extends object = {},
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TExtensionService extends Context.Service<any, any> | undefined = undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
 >(
   authorFactory: (
     options?: TOptions,
-  ) => PluginSpec<TId, TExtension, TStore, TSchema>,
-): ConfiguredPlugin<TId, TExtension, TStore, TOptions, TSchema> {
+  ) => PluginSpec<
+    TId,
+    TExtension,
+    TStore,
+    TSchema,
+    TExtensionService,
+    THandlersLayer
+  >,
+): ConfiguredPlugin<
+  TId,
+  TExtension,
+  TStore,
+  TOptions,
+  TSchema,
+  TExtensionService,
+  THandlersLayer
+> {
   return (options) => {
     const {
       storage: storageOverride,
@@ -485,12 +587,16 @@ export function definePlugin<
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyPlugin = Plugin<string, any, any, any>;
+export type AnyPlugin = Plugin<string, any, any, any, any, any>;
 
 export type PluginExtensions<TPlugins extends readonly AnyPlugin[]> = {
   readonly [P in TPlugins[number] as P["id"]]: P extends Plugin<
     string,
     infer TExt,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

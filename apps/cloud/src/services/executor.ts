@@ -20,36 +20,27 @@ import {
   makePostgresAdapter,
   makePostgresBlobStore,
 } from "@executor-js/storage-postgres";
-import { openApiPlugin } from "@executor-js/plugin-openapi";
-import { mcpPlugin } from "@executor-js/plugin-mcp";
-import { graphqlPlugin } from "@executor-js/plugin-graphql";
-import { workosVaultPlugin } from "@executor-js/plugin-workos-vault";
 
 import { env } from "cloudflare:workers";
+import executorConfig from "../../executor.config";
 import { DbService } from "./db";
 
 // ---------------------------------------------------------------------------
-// Plugin list — one place, used for both the runtime and the CLI config
-// (executor.config.ts). No stdio MCP in cloud; no keychain/file-secrets/
-// 1password/google-discovery.
-//
-// NOTE: the CLI config (executor.config.ts) imports these same plugins with
-// stub credentials because it only reads `plugin.schema`. Here we pass
-// real credentials from the env.
+// Plugin list lives in `executor.config.ts` — that file is the single
+// source of truth, also consumed by the schema-gen CLI and the test
+// harness. Per-request runtime values (WorkOS credentials from the
+// Worker env) are passed through the factory's `deps` parameter.
 // ---------------------------------------------------------------------------
 
-const createOrgPlugins = () =>
-  [
-    openApiPlugin(),
-    mcpPlugin({ dangerouslyAllowStdioMCP: false }),
-    graphqlPlugin(),
-    workosVaultPlugin({
-      credentials: {
-        apiKey: env.WORKOS_API_KEY,
-        clientId: env.WORKOS_CLIENT_ID,
-      },
-    }),
-  ] as const;
+export type CloudPlugins = ReturnType<typeof executorConfig.plugins>;
+
+const orgPlugins = (): CloudPlugins =>
+  executorConfig.plugins({
+    workosCredentials: {
+      apiKey: env.WORKOS_API_KEY,
+      clientId: env.WORKOS_CLIENT_ID,
+    },
+  });
 
 // ---------------------------------------------------------------------------
 // Create a fresh executor for a (user, org) pair (stateless, per-request).
@@ -74,7 +65,7 @@ export const createScopedExecutor = (
   Effect.gen(function* () {
     const { db } = yield* DbService;
 
-    const plugins = createOrgPlugins();
+    const plugins = orgPlugins();
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });

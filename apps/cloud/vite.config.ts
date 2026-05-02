@@ -3,6 +3,7 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import executorVitePlugin from "@executor-js/vite-plugin";
 
 // Dev-only: the cloudflare vite-plugin bridges outbound fetches (JWKS,
 // OAuth metadata proxy, etc.) through node undici in the host process. If
@@ -36,6 +37,7 @@ export default defineConfig({
   plugins: [
     devCrashGuard(),
     tailwindcss(),
+    executorVitePlugin(),
     cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: false }),
     tanstackStart(),
     react(),

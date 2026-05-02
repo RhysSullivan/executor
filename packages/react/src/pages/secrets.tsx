@@ -3,7 +3,7 @@ import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
-import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
+import { useSecretProviderPlugins } from "@executor-js/sdk/client";
 import { SecretId } from "@executor-js/sdk";
 import { useScope } from "../hooks/use-scope";
 import {
@@ -280,7 +280,6 @@ function SecretRow(props: {
 export function SecretsPage(props: {
   addSecretDescription?: string;
   showProviderInfo?: boolean;
-  secretProviderPlugins: readonly SecretProviderPlugin[];
   storageOptions?: readonly SecretStorageOption[];
 }) {
   const storageOptions = props.storageOptions ?? defaultStorageOptions;
@@ -288,7 +287,7 @@ export function SecretsPage(props: {
   const addSecretDescription =
     props.addSecretDescription ??
     "Store a credential or API key. Values are kept in your system keychain when available, with a local encrypted file fallback.";
-  const { secretProviderPlugins } = props;
+  const secretProviderPlugins = useSecretProviderPlugins();
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
   const secrets = useAtomValue(secretsAtom(scopeId));

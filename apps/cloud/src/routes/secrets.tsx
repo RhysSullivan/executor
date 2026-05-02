@@ -4,7 +4,6 @@ import { SecretsPage } from "@executor-js/react/pages/secrets";
 export const Route = createFileRoute("/secrets")({
   component: () => (
     <SecretsPage
-      secretProviderPlugins={[]}
       addSecretDescription="Store a credential or API key for this organization."
       showProviderInfo={false}
       storageOptions={[{ value: "workos-vault", label: "WorkOS Vault" }]}

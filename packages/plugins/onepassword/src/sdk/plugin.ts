@@ -9,6 +9,12 @@ import {
   type StorageFailure,
 } from "@executor-js/sdk/core";
 
+import { OnePasswordGroup } from "../api/group";
+import {
+  OnePasswordExtensionService,
+  OnePasswordHandlers,
+} from "../api/handlers";
+
 import { OnePasswordConfig, Vault, ConnectionStatus } from "./types";
 import type { OnePasswordAuth } from "./types";
 import { OnePasswordError } from "./errors";
@@ -271,6 +277,7 @@ export const onepasswordPlugin = definePlugin(
 
     return {
       id: "onepassword" as const,
+      packageName: "@executor-js/plugin-onepassword",
       storage: ({ blobs, scopes }) =>
         makeOnePasswordStore(blobs, scopes.at(-1)!.id as string),
 
@@ -341,6 +348,10 @@ export const onepasswordPlugin = definePlugin(
       },
 
       secretProviders: (ctx) => [makeProvider(ctx, timeoutMs, preferSdk)],
+
+      routes: () => OnePasswordGroup,
+      handlers: () => OnePasswordHandlers,
+      extensionService: OnePasswordExtensionService,
     };
   },
 );

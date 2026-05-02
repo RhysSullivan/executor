@@ -2,6 +2,21 @@
 // @executor-js/sdk — public surface
 // ---------------------------------------------------------------------------
 
+// Re-export the Effect/Schema/HttpApi primitives plugin authors need so a
+// plugin can be written importing only from `@executor-js/sdk`. Authors who
+// want to reach for additional Effect APIs keep importing from `effect/*`
+// directly — these re-exports are the curated minimum.
+export { Context, Effect, Layer, Schema, Data, Option } from "effect";
+export {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiClient,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiMiddleware,
+  HttpApiSchema,
+} from "effect/unstable/httpapi";
+
 // Storage adapter interface types (re-exported from @executor-js/storage-core
 // so plugin authors can write adapters against a single public surface
 // without depending on storage-core directly).
@@ -240,8 +255,14 @@ export {
   collectSchemas,
 } from "./executor";
 
-// CLI config
-export { defineExecutorConfig, type ExecutorCliConfig, type ExecutorDialect } from "./config";
+// CLI / runtime config
+export {
+  defineExecutorConfig,
+  type ExecutorCliConfig,
+  type ExecutorDialect,
+  type ConfigPluginDeps,
+  type ExecutorPluginsFactory,
+} from "./config";
 
 // Test helper
 export { makeTestConfig } from "./testing";

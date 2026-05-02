@@ -63,6 +63,7 @@ const buildClient = (
 export const workosVaultPlugin = definePlugin(
   (options?: WorkOSVaultPluginOptions) => ({
     id: "workosVault" as const,
+    packageName: "@executor-js/plugin-workos-vault",
     schema: workosVaultSchema,
     storage: (deps): WorkosVaultPluginStore => makeWorkosVaultStore(deps),
 

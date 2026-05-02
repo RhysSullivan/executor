@@ -3,24 +3,38 @@
 // non-protected/org handlers (which transitively import
 // `@tanstack/react-start`, unresolvable in the Workers test runtime).
 
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { Layer } from "effect";
 
+import { CoreExecutorApi, observabilityMiddleware } from "@executor-js/api";
 import {
-  CoreExecutorApi,
-  observabilityMiddleware,
-} from "@executor-js/api";
-import { CoreHandlers } from "@executor-js/api/server";
-import { OpenApiGroup, OpenApiHandlers } from "@executor-js/plugin-openapi/api";
-import { McpGroup, McpHandlers } from "@executor-js/plugin-mcp/api";
-import { GraphqlGroup, GraphqlHandlers } from "@executor-js/plugin-graphql/api";
+  CoreHandlers,
+  composePluginApi,
+  composePluginHandlerLayer,
+} from "@executor-js/api/server";
+// Type-only Group imports — needed for `HttpApiClient.ForApi<typeof
+// ProtectedCloudApi>` to type test clients precisely. Runtime
+// composition is data-driven via `composePluginApi(cloudPlugins)`.
+// These imports erase at build time and are NOT a fanout of plugin
+// runtime wiring.
+import type { OpenApiGroup } from "@executor-js/plugin-openapi/api";
+import type { McpGroup } from "@executor-js/plugin-mcp/api";
+import type { GraphqlGroup } from "@executor-js/plugin-graphql/api";
 
+import executorConfig from "../../executor.config";
 import { UserStoreService } from "../auth/context";
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
 import { ErrorCaptureLive } from "../observability";
+
+// Plugin list at module-eval time — `plugins({})` is safe because
+// `.routes()` doesn't read host deps; the per-request env credentials
+// are only consumed when the plugin is actually constructed inside
+// `createScopedExecutor`. The schema-gen CLI relies on the same
+// property.
+const cloudPlugins = executorConfig.plugins({});
 
 // `ProtectedCloudApi` deliberately does NOT declare `.middleware(OrgAuth)`
 // — auth + per-request execution stack construction live in a single
@@ -30,9 +44,22 @@ import { ErrorCaptureLive } from "../observability";
 // it INSIDE the router middleware (wrong order), and added a second auth
 // pass on top of the existing one in `protected.ts`'s outer effect. The
 // router-middleware approach folds both into one place.
-export const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
-  .add(McpGroup)
-  .add(GraphqlGroup);
+//
+// Runtime composition is via `composePluginApi(cloudPlugins)` (loosely
+// typed). The typed cast below recovers the precise group union for
+// `HttpApiClient.ForApi<typeof ProtectedCloudApi>` — needed by the
+// test harness's typed clients.
+type CoreGroups =
+  typeof CoreExecutorApi extends HttpApi.HttpApi<string, infer G> ? G : never;
+
+export type ProtectedCloudApiShape = HttpApi.HttpApi<
+  "executor",
+  CoreGroups | typeof OpenApiGroup | typeof McpGroup | typeof GraphqlGroup
+>;
+
+export const ProtectedCloudApi = composePluginApi(
+  cloudPlugins,
+) as unknown as ProtectedCloudApiShape;
 
 const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
 
@@ -49,14 +76,14 @@ export const SharedServices = Layer.mergeAll(
 
 export const RouterConfig = Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 });
 
-// Every handler the ProtectedCloudApi routes to. The test harness builds
-// its own api-live by merging this with its own per-request middleware
-// fakes; prod uses `ProtectedCloudApiLive` below.
+// Every handler the ProtectedCloudApi routes to. Plugin handler layers
+// are late-binding — they require their plugin's `extensionService`
+// Tag, which the per-request `ExecutionStackMiddleware` satisfies via
+// `providePluginExtensions`. The test harness mirrors this; nothing
+// else needs to know which plugins are wired.
 export const ProtectedCloudApiHandlers = Layer.mergeAll(
   CoreHandlers,
-  OpenApiHandlers,
-  McpHandlers,
-  GraphqlHandlers,
+  composePluginHandlerLayer(cloudPlugins),
 );
 
 // `ErrorCaptureLive` is provided above the handler + middleware layers

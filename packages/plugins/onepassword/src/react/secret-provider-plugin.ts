@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import type { SecretProviderPlugin } from "@executor-js/react/plugins/secret-provider-plugin";
+import type { SecretProviderPlugin } from "@executor-js/sdk/client";
 
 export const onePasswordSecretProviderPlugin: SecretProviderPlugin = {
   key: "onepassword",

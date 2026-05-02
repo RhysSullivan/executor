@@ -37,11 +37,7 @@ import {
   makePostgresAdapter,
   makePostgresBlobStore,
 } from "@executor-js/storage-postgres";
-import { openApiPlugin } from "@executor-js/plugin-openapi";
-import { mcpPlugin } from "@executor-js/plugin-mcp";
-import { graphqlPlugin } from "@executor-js/plugin-graphql";
-import { workosVaultPlugin } from "@executor-js/plugin-workos-vault";
-
+import executorConfig from "../executor.config";
 import { DbService } from "./services/db";
 import { makeFakeVaultClient } from "./services/__test-harness__/api-harness";
 
@@ -105,12 +101,9 @@ const buildScopedExecutor = (
 ) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
-    const basePlugins = [
-      openApiPlugin(),
-      mcpPlugin({ dangerouslyAllowStdioMCP: false }),
-      graphqlPlugin(),
-      workosVaultPlugin({ client: makeFakeVaultClient() }),
-    ] as const;
+    const basePlugins = executorConfig.plugins({
+      workosVaultClient: makeFakeVaultClient(),
+    });
     const plugins = options.withElicitingPlugin
       ? ([...basePlugins, elicitingTestPlugin()] as const)
       : basePlugins;

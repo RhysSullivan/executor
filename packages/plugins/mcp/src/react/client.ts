@@ -1,17 +1,8 @@
-import * as AtomHttpApi from "effect/unstable/reactivity/AtomHttpApi";
-import { FetchHttpClient } from "effect/unstable/http";
-import { addGroup } from "@executor-js/api";
+import { createPluginAtomClient } from "@executor-js/sdk/client";
 import { getBaseUrl } from "@executor-js/react/api/base-url";
 import { McpGroup } from "../api/group";
 
-// ---------------------------------------------------------------------------
-// MCP-aware client — core routes + mcp routes
-// ---------------------------------------------------------------------------
-
-const McpApi = addGroup(McpGroup);
-
-export const McpClient = AtomHttpApi.Service<"McpClient">()("McpClient", {
-  api: McpApi,
-  httpClient: FetchHttpClient.layer,
+export const McpClient = createPluginAtomClient(McpGroup, {
+  pluginId: "mcp",
   baseUrl: getBaseUrl(),
 });

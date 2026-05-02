@@ -18,7 +18,8 @@
   "exports": {
     ".": "./src/sdk/index.ts",
     "./promise": "./src/promise.ts",
-    "./react": "./src/react/index.ts"
+    "./react": "./src/react/index.ts",
+    "./client": "./src/react/plugin-client.tsx"
   },
   "publishConfig": {
     "access": "public",

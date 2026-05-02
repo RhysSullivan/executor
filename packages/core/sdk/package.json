@@ -18,7 +18,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./core": "./src/index.ts",
-    "./promise": "./src/promise.ts"
+    "./promise": "./src/promise.ts",
+    "./client": "./src/client.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -33,6 +34,12 @@
         "import": {
           "types": "./dist/index.d.ts",
           "default": "./dist/core.js"
+        }
+      },
+      "./client": {
+        "import": {
+          "types": "./dist/client.d.ts",
+          "default": "./dist/client.js"
         }
       }
     }
@@ -49,9 +56,20 @@
     "oauth4webapi": "^3.8.5",
     "fractional-indexing": "^3.2.0"
   },
+  "peerDependencies": {
+    "@effect/atom-react": "catalog:",
+    "react": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "@effect/atom-react": { "optional": true },
+    "react": { "optional": true }
+  },
   "devDependencies": {
+    "@effect/atom-react": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "react": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

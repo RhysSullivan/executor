@@ -1,14 +1,37 @@
 # Dynamic Plugin Loading — v1
 
-Date: 2026-05-02
+Date: 2026-05-02 (revised)
+
+> **Status: shipped.** The implementation lives on `main`. This doc was
+> revised after the fact to match what actually shipped — three things
+> changed from the original design:
+>
+> 1. `handlers(self) => Layer` became late-binding `handlers() => Layer`
+>    plus a `extensionService` Service tag on the spec. Cloud's
+>    per-request executor pattern needed the Tag to be satisfied at
+>    request time, not bake-in time. Local satisfies it eagerly via
+>    `composePluginHandlers`, cloud satisfies it per request via
+>    `providePluginExtensions`.
+> 2. `<ExecutorPluginsProvider>` was added in `@executor-js/sdk/client`
+>    so frontend pages read `useSourcePlugins()` / `useSecretProviderPlugins()`
+>    / `useClientPlugins()` from React context instead of taking
+>    plugin lists as props. Routes/shells stop importing per-app
+>    aggregator files.
+> 3. `SourcePlugin` and `SecretProviderPlugin` types moved to
+>    `@executor-js/sdk/client` and are populated as fields on
+>    `defineClientPlugin({ sourcePlugin, secretProviderPlugin })` so
+>    everything frontend-facing flows through `virtual:executor/plugins-client`.
 
 ## Context
 
-Today plugins are workspace deps statically imported in `apps/local/src/server/executor.ts`
-inside `createLocalPlugins()`. They register secret providers, connection providers,
-and dynamic tools through `definePlugin`. The DX of authoring one is good — the
-problem is that adding a plugin means editing host source. We want users to be
-able to install plugins from npm and pick them up by editing config alone.
+Before this work, plugins were workspace deps statically imported in
+`apps/local/src/server/executor.ts` inside a `createLocalPlugins()`
+factory; the cloud app had its own equivalent in
+`apps/cloud/src/services/executor.ts`. They register secret providers,
+connection providers, and dynamic tools through `definePlugin`. The DX
+of authoring one was good — the problem was that adding a plugin meant
+editing host source. The goal: install plugins from npm and pick them
+up by editing config alone.
 
 The existing in-process plugin model already gets a lot right and we want to
 keep it: Effect-native everything, end-to-end type inference from schema →
@@ -244,44 +267,68 @@ artifacts aren't shipping yet.
 
 ### `PluginSpec` extension
 
-Existing fields unchanged. Add `routes` returning an `HttpApiGroup`:
+Existing fields unchanged. Three new fields:
 
 ```ts
 // packages/core/sdk/src/plugin.ts (extension)
+import type { Context, Layer } from "effect"
 import type { HttpApiGroup } from "effect/unstable/httpapi"
 
-export interface PluginSpec<TId, TExtension, TStore, TSchema> {
+export interface PluginSpec<
+  TId, TExtension, TStore, TSchema,
+  TExtensionService extends Context.Service<any, any> | undefined = undefined,
+  THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
+> {
   // ... existing: id, schema, storage, extension, staticSources,
   //     invokeTool, secretProviders, etc.
 
+  /** npm package name. The Vite plugin emits
+   *  `import "${packageName}/client"` into the frontend bundle, so the
+   *  same `executor.config.ts` drives both server and client. Author
+   *  writes the same string they publish to npm — no transforms, no
+   *  scope conventions, no fallbacks. Required for plugins that ship
+   *  a `./client` entry; omit for SDK-only plugins. */
+  readonly packageName?: string
+
   /** HttpApiGroup contributed by this plugin. Composed into the host's
-   *  HttpApi via the existing `addGroup` helper (api.ts:21). Host mounts
-   *  it at /_executor/plugins/{id}/... and supplies auth + scope
+   *  HttpApi via the `composePluginApi` helper at runtime. The host
+   *  serves it under whatever base URL the host wires (`/api` for the
+   *  local app's vite middleware) and supplies auth + scope
    *  middleware. Endpoints automatically appear in the executor OpenAPI
-   *  doc and the typed client.
-   *
-   *  Type is `HttpApiGroup.Any` because the host composes a runtime array
-   *  of groups; there's no compile-time way to track the full union. The
-   *  strong typing of each group's endpoints lives inside the plugin —
-   *  the plugin imports its own group directly in both `handlers` and
-   *  the client (`createPluginAtomClient`), so endpoint payloads,
-   *  responses, and errors are all concrete there. */
+   *  doc and the typed client. */
   readonly routes?: () => HttpApiGroup.Any
 
-  /** Handlers Layer for this plugin's group. Built by the plugin against
-   *  its own bundled API for full type safety on `.handle("name", ...)`,
-   *  composes into the host's runtime `FullApi` because
-   *  `HttpApiBuilder.group` keys the layer by group identity, not by the
-   *  surrounding API.
-   *
-   *  Receives `self: NoInfer<TExtension>` so handlers can delegate to
-   *  extension methods (`self.listThings()`) — same pattern as
-   *  `staticSources`. The extension is canonical; handlers are transport. */
-  readonly handlers?: (
-    self: NoInfer<TExtension>,
-  ) => Layer.Layer<unknown, unknown, unknown>
+  /** Late-binding handlers Layer for this plugin's group. The layer
+   *  leaves the plugin's extension as a Service Tag requirement (see
+   *  `extensionService` below). The host satisfies it however its
+   *  runtime wants:
+   *    - local: at boot via `Layer.succeed(extensionService)(executor[id])`
+   *      inside `composePluginHandlers(plugins, executor)`
+   *    - cloud: per request via `Effect.provideService(extensionService,
+   *      requestExecutor[id])` inside the auth middleware via
+   *      `providePluginExtensions(plugins)(executor)` */
+  readonly handlers?: () => THandlersLayer
+
+  /** Service tag the plugin's `handlers` layer requires. The established
+   *  pattern in each plugin's `*/api/handlers.ts`: `*Handlers` reads
+   *  `*ExtensionService`. The host binds the tag to the live extension —
+   *  at boot for local, per request for cloud. Pairs with `handlers`;
+   *  either both fields are set or neither. */
+  readonly extensionService?: TExtensionService
 }
 ```
+
+**Why late-binding (`handlers()` not `handlers(self)`).** The original
+design had `handlers(self) => Layer` so the host called the factory
+with the boot-time extension and got a fully-resolved Layer. That fits
+local fine — one executor at boot, one Layer. Cloud builds a fresh
+executor per HTTP request (Cloudflare Workers + Hyperdrive needs
+fresh DB connections per request), so the executor that satisfies the
+extension Service is per-request, not per-boot. The late-binding
+shape lets the same plugin spec satisfy both: the `*Handlers` Layer is
+built once and consumes `*ExtensionService` from context; local
+provides it at boot via `Layer.succeed`, cloud provides it per request
+via `Effect.provideService`.
 
 Example plugin shape — group definition in `shared.ts` so client and
 server both import it:
@@ -310,7 +357,9 @@ export const FooApi = HttpApiGroup.make("foo")
 
 ```ts
 // @executor-js/plugin-foo/src/server.ts
-import { definePlugin, HttpApi, HttpApiBuilder } from "@executor-js/sdk"
+import {
+  Context, definePlugin, Effect, HttpApi, HttpApiBuilder,
+} from "@executor-js/sdk"
 import { FooApi } from "./shared"
 
 // Bundle the group into a small HttpApi *for typing purposes only*. The
@@ -319,33 +368,59 @@ import { FooApi } from "./shared"
 // groups are around it.
 const FooApiBundle = HttpApi.make("foo").add(FooApi)
 
+interface FooExtension {
+  readonly listThings: () => Effect.Effect<readonly Thing[]>
+  readonly syncThing: (id: string) => Effect.Effect<Thing>
+}
+
+// Service tag for late-binding — the host satisfies this at boot
+// (local) or per request (cloud). Same pattern as the established
+// `*ExtensionService` in each plugin's `*/api/handlers.ts`.
+export class FooExtensionService extends Context.Service<
+  FooExtensionService, FooExtension,
+>()("FooExtensionService") {}
+
+const FooHandlers = HttpApiBuilder.group(FooApiBundle, "foo", (h) =>
+  h
+    .handle("listThings", () =>
+      Effect.gen(function* () {
+        const ext = yield* FooExtensionService
+        return yield* ext.listThings()
+      }),
+    )
+    .handle("syncThing", ({ path }) =>
+      Effect.gen(function* () {
+        const ext = yield* FooExtensionService
+        return yield* ext.syncThing(path.id)
+      }),
+    ),
+)
+
 export const fooPlugin = definePlugin((opts?: FooConfig) => ({
   id: "foo" as const,
+  packageName: "@executor-js/plugin-foo",
   storage: () => ({ /* ... */ }),
 
-  extension: (ctx) => ({
+  // Canonical implementation. CLI/tests/embedded callers and the HTTP
+  // handlers all hit this same code path.
+  extension: (ctx): FooExtension => ({
     listThings: () => /* Effect — canonical impl */,
     syncThing: (id: string) => /* Effect — canonical impl */,
   }),
 
-  routes: () => FooApi,                       // exposes the group
-
-  // Handlers are thin transport wrappers — they delegate to extension
-  // methods via `self`. Same pattern as `staticSources(self) => [...]`.
-  handlers: (self) =>
-    HttpApiBuilder.group(FooApiBundle, "foo", (h) =>
-      h
-        .handle("listThings", () => self.listThings())
-        .handle("syncThing", ({ path }) => self.syncThing(path.id)),
-    ),
+  routes: () => FooApi,
+  handlers: () => FooHandlers,
+  extensionService: FooExtensionService,
 }))
 ```
 
 Why `routes` and `handlers` are split: `routes` is the API description (a
-group), `handlers` is the implementation Layer that delegates to the
-extension. The host needs the group at composition time (to build
-`FullApi`) and the Layer at serve time (to provide handler
-implementations). Both are derived from the same `FooApi` in `shared.ts`.
+group), `handlers` is the implementation Layer keyed by group identity.
+The host needs the group at composition time (to build `FullApi`) and
+the Layer at serve time (to provide handler implementations).
+`extensionService` is the third leg: the bridge that lets the host bind
+the live extension (at boot or per request) without the plugin author
+having to write two handler shapes.
 
 ### `defineClientPlugin`
 
@@ -366,7 +441,20 @@ export interface ClientPluginSpec<TId extends string = string> {
   /** Components the host can render in named slots (e.g., source-detail
    *  panels, secret-picker variants). Slot names are part of the host
    *  contract — plugin opts in by registering. */
-  readonly slots?: Record<string, ComponentType<SlotProps>>
+  readonly slots?: Record<string, SlotComponent>
+
+  /** Source-plugin contribution — populated by plugins that expose
+   *  `kind` rows in the core `source` table (openapi, mcp, graphql,
+   *  google-discovery). The host's sources page derives its provider
+   *  list from the union of every loaded plugin's `sourcePlugin`
+   *  via `useSourcePlugins()`. */
+  readonly sourcePlugin?: SourcePlugin
+
+  /** Secret-provider-plugin contribution — populated by plugins that
+   *  also ship a `secretProviders` server-side capability AND want to
+   *  expose a settings card on the host's secrets page. Surfaced via
+   *  `useSecretProviderPlugins()`. */
+  readonly secretProviderPlugin?: SecretProviderPlugin
 }
 
 type PageDecl = {
@@ -465,22 +553,47 @@ against `FooApi` — same checks the existing `ExecutorApiClient.query("tools",
 "list", ...)` performs. No codegen, no host-wide composed-API typing
 required. Each plugin is self-contained in its client typing.
 
-Server-side composition: the host builds the runtime `FullApi` from
-`routes()` results, then provides the `handlers()` layers when serving.
+Server-side composition: the host calls four helpers in
+`@executor-js/api` (also re-exported from `@executor-js/api/server`).
 Each plugin's handlers Layer is keyed by its group's identity, so it
-slots into `FullApi` without the host needing the typed structure:
+slots into the composed API without the host needing the typed structure.
 
 ```ts
-const FullApi = config.plugins.reduce(
-  (api, p) => p.routes ? api.add(p.routes()) : api,
-  CoreExecutorApi,
+import {
+  composePluginApi,         // routes() → composed HttpApi
+  composePluginHandlers,    // handlers() + extensionService bound eagerly
+  composePluginHandlerLayer, // handlers() merged, Tag still unbound
+  providePluginExtensions,  // per-request Tag binding
+} from "@executor-js/api/server"
+
+// Local — single boot-time executor; satisfy Tags eagerly.
+const FullApi = composePluginApi(plugins)
+const SpecHandlers = composePluginHandlers(plugins, executor) // self bound
+const ServerLive = HttpApiBuilder.layer(FullApi).pipe(
+  Layer.provide(CoreHandlers),
+  Layer.provide(SpecHandlers),
+  // ...
 )
-const PluginHandlerLayers = Layer.mergeAll(
-  ...config.plugins.flatMap((p) => p.handlers ? [p.handlers()] : []),
-)
-const ServerLive = HttpApiBuilder.api(FullApi).pipe(
-  Layer.provide(PluginHandlerLayers),
-  Layer.provide(CoreHandlerLayers),
+
+// Cloud — per-request executor; satisfy Tags inside an HttpRouter middleware.
+const FullApi = composePluginApi(plugins)
+const SpecHandlers = composePluginHandlerLayer(plugins) // Tag still unbound
+const provideExt = providePluginExtensions(plugins)
+
+const ExecutionStackMiddleware = HttpRouter.middleware<{
+  provides: AuthContext | ExecutorService | ExecutionEngineService
+    | <PluginExtensionService union>,
+}>()(
+  Effect.gen(function* () {
+    return (httpEffect) =>
+      Effect.gen(function* () {
+        const executor = yield* makeExecutionStack(...)
+        return yield* httpEffect.pipe(
+          Effect.provideService(ExecutorService, executor),
+          provideExt(executor),         // binds each plugin's Tag per request
+        )
+      })
+  }),
 )
 ```
 
@@ -533,17 +646,44 @@ export default function executorVite(): Plugin {
 }
 ```
 
-Host app consumes:
+Host app consumes via `<ExecutorPluginsProvider>` at the root, then
+focused hooks (`useSourcePlugins` / `useSecretProviderPlugins` /
+`useClientPlugins`) inside pages and shared components. The host's
+routes don't import the virtual module or any per-app aggregator
+file — `__root.tsx` is the only place that touches
+`virtual:executor/plugins-client`.
 
 ```tsx
-// apps/local/src/main.tsx (pseudocode)
-import { plugins } from "virtual:executor/plugins-client"
-import { mountPluginRoutes, mountPluginWidgets } from "@executor-js/react"
+// apps/local/src/routes/__root.tsx
+import { createRootRoute } from "@tanstack/react-router"
+import { ExecutorProvider } from "@executor-js/react/api/provider"
+import { ExecutorPluginsProvider } from "@executor-js/sdk/client"
+import { plugins as clientPlugins } from "virtual:executor/plugins-client"
+import { Shell } from "../web/shell"
 
-const router = createRouter({
-  routeTree: extendRouteTree(baseRouteTree, plugins),
+export const Route = createRootRoute({
+  component: () => (
+    <ExecutorProvider>
+      <ExecutorPluginsProvider plugins={clientPlugins}>
+        <Shell />
+      </ExecutorPluginsProvider>
+    </ExecutorProvider>
+  ),
 })
 ```
+
+```tsx
+// e.g. inside packages/react/src/pages/sources.tsx
+import { useSourcePlugins } from "@executor-js/sdk/client"
+
+export function SourcesPage() {
+  const sourcePlugins = useSourcePlugins()
+  // ...
+}
+```
+
+The catch-all `/plugins/$pluginId/$` route uses `useClientPlugins()`
+to look up which plugin's pages to mount.
 
 HMR works because the virtual module is part of Vite's graph. Adding a plugin
 needs a Vite restart (not a hot update — config changed).
@@ -569,41 +709,62 @@ export const Greeting = Schema.Struct({
 })
 export type Greeting = typeof Greeting.Type
 
-export const ExampleApi = HttpApiGroup.make("example")
-  .add(
-    HttpApiEndpoint.post("greet")`/greet`
-      .setPayload(Schema.Struct({ name: Schema.String }))
-      .addSuccess(Greeting),
-  )
+export const ExampleApi = HttpApiGroup.make("example").add(
+  HttpApiEndpoint.post("greet", "/greet", {
+    payload: Schema.Struct({ name: Schema.String }),
+    success: Greeting,
+  }),
+)
 ```
 
 ```ts
 // src/server.ts
-import { definePlugin, Effect, HttpApi, HttpApiBuilder } from "@executor-js/sdk"
+import {
+  Context, definePlugin, Effect, HttpApi, HttpApiBuilder,
+} from "@executor-js/sdk"
 import { ExampleApi } from "./shared"
 
 const ExampleApiBundle = HttpApi.make("example").add(ExampleApi)
 
+interface ExampleExtension {
+  readonly greet: (
+    name: string,
+  ) => Effect.Effect<{ readonly message: string; readonly count: number }>
+}
+
+export class ExampleExtensionService extends Context.Service<
+  ExampleExtensionService, ExampleExtension,
+>()("ExampleExtensionService") {}
+
+const ExampleHandlers = HttpApiBuilder.group(ExampleApiBundle, "example", (h) =>
+  h.handle("greet", ({ payload }) =>
+    Effect.gen(function* () {
+      const ext = yield* ExampleExtensionService
+      return yield* ext.greet(payload.name)
+    }),
+  ),
+)
+
 export const examplePlugin = definePlugin(() => ({
   id: "example" as const,
+  packageName: "@executor-js/plugin-example",
   storage: () => ({ count: 0 }),
 
   // Canonical implementation lives here.
-  extension: (ctx) => ({
+  extension: (ctx): ExampleExtension => ({
     greet: (name: string) =>
-      Effect.sync(() => ({
-        message: `hello ${name}`,
-        count: ++ctx.storage.count,
-      })),
+      Effect.sync(() => {
+        ctx.storage.count += 1
+        return {
+          message: `hello ${name}`,
+          count: ctx.storage.count,
+        }
+      }),
   }),
 
   routes: () => ExampleApi,
-
-  // Handler delegates to extension. payload.name is fully typed.
-  handlers: (self) =>
-    HttpApiBuilder.group(ExampleApiBundle, "example", (h) =>
-      h.handle("greet", ({ payload }) => self.greet(payload.name)),
-    ),
+  handlers: () => ExampleHandlers,
+  extensionService: ExampleExtensionService,
 }))
 
 export default examplePlugin
@@ -780,29 +941,40 @@ frontend bundle cost, no auth surface to review.
 
 ## Sequencing
 
-Rough build order. Each step lands independently and the system stays working
-between them.
+Build order — all shipped.
 
-1. **Consolidate config.** Make `apps/local/src/server/executor.ts` read from
-   `executor.config.ts`. Delete `createLocalPlugins`. No new features yet —
-   just verify the system runs unchanged with the new wiring.
-2. **SDK re-exports.** Re-export `Schema`, `HttpApi`, `HttpApiGroup`,
-   `HttpApiEndpoint`, `HttpApiBuilder`, `Effect` from `@executor-js/sdk`.
-   Mirror equivalents in `@executor-js/sdk/client` (`useAtomValue`,
-   `useAtomSet`, `AsyncResult`). Cheap and lets later steps import from
-   the SDK only.
-3. **Add `routes` to `PluginSpec`** + host-side composition via the existing
-   `addGroup` helper. Mount each plugin's group under
-   `/_executor/plugins/{id}/...` with shared scope/auth middleware. No
-   plugin uses it yet.
-4. **Build `defineClientPlugin` + `createPluginAtomClient`** in
-   `@executor-js/sdk/client`. Build the Vite plugin + virtual module so the
-   host bundle picks up plugin client modules. No plugin uses it yet.
-5. **Build `@executor-js/plugin-example`** end-to-end. This is the proof
-   that the contract works; if anything is wrong the friction shows up here.
-6. **Migrate `@executor-js/plugin-openapi`** to expose an `HttpApiGroup`
-   for its existing extension methods + a basic source list page on the
-   frontend. Real-world test.
+1. ✅ **Consolidate config.** `apps/local/src/server/executor.ts` reads
+   from `executor.config.ts`. `createLocalPlugins` deleted. The cloud
+   app's equivalent (`createOrgPlugins` in `apps/cloud/src/services/executor.ts`)
+   also gone — driven from `apps/cloud/executor.config.ts` via a
+   `(deps) => plugins` factory shape.
+2. ✅ **SDK re-exports.** `Context`, `Effect`, `Layer`, `Schema`,
+   `Data`, `Option` plus `HttpApi*` re-exported from `@executor-js/sdk`.
+   `@executor-js/sdk/client` mirrors with `Schema`, `HttpApi*`,
+   `AsyncResult`, `Atom`, `AtomHttpApi`, and React hooks.
+3. ✅ **`routes` + `handlers` + `extensionService` on `PluginSpec`.**
+   Host-side composition lives in
+   `packages/core/api/src/plugin-routes.ts`: `composePluginApi`,
+   `composePluginHandlers`, `composePluginHandlerLayer`,
+   `providePluginExtensions`. The local app uses the eager pair
+   (`composePluginHandlers`); cloud uses the late-binding pair
+   (`composePluginHandlerLayer` + `providePluginExtensions` per request).
+4. ✅ **`defineClientPlugin` + `createPluginAtomClient` + Vite plugin.**
+   `@executor-js/sdk/client` exports the factory and helper.
+   `@executor-js/vite-plugin` resolves each plugin's `./client` from
+   `executor.config.ts` and exposes `virtual:executor/plugins-client`.
+5. ✅ **`@executor-js/plugin-example`.** End-to-end proof: shared
+   group, server with extension/routes/handlers/extensionService,
+   client with `defineClientPlugin` + reactive page.
+6. ✅ **Migrate every plugin.** `openapi`, `mcp`, `google-discovery`,
+   `onepassword`, `graphql`, `workos-vault`, `keychain`, `file-secrets`
+   all driven by spec. Each that ships UI also has a `./client`
+   `defineClientPlugin` exposing its `sourcePlugin` /
+   `secretProviderPlugin`.
+7. ✅ **`<ExecutorPluginsProvider>` + hooks.** Host wraps once at
+   `__root.tsx`; pages call `useSourcePlugins()` /
+   `useSecretProviderPlugins()` / `useClientPlugins()`. Per-route
+   imports of plugin lists are gone.
 
 ## Open questions / deferred
 
@@ -827,30 +999,37 @@ between them.
 
 ## References
 
+**Reference research (pre-design):**
 - emdash: `astro.config.mjs` import-and-call pattern, `package.json` exports
   for separate admin entry — see `.reference/emdash/demos/plugins-demo/`.
 - dynamic-software: PluginManifest + capability declarations idea (deferred);
   Worker Loader for cloud isolation — see `.reference/dynamic-software/`.
 - openclaw: manifest-first control plane idea (deferred but worth revisiting
   when we add capability enforcement).
-- Existing executor plugin contract: `packages/core/sdk/src/plugin.ts:308`
-  (`PluginSpec` interface), `packages/core/sdk/src/plugin.ts:451`
-  (`definePlugin` factory).
-- Existing host `HttpApi` composition + plugin-group helper:
-  `packages/core/api/src/api.ts:14` (`CoreExecutorApi`),
-  `packages/core/api/src/api.ts:21` (`addGroup`).
-- Existing reactive client pattern to mirror per-plugin:
-  `packages/react/src/api/client.tsx:11` (`AtomHttpApi.Service`),
-  `packages/react/src/api/atoms.tsx` (query/mutation atom definitions),
-  `packages/react/src/pages/sources.tsx:167` (`AsyncResult.match` idiom).
-- Existing config consumer (CLI schema-gen):
-  `apps/local/executor.config.ts`.
-- Existing runtime plugin list (to be consolidated):
-  `apps/local/src/server/executor.ts:96` (`createLocalPlugins`).
-- Existing pluggable-capability shape:
-  `packages/plugins/file-secrets/src/index.ts:204` (the `secretProviders`
-  field). When artifacts ship, the new `artifactStore` field follows the
-  same per-capability-typed-field pattern.
+
+**Shipped code:**
+- Plugin contract: `packages/core/sdk/src/plugin.ts` (`PluginSpec`,
+  `definePlugin`).
+- Client contract: `packages/core/sdk/src/client.ts`
+  (`defineClientPlugin`, `ExecutorPluginsProvider`,
+  `useSourcePlugins`, `useSecretProviderPlugins`, `useClientPlugins`,
+  `createPluginAtomClient`).
+- Host composition helpers: `packages/core/api/src/plugin-routes.ts`
+  (`composePluginApi`, `composePluginHandlers`,
+  `composePluginHandlerLayer`, `providePluginExtensions`).
+- Vite plugin: `packages/core/vite-plugin/src/index.ts`.
+- Canary plugin: `packages/plugins/example/`.
+- Local config + wiring: `apps/local/executor.config.ts`,
+  `apps/local/src/server/main.ts`, `apps/local/src/routes/__root.tsx`.
+- Cloud config + wiring: `apps/cloud/executor.config.ts`,
+  `apps/cloud/src/api/protected-layers.ts`,
+  `apps/cloud/src/api/protected.ts`,
+  `apps/cloud/src/routes/__root.tsx`.
+- Pluggable-capability precedent: existing `secretProviders` field on
+  `PluginSpec`. When artifacts ship, the new `artifactStore` field
+  follows the same per-capability-typed-field pattern.
+
+**Adjacent plans:**
 - `notes/artifacts-workflows-and-generated-ui.md` — the artifacts/workflows
   plan. Uses "protocol" terminology that we're not adopting; read its
   "ArtifactStoreProtocol" as "the typed interface that goes into the

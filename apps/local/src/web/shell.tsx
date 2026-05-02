@@ -8,19 +8,7 @@ import { useScope, useScopeInfo } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
 import { SourceFavicon } from "@executor-js/react/components/source-favicon";
 import { CommandPalette } from "@executor-js/react/components/command-palette";
-import { openApiSourcePlugin } from "@executor-js/plugin-openapi/react";
-import { createMcpSourcePlugin } from "@executor-js/plugin-mcp/react";
-
-const mcpSourcePlugin = createMcpSourcePlugin({ allowStdio: true });
-import { googleDiscoverySourcePlugin } from "@executor-js/plugin-google-discovery/react";
-import { graphqlSourcePlugin } from "@executor-js/plugin-graphql/react";
-
-const sourcePlugins = [
-  openApiSourcePlugin,
-  mcpSourcePlugin,
-  googleDiscoverySourcePlugin,
-  graphqlSourcePlugin,
-];
+import { useClientPlugins } from "@executor-js/sdk/client";
 
 // ── Env ─────────────────────────────────────────────────────────────────
 
@@ -222,6 +210,53 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
   );
 }
 
+// ── PluginNav ────────────────────────────────────────────────────────────
+//
+// Renders one nav link per plugin page that opted in via
+// `pages[].nav.label`. The catch-all `/plugins/$pluginId/$` route is the
+// mount point; the splat is the page's relative path with the leading
+// slash stripped.
+
+function PluginNav(props: { pathname: string; onNavigate?: () => void }) {
+  const plugins = useClientPlugins();
+  const entries = plugins.flatMap((plugin) =>
+    (plugin.pages ?? [])
+      .filter((page) => page.nav)
+      .map((page) => {
+        const splat = page.path.replace(/^\//, "");
+        const href = `/plugins/${plugin.id}${splat ? `/${splat}` : "/"}`;
+        return {
+          key: `${plugin.id}:${page.path}`,
+          pluginId: plugin.id,
+          splat,
+          href,
+          label: page.nav!.label,
+        };
+      }),
+  );
+  if (entries.length === 0) return null;
+  return (
+    <>
+      {entries.map((entry) => (
+        <Link
+          key={entry.key}
+          to="/plugins/$pluginId/$"
+          params={{ pluginId: entry.pluginId, _splat: entry.splat }}
+          onClick={props.onNavigate}
+          className={[
+            "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+            props.pathname === entry.href || props.pathname.startsWith(`${entry.href}/`)
+              ? "bg-sidebar-active text-foreground font-medium"
+              : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
+          ].join(" ")}
+        >
+          {entry.label}
+        </Link>
+      ))}
+    </>
+  );
+}
+
 // ── SourceList ───────────────────────────────────────────────────────────
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
@@ -334,6 +369,8 @@ function SidebarContent(props: {
           onNavigate={props.onNavigate}
         />
 
+        <PluginNav pathname={props.pathname} onNavigate={props.onNavigate} />
+
         {/* Sources list */}
         <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <span>Sources</span>
@@ -419,7 +456,7 @@ export function Shell() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <CommandPalette sourcePlugins={sourcePlugins} />
+      <CommandPalette />
       {/* Desktop sidebar */}
       <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
         <SidebarContent

@@ -9,6 +9,12 @@ import {
   type ToolAnnotations,
 } from "@executor-js/sdk/core";
 
+import { GoogleDiscoveryGroup } from "../api/group";
+import {
+  GoogleDiscoveryExtensionService,
+  GoogleDiscoveryHandlers,
+} from "../api/handlers";
+
 import {
   googleDiscoverySchema,
   makeGoogleDiscoveryStore,
@@ -300,6 +306,7 @@ const registerManifest = (
 
 export const googleDiscoveryPlugin = definePlugin(() => ({
   id: "googleDiscovery" as const,
+  packageName: "@executor-js/plugin-google-discovery",
   schema: googleDiscoverySchema,
   storage: (deps) => makeGoogleDiscoveryStore(deps),
 
@@ -497,4 +504,8 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
   // connection's providerState (stamped at `ctx.oauth.start` time with
   // the `authorization-code` strategy's tokenEndpoint), so refresh
   // reaches Google through the unified code path.
+
+  routes: () => GoogleDiscoveryGroup,
+  handlers: () => GoogleDiscoveryHandlers,
+  extensionService: GoogleDiscoveryExtensionService,
 }));

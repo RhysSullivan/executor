@@ -26,7 +26,10 @@ async function generateAction(opts: {
     process.exit(1);
   }
 
-  const schema = collectSchemas(config.plugins);
+  // The CLI never reaches plugin runtime — only `plugin.schema` is read.
+  // Pass an empty deps object; plugins that need host deps must tolerate
+  // missing values for schema-only inspection.
+  const schema = collectSchemas(config.plugins({}));
 
   const result = await generateDrizzleSchema({
     schema,

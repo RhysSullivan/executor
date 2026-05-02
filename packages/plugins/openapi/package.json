@@ -20,6 +20,7 @@
     "./promise": "./src/promise.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
+    "./client": "./src/react/plugin-client.tsx",
     "./presets": "./src/sdk/presets.ts"
   },
   "publishConfig": {

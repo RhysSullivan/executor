@@ -71,13 +71,7 @@ const scopedServiceName = (
 ): string =>
   `${resolveServiceName(options?.serviceName)}/${ctx.scopes[0]!.id as string}`;
 
-export const keychainPlugin = definePlugin<
-  "keychain",
-  KeychainExtension,
-  {},
-  undefined,
-  KeychainPluginConfig
->(
+export const keychainPlugin = definePlugin(
   (options?: KeychainPluginConfig) => ({
     id: "keychain" as const,
     storage: () => ({}),

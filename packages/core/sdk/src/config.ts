@@ -1,28 +1,53 @@
 // ---------------------------------------------------------------------------
-// defineExecutorConfig — typed config declaration for the CLI.
+// defineExecutorConfig — typed config declaration consumed by both the
+// schema-gen CLI and the host runtime. Single source of truth for the
+// plugin list. First-party and third-party plugins go through the same
+// `bun add @executor-js/plugin-foo` + import-and-call flow.
 //
-// Analogous to better-auth's `auth.ts` config file. The CLI loads this
-// to read the plugin list and dialect without constructing a real executor
-// (which needs a live database connection). Plugin factories may receive
-// stub credentials here — the CLI only reads `plugin.schema`, never calls
-// the plugin at runtime.
+// `plugins` is always a factory `(deps) => readonly AnyPlugin[]`. Some
+// plugins want runtime values from the host (e.g., the openapi plugin's
+// `configFile` sink, which is keyed to the active scope cwd and so can't
+// be constructed at module-eval time). The CLI calls the factory with an
+// empty `{}` and reads `plugin.schema` only — never invokes the runtime.
+// The host runtime calls the same factory with concrete deps.
 // ---------------------------------------------------------------------------
 
 import type { AnyPlugin } from "./plugin";
 
 export type ExecutorDialect = "pg" | "sqlite" | "mysql";
 
-export interface ExecutorCliConfig {
+/**
+ * Host-supplied dependencies passed to a `plugins` factory at evaluation
+ * time. Open by design — host apps cast/extend as needed (e.g., the local
+ * app passes `{ configFile: ConfigFileSink }`).
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface ConfigPluginDeps {}
+
+export type ExecutorPluginsFactory<
+  TPlugins extends readonly AnyPlugin[] = readonly AnyPlugin[],
+> = (deps: ConfigPluginDeps) => TPlugins;
+
+export interface ExecutorCliConfig<
+  TPlugins extends readonly AnyPlugin[] = readonly AnyPlugin[],
+> {
   readonly dialect: ExecutorDialect;
-  readonly plugins: readonly AnyPlugin[];
+  readonly plugins: ExecutorPluginsFactory<TPlugins>;
 }
 
 /**
- * Declare an executor config for the CLI to consume. The CLI imports
- * this file via jiti and reads `plugins` + `dialect` to generate the
- * drizzle schema. Plugin runtime credentials can be stubs — only
- * `plugin.schema` is read.
+ * Declare an executor config. The CLI imports this file via jiti and
+ * reads `plugins` + `dialect` to generate the drizzle schema; the host
+ * runtime imports the same file to instantiate plugins. Plugin runtime
+ * credentials passed to the factory may be stubs from the CLI — only
+ * `plugin.schema` is read there.
+ *
+ * The `const TPlugins` modifier preserves the tuple-literal inference
+ * from the factory's return so per-plugin extension typing flows through
+ * (`ReturnType<typeof config.plugins>` keeps `[OpenApi, Mcp, ...]`).
  */
-export const defineExecutorConfig = <const T extends ExecutorCliConfig>(
-  config: T,
-): T => config;
+export const defineExecutorConfig = <
+  const TPlugins extends readonly AnyPlugin[],
+>(
+  config: ExecutorCliConfig<TPlugins>,
+): ExecutorCliConfig<TPlugins> => config;

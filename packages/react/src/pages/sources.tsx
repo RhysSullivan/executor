@@ -3,10 +3,14 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import type { SourceDetectionResult } from "@executor-js/sdk";
+import {
+  useSourcePlugins,
+  type SourcePlugin,
+  type SourcePreset,
+} from "@executor-js/sdk/client";
 import { detectSource } from "../api/atoms";
 import { useSourcesWithPending } from "../api/optimistic";
 import { useScope } from "../hooks/use-scope";
-import type { SourcePlugin, SourcePreset } from "../plugins/source-plugin";
 import { McpInstallCard } from "../components/mcp-install-card";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
@@ -48,8 +52,8 @@ const bestDetection = (
 // Page
 // ---------------------------------------------------------------------------
 
-export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
-  const { sourcePlugins } = props;
+export function SourcesPage() {
+  const sourcePlugins = useSourcePlugins();
   const [url, setUrl] = useState("");
   const [detecting, setDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,7 +203,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
               <div className="mb-8 space-y-8">
                 {connectedSources.length > 0 && (
                   <section className="space-y-3">
-                    <SourceGrid sources={connectedSources} sourcePlugins={sourcePlugins} />
+                    <SourceGrid sources={connectedSources} />
                   </section>
                 )}
               </div>
@@ -209,7 +213,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
 
         <div className="mb-8 border-t border-border/50" />
 
-        <PresetGrid plugins={sourcePlugins} />
+        <PresetGrid />
       </div>
     </div>
   );
@@ -225,10 +229,11 @@ type PresetEntry = {
   pluginLabel: string;
 };
 
-function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
+function PresetGrid() {
+  const plugins = useSourcePlugins();
   const allPresets = useMemo(() => {
     const entries: PresetEntry[] = [];
-    for (const plugin of props.plugins) {
+    for (const plugin of plugins) {
       for (const preset of plugin.presets ?? []) {
         entries.push({
           preset,
@@ -238,7 +243,7 @@ function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
       }
     }
     return entries;
-  }, [props.plugins]);
+  }, [plugins]);
 
   if (allPresets.length === 0) return null;
 
@@ -300,13 +305,13 @@ function SourceGrid(props: {
     url?: string;
     runtime?: boolean;
   }[];
-  sourcePlugins: readonly SourcePlugin[];
 }) {
+  const sourcePlugins = useSourcePlugins();
   const pluginByKind = useMemo(() => {
     const out = new Map<string, SourcePlugin>();
-    for (const p of props.sourcePlugins) out.set(p.key, p);
+    for (const p of sourcePlugins) out.set(p.key, p);
     return out;
-  }, [props.sourcePlugins]);
+  }, [sourcePlugins]);
 
   return (
     <CardStack searchable>

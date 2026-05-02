@@ -7,6 +7,8 @@ import { PostHogProvider } from "posthog-js/react";
 import { ExecutorProvider } from "@executor-js/react/api/provider";
 import { Skeleton } from "@executor-js/react/components/skeleton";
 import { Toaster } from "@executor-js/react/components/sonner";
+import { ExecutorPluginsProvider } from "@executor-js/sdk/client";
+import { plugins as clientPlugins } from "virtual:executor/plugins-client";
 import { AuthProvider, useAuth } from "../web/auth";
 import { LoginPage } from "../web/pages/login";
 import { OnboardingPage } from "../web/pages/onboarding";
@@ -161,8 +163,10 @@ function AuthGate() {
   return (
     <AutumnProvider pathPrefix="/api/autumn">
       <ExecutorProvider fallback={<ShellSkeleton />}>
-        <Shell />
-        <Toaster />
+        <ExecutorPluginsProvider plugins={clientPlugins}>
+          <Shell />
+          <Toaster />
+        </ExecutorPluginsProvider>
       </ExecutorProvider>
     </AutumnProvider>
   );

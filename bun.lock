@@ -66,6 +66,7 @@
         "@executor-js/sdk": "workspace:*",
         "@executor-js/storage-core": "workspace:*",
         "@executor-js/storage-postgres": "workspace:*",
+        "@executor-js/vite-plugin": "workspace:*",
         "@microlabs/otel-cf-workers": "^1.0.0-rc.52",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@opentelemetry/api": "~1.9.0",
@@ -134,6 +135,7 @@
         "@executor-js/config": "workspace:*",
         "@executor-js/execution": "workspace:*",
         "@executor-js/host-mcp": "workspace:*",
+        "@executor-js/plugin-example": "workspace:*",
         "@executor-js/plugin-file-secrets": "workspace:*",
         "@executor-js/plugin-google-discovery": "workspace:*",
         "@executor-js/plugin-graphql": "workspace:*",
@@ -145,6 +147,7 @@
         "@executor-js/runtime-quickjs": "workspace:*",
         "@executor-js/sdk": "workspace:*",
         "@executor-js/storage-file": "workspace:*",
+        "@executor-js/vite-plugin": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.12.1",
         "@tanstack/react-router": "catalog:",
         "drizzle-orm": "catalog:",
@@ -306,12 +309,23 @@
         "oauth4webapi": "^3.8.5",
       },
       "devDependencies": {
+        "@effect/atom-react": "catalog:",
         "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
+        "@types/react": "catalog:",
+        "react": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
+      "peerDependencies": {
+        "@effect/atom-react": "catalog:",
+        "react": "catalog:",
+      },
+      "optionalPeers": [
+        "@effect/atom-react",
+        "react",
+      ],
     },
     "packages/core/storage-core": {
       "name": "@executor-js/storage-core",
@@ -387,6 +401,25 @@
         "postgres": "^3.4.9",
         "typescript": "catalog:",
         "vitest": "catalog:",
+      },
+    },
+    "packages/core/vite-plugin": {
+      "name": "@executor-js/vite-plugin",
+      "version": "0.0.1",
+      "dependencies": {
+        "@executor-js/sdk": "workspace:*",
+        "jiti": "^2.6.1",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "vite": "catalog:",
       },
     },
     "packages/hosts/mcp": {
@@ -498,6 +531,28 @@
         "bun-types": "catalog:",
         "vitest": "catalog:",
       },
+    },
+    "packages/plugins/example": {
+      "name": "@executor-js/plugin-example",
+      "version": "0.0.1",
+      "dependencies": {
+        "@executor-js/sdk": "workspace:*",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "@types/react": "catalog:",
+        "react": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "react": "catalog:",
+      },
+      "optionalPeers": [
+        "react",
+      ],
     },
     "packages/plugins/file-secrets": {
       "name": "@executor-js/plugin-file-secrets",
@@ -1203,6 +1258,8 @@
 
     "@executor-js/marketing": ["@executor-js/marketing@workspace:apps/marketing"],
 
+    "@executor-js/plugin-example": ["@executor-js/plugin-example@workspace:packages/plugins/example"],
+
     "@executor-js/plugin-file-secrets": ["@executor-js/plugin-file-secrets@workspace:packages/plugins/file-secrets"],
 
     "@executor-js/plugin-google-discovery": ["@executor-js/plugin-google-discovery@workspace:packages/plugins/google-discovery"],
@@ -1238,6 +1295,8 @@
     "@executor-js/storage-file": ["@executor-js/storage-file@workspace:packages/core/storage-file"],
 
     "@executor-js/storage-postgres": ["@executor-js/storage-postgres@workspace:packages/core/storage-postgres"],
+
+    "@executor-js/vite-plugin": ["@executor-js/vite-plugin@workspace:packages/core/vite-plugin"],
 
     "@floating-ui/core": ["@floating-ui/core@1.7.5", "", { "dependencies": { "@floating-ui/utils": "^0.2.11" } }, "sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ=="],
 

@@ -19,7 +19,8 @@
     ".": "./src/sdk/index.ts",
     "./promise": "./src/promise.ts",
     "./api": "./src/api/index.ts",
-    "./react": "./src/react/index.ts"
+    "./react": "./src/react/index.ts",
+    "./client": "./src/react/plugin-client.tsx"
   },
   "publishConfig": {
     "access": "public",

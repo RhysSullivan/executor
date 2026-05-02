@@ -2,6 +2,9 @@ import { Duration, Effect, Exit, Result, Scope, ScopedCache } from "effect";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 
+import { McpGroup } from "../api/group";
+import { McpExtensionService, McpHandlers } from "../api/handlers";
+
 import {
   SourceDetectionResult,
   definePlugin,
@@ -414,13 +417,7 @@ const toMcpConfigEntry = (
   return entry;
 };
 
-export const mcpPlugin = definePlugin<
-  "mcp",
-  McpPluginExtension,
-  McpBindingStore,
-  typeof mcpSchema,
-  McpPluginOptions
->((options?: McpPluginOptions) => {
+export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
   const allowStdio = options?.dangerouslyAllowStdioMCP ?? false;
   // Per-plugin-instance runtime holder. Captured by closures in
   // `extension`, `invokeTool`, and `close`, so all three see the same
@@ -440,6 +437,7 @@ export const mcpPlugin = definePlugin<
 
   return {
     id: "mcp" as const,
+    packageName: "@executor-js/plugin-mcp",
     schema: mcpSchema,
     storage: (deps): McpBindingStore => makeMcpStore(deps),
 
@@ -1005,6 +1003,13 @@ export const mcpPlugin = definePlugin<
           runtimeRef.current = null;
         }
       }).pipe(Effect.withSpan("mcp.plugin.close")),
+
+    // HTTP transport. `McpHandlers` requires `McpExtensionService`; the
+    // host satisfies it via the `extensionService` Tag — at boot for
+    // local, per request for cloud.
+    routes: () => McpGroup,
+    handlers: () => McpHandlers,
+    extensionService: McpExtensionService,
   };
 });
 

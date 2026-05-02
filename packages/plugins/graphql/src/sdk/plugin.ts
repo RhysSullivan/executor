@@ -1,6 +1,9 @@
 import { Effect, Option } from "effect";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import type { Layer } from "effect";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+
+import { GraphqlGroup } from "../api/group";
+import { GraphqlExtensionService, GraphqlHandlers } from "../api/handlers";
 
 import {
   definePlugin,
@@ -322,6 +325,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
 
   return {
     id: "graphql" as const,
+    packageName: "@executor-js/plugin-graphql",
     schema: graphqlSchema,
     storage: (deps): GraphqlStore => makeDefaultGraphqlStore(deps),
 
@@ -657,5 +661,9 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
           namespace: name,
         });
       }),
+
+    routes: () => GraphqlGroup,
+    handlers: () => GraphqlHandlers,
+    extensionService: GraphqlExtensionService,
   };
 });

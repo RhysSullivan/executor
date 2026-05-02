@@ -1,4 +1,11 @@
 export { ExecutorApi, CoreExecutorApi, addGroup } from "./api";
+export {
+  composePluginApi,
+  composePluginHandlers,
+  composePluginHandlerLayer,
+  providePluginExtensions,
+  type PluginExtensionServices,
+} from "./plugin-routes";
 export { ToolsApi } from "./tools/api";
 export { SourcesApi } from "./sources/api";
 export { SecretsApi } from "./secrets/api";

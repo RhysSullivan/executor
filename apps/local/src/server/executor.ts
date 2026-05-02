@@ -27,17 +27,11 @@ import {
   makeSqliteBlobStore,
 } from "@executor-js/storage-file";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import { makeFileConfigSink, type ConfigFileSink } from "@executor-js/config";
+import { makeFileConfigSink } from "@executor-js/config";
 import * as executorSchema from "./executor-schema";
 
 import { syncFromConfig, resolveConfigPath } from "./config-sync";
-import { openApiPlugin } from "@executor-js/plugin-openapi";
-import { mcpPlugin } from "@executor-js/plugin-mcp";
-import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
-import { graphqlPlugin } from "@executor-js/plugin-graphql";
-import { keychainPlugin } from "@executor-js/plugin-keychain";
-import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
-import { onepasswordPlugin } from "@executor-js/plugin-onepassword";
+import executorConfig from "../../executor.config";
 
 // In dev mode the drizzle folder sits next to the source tree. In a compiled
 // binary the files are inlined via the build-time gen module below, and we
@@ -93,25 +87,18 @@ const makeScopeId = (cwd: string): string => {
   return `${folder}-${hash}`;
 };
 
-const createLocalPlugins = (configFile: ConfigFileSink) =>
-  [
-    openApiPlugin({ configFile }),
-    mcpPlugin({ dangerouslyAllowStdioMCP: true, configFile }),
-    googleDiscoveryPlugin(),
-    graphqlPlugin({ configFile }),
-    keychainPlugin(),
-    fileSecretsPlugin(),
-    onepasswordPlugin(),
-  ] as const;
+type LocalPlugins = ReturnType<typeof executorConfig.plugins>;
 
-type LocalPlugins = ReturnType<typeof createLocalPlugins>;
+interface LocalExecutorBundle {
+  readonly executor: Effect.Success<ReturnType<typeof createExecutor<LocalPlugins>>>;
+  readonly plugins: LocalPlugins;
+}
 
-class LocalExecutorTag extends Context.Service<
-  LocalExecutorTag,
-  Effect.Success<ReturnType<typeof createExecutor<LocalPlugins>>>
->()("@executor-js/local/Executor") {}
+class LocalExecutorTag extends Context.Service<LocalExecutorTag, LocalExecutorBundle>()(
+  "@executor-js/local/Executor",
+) {}
 
-export type LocalExecutor = Context.Service.Shape<typeof LocalExecutorTag>;
+export type LocalExecutor = LocalExecutorBundle["executor"];
 
 const createLocalExecutorLayer = () => {
   const { path: dbPath, legacySecrets } = resolveDbPath();
@@ -145,7 +132,7 @@ const createLocalExecutorLayer = () => {
         fsLayer: NodeFileSystem.layer,
       });
 
-      const plugins = createLocalPlugins(configFile);
+      const plugins = executorConfig.plugins({ configFile });
       const schema = collectSchemas(plugins);
       const adapter = makeSqliteAdapter({ db, schema });
       const blobs = makeSqliteBlobStore({ db });
@@ -170,7 +157,7 @@ const createLocalExecutorLayer = () => {
       // contains them.
       yield* syncFromConfig(executor, configPath);
 
-      return executor;
+      return { executor, plugins };
     }),
   );
 };
@@ -178,12 +165,13 @@ const createLocalExecutorLayer = () => {
 export const createExecutorHandle = async () => {
   const layer = createLocalExecutorLayer();
   const runtime = ManagedRuntime.make(layer);
-  const executor = await runtime.runPromise(LocalExecutorTag.asEffect());
+  const bundle = await runtime.runPromise(LocalExecutorTag.asEffect());
 
   return {
-    executor,
+    executor: bundle.executor,
+    plugins: bundle.plugins,
     dispose: async () => {
-      await Effect.runPromise(executor.close()).catch(() => undefined);
+      await Effect.runPromise(bundle.executor.close()).catch(() => undefined);
       await runtime.dispose().catch(() => undefined);
     },
   };
@@ -201,6 +189,7 @@ const loadSharedHandle = () => {
 };
 
 export const getExecutor = () => loadSharedHandle().then((handle) => handle.executor);
+export const getExecutorBundle = () => loadSharedHandle();
 
 export const disposeExecutor = async (): Promise<void> => {
   const currentHandlePromise = sharedHandlePromise;
