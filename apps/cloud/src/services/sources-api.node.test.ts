@@ -5,7 +5,9 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import http from "node:http";
 import { readFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 
 import { ScopeId, SecretId } from "@executor-js/sdk";
@@ -29,6 +31,94 @@ const MINIMAL_OPENAPI_SPEC = JSON.stringify({
     },
   },
 });
+
+const invocableOpenApiSpec = (baseUrl: string) =>
+  JSON.stringify({
+    openapi: "3.0.0",
+    info: { title: "Invocable Source API", version: "1.0.0" },
+    servers: [{ url: baseUrl }],
+    paths: {
+      "/echo/{message}": {
+        get: {
+          operationId: "echoMessage",
+          summary: "Echo message",
+          parameters: [
+            {
+              name: "message",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+            {
+              name: "suffix",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "ok",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      message: { type: "string" },
+                      suffix: { type: "string" },
+                      path: { type: "string" },
+                    },
+                    required: ["message", "path"],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+const startEchoServer = () => {
+  const requests: Array<{ readonly path: string; readonly suffix: string | null }> = [];
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    const match = /^\/echo\/([^/]+)$/.exec(url.pathname);
+    if (!match) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not_found" }));
+      return;
+    }
+
+    requests.push({
+      path: url.pathname,
+      suffix: url.searchParams.get("suffix"),
+    });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        message: decodeURIComponent(match[1]!),
+        suffix: url.searchParams.get("suffix") ?? undefined,
+        path: url.pathname,
+      }),
+    );
+  });
+
+  return new Promise<{
+    readonly baseUrl: string;
+    readonly requests: () => ReadonlyArray<{ readonly path: string; readonly suffix: string | null }>;
+    readonly close: () => Promise<void>;
+  }>((resolveServer) => {
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as AddressInfo;
+      resolveServer({
+        baseUrl: `http://127.0.0.1:${port}`,
+        requests: () => requests,
+        close: () => new Promise((close) => server.close(() => close())),
+      });
+    });
+  });
+};
 
 // The Cloudflare OpenAPI spec is the biggest real spec we care about:
 // 16MB, 2700+ operations, thousands of shared schemas. Exercising
@@ -83,6 +173,112 @@ describe("sources api (HTTP)", () => {
       );
       expect(fetched).not.toBeNull();
       expect(fetched?.namespace).toBe(namespace);
+    }),
+  );
+
+  it.effect("added OpenAPI source can be listed, inspected, and invoked through execution", () =>
+    Effect.gen(function* () {
+      const server = yield* Effect.acquireRelease(
+        Effect.promise(() => startEchoServer()),
+        (fixture) => Effect.promise(() => fixture.close()),
+      );
+      const org = `org_${crypto.randomUUID()}`;
+      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const scopeId = ScopeId.make(org);
+
+      const addResult = yield* asOrg(org, (client) =>
+        client.openapi.addSpec({
+          params: { scopeId },
+          payload: {
+            spec: invocableOpenApiSpec(server.baseUrl),
+            namespace,
+          },
+        }),
+      );
+      expect(addResult).toEqual({ namespace, toolCount: 1 });
+
+      const fetched = yield* asOrg(org, (client) =>
+        client.openapi.getSource({ params: { scopeId, namespace } }),
+      );
+      expect(fetched).toMatchObject({
+        namespace,
+        name: "Invocable Source API",
+        config: { baseUrl: server.baseUrl },
+      });
+
+      const tools = yield* asOrg(org, (client) =>
+        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+      );
+      const toolId = `${namespace}.echo.echoMessage`;
+      expect(tools.map((tool) => tool.id)).toContain(toolId);
+
+      const execution = yield* asOrg(org, (client) =>
+        client.executions.execute({
+          payload: {
+            code: [
+              `const result = await tools.${namespace}.echo.echoMessage({ message: "hello", suffix: "world" });`,
+              "return result;",
+            ].join("\n"),
+          },
+        }),
+      );
+
+      if (execution.status !== "completed") {
+        throw new Error(`Expected completed execution, got ${execution.status}`);
+      }
+      expect(execution.isError).toBe(false);
+      expect(execution.structured).toMatchObject({
+        status: "completed",
+        result: {
+          message: "hello",
+          suffix: "world",
+          path: "/echo/hello",
+        },
+        logs: [],
+      });
+      expect(server.requests()).toEqual([{ path: "/echo/hello", suffix: "world" }]);
+    }),
+  );
+
+  it.effect("mcp.getSource returns a persisted source even when discovery failed", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const namespace = `mcp_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const scopeId = ScopeId.make(org);
+
+      const addResult = yield* asOrg(org, (client) =>
+        client.mcp
+          .addSource({
+            params: { scopeId },
+            payload: {
+              transport: "remote",
+              name: "Broken MCP",
+              endpoint: "http://127.0.0.1:1/mcp",
+              remoteTransport: "auto",
+              namespace,
+            },
+          })
+          .pipe(Effect.result),
+      );
+      expect(addResult._tag).toBe("Failure");
+
+      const fetched = yield* asOrg(org, (client) =>
+        client.mcp.getSource({ params: { scopeId, namespace } }),
+      );
+      expect(fetched).toMatchObject({
+        namespace,
+        name: "Broken MCP",
+        config: {
+          transport: "remote",
+          endpoint: "http://127.0.0.1:1/mcp",
+          remoteTransport: "auto",
+        },
+      });
+
+      const tools = yield* asOrg(org, (client) =>
+        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+      );
+      expect(tools).toEqual([]);
     }),
   );
 
