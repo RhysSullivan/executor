@@ -13,15 +13,10 @@ import {
   ExecutionEngineService,
   ExecutorService,
   providePluginExtensions,
+  type PluginExtensionServices,
 } from "@executor-js/api/server";
-// Type-only imports — needed in the `provides` clause so the framework
-// knows which Service tags this middleware satisfies. Runtime binding
-// is data-driven via `providePluginExtensions(cloudPlugins)`.
-import type { OpenApiExtensionService } from "@executor-js/plugin-openapi/api";
-import type { McpExtensionService } from "@executor-js/plugin-mcp/api";
-import type { GraphqlExtensionService } from "@executor-js/plugin-graphql/api";
 
-import executorConfig from "../../executor.config";
+import { cloudPlugins, type CloudPlugins } from "./cloud-plugins";
 import { AuthContext } from "../auth/middleware";
 import { authorizeOrganization } from "../auth/authorize-organization";
 import { UserStoreService } from "../auth/context";
@@ -37,11 +32,6 @@ import {
   RouterConfig,
 } from "./protected-layers";
 import { requestScopedMiddleware } from "./request-scoped";
-
-// Plugin list at module-eval time — same property as
-// `protected-layers.ts`: `plugins({})` is safe because no plugin's
-// extension construction runs here.
-const cloudPlugins = executorConfig.plugins({});
 
 // Pre-compute the per-plugin `Effect.provideService(extensionService,
 // executor[id])` chain. The plugin spec carries the Service tag so
@@ -71,16 +61,15 @@ const provideExecutorExtensions = providePluginExtensions(cloudPlugins);
 // fresh per request so the postgres.js socket lives in the request
 // fiber's scope, not the worker's boot scope.
 const ExecutionStackMiddleware = HttpRouter.middleware<{
-  // Listed for layer-level satisfaction. Runtime binding is data-driven
-  // via `providePluginExtensions(cloudPlugins)(executor)` below — no
-  // per-plugin `*ExtensionService` value imports needed.
+  // The plugin extension Services this middleware satisfies are derived
+  // from `typeof cloudPlugins` — no per-plugin `*ExtensionService`
+  // imports at the host. Runtime binding mirrors the type:
+  // `providePluginExtensions(cloudPlugins)(executor)` below.
   provides:
     | AuthContext
     | ExecutorService
     | ExecutionEngineService
-    | OpenApiExtensionService
-    | McpExtensionService
-    | GraphqlExtensionService;
+    | PluginExtensionServices<CloudPlugins>;
 }>()(
   Effect.gen(function* () {
     const longLived = yield* Effect.context<WorkOSAuth | AutumnService>();

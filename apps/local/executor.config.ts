@@ -1,4 +1,4 @@
-import { defineExecutorConfig, type ConfigPluginDeps } from "@executor-js/sdk";
+import { defineExecutorConfig } from "@executor-js/sdk";
 import type { ConfigFileSink } from "@executor-js/config";
 import { openApiPlugin } from "@executor-js/plugin-openapi";
 import { mcpPlugin } from "@executor-js/plugin-mcp";
@@ -16,25 +16,25 @@ import { examplePlugin } from "@executor-js/plugin-example/server";
 //   - the schema-gen CLI (reads `plugin.schema` only; calls `plugins({})`)
 //   - the host runtime (calls `plugins({ configFile })` with a real sink)
 //
+// `TDeps` is inferred from the factory parameter annotation directly.
 // First-party and third-party plugins use the same import-and-call flow.
 // ---------------------------------------------------------------------------
 
-declare module "@executor-js/sdk" {
-  interface ConfigPluginDeps {
-    readonly configFile?: ConfigFileSink;
-  }
+interface LocalPluginDeps {
+  readonly configFile?: ConfigFileSink;
 }
 
 export default defineExecutorConfig({
   dialect: "sqlite",
-  plugins: ({ configFile }: ConfigPluginDeps) => [
-    openApiPlugin({ configFile }),
-    mcpPlugin({ dangerouslyAllowStdioMCP: true, configFile }),
-    googleDiscoveryPlugin(),
-    graphqlPlugin({ configFile }),
-    keychainPlugin(),
-    fileSecretsPlugin(),
-    onepasswordPlugin(),
-    examplePlugin(),
-  ],
+  plugins: ({ configFile }: LocalPluginDeps) =>
+    [
+      openApiPlugin({ configFile }),
+      mcpPlugin({ dangerouslyAllowStdioMCP: true, configFile }),
+      googleDiscoveryPlugin(),
+      graphqlPlugin({ configFile }),
+      keychainPlugin(),
+      fileSecretsPlugin(),
+      onepasswordPlugin(),
+      examplePlugin(),
+    ] as const,
 });

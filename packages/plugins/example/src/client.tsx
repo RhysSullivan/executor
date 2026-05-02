@@ -19,9 +19,7 @@ import {
 
 import { ExampleApi } from "./shared";
 
-const ExampleClient = createPluginAtomClient(ExampleApi, {
-  pluginId: "example",
-});
+const ExampleClient = createPluginAtomClient(ExampleApi);
 
 const greetAtom = ExampleClient.mutation("example", "greet");
 

@@ -315,6 +315,7 @@ export interface PluginSpec<
   TExtensionService extends Context.Service<any, any> | undefined = undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
+  TGroup extends HttpApiGroup.Any = HttpApiGroup.Any,
 > {
   readonly id: TId;
   /** npm package name. The Vite plugin uses this to derive the
@@ -359,13 +360,15 @@ export interface PluginSpec<
    *  middleware applied. Endpoints automatically appear in the
    *  executor OpenAPI doc and the typed reactive client.
    *
-   *  Type is `HttpApiGroup.Any` because the host composes a runtime
-   *  array of groups with no compile-time way to track the full union.
-   *  Per-endpoint typing lives inside the plugin — its `handlers`
-   *  Layer is built against its own bundled `HttpApi.make("foo").add(FooApi)`
-   *  for full `.handle("name", ...)` inference, and its client imports
-   *  the same group directly. */
-  readonly routes?: () => HttpApiGroup.Any;
+   *  TGroup is inferred from the plugin's own group declaration so the
+   *  precise group identity flows through `composePluginApi(plugins)` —
+   *  the host's typed `HttpApi<"executor", CoreGroups | PluginGroups>`
+   *  is derived from the plugin tuple alone, with no per-plugin Group
+   *  imports at the host. Per-endpoint typing already lives inside the
+   *  plugin — its `handlers` Layer is built against its own bundled
+   *  `HttpApi.make("foo").add(FooApi)` for full `.handle("name", ...)`
+   *  inference, and its client imports the same group directly. */
+  readonly routes?: () => TGroup;
 
   /** Handlers Layer for this plugin's group. Built by the plugin against
    *  its own bundled API for full type safety on `.handle("name", ...)`,
@@ -492,13 +495,15 @@ export interface Plugin<
   TExtensionService extends Context.Service<any, any> | undefined = undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
+  TGroup extends HttpApiGroup.Any = HttpApiGroup.Any,
 > extends PluginSpec<
     TId,
     TExtension,
     TStore,
     TSchema,
     TExtensionService,
-    THandlersLayer
+    THandlersLayer,
+    TGroup
   > {}
 
 // ---------------------------------------------------------------------------
@@ -517,6 +522,7 @@ export type ConfiguredPlugin<
   TExtensionService extends Context.Service<any, any> | undefined = undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
+  TGroup extends HttpApiGroup.Any = HttpApiGroup.Any,
 > = (
   options?: TOptions & {
     readonly storage?: (deps: StorageDeps<TSchema>) => TStore;
@@ -527,7 +533,8 @@ export type ConfiguredPlugin<
   TStore,
   TSchema,
   TExtensionService,
-  THandlersLayer
+  THandlersLayer,
+  TGroup
 >;
 
 // eslint-disable-next-line @typescript-eslint/ban-types
@@ -541,6 +548,7 @@ export function definePlugin<
   TExtensionService extends Context.Service<any, any> | undefined = undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
+  TGroup extends HttpApiGroup.Any = HttpApiGroup.Any,
 >(
   authorFactory: (
     options?: TOptions,
@@ -550,7 +558,8 @@ export function definePlugin<
     TStore,
     TSchema,
     TExtensionService,
-    THandlersLayer
+    THandlersLayer,
+    TGroup
   >,
 ): ConfiguredPlugin<
   TId,
@@ -559,7 +568,8 @@ export function definePlugin<
   TOptions,
   TSchema,
   TExtensionService,
-  THandlersLayer
+  THandlersLayer,
+  TGroup
 > {
   return (options) => {
     const {
@@ -587,12 +597,14 @@ export function definePlugin<
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyPlugin = Plugin<string, any, any, any, any, any>;
+export type AnyPlugin = Plugin<string, any, any, any, any, any, any>;
 
 export type PluginExtensions<TPlugins extends readonly AnyPlugin[]> = {
   readonly [P in TPlugins[number] as P["id"]]: P extends Plugin<
     string,
     infer TExt,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

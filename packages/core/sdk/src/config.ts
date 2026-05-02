@@ -10,29 +10,28 @@
 // be constructed at module-eval time). The CLI calls the factory with an
 // empty `{}` and reads `plugin.schema` only — never invokes the runtime.
 // The host runtime calls the same factory with concrete deps.
+//
+// Each app declares its own deps shape inline on the factory parameter
+// — TS infers `TDeps` from there, so apps don't reach into the SDK's
+// types via `declare module`. All deps are conventionally optional so
+// the schema-gen CLI can always call `plugins({})`.
 // ---------------------------------------------------------------------------
 
 import type { AnyPlugin } from "./plugin";
 
 export type ExecutorDialect = "pg" | "sqlite" | "mysql";
 
-/**
- * Host-supplied dependencies passed to a `plugins` factory at evaluation
- * time. Open by design — host apps cast/extend as needed (e.g., the local
- * app passes `{ configFile: ConfigFileSink }`).
- */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ConfigPluginDeps {}
-
 export type ExecutorPluginsFactory<
+  TDeps extends object = object,
   TPlugins extends readonly AnyPlugin[] = readonly AnyPlugin[],
-> = (deps: ConfigPluginDeps) => TPlugins;
+> = (deps: TDeps) => TPlugins;
 
 export interface ExecutorCliConfig<
+  TDeps extends object = object,
   TPlugins extends readonly AnyPlugin[] = readonly AnyPlugin[],
 > {
   readonly dialect: ExecutorDialect;
-  readonly plugins: ExecutorPluginsFactory<TPlugins>;
+  readonly plugins: ExecutorPluginsFactory<TDeps, TPlugins>;
 }
 
 /**
@@ -45,9 +44,14 @@ export interface ExecutorCliConfig<
  * The `const TPlugins` modifier preserves the tuple-literal inference
  * from the factory's return so per-plugin extension typing flows through
  * (`ReturnType<typeof config.plugins>` keeps `[OpenApi, Mcp, ...]`).
+ *
+ * `TDeps` is inferred from the factory's parameter — apps annotate
+ * the destructure (e.g., `({ configFile }: { configFile?: ConfigFileSink })`)
+ * directly. No global module augmentation needed.
  */
 export const defineExecutorConfig = <
+  TDeps extends object,
   const TPlugins extends readonly AnyPlugin[],
 >(
-  config: ExecutorCliConfig<TPlugins>,
-): ExecutorCliConfig<TPlugins> => config;
+  config: ExecutorCliConfig<TDeps, TPlugins>,
+): ExecutorCliConfig<TDeps, TPlugins> => config;

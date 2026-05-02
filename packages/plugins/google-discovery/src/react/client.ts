@@ -4,8 +4,5 @@ import { GoogleDiscoveryGroup } from "../api/group";
 
 export const GoogleDiscoveryClient = createPluginAtomClient(
   GoogleDiscoveryGroup,
-  {
-    pluginId: "googleDiscovery",
-    baseUrl: getBaseUrl(),
-  },
+  { baseUrl: getBaseUrl() },
 );

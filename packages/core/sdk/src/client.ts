@@ -18,7 +18,7 @@ import {
   type ReactNode,
 } from "react";
 import { HttpApi } from "effect/unstable/httpapi";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { FetchHttpClient } from "effect/unstable/http";
 import * as AtomHttpApi from "effect/unstable/reactivity/AtomHttpApi";
 
@@ -181,12 +181,13 @@ export const defineClientPlugin = <const TId extends string>(
 // existing `ExecutorApiClient` (see packages/react/src/api/client.tsx).
 // Per-endpoint payload/response/error types flow through from the
 // imported group, so plugin client code typechecks without codegen.
+//
+// The plugin id (used for the Service Tag and the synthetic API id) is
+// read from `group.identifier` — the same string the plugin passed to
+// `HttpApiGroup.make("foo")`. No second-source duplication.
 // ---------------------------------------------------------------------------
 
 export interface CreatePluginAtomClientOptions {
-  /** Plugin id — used for the service Tag, the synthetic API id, and
-   *  the base URL where the host mounts the group at runtime. */
-  readonly pluginId: string;
   /** Override the base URL. Defaults to `/api` (host strips this prefix
    *  when forwarding to the Effect handler) — same convention as the
    *  core `ExecutorApiClient`. */
@@ -196,20 +197,24 @@ export interface CreatePluginAtomClientOptions {
 /**
  * Build a typed reactive client for a plugin's HttpApiGroup.
  *
- *   const FooClient = createPluginAtomClient(FooApi, { pluginId: "foo" })
+ *   const FooClient = createPluginAtomClient(FooApi)
  *   export const fooThings = FooClient.query("foo", "listThings", { ... })
  *   export const fooSync   = FooClient.mutation("foo", "syncThing")
  *
- * Each plugin gets a private service Tag (`Plugin_<id>Client`) so multiple
- * plugins coexist in the same React tree without colliding.
+ * Each plugin gets a private service Tag (`Plugin_<id>Client`) keyed by
+ * the group's `identifier`, so multiple plugins coexist in the same
+ * React tree without colliding.
  */
-export const createPluginAtomClient = <G extends HttpApiGroup.Any>(
+export const createPluginAtomClient = <
+  G extends HttpApiGroup.HttpApiGroup<string, HttpApiEndpoint.Any, boolean>,
+>(
   group: G,
-  options: CreatePluginAtomClientOptions,
+  options: CreatePluginAtomClientOptions = {},
 ) => {
-  const { pluginId, baseUrl = "/api" } = options;
+  const { baseUrl = "/api" } = options;
+  const pluginId = group.identifier;
   const bundle = HttpApi.make(`plugin-${pluginId}`).add(group);
-  return AtomHttpApi.Service<`Plugin_${string}Client`>()(
+  return AtomHttpApi.Service<`Plugin_${G["identifier"]}Client`>()(
     `Plugin_${pluginId}Client`,
     {
       api: bundle,

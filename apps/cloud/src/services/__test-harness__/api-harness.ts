@@ -27,11 +27,8 @@ import {
   ExecutionEngineService,
   ExecutorService,
   providePluginExtensions,
+  type PluginExtensionServices,
 } from "@executor-js/api/server";
-// Type-only imports — see `protected.ts` for the same pattern.
-import type { OpenApiExtensionService } from "@executor-js/plugin-openapi/api";
-import type { McpExtensionService } from "@executor-js/plugin-mcp/api";
-import type { GraphqlExtensionService } from "@executor-js/plugin-graphql/api";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import {
@@ -220,9 +217,7 @@ const TestExecutionStackMiddleware = HttpRouter.middleware<{
     | AuthContext
     | ExecutorService
     | ExecutionEngineService
-    | OpenApiExtensionService
-    | McpExtensionService
-    | GraphqlExtensionService;
+    | PluginExtensionServices<typeof testPlugins>;
 }>()(
   // Layer-time setup — captures `DbService` so the per-request function
   // only depends on `HttpRouter`-Provided context. See `api/protected.ts`

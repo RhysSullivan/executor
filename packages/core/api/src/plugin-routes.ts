@@ -20,7 +20,7 @@
 
 import { Effect, Layer } from "effect";
 import type { Context } from "effect";
-import type { HttpApi } from "effect/unstable/httpapi";
+import type { HttpApi, HttpApiGroup } from "effect/unstable/httpapi";
 import type { AnyPlugin, PluginExtensions } from "@executor-js/sdk";
 
 import { CoreExecutorApi } from "./api";
@@ -43,8 +43,29 @@ type ExtractServiceId<S> = S extends Context.Service<infer Id, any> ? Id : never
 export type PluginExtensionServices<TPlugins extends readonly AnyPlugin[]> =
   ExtractServiceId<NonNullable<TPlugins[number]["extensionService"]>>;
 
-// The composed `HttpApi` is loosely typed — see file header.
-type LooseHttpApi = HttpApi.AnyWithProps;
+/** Extract the precise `HttpApiGroup` type carried by a plugin's
+ *  `routes()` field. Plugins without a `routes()` field contribute
+ *  nothing to the union (filtered out by `Extract<..., HttpApiGroup.Any>`). */
+type ExtractPluginGroup<P> = P extends { readonly routes?: () => infer G }
+  ? Extract<G, HttpApiGroup.Any>
+  : never;
+
+/** Union of every plugin's contributed group — combined with the core
+ *  executor groups to type `composePluginApi(plugins)` precisely. */
+export type PluginGroups<TPlugins extends readonly AnyPlugin[]> =
+  ExtractPluginGroup<TPlugins[number]>;
+
+/** Group identities baked into `CoreExecutorApi` (tools, sources, secrets,
+ *  …). Extracted via inference so adding a core group flows through
+ *  without touching this helper. */
+type CoreGroups =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  typeof CoreExecutorApi extends HttpApi.HttpApi<any, infer G> ? G : never;
+
+/** Result of `composePluginApi(plugins)` — the core API extended with
+ *  every plugin group from `TPlugins`. */
+export type ComposedExecutorApi<TPlugins extends readonly AnyPlugin[]> =
+  HttpApi.HttpApi<"executor", CoreGroups | PluginGroups<TPlugins>>;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyLayer = Layer.Layer<any, any, any>;
@@ -86,19 +107,24 @@ type MergedHandlerLayer<TPlugins extends readonly AnyPlugin[]> = Layer.Layer<
 /**
  * Compose plugin-contributed `HttpApiGroup`s into the core executor API.
  * Plugins without a `routes()` field are skipped.
+ *
+ * Returns a precisely typed `HttpApi<"executor", CoreGroups |
+ * PluginGroups<TPlugins>>`. Hosts that need `HttpApiClient.ForApi<typeof
+ * ProtectedCloudApi>` get exact endpoint types without per-plugin
+ * `import type { …Group }` statements at the host.
  */
-export const composePluginApi = (
-  plugins: readonly AnyPlugin[],
-): LooseHttpApi => {
-  let api: LooseHttpApi = CoreExecutorApi as unknown as LooseHttpApi;
+export const composePluginApi = <TPlugins extends readonly AnyPlugin[]>(
+  plugins: TPlugins,
+): ComposedExecutorApi<TPlugins> => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let api: any = CoreExecutorApi;
   for (const plugin of plugins) {
     if (plugin.routes) {
       const group = plugin.routes();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      api = (api as any).add(group);
+      api = api.add(group);
     }
   }
-  return api;
+  return api as ComposedExecutorApi<TPlugins>;
 };
 
 /**

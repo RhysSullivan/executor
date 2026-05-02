@@ -260,7 +260,6 @@ export {
   defineExecutorConfig,
   type ExecutorCliConfig,
   type ExecutorDialect,
-  type ConfigPluginDeps,
   type ExecutorPluginsFactory,
 } from "./config";
 
