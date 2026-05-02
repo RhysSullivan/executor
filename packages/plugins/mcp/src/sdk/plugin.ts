@@ -8,6 +8,7 @@ import {
   resolveSecretBackedMap as resolveSharedSecretBackedMap,
   type PluginCtx,
   type StorageFailure,
+  type ToolAnnotations,
 } from "@executor-js/sdk/core";
 
 import {
@@ -143,6 +144,7 @@ const toBinding = (entry: McpToolManifestEntry): McpToolBinding =>
     description: entry.description,
     inputSchema: entry.inputSchema,
     outputSchema: entry.outputSchema,
+    annotations: entry.annotations,
   });
 
 // ---------------------------------------------------------------------------
@@ -945,13 +947,38 @@ export const mcpPlugin = definePlugin<
         }),
       ),
 
-    // MCP tools never require approval at the tool level — elicitation is
-    // handled mid-invocation by the server via the elicit capability.
-    resolveAnnotations: ({ toolRows }) =>
-      Effect.sync(() => {
-        const out: Record<string, { requiresApproval: boolean }> = {};
+    // Honor upstream destructiveHint from MCP ToolAnnotations.
+    // Bindings are fetched per scope so shadowed sources (e.g. an org-level
+    // source overridden per-user) each resolve against their own scope's
+    // row rather than collapsing onto whichever row the scoped adapter
+    // sees first.
+    resolveAnnotations: ({ ctx, sourceId, toolRows }) =>
+      Effect.gen(function* () {
+        const scopes = new Set(toolRows.map((row) => row.scope_id));
+        const entries = yield* Effect.forEach(
+          [...scopes],
+          (scope) =>
+            Effect.gen(function* () {
+              const list = yield* ctx.storage.listBindingsBySource(sourceId, scope);
+              const byId = new Map(list.map((e) => [e.toolId, e.binding]));
+              return [scope, byId] as const;
+            }),
+          { concurrency: "unbounded" },
+        );
+        const byScope = new Map(entries);
+
+        const out: Record<string, ToolAnnotations> = {};
         for (const row of toolRows) {
-          out[row.id] = { requiresApproval: false };
+          const binding = byScope.get(row.scope_id)?.get(row.id);
+          const ann = binding?.annotations;
+          if (ann?.destructiveHint === true) {
+            out[row.id] = {
+              requiresApproval: true,
+              approvalDescription: ann.title ?? binding?.toolName ?? row.id,
+            };
+          } else {
+            out[row.id] = { requiresApproval: false };
+          }
         }
         return out;
       }),

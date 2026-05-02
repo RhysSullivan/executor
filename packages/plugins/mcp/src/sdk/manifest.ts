@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { McpToolAnnotations } from "./types";
+
 // ---------------------------------------------------------------------------
 // Output types
 // ---------------------------------------------------------------------------
@@ -10,6 +12,7 @@ export interface McpToolManifestEntry {
   readonly description: string | null;
   readonly inputSchema?: unknown;
   readonly outputSchema?: unknown;
+  readonly annotations?: McpToolAnnotations;
 }
 
 export interface McpServerMetadata {
@@ -32,6 +35,7 @@ const ListedTool = Schema.Struct({
   inputSchema: Schema.optional(Schema.Unknown),
   parameters: Schema.optional(Schema.Unknown),
   outputSchema: Schema.optional(Schema.Unknown),
+  annotations: Schema.optional(McpToolAnnotations),
 });
 
 const ListToolsResult = Schema.Struct({
@@ -103,6 +107,7 @@ export const extractManifestFromListToolsResult = (
         description: tool.description ?? null,
         inputSchema: tool.inputSchema ?? tool.parameters,
         outputSchema: tool.outputSchema,
+        annotations: tool.annotations,
       },
     ];
   });

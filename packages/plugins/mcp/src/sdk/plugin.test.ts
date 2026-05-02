@@ -1,5 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
 import {
   ConnectionId,
@@ -20,6 +22,7 @@ import {
   deriveMcpNamespace,
   joinToolPath,
 } from "./manifest";
+import { serveMcpServer } from "./test-utils";
 
 // ---------------------------------------------------------------------------
 // Memory secrets plugin — without a writable provider in the stack,
@@ -114,6 +117,22 @@ describe("extractManifestFromListToolsResult", () => {
       );
       expect(result.server?.name).toBe("test-server");
       expect(result.server?.version).toBe("1.0.0");
+    }),
+  );
+
+  it.effect("decodes upstream tool annotations", () =>
+    Effect.sync(() => {
+      const result = extractManifestFromListToolsResult({
+        tools: [
+          { name: "delete", annotations: { destructiveHint: true } },
+          { name: "list", annotations: { readOnlyHint: true } },
+          { name: "ping" },
+        ],
+      });
+
+      expect(result.tools[0]!.annotations?.destructiveHint).toBe(true);
+      expect(result.tools[1]!.annotations?.readOnlyHint).toBe(true);
+      expect(result.tools[2]!.annotations).toBeUndefined();
     }),
   );
 });
@@ -615,5 +634,106 @@ describe("mcpPlugin", () => {
           "mcp-oauth2-team_mcp",
         );
       }),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// destructiveHint → requiresApproval (end-to-end with a real local server)
+// ---------------------------------------------------------------------------
+
+const createAnnotationsTestServer = () => {
+  const mcpServer = new McpServer(
+    { name: "annotations-test-server", version: "1.0.0" },
+    { capabilities: {} },
+  );
+
+  mcpServer.registerTool(
+    "delete",
+    {
+      description: "A destructive tool",
+      inputSchema: { id: z.string() },
+      annotations: { destructiveHint: true },
+    },
+    async () => ({ content: [] }),
+  );
+
+  mcpServer.registerTool(
+    "delete_titled",
+    {
+      description: "A destructive tool with a title annotation",
+      inputSchema: { id: z.string() },
+      annotations: { destructiveHint: true, title: "Delete dataset" },
+    },
+    async () => ({ content: [] }),
+  );
+
+  mcpServer.registerTool(
+    "list",
+    {
+      description: "A read-only tool",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => ({ content: [] }),
+  );
+
+  mcpServer.registerTool(
+    "ping",
+    { description: "An unannotated tool", inputSchema: {} },
+    async () => ({ content: [] }),
+  );
+
+  return mcpServer;
+};
+
+const serveAnnotationsTestServer = serveMcpServer(createAnnotationsTestServer);
+
+describe("MCP destructiveHint → requiresApproval", () => {
+  it.effect("destructiveHint becomes requiresApproval, others stay false", () =>
+    Effect.gen(function* () {
+      const server = yield* serveAnnotationsTestServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [mcpPlugin()] as const }),
+      );
+      yield* executor.mcp.addSource({
+        transport: "remote",
+        scope: "test-scope",
+        name: "annotations-test",
+        endpoint: server.url,
+      });
+
+      const tools = yield* executor.tools.list();
+
+      const deleteTool = tools.find((t) => t.name === "delete");
+      expect(deleteTool?.annotations?.requiresApproval).toBe(true);
+
+      const listTool = tools.find((t) => t.name === "list");
+      expect(listTool?.annotations?.requiresApproval).toBeFalsy();
+
+      const pingTool = tools.find((t) => t.name === "ping");
+      expect(pingTool?.annotations?.requiresApproval).toBeFalsy();
+    }),
+  );
+
+  it.effect("uses annotations.title as approvalDescription when present", () =>
+    Effect.gen(function* () {
+      const server = yield* serveAnnotationsTestServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [mcpPlugin()] as const }),
+      );
+      yield* executor.mcp.addSource({
+        transport: "remote",
+        scope: "test-scope",
+        name: "annotations-test",
+        endpoint: server.url,
+      });
+
+      const tools = yield* executor.tools.list();
+      const deleteTitled = tools.find((t) => t.name === "delete_titled");
+      expect(deleteTitled?.annotations?.requiresApproval).toBe(true);
+      expect(deleteTitled?.annotations?.approvalDescription).toBe(
+        "Delete dataset",
+      );
+    }),
   );
 });

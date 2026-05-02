@@ -90,10 +90,20 @@ export type McpStoredSourceData = typeof McpStoredSourceData.Type;
 // Tool binding — maps a registered ToolId back to the MCP tool name
 // ---------------------------------------------------------------------------
 
+export const McpToolAnnotations = Schema.Struct({
+  title: Schema.optional(Schema.String),
+  readOnlyHint: Schema.optional(Schema.Boolean),
+  destructiveHint: Schema.optional(Schema.Boolean),
+  idempotentHint: Schema.optional(Schema.Boolean),
+  openWorldHint: Schema.optional(Schema.Boolean),
+});
+export type McpToolAnnotations = typeof McpToolAnnotations.Type;
+
 export class McpToolBinding extends Schema.Class<McpToolBinding>("McpToolBinding")({
   toolId: Schema.String,
   toolName: Schema.String,
   description: Schema.NullOr(Schema.String),
   inputSchema: Schema.optional(Schema.Unknown),
   outputSchema: Schema.optional(Schema.Unknown),
+  annotations: Schema.optional(McpToolAnnotations),
 }) {}

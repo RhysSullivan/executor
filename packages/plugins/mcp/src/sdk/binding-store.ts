@@ -96,6 +96,14 @@ export interface McpStoredSource {
 // `input.scope` for invokeTool/lifecycle) so every keyed mutation
 // targets exactly one row.
 export interface McpBindingStore {
+  readonly listBindingsBySource: (
+    namespace: string,
+    scope: string,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly toolId: string; readonly binding: McpToolBinding }>,
+    StorageFailure
+  >;
+
   readonly getBinding: (
     toolId: string,
     scope: string,
@@ -138,6 +146,21 @@ export const makeMcpStore = ({
   adapter: db,
 }: StorageDeps<McpSchema>): McpBindingStore => {
   return {
+    listBindingsBySource: (namespace, scope) =>
+      Effect.gen(function* () {
+        const rows = yield* db.findMany({
+          model: "mcp_binding",
+          where: [
+            { field: "source_id", value: namespace },
+            { field: "scope_id", value: scope },
+          ],
+        });
+        return rows.map((row) => ({
+          toolId: row.id,
+          binding: decodeBinding(coerceJson(row.binding)),
+        }));
+      }),
+
     getBinding: (toolId, scope) =>
       Effect.gen(function* () {
         const row = yield* db.findOne({

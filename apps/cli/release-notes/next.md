@@ -1,5 +1,8 @@
 ## Highlights
 
+### MCP sources honor upstream `destructiveHint`
+MCP sources now read `destructiveHint` from upstream tool annotations. Tools marked destructive will require approval before running, surfaced via MCP elicitation. Refresh existing sources (or remove + re-add) to pick up annotations on tools added before this change.
+
 ### Per-user OAuth for OpenAPI and MCP sources
 OpenAPI and MCP sources now carry first-class **Connections** — a per-user sign-in state decoupled from the source definition itself.
 
