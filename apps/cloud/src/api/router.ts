@@ -1,56 +1,24 @@
-import { HttpEffect, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { Context, Effect, Scope } from "effect";
+import { Layer } from "effect";
 
-export type ApiRouteApp = Effect.Effect<
-  HttpServerResponse.HttpServerResponse,
-  unknown,
-  HttpServerRequest.HttpServerRequest | Scope.Scope
->;
+import { AutumnRoutesLive } from "./autumn";
+import {
+  NonProtectedApiLive,
+  OrgApiLive,
+  RouterConfig,
+  SharedServices,
+} from "./layers";
+import { ProtectedApiLive } from "./protected";
 
-type RequestAppService = {
-  readonly app: ApiRouteApp;
-};
-
-export class OrgRequestHandlerService extends Context.Service<OrgRequestHandlerService, RequestAppService>()(
-  "@executor-js/cloud/OrgRequestHandlerService",
-) {}
-
-export class NonProtectedRequestHandlerService extends Context.Service<NonProtectedRequestHandlerService, RequestAppService>()(
-  "@executor-js/cloud/NonProtectedRequestHandlerService",
-) {}
-
-export class AutumnRequestHandlerService extends Context.Service<AutumnRequestHandlerService, RequestAppService>()(
-  "@executor-js/cloud/AutumnRequestHandlerService",
-) {}
-
-export class ProtectedRequestHandlerService extends Context.Service<ProtectedRequestHandlerService, RequestAppService>()(
-  "@executor-js/cloud/ProtectedRequestHandlerService",
-) {}
-
-export const ApiRouterApp = Effect.gen(function* () {
-  const org = yield* OrgRequestHandlerService;
-  const nonProtected = yield* NonProtectedRequestHandlerService;
-  const autumn = yield* AutumnRequestHandlerService;
-  const protectedHandler = yield* ProtectedRequestHandlerService;
-  const asRouteApp = (app: ApiRouteApp) => {
-    const webHandler = HttpEffect.toWebHandler(app);
-    return HttpEffect.fromWebHandler((request) => webHandler(request)).pipe(
-      Effect.catchCause(() =>
-        Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
-      ),
-    );
-  };
-
-  const router = yield* HttpRouter.make;
-  yield* router.add("*", "/org/*", asRouteApp(org.app));
-  yield* router.add("*", "/auth/*", asRouteApp(nonProtected.app));
-  yield* router.add("*", "/autumn/*", asRouteApp(autumn.app));
-  yield* router.add("*", "/scope", asRouteApp(protectedHandler.app));
-  yield* router.add("*", "/scopes/*", asRouteApp(protectedHandler.app));
-  yield* router.add("*", "/executions/*", asRouteApp(protectedHandler.app));
-  yield* router.add("*", "/oauth/*", asRouteApp(protectedHandler.app));
-
-  return router.asHttpEffect();
-});
-
-export const ApiRequestHandler = ApiRouterApp;
+// One router. Each sub-API contributes its routes via `HttpApiBuilder.layer`,
+// which calls `HttpRouter.use(...)` under the hood. Autumn's catch-all proxy
+// is added as a plain `HttpRouter.add` route. They all merge into the same
+// routing table; there is no outer-then-inner router stacking.
+export const ApiLive = Layer.mergeAll(
+  NonProtectedApiLive,
+  OrgApiLive,
+  ProtectedApiLive,
+  AutumnRoutesLive,
+).pipe(
+  Layer.provideMerge(RouterConfig),
+  Layer.provideMerge(SharedServices),
+);

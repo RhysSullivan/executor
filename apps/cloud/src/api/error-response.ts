@@ -1,12 +1,29 @@
 import * as Sentry from "@sentry/cloudflare";
-import { Data } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
+import { Data, Effect } from "effect";
+import {
+  HttpServerRespondable,
+  HttpServerResponse,
+} from "effect/unstable/http";
 
+// Implements `Respondable` so the framework's default cause→response
+// pipeline (`HttpServerRespondable.toResponseOrElse`) renders this as the
+// declared JSON body + status code without an explicit `catchCause` at
+// every error boundary.
 export class HttpResponseError extends Data.TaggedError("HttpResponseError")<{
   readonly status: number;
   readonly code: string;
   readonly message: string;
-}> {}
+}> {
+  [HttpServerRespondable.symbol](): Effect.Effect<HttpServerResponse.HttpServerResponse> {
+    if (this.status >= 500) Sentry.captureException(this);
+    return Effect.succeed(
+      HttpServerResponse.jsonUnsafe(
+        { error: this.message, code: this.code },
+        { status: this.status },
+      ),
+    );
+  }
+}
 
 const toHttpResponseError = (error: unknown): HttpResponseError =>
   error instanceof HttpResponseError

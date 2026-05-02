@@ -1,33 +1,35 @@
-import { HttpApi, HttpApiBuilder, HttpApiClient, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpClient, HttpEffect, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiClient,
+  HttpApiEndpoint,
+  HttpApiGroup,
+} from "effect/unstable/httpapi";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpRouter,
+  HttpServer,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 
-import {
-  ApiRequestHandler,
-  AutumnRequestHandlerService,
-  NonProtectedRequestHandlerService,
-  ProtectedRequestHandlerService,
-  OrgRequestHandlerService,
-} from "./api/router";
-
 const SourceResponse = Schema.Struct({ source: Schema.String });
+
+// ---------------------------------------------------------------------------
+// Test APIs — mirror the prod paths but with stub handlers.
+// ---------------------------------------------------------------------------
 
 const OrgGroup = HttpApiGroup.make("org").add(
   HttpApiEndpoint.get("ping", "/org/ping", { success: SourceResponse }),
 );
 const OrgTestApi = HttpApi.make("orgApi").add(OrgGroup);
-const OrgTestHandlers = HttpApiBuilder.group(OrgTestApi, "org", (handlers) =>
-  handlers.handle("ping", () => Effect.succeed({ source: "org" })),
-);
 
 const AuthGroup = HttpApiGroup.make("auth").add(
   HttpApiEndpoint.get("me", "/auth/me", { success: SourceResponse }),
 );
-const AuthApi = HttpApi.make("authApi").add(AuthGroup);
-const AuthHandlers = HttpApiBuilder.group(AuthApi, "auth", (handlers) =>
-  handlers.handle("me", () => Effect.succeed({ source: "auth" })),
-);
+const AuthTestApi = HttpApi.make("authApi").add(AuthGroup);
 
 const ProtectedGroup = HttpApiGroup.make("protected")
   .add(HttpApiEndpoint.get("scope", "/scope", { success: SourceResponse }))
@@ -43,92 +45,103 @@ const ProtectedGroup = HttpApiGroup.make("protected")
       success: SourceResponse,
     }),
   );
-const ProtectedApi = HttpApi.make("protectedApi").add(ProtectedGroup);
-const ProtectedHandlers = HttpApiBuilder.group(ProtectedApi, "protected", (handlers) =>
+const ProtectedTestApi = HttpApi.make("protectedApi").add(ProtectedGroup);
+
+// ---------------------------------------------------------------------------
+// Stub handlers
+// ---------------------------------------------------------------------------
+
+const OrgTestHandlers = HttpApiBuilder.group(OrgTestApi, "org", (handlers) =>
+  handlers.handle("ping", () => Effect.succeed({ source: "org" })),
+);
+
+const AuthHandlers = HttpApiBuilder.group(AuthTestApi, "auth", (handlers) =>
+  handlers.handle("me", () => Effect.succeed({ source: "auth" })),
+);
+
+const ProtectedHandlers = HttpApiBuilder.group(ProtectedTestApi, "protected", (handlers) =>
   handlers
     .handle("scope", () => Effect.succeed({ source: "protected" }))
     .handle("sources", ({ params }) => Effect.succeed({ source: params.scopeId }))
     .handle("resume", () => Effect.succeed({ source: "protected" })),
 );
 
-const toHttpApp = (
-  apiLayer: Parameters<typeof HttpRouter.toWebHandler>[0],
-) =>
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const webRequest = yield* HttpServerRequest.toWeb(request);
-    const web = HttpRouter.toWebHandler(apiLayer, { disableLogger: true });
-    const response = yield* Effect.promise(() => web.handler(webRequest, undefined));
-    return HttpServerResponse.raw(response, { status: response.status, headers: response.headers });
-  });
-
-const OrgTestApp = toHttpApp(
-  HttpApiBuilder.layer(OrgTestApi).pipe(
-    Layer.provide(OrgTestHandlers),
-    Layer.provideMerge(HttpServer.layerServices),
-    Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-  ) as Parameters<typeof HttpRouter.toWebHandler>[0],
-);
-
-const AuthTestApp = toHttpApp(
-  HttpApiBuilder.layer(AuthApi).pipe(
-    Layer.provide(AuthHandlers),
-    Layer.provideMerge(HttpServer.layerServices),
-    Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-  ) as Parameters<typeof HttpRouter.toWebHandler>[0],
-);
-
-const ProtectedBaseTestApp = toHttpApp(
-  HttpApiBuilder.layer(ProtectedApi).pipe(
-    Layer.provide(ProtectedHandlers),
-    Layer.provideMerge(HttpServer.layerServices),
-    Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-  ) as Parameters<typeof HttpRouter.toWebHandler>[0],
-);
+// ---------------------------------------------------------------------------
+// Per-test mode switch — controls a router-level gate that mirrors the prod
+// `ExecutionStackMiddleware`'s short-circuit branches without standing up
+// the full WorkOS / executor stack.
+// ---------------------------------------------------------------------------
 
 type ProtectedMode = "ok" | "none" | "error" | "bad-status";
-
-const testState: {
-  mode: ProtectedMode;
-} = {
-  mode: "ok",
-};
-
+const testState: { mode: ProtectedMode } = { mode: "ok" };
 const resetState = () => {
   testState.mode = "ok";
 };
 
-const ProtectedTestApp = Effect.gen(function* () {
-  if (testState.mode === "none") {
-    return HttpServerResponse.jsonUnsafe(
-      { error: "No organization in session", code: "no_organization" },
-      { status: 403 },
-    );
-  }
-  if (testState.mode === "error") {
-    return HttpServerResponse.jsonUnsafe({ error: "boom" }, { status: 500 });
-  }
-  if (testState.mode === "bad-status") {
-    return HttpServerResponse.jsonUnsafe({ source: "protected" }, { status: 400 });
-  }
-  return yield* ProtectedBaseTestApp;
-});
-
-const TestRequestHandlersLive = Layer.mergeAll(
-  Layer.succeed(OrgRequestHandlerService)({ app: OrgTestApp }),
-  Layer.succeed(NonProtectedRequestHandlerService)({ app: AuthTestApp }),
-  Layer.succeed(AutumnRequestHandlerService)({
-    app: Effect.succeed(HttpServerResponse.jsonUnsafe({ source: "autumn" })),
+// `Effect.suspend` so `testState.mode` is read per request — the
+// middleware function itself runs once at addAll time, wrapping each
+// route's handler. Without `suspend`, only the build-time mode ("ok")
+// would be observed.
+const TestProtectedGate = HttpRouter.middleware()((httpEffect) =>
+  Effect.suspend(() => {
+    if (testState.mode === "none") {
+      return Effect.succeed(
+        HttpServerResponse.jsonUnsafe(
+          { error: "No organization in session", code: "no_organization" },
+          { status: 403 },
+        ),
+      );
+    }
+    if (testState.mode === "error") {
+      return Effect.succeed(
+        HttpServerResponse.jsonUnsafe({ error: "boom" }, { status: 500 }),
+      );
+    }
+    if (testState.mode === "bad-status") {
+      return Effect.succeed(
+        HttpServerResponse.jsonUnsafe({ source: "protected" }, { status: 400 }),
+      );
+    }
+    return httpEffect;
   }),
-  Layer.succeed(ProtectedRequestHandlerService)({ app: ProtectedTestApp }),
+).layer;
+
+// ---------------------------------------------------------------------------
+// Wire test APIs as route layers + autumn route, mirroring prod's structure.
+// ---------------------------------------------------------------------------
+
+const RouterConfig = Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 });
+
+const OrgTestLive = HttpApiBuilder.layer(OrgTestApi).pipe(Layer.provide(OrgTestHandlers));
+const AuthTestLive = HttpApiBuilder.layer(AuthTestApi).pipe(Layer.provide(AuthHandlers));
+const ProtectedTestLive = HttpApiBuilder.layer(ProtectedTestApi).pipe(
+  Layer.provide(ProtectedHandlers),
+  Layer.provide(TestProtectedGate),
 );
 
-const requestHandler = Effect.runSync(
-  Effect.map(
-    Effect.provide(ApiRequestHandler, TestRequestHandlersLive),
-    (app) => HttpEffect.toWebHandler(app),
-  ),
+const AutumnTestRoutesLive = HttpRouter.add(
+  "*",
+  "/autumn/*",
+  Effect.succeed(HttpServerResponse.jsonUnsafe({ source: "autumn" })),
 );
+
+const TestApiLive = Layer.mergeAll(
+  OrgTestLive,
+  AuthTestLive,
+  ProtectedTestLive,
+  AutumnTestRoutesLive,
+).pipe(
+  Layer.provideMerge(RouterConfig),
+  Layer.provideMerge(HttpServer.layerServices),
+);
+
+const requestHandler = HttpRouter.toWebHandler(TestApiLive, { disableLogger: true }).handler;
+
+// ---------------------------------------------------------------------------
+// Client setup — route HttpClient calls through the web handler in-process
+// so the suite runs in any runtime (workerd's `NodeHttpServer.layerTest`
+// crashes the isolate).
+// ---------------------------------------------------------------------------
 
 const TestApi = HttpApi.make("testApi")
   .add(OrgGroup)
@@ -140,9 +153,6 @@ const TestApi = HttpApi.make("testApi")
   )
   .add(ProtectedGroup);
 
-// Route HttpClient calls directly through the web handler — no real HTTP
-// server, so the suite runs in any runtime (including workerd, where
-// NodeHttpServer.layerTest crashes the isolate).
 const TEST_BASE_URL = "http://test.local";
 const fetchViaHandler: typeof globalThis.fetch = (input, init) =>
   requestHandler(input instanceof Request ? input : new Request(input, init));
@@ -190,7 +200,7 @@ layer(TestClientLayer)("handleApiRequest", (it) => {
     }),
   );
 
-  it.effect("returns 403 when protected handler returns no organization", () =>
+  it.effect("returns 403 when protected gate short-circuits with no organization", () =>
     Effect.gen(function* () {
       resetState();
       testState.mode = "none";
@@ -214,7 +224,7 @@ layer(TestClientLayer)("handleApiRequest", (it) => {
     }),
   );
 
-  it.effect("preserves protected path params through the outer router", () =>
+  it.effect("preserves protected path params", () =>
     Effect.gen(function* () {
       resetState();
       const client = yield* getClient();
@@ -233,7 +243,7 @@ layer(TestClientLayer)("handleApiRequest", (it) => {
     }),
   );
 
-  it.effect("returns 500 JSON when protected request handling throws", () =>
+  it.effect("returns 500 JSON when protected gate returns 500", () =>
     Effect.gen(function* () {
       resetState();
       testState.mode = "error";

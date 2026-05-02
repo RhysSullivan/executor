@@ -1,13 +1,20 @@
 import { env } from "cloudflare:workers";
 import { Effect } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import { autumnHandler } from "autumn-js/backend";
 
 import { WorkOSAuth } from "../auth/workos";
-import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
-import { SharedServices } from "./layers";
+import {
+  HttpResponseError,
+  isServerError,
+  toErrorServerResponse,
+} from "./error-response";
 
-export const AutumnApiApp = Effect.gen(function* () {
+const handler = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const webRequest = yield* Effect.mapError(
     HttpServerRequest.toWeb(request),
@@ -78,7 +85,6 @@ export const AutumnApiApp = Effect.gen(function* () {
 
   return HttpServerResponse.jsonUnsafe(response, { status: statusCode });
 }).pipe(
-  Effect.provide(SharedServices),
   Effect.catchCause((err) => {
     if (isServerError(err)) {
       console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
@@ -86,3 +92,5 @@ export const AutumnApiApp = Effect.gen(function* () {
     return Effect.succeed(toErrorServerResponse(err));
   }),
 );
+
+export const AutumnRoutesLive = HttpRouter.add("*", "/autumn/*", handler);

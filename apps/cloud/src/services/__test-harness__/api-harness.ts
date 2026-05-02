@@ -16,7 +16,12 @@
 
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder, HttpApiClient, HttpApiSwagger } from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpEffect, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  FetchHttpClient,
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+} from "effect/unstable/http";
 
 import {
   ExecutionEngineService,
@@ -48,7 +53,7 @@ import { OpenApiExtensionService } from "@executor-js/plugin-openapi/api";
 import { McpExtensionService } from "@executor-js/plugin-mcp/api";
 import { GraphqlExtensionService } from "@executor-js/plugin-graphql/api";
 
-import { AuthContext, OrgAuth } from "../../auth/middleware";
+import { AuthContext } from "../../auth/middleware";
 import {
   ProtectedCloudApi,
   ProtectedCloudApiHandlers,
@@ -209,10 +214,27 @@ const createTestScopedExecutor = (
 // HTTP plumbing
 // ---------------------------------------------------------------------------
 
-const FakeOrgAuthLive = Layer.succeed(
-  OrgAuth,
-  {
-    cookie: (httpApp) =>
+// Test version of the production `ExecutionStackMiddleware` — reads the
+// `x-test-org-id` (and optional `x-test-user-id`) header, builds a
+// test-scoped executor against the live postgres test db with a fake
+// WorkOS vault, and provides `AuthContext` + the executor services to the
+// handler. Mirrors prod's HttpRouter middleware but with test-mode
+// constructors.
+const TestExecutionStackMiddleware = HttpRouter.middleware<{
+  provides:
+    | AuthContext
+    | ExecutorService
+    | ExecutionEngineService
+    | OpenApiExtensionService
+    | McpExtensionService
+    | GraphqlExtensionService;
+}>()(
+  // Layer-time setup — captures `DbService` so the per-request function
+  // only depends on `HttpRouter`-Provided context. See `api/protected.ts`
+  // for the same pattern.
+  Effect.gen(function* () {
+    const context = yield* Effect.context<DbService>();
+    return (httpEffect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const orgId = request.headers[TEST_ORG_HEADER];
@@ -224,7 +246,13 @@ const FakeOrgAuthLive = Layer.succeed(
           typeof userHeader === "string" && userHeader.length > 0
             ? userHeader
             : defaultUserFor(orgId);
-        return yield* httpApp.pipe(
+        const orgName = `Org ${orgId}`;
+        const executor = yield* createTestScopedExecutor(userId, orgId, orgName);
+        const engine = createExecutionEngine({
+          executor,
+          codeExecutor: makeQuickJsExecutor(),
+        });
+        return yield* httpEffect.pipe(
           Effect.provideService(
             AuthContext,
             AuthContext.of({
@@ -235,66 +263,26 @@ const FakeOrgAuthLive = Layer.succeed(
               avatarUrl: null,
             }),
           ),
+          Effect.provideService(ExecutorService, executor),
+          Effect.provideService(ExecutionEngineService, engine),
+          Effect.provideService(OpenApiExtensionService, executor.openapi),
+          Effect.provideService(McpExtensionService, executor.mcp),
+          Effect.provideService(GraphqlExtensionService, executor.graphql),
         );
-      }),
-  },
-);
+      }).pipe(Effect.provideContext(context));
+  }),
+).layer;
 
 const TestApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
-  Layer.provide(Layer.merge(ProtectedCloudApiHandlers, FakeOrgAuthLive)),
+  Layer.provide(ProtectedCloudApiHandlers),
+  Layer.provide(TestExecutionStackMiddleware),
+  Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
+  Layer.provideMerge(RouterConfig),
+  Layer.provideMerge(DbService.Live),
+  Layer.provideMerge(HttpServer.layerServices),
 );
 
-const buildWebHandlerForScope = (userId: string, orgId: string, orgName: string) =>
-  Effect.gen(function* () {
-    const executor = yield* createTestScopedExecutor(userId, orgId, orgName);
-    const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
-    const services = Layer.mergeAll(
-      Layer.succeed(ExecutorService)(executor),
-      Layer.succeed(ExecutionEngineService)(engine),
-      Layer.succeed(OpenApiExtensionService)(executor.openapi),
-      Layer.succeed(McpExtensionService)(executor.mcp),
-      Layer.succeed(GraphqlExtensionService)(executor.graphql),
-    );
-    return HttpRouter.toWebHandler(
-      TestApiLive.pipe(
-        Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
-        Layer.provideMerge(services),
-        Layer.provideMerge(RouterConfig),
-        Layer.provideMerge(HttpServer.layerServices),
-      ),
-      { disableLogger: true },
-    );
-  });
-
-const RouterApp = Effect.gen(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const webRequest = yield* HttpServerRequest.toWeb(request);
-  const orgId = request.headers[TEST_ORG_HEADER];
-  if (!orgId || typeof orgId !== "string") {
-    return yield* Effect.die(new Error("missing x-test-org-id"));
-  }
-  const userHeader = request.headers[TEST_USER_HEADER];
-  const userId =
-    typeof userHeader === "string" && userHeader.length > 0
-      ? userHeader
-      : defaultUserFor(orgId);
-  const web = yield* buildWebHandlerForScope(userId, orgId, `Org ${orgId}`);
-  const response = yield* Effect.promise(async () => {
-    try {
-      return await web.handler(webRequest);
-    } finally {
-      await web.dispose();
-    }
-  });
-  return HttpServerResponse.raw(response, { status: response.status, headers: response.headers });
-});
-
-const handler = HttpEffect.toWebHandler(
-  RouterApp.pipe(
-    Effect.provide(DbService.Live),
-    Effect.provide(HttpServer.layerServices),
-  ),
-);
+const handler = HttpRouter.toWebHandler(TestApiLive, { disableLogger: true }).handler;
 
 export const fetchForOrg = (orgId: string): typeof globalThis.fetch =>
   ((input: RequestInfo | URL, init?: RequestInit) => {

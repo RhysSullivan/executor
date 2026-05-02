@@ -1,14 +1,7 @@
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { HttpMiddleware, HttpRouter, HttpServer } from "effect/unstable/http";
-import { Effect, Layer } from "effect";
+import { HttpServer } from "effect/unstable/http";
+import { Layer } from "effect";
 
-import { CoreExecutorApi, observabilityMiddleware } from "@executor-js/api";
-import { CoreHandlers } from "@executor-js/api/server";
-import { OpenApiGroup, OpenApiHandlers } from "@executor-js/plugin-openapi/api";
-import { McpGroup, McpHandlers } from "@executor-js/plugin-mcp/api";
-import { GraphqlGroup, GraphqlHandlers } from "@executor-js/plugin-graphql/api";
-
-import { OrgAuth } from "../auth/middleware";
 import { OrgAuthLive, SessionAuthLive } from "../auth/middleware-live";
 import { UserStoreService } from "../auth/context";
 import {
@@ -20,18 +13,15 @@ import { DbService } from "../services/db";
 import { TelemetryLive } from "../services/telemetry";
 import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
-import { ErrorCaptureLive } from "../observability";
 
 import { CoreSharedServices } from "./core-shared-services";
+import { ProtectedCloudApi, RouterConfig } from "./protected-layers";
 
-export { CoreSharedServices };
-
-export const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
-  .add(McpGroup)
-  .add(GraphqlGroup)
-  .middleware(OrgAuth);
-
-const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
+export {
+  CoreSharedServices,
+  ProtectedCloudApi,
+  RouterConfig,
+};
 
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
@@ -44,47 +34,16 @@ export const SharedServices = Layer.mergeAll(
   TelemetryLive,
 );
 
-export const RouterConfig = Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 });
-
-export const ProtectedCloudApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      CoreHandlers,
-      OpenApiHandlers,
-      McpHandlers,
-      GraphqlHandlers,
-      OrgAuthLive,
-      ObservabilityLive,
-    ),
-  ),
-  Layer.provide(ErrorCaptureLive),
-);
-
-const NonProtectedApiLive = HttpApiBuilder.layer(NonProtectedApi).pipe(
+// Routes that don't require an authenticated org session — login,
+// callbacks, etc. Mounts at the paths declared inside `NonProtectedApi`.
+export const NonProtectedApiLive = HttpApiBuilder.layer(NonProtectedApi).pipe(
   Layer.provide(Layer.mergeAll(CloudAuthPublicHandlers, CloudSessionAuthHandlers)),
   Layer.provideMerge(SessionAuthLive),
 );
 
-const OrgApiLive = HttpApiBuilder.layer(OrgHttpApi).pipe(
+// Routes scoped to a specific org (membership management, switching, etc.).
+// Auth is enforced by `OrgAuth` middleware declared on `OrgHttpApi`.
+export const OrgApiLive = HttpApiBuilder.layer(OrgHttpApi).pipe(
   Layer.provide(OrgHandlers),
   Layer.provideMerge(OrgAuthLive),
 );
-
-const NonProtectedRequestLayer = NonProtectedApiLive.pipe(
-  Layer.provideMerge(RouterConfig),
-  Layer.provideMerge(HttpServer.layerServices),
-);
-
-const OrgRequestLayer = OrgApiLive.pipe(
-  Layer.provideMerge(RouterConfig),
-);
-
-export const NonProtectedApiApp = Effect.flatMap(
-  HttpRouter.toHttpEffect(NonProtectedRequestLayer),
-  HttpMiddleware.logger,
-).pipe(Effect.provide(SharedServices));
-
-export const OrgApiApp = Effect.flatMap(
-  HttpRouter.toHttpEffect(OrgRequestLayer),
-  HttpMiddleware.logger,
-).pipe(Effect.provide(SharedServices));

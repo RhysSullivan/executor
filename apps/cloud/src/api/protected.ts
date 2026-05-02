@@ -1,93 +1,114 @@
+// Production wiring for the protected API. Lives outside `protected-layers.ts`
+// because `makeExecutionStack` imports `cloudflare:workers`, which the test
+// harness can't load in the workerd test runtime.
+
 import { HttpApiSwagger } from "effect/unstable/httpapi";
 import {
-  HttpMiddleware,
   HttpRouter,
   HttpServerRequest,
 } from "effect/unstable/http";
 import { Effect, Layer } from "effect";
 
-import { ExecutorService, ExecutionEngineService } from "@executor-js/api/server";
+import {
+  ExecutionEngineService,
+  ExecutorService,
+} from "@executor-js/api/server";
 import { OpenApiExtensionService } from "@executor-js/plugin-openapi/api";
 import { McpExtensionService } from "@executor-js/plugin-mcp/api";
 import { GraphqlExtensionService } from "@executor-js/plugin-graphql/api";
 
+import { AuthContext } from "../auth/middleware";
 import { authorizeOrganization } from "../auth/authorize-organization";
+import { UserStoreService } from "../auth/context";
 import { WorkOSAuth } from "../auth/workos";
+import { AutumnService } from "../services/autumn";
+import { DbService } from "../services/db";
 import { makeExecutionStack } from "../services/execution-stack";
-import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
-import { ProtectedCloudApi, ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
+import { HttpResponseError } from "./error-response";
+import {
+  ProtectedCloudApi,
+  ProtectedCloudApiLive,
+  RouterConfig,
+} from "./protected-layers";
 
-const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
+// One `HttpRouter` middleware that:
+//   1. authenticates the WorkOS sealed session,
+//   2. verifies live org membership (closes the JWT-cache gap — see
+//      `auth/authorize-organization.ts`),
+//   3. resolves the org name,
+//   4. builds the per-request executor + engine,
+//   5. provides `AuthContext` + the execution-stack services to the handler.
+//
+// Replaces both the old outer `Effect.gen` in this file (which did its own
+// WorkOS lookup) and the per-route `OrgAuth` HttpApiMiddleware (which did
+// a second one).
+//
+// Errors are NOT caught here: failures propagate as typed errors and are
+// rendered to a JSON response by the framework's `Respondable` pipeline
+// (see `HttpResponseError` in `./error-response.ts`). Letting `unhandled`
+// pass through is what satisfies `HttpRouter.middleware`'s brand check
+// without any type casts.
+const ExecutionStackMiddleware = HttpRouter.middleware<{
+  provides:
+    | AuthContext
+    | ExecutorService
+    | ExecutionEngineService
+    | OpenApiExtensionService
+    | McpExtensionService
+    | GraphqlExtensionService;
+}>()(
+  // Layer-time setup — capture the long-lived services in a closure so
+  // the per-request function only needs `HttpRouter`-Provided context.
+  // That collapses the middleware's `requires` to `never`, giving us a
+  // real `.layer` (instead of the "Need to .combine(...)" type-error
+  // sentinel that fires when `requires` leaks to non-never).
   Effect.gen(function* () {
-    const webRequest = yield* Effect.mapError(
-      HttpServerRequest.toWeb(request),
-      () =>
-        new HttpResponseError({
-          status: 500,
-          code: "invalid_request",
-          message: "Invalid request",
-        }),
-    );
-    const workos = yield* WorkOSAuth;
-    const session = yield* workos.authenticateRequest(webRequest);
-    if (!session || !session.organizationId) return null;
-
-    const org = yield* authorizeOrganization(session.userId, session.organizationId);
-    if (!org) return null;
-    return { org, userId: session.userId };
-  });
-
-const createProtectedApp = (
-  userId: string,
-  organizationId: string,
-  organizationName: string,
-) =>
-  Effect.gen(function* () {
-    const { executor, engine } = yield* makeExecutionStack(
-      userId,
-      organizationId,
-      organizationName,
-    );
-
-    const requestServices = Layer.mergeAll(
-      Layer.succeed(ExecutorService)(executor),
-      Layer.succeed(ExecutionEngineService)(engine),
-      Layer.succeed(OpenApiExtensionService)(executor.openapi),
-      Layer.succeed(McpExtensionService)(executor.mcp),
-      Layer.succeed(GraphqlExtensionService)(executor.graphql),
-    );
-
-    const protectedApiLayer = ProtectedCloudApiLive.pipe(
-      Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
-      Layer.provideMerge(RouterConfig),
-    );
-
-    return yield* HttpRouter.toHttpEffect(protectedApiLayer).pipe(
-      Effect.flatMap(HttpMiddleware.logger),
-      Effect.provide(requestServices),
-    );
-  });
-
-export const ProtectedApiApp = Effect.gen(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const session = yield* lookupOrgForRequest(request);
-  if (!session) {
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: 403,
-        code: "no_organization",
-        message: "No organization in session",
-      }),
-    );
-  }
-
-  return yield* createProtectedApp(session.userId, session.org.id, session.org.name);
-}).pipe(
-  Effect.provide(SharedServices),
-  Effect.catchCause((err) => {
-    if (isServerError(err)) {
-      console.error("[api] request failed:", err instanceof Error ? err.stack : err);
-    }
-    return Effect.succeed(toErrorServerResponse(err));
+    const context = yield* Effect.context<
+      WorkOSAuth | UserStoreService | AutumnService | DbService
+    >();
+    return (httpEffect) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const webRequest = yield* HttpServerRequest.toWeb(request);
+        const workos = yield* WorkOSAuth;
+        const session = yield* workos.authenticateRequest(webRequest);
+        if (!session || !session.organizationId) {
+          return yield* new HttpResponseError({
+            status: 403,
+            code: "no_organization",
+            message: "No organization in session",
+          });
+        }
+        const org = yield* authorizeOrganization(session.userId, session.organizationId);
+        if (!org) {
+          return yield* new HttpResponseError({
+            status: 403,
+            code: "no_organization",
+            message: "No organization in session",
+          });
+        }
+        const auth = AuthContext.of({
+          accountId: session.userId,
+          organizationId: org.id,
+          email: session.email,
+          name: `${session.firstName ?? ""} ${session.lastName ?? ""}`.trim() || null,
+          avatarUrl: session.avatarUrl ?? null,
+        });
+        const { executor, engine } = yield* makeExecutionStack(auth.accountId, org.id, org.name);
+        return yield* httpEffect.pipe(
+          Effect.provideService(AuthContext, auth),
+          Effect.provideService(ExecutorService, executor),
+          Effect.provideService(ExecutionEngineService, engine),
+          Effect.provideService(OpenApiExtensionService, executor.openapi),
+          Effect.provideService(McpExtensionService, executor.mcp),
+          Effect.provideService(GraphqlExtensionService, executor.graphql),
+        );
+      }).pipe(Effect.provideContext(context));
   }),
+).layer;
+
+export const ProtectedApiLive = ProtectedCloudApiLive.pipe(
+  Layer.provide(ExecutionStackMiddleware),
+  Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
+  Layer.provideMerge(RouterConfig),
 );
