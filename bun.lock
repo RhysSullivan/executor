@@ -28,7 +28,7 @@
     },
     "apps/cli": {
       "name": "executor",
-      "version": "1.4.10",
+      "version": "1.4.9",
       "bin": {
         "executor": "./bin/executor.ts",
       },
@@ -243,7 +243,7 @@
     },
     "packages/core/cli": {
       "name": "@executor-js/cli",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "bin": {
         "executor": "./dist/index.js",
       },
@@ -263,7 +263,7 @@
     },
     "packages/core/config": {
       "name": "@executor-js/config",
-      "version": "0.0.2",
+      "version": "1.4.3",
       "dependencies": {
         "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
@@ -280,7 +280,7 @@
     },
     "packages/core/execution": {
       "name": "@executor-js/execution",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@executor-js/codemode-core": "workspace:*",
         "@executor-js/sdk": "workspace:*",
@@ -298,7 +298,7 @@
     },
     "packages/core/sdk": {
       "name": "@executor-js/sdk",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@executor-js/storage-core": "workspace:*",
         "effect": "catalog:",
@@ -315,7 +315,7 @@
     },
     "packages/core/storage-core": {
       "name": "@executor-js/storage-core",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@standard-schema/spec": "^1.0.0",
         "effect": "catalog:",
@@ -409,7 +409,7 @@
     },
     "packages/kernel/core": {
       "name": "@executor-js/codemode-core",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@babel/parser": "^7.29.2",
         "@standard-schema/spec": "^1.0.0",
@@ -469,7 +469,7 @@
     },
     "packages/kernel/runtime-quickjs": {
       "name": "@executor-js/runtime-quickjs",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@executor-js/codemode-core": "workspace:*",
         "effect": "catalog:",
@@ -501,7 +501,7 @@
     },
     "packages/plugins/file-secrets": {
       "name": "@executor-js/plugin-file-secrets",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
@@ -515,7 +515,7 @@
     },
     "packages/plugins/google-discovery": {
       "name": "@executor-js/plugin-google-discovery",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@executor-js/api": "workspace:*",
         "@executor-js/sdk": "workspace:*",
@@ -547,7 +547,7 @@
     },
     "packages/plugins/graphql": {
       "name": "@executor-js/plugin-graphql",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@effect/platform-node": "catalog:",
         "@executor-js/config": "workspace:*",
@@ -583,7 +583,7 @@
     },
     "packages/plugins/keychain": {
       "name": "@executor-js/plugin-keychain",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@executor-js/sdk": "workspace:*",
         "@napi-rs/keyring": "^1.2.0",
@@ -599,7 +599,7 @@
     },
     "packages/plugins/mcp": {
       "name": "@executor-js/plugin-mcp",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@effect/platform-node": "catalog:",
         "@executor-js/config": "workspace:*",
@@ -638,7 +638,7 @@
     },
     "packages/plugins/onepassword": {
       "name": "@executor-js/plugin-onepassword",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@1password/op-js": "^0.1.13",
         "@1password/sdk": "^0.4.1-beta.1",
@@ -669,7 +669,7 @@
     },
     "packages/plugins/openapi": {
       "name": "@executor-js/plugin-openapi",
-      "version": "0.0.2",
+      "version": "0.0.1",
       "dependencies": {
         "@effect/platform-node": "catalog:",
         "@executor-js/config": "workspace:*",
