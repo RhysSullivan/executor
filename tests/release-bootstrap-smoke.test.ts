@@ -107,6 +107,7 @@ describe("release bootstrap smoke", () => {
     const assetPath = join(distDir, assetName);
     const tempRoot = await mkdtemp(join(tmpdir(), "executor-release-bootstrap-"));
     const installedPackageDir = join(tempRoot, "executor");
+    const dataDir = join(tempRoot, "data");
 
     await cp(wrapperDir, installedPackageDir, { recursive: true });
 
@@ -179,6 +180,10 @@ describe("release bootstrap smoke", () => {
         [join(installedPackageDir, "bin", "executor"), "web", "--port", String(webPort)],
         {
           cwd: installedPackageDir,
+          env: {
+            ...process.env,
+            EXECUTOR_DATA_DIR: dataDir,
+          },
           stdio: ["ignore", "pipe", "pipe"],
         },
       );
