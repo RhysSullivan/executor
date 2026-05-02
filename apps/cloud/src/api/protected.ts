@@ -25,11 +25,13 @@ import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
 import { makeExecutionStack } from "../services/execution-stack";
 import { HttpResponseError } from "./error-response";
+import { RequestScopedServicesLive } from "./layers";
 import {
   ProtectedCloudApi,
   ProtectedCloudApiLive,
   RouterConfig,
 } from "./protected-layers";
+import { requestScopedMiddleware } from "./request-scoped";
 
 // One `HttpRouter` middleware that:
 //   1. authenticates the WorkOS sealed session,
@@ -48,6 +50,29 @@ import {
 // (see `HttpResponseError` in `./error-response.ts`). Letting `unhandled`
 // pass through is what satisfies `HttpRouter.middleware`'s brand check
 // without any type casts.
+
+// One `HttpRouter` middleware that:
+//   1. authenticates the WorkOS sealed session,
+//   2. verifies live org membership (closes the JWT-cache gap — see
+//      `auth/authorize-organization.ts`),
+//   3. resolves the org name,
+//   4. builds the per-request executor + engine,
+//   5. provides `AuthContext` + the execution-stack services to the handler.
+//
+// Replaces both the old outer `Effect.gen` in this file (which did its own
+// WorkOS lookup) and the per-route `OrgAuth` HttpApiMiddleware (which did
+// a second one).
+//
+// Errors are NOT caught here: failures propagate as typed errors and are
+// rendered to a JSON response by the framework's `Respondable` pipeline
+// (see `HttpResponseError` in `./error-response.ts`). Letting `unhandled`
+// pass through is what satisfies `HttpRouter.middleware`'s brand check
+// without any type casts.
+//
+// `DbService` and `UserStoreService` are pulled from per-request context
+// — `RequestScopedServicesMiddleware` (combined below) provides them
+// fresh per request so the postgres.js socket lives in the request
+// fiber's scope, not the worker's boot scope.
 const ExecutionStackMiddleware = HttpRouter.middleware<{
   provides:
     | AuthContext
@@ -57,15 +82,8 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
     | McpExtensionService
     | GraphqlExtensionService;
 }>()(
-  // Layer-time setup — capture the long-lived services in a closure so
-  // the per-request function only needs `HttpRouter`-Provided context.
-  // That collapses the middleware's `requires` to `never`, giving us a
-  // real `.layer` (instead of the "Need to .combine(...)" type-error
-  // sentinel that fires when `requires` leaks to non-never).
   Effect.gen(function* () {
-    const context = yield* Effect.context<
-      WorkOSAuth | UserStoreService | AutumnService | DbService
-    >();
+    const longLived = yield* Effect.context<WorkOSAuth | AutumnService>();
     return (httpEffect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
@@ -103,12 +121,28 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
           Effect.provideService(McpExtensionService, executor.mcp),
           Effect.provideService(GraphqlExtensionService, executor.graphql),
         );
-      }).pipe(Effect.provideContext(context));
+      }).pipe(Effect.provideContext(longLived));
   }),
-).layer;
-
-export const ProtectedApiLive = ProtectedCloudApiLive.pipe(
-  Layer.provide(ExecutionStackMiddleware),
-  Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
-  Layer.provideMerge(RouterConfig),
 );
+
+// `rsLive` is the per-request DB layer. Combining it into the auth
+// middleware collapses `requires: DbService | UserStoreService` to
+// never (so `.layer` is a real Layer instead of the "Need to combine"
+// type-error sentinel) AND makes the postgres.js socket request-scoped:
+// the layer rebuilds per HTTP request, satisfying Cloudflare Workers'
+// I/O isolation. Exposed as a factory so tests can swap in a counting
+// fake — see `apps/cloud/src/api.request-scope.node.test.ts`.
+export const makeProtectedApiLive = (
+  rsLive: Layer.Layer<DbService | UserStoreService>,
+) => {
+  const protectedMiddleware = ExecutionStackMiddleware.combine(
+    requestScopedMiddleware(rsLive),
+  ).layer;
+  return ProtectedCloudApiLive.pipe(
+    Layer.provide(protectedMiddleware),
+    Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
+    Layer.provideMerge(RouterConfig),
+  );
+};
+
+export const ProtectedApiLive = makeProtectedApiLive(RequestScopedServicesLive);
