@@ -10,7 +10,7 @@
     "dev": "bun run dev:proxy && bun run dev:vite",
     "dev:proxy": "portless proxy start --multiplex --port 1355 || true",
     "dev:vite": "portless --name executor-local bunx --bun vite dev",
-    "build": "bunx --bun vite build",
+    "build": "turbo run build --filter @executor-js/vite-plugin && bunx --bun vite build",
     "start": "bun run src/serve.ts",
     "db:schema": "node --import jiti/register ../../packages/core/cli/src/index.ts generate --config ./executor.config.ts --output ./src/server/executor-schema.ts",
     "db:generate": "drizzle-kit generate",
