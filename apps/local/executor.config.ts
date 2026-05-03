@@ -7,7 +7,6 @@ import { graphqlPlugin } from "@executor-js/plugin-graphql";
 import { keychainPlugin } from "@executor-js/plugin-keychain";
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 import { onepasswordPlugin } from "@executor-js/plugin-onepassword";
-import { examplePlugin } from "@executor-js/plugin-example/server";
 
 // ---------------------------------------------------------------------------
 // Single source of truth for the local app's plugin list.
@@ -35,6 +34,5 @@ export default defineExecutorConfig({
       keychainPlugin(),
       fileSecretsPlugin(),
       onepasswordPlugin(),
-      examplePlugin(),
     ] as const,
 });
