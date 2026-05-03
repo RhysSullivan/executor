@@ -1,33 +1,32 @@
 // ---------------------------------------------------------------------------
-// @executor-js/vite-plugin — wires `executor.config.ts` into the host's
+// @executor-js/vite-plugin — wires plugin client bundles into the host's
 // Vite build so plugin-contributed pages, widgets, and slot components
-// are bundled automatically. The host imports
-// `virtual:executor/plugins-client` and gets a typed list of every
-// loaded plugin's `defineClientPlugin(...)` value.
+// are present in the frontend bundle. The host imports
+// `virtual:executor/plugins-client` and gets the list of every loaded
+// plugin's `defineClientPlugin(...)` value.
 //
-// Resolution model (one config, two consumers):
-//   - The server already imports plugin factories from
-//     `executor.config.ts` and runs them via `plugins({ configFile })`.
-//   - This Vite plugin loads the same `executor.config.ts` at build/dev
-//     start, calls `plugins({})` to enumerate them (factories must be
-//     side-effect free for inspection — same contract the schema-gen
-//     CLI relies on), reads each spec's `packageName`, and emits an
-//     import for `${packageName}/client`.
-//   - Plugins without a `packageName` are SDK-only and contribute
-//     nothing to the frontend bundle — they're skipped.
-//   - No conventions, no scope assumptions, no name transforms. The
-//     plugin author writes the same package name they publish to npm.
+// Two sources, concatenated and de-duplicated:
+//   1. `executor.config.ts` — static, TS-typed plugin tuple. The plugin
+//      Vite-plugin reads each spec's `packageName` and emits an import
+//      for `${packageName}/client`.
+//   2. `executor.jsonc#plugins` — dynamic, jiti-loaded at server boot.
+//      The Vite plugin reads each entry's `package` field directly
+//      (no need to import the server module — packageName == entry.package).
 //
-// HMR: the virtual module is part of Vite's graph. Changing
-// `executor.config.ts` invalidates it and triggers a hot update for
-// plugin-list consumers; adding/removing a plugin requires a Vite
-// restart (because npm dep graph changed).
+// Plugins without a `packageName` are SDK-only and contribute nothing to
+// the frontend bundle — they're skipped.
+//
+// HMR: the virtual module is part of Vite's graph. Changing either
+// `executor.config.ts` or `executor.jsonc` invalidates it and triggers
+// a hot update for plugin-list consumers; adding/removing a plugin
+// requires a Vite restart (because the npm dep graph changed).
 // ---------------------------------------------------------------------------
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
+import * as jsonc from "jsonc-parser";
 import type { Plugin } from "vite";
 import type { ExecutorCliConfig } from "@executor-js/sdk";
 
@@ -41,6 +40,21 @@ const DEFAULT_CONFIG_CANDIDATES = [
   "src/executor.config.ts",
   "src/executor.config.js",
 ];
+
+const DEFAULT_JSONC_CANDIDATES = ["executor.jsonc", "executor.json"];
+
+const readJsoncPlugins = (path: string): readonly string[] => {
+  try {
+    const raw = readFileSync(path, "utf8");
+    const parsed = jsonc.parse(raw) as
+      | { plugins?: ReadonlyArray<{ package?: string }> }
+      | undefined;
+    const entries = parsed?.plugins ?? [];
+    return entries.map((e) => e.package).filter((p): p is string => !!p);
+  } catch {
+    return [];
+  }
+};
 
 const tryResolveClient = (
   packageName: string,
@@ -62,6 +76,11 @@ interface ExecutorVitePluginOptions {
    * `src/`).
    */
   readonly configPath?: string;
+  /**
+   * Path to the executor jsonc manifest. Resolved relative to the Vite
+   * project root if not absolute. Defaults to `executor.jsonc`.
+   */
+  readonly jsoncPath?: string;
 }
 
 export default function executorVitePlugin(
@@ -69,6 +88,7 @@ export default function executorVitePlugin(
 ): Plugin {
   let projectRoot: string = process.cwd();
   let resolvedConfigPath: string | null = null;
+  let resolvedJsoncPath: string | null = null;
   let cachedSource: string | null = null;
 
   const resolveConfigPath = (): string | null => {
@@ -88,57 +108,88 @@ export default function executorVitePlugin(
     return null;
   };
 
+  const resolveJsoncPath = (): string | null => {
+    if (resolvedJsoncPath) return resolvedJsoncPath;
+    const candidates = options.jsoncPath
+      ? [options.jsoncPath]
+      : DEFAULT_JSONC_CANDIDATES;
+    for (const candidate of candidates) {
+      const abs = isAbsolute(candidate)
+        ? candidate
+        : resolvePath(projectRoot, candidate);
+      if (existsSync(abs)) {
+        resolvedJsoncPath = abs;
+        return abs;
+      }
+    }
+    return null;
+  };
+
   const loadVirtualSource = async (): Promise<string> => {
     if (cachedSource !== null) return cachedSource;
 
     const configPath = resolveConfigPath();
-    if (!configPath) {
-      cachedSource =
-        "// no executor.config.ts found — empty plugin list\n" +
-        "export const plugins = [];\n";
-      return cachedSource;
+    const jsoncPath = resolveJsoncPath();
+    const fromDir = configPath ? dirname(configPath) : projectRoot;
+
+    // Collect packageNames in priority order: static config first,
+    // jsonc second. De-duplicate by package name — if both list the
+    // same plugin, only one import is emitted. (Static wins for the
+    // ordering of `plugins` array, which matters for nav order.)
+    const packageNames: string[] = [];
+    const seen = new Set<string>();
+
+    if (configPath) {
+      // jiti is a dev dep of consumers; importing dynamically lets the
+      // plugin be lazy-loaded and avoids a hard requirement when the
+      // host doesn't actually use plugins yet.
+      const { createJiti } = await import("jiti");
+      const jiti = createJiti(pathToFileURL(configPath).href, {
+        interopDefault: true,
+        moduleCache: false,
+      });
+      const mod = (await jiti.import(configPath)) as
+        | { default?: ExecutorCliConfig }
+        | ExecutorCliConfig;
+      const config = ("default" in mod && mod.default ? mod.default : mod) as ExecutorCliConfig;
+      for (const spec of config.plugins()) {
+        if (!spec.packageName) continue;
+        if (seen.has(spec.packageName)) continue;
+        seen.add(spec.packageName);
+        packageNames.push(spec.packageName);
+      }
     }
 
-    // jiti is a dev dep of consumers; importing dynamically lets the
-    // plugin be lazy-loaded and avoids a hard requirement when the
-    // host doesn't actually use plugins yet.
-    const { createJiti } = await import("jiti");
-    const jiti = createJiti(pathToFileURL(configPath).href, {
-      interopDefault: true,
-      moduleCache: false,
-    });
-    const mod = (await jiti.import(configPath)) as
-      | { default?: ExecutorCliConfig }
-      | ExecutorCliConfig;
-    const config = ("default" in mod && mod.default ? mod.default : mod) as ExecutorCliConfig;
+    if (jsoncPath) {
+      for (const pkg of readJsoncPlugins(jsoncPath)) {
+        if (seen.has(pkg)) continue;
+        seen.add(pkg);
+        packageNames.push(pkg);
+      }
+    }
 
-    const specs = config.plugins();
-    const fromDir = dirname(configPath);
     const lines: string[] = [];
     const exportNames: string[] = [];
 
-    for (const spec of specs) {
-      // SDK-only plugins (no `packageName`) contribute nothing to the
-      // frontend bundle — skip silently.
-      if (!spec.packageName) continue;
-      const resolved = tryResolveClient(spec.packageName, fromDir);
+    for (const pkg of packageNames) {
+      const resolved = tryResolveClient(pkg, fromDir);
       if (!resolved) {
-        // packageName was set but didn't resolve. Likely culprits:
+        // package was listed but didn't resolve. Likely culprits:
         // a typo, a package that hasn't published `./client` in its
         // exports map yet, or the package isn't installed. Warn
         // loudly so the dev sees their plugin's UI is missing instead
         // of silently shipping a host without it.
         console.warn(
-          `[@executor-js/vite-plugin] plugin "${spec.id}" set packageName ` +
-            `"${spec.packageName}" but ${spec.packageName}/client could ` +
-            `not be resolved from ${fromDir}. The plugin's UI will not be ` +
-            `bundled. Check that the package is installed and exports a ` +
-            `\`./client\` subpath in its package.json.`,
+          `[@executor-js/vite-plugin] plugin package "${pkg}" listed but ` +
+            `${pkg}/client could not be resolved from ${fromDir}. The ` +
+            `plugin's UI will not be bundled. Check that the package is ` +
+            `installed and exports a \`./client\` subpath in its ` +
+            `package.json.`,
         );
         continue;
       }
       const ident = `__executor_plugin_${exportNames.length}`;
-      lines.push(`import ${ident} from ${JSON.stringify(`${spec.packageName}/client`)};`);
+      lines.push(`import ${ident} from ${JSON.stringify(`${pkg}/client`)};`);
       exportNames.push(ident);
     }
 
@@ -164,7 +215,11 @@ export default function executorVitePlugin(
     },
     handleHotUpdate(ctx) {
       const configPath = resolveConfigPath();
-      if (!configPath || ctx.file !== configPath) return undefined;
+      const jsoncPath = resolveJsoncPath();
+      const isWatched =
+        (configPath && ctx.file === configPath) ||
+        (jsoncPath && ctx.file === jsoncPath);
+      if (!isWatched) return undefined;
       cachedSource = null;
       const mod = ctx.server.moduleGraph.getModuleById(RESOLVED_ID);
       return mod ? [mod] : undefined;

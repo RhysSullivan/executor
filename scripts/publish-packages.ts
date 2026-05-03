@@ -34,6 +34,7 @@ const PUBLIC_PACKAGE_DIRS = [
   "packages/core/config",
   "packages/core/execution",
   "packages/core/cli",
+  "packages/plugins/example",
   "packages/plugins/file-secrets",
   "packages/plugins/google-discovery",
   "packages/plugins/graphql",

@@ -109,12 +109,31 @@ export const SecretMetadata = Schema.Struct({
 export type SecretMetadata = typeof SecretMetadata.Type;
 
 // ---------------------------------------------------------------------------
+// Plugin manifest
+//
+// `plugins` is the install list. Each entry is a published npm package
+// that exports a `definePlugin(...)` factory under `./server`. The host
+// loads each at boot via jiti and calls the factory with merged
+// `options` plus host-injected deps (`configFile`, etc.). This is the
+// dynamic sibling of the static `executor.config.ts` plugin tuple — when
+// `plugins` is set, the host uses it; otherwise it falls back to the
+// statically-typed config.
+// ---------------------------------------------------------------------------
+
+export const PluginConfig = Schema.Struct({
+  package: Schema.String,
+  options: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+});
+export type PluginConfig = typeof PluginConfig.Type;
+
+// ---------------------------------------------------------------------------
 // Top-level config
 // ---------------------------------------------------------------------------
 
 export const ExecutorFileConfig = Schema.Struct({
   $schema: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
+  plugins: Schema.optional(Schema.Array(PluginConfig)),
   sources: Schema.optional(Schema.Array(SourceConfig)),
   secrets: Schema.optional(Schema.Record(Schema.String, SecretMetadata)),
 });

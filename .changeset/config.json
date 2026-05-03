@@ -17,7 +17,8 @@
       "@executor-js/plugin-keychain",
       "@executor-js/plugin-mcp",
       "@executor-js/plugin-onepassword",
-      "@executor-js/plugin-openapi"
+      "@executor-js/plugin-openapi",
+      "@executor-js/plugin-example"
     ]
   ],
   "linked": [],

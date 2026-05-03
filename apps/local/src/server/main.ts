@@ -12,7 +12,6 @@ import {
 } from "@executor-js/api/server";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
-import executorConfig from "../../executor.config";
 import { getExecutorBundle } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 import { ErrorCaptureLive } from "./observability";
@@ -23,28 +22,12 @@ import { ErrorCaptureLive } from "./observability";
 // Every plugin contributes its `HttpApiGroup` and handler `Layer` through
 // the spec (`routes()` / `handlers(self)` on `PluginSpec`); the host folds
 // the group list into a single `HttpApi` and merges the handler layers
-// into the runtime. No per-plugin imports here — adding a plugin to
-// `executor.config.ts` is sufficient.
-//
-// `plugins({})` is safe at module-eval time: `.routes()` doesn't touch
-// host deps; the `configFile` parameter only matters at runtime
-// invocation. The schema-gen CLI relies on the same property.
+// into the runtime. The plugin set is the union of `executor.config.ts`
+// (static, typed) and `executor.jsonc#plugins` (dynamic, jiti-loaded),
+// so `LocalApi` can't be constructed until the executor bundle resolves
+// — composition happens inside `createServerHandlers` instead of at
+// module-eval time.
 // ---------------------------------------------------------------------------
-
-const LocalApi = composePluginApi(executorConfig.plugins());
-
-// `ErrorCaptureLive` logs causes to the console and returns a short
-// correlation id. Provided above the handler + middleware layers so
-// both the `withCapture` typed-channel translation AND the
-// `observabilityMiddleware` defect catchall see the same
-// implementation.
-const LocalObservability = observabilityMiddleware(LocalApi);
-
-const LocalApiBase = HttpApiBuilder.layer(LocalApi).pipe(
-  Layer.provide(CoreHandlers),
-  Layer.provide(LocalObservability),
-  Layer.provide(ErrorCaptureLive),
-);
 
 // ---------------------------------------------------------------------------
 // Server handlers
@@ -68,6 +51,19 @@ const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const { executor, plugins } = await getExecutorBundle();
   const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
+
+  const LocalApi = composePluginApi(plugins);
+  // `ErrorCaptureLive` logs causes to the console and returns a short
+  // correlation id. Provided above the handler + middleware layers so
+  // both the `withCapture` typed-channel translation AND the
+  // `observabilityMiddleware` defect catchall see the same
+  // implementation.
+  const LocalObservability = observabilityMiddleware(LocalApi);
+  const LocalApiBase = HttpApiBuilder.layer(LocalApi).pipe(
+    Layer.provide(CoreHandlers),
+    Layer.provide(LocalObservability),
+    Layer.provide(ErrorCaptureLive),
+  );
 
   // Spec-based plugin handlers — each plugin's `handlers(self)` Layer is
   // built against its own bundled HttpApi for full type safety inside the
