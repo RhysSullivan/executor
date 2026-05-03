@@ -13,7 +13,7 @@
     "db:studio": "drizzle-kit studio",
     "db:studio:prod": "op run --env-file=.env.production -- drizzle-kit studio",
     "db:migrate:prod": "op run --env-file=.env.production -- drizzle-kit migrate",
-    "build": "vite build",
+    "build": "turbo run build --filter @executor-js/vite-plugin && vite build",
     "preview": "vite preview",
     "deploy": "op run --env-file=.env.production -- bun run build && op run --env-file=.env.production -- wrangler deploy",
     "cf-typegen": "wrangler types",
