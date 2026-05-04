@@ -1,5 +1,8 @@
 ## Highlights
 
+### Platform binaries distributed via `optionalDependencies`
+The CLI now ships its native binary as one of several `executor-<plat>-<arch>` packages listed under `optionalDependencies`, the same pattern esbuild/swc/opencode use. npm and bun only fetch the matching binary, and there's no postinstall network call — `npm i -g executor` and `bun i -g executor` (which blocks postinstall by default) both work. For machines without node at all, install via `curl … install.sh | bash`.
+
 ### MCP sources honor upstream `destructiveHint`
 MCP sources now read `destructiveHint` from upstream tool annotations. Tools marked destructive will require approval before running, surfaced via MCP elicitation. Refresh existing sources (or remove + re-add) to pick up annotations on tools added before this change.
 
