@@ -34,7 +34,7 @@ Does **not** ship in the CLI:
 
 The owner doesn't want GitHub's auto-generated "PR title by @user" list. Release notes live at `apps/cli/release-notes/` and `apps/cli/src/release.ts` prefers them over `--generate-notes`.
 
-**`apps/cli/release-notes/next.md` is the canonical user-facing changelog.** Per-package workspace `CHANGELOG.md` files were removed in late 2026 — they were empty stubs and changesets does not regenerate them under `changelog: false`. Don't create them.
+**`apps/cli/release-notes/next.md` is the canonical user-facing changelog.** Per-package workspace `CHANGELOG.md` files are one-line stubs required by `changesets/action@v1` (the GitHub Action wrapping the CLI in `release.yml`) — it reads each bumped package's `CHANGELOG.md` to build the Version Packages PR description and crashes with `ENOENT` if any is missing. The stubs satisfy that read; don't put release content in them.
 
 ### How it's wired
 `apps/cli/src/release.ts` reads `apps/cli/release-notes/next.md` and uses
