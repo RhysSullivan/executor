@@ -157,6 +157,20 @@ const readOptionalLimit = (value: unknown, toolName: string): number | Execution
   return Math.floor(value);
 };
 
+const readOptionalOffset = (value: unknown, toolName: string): number | ExecutionToolError => {
+  if (value === undefined) {
+    return 0;
+  }
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return new ExecutionToolError({
+      message: `${toolName} offset must be a non-negative number when provided`,
+    });
+  }
+
+  return Math.floor(value);
+};
+
 const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): SandboxToolInvoker => {
   const base = makeExecutorToolInvoker(executor, { invokeOptions });
   return {
@@ -166,7 +180,7 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
           return Effect.fail(
             new ExecutionToolError({
               message:
-                "tools.search expects an object: { query?: string; namespace?: string; limit?: number }",
+                "tools.search expects an object: { query?: string; namespace?: string; limit?: number; offset?: number }",
             }),
           );
         }
@@ -192,8 +206,14 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
           return Effect.fail(limit);
         }
 
+        const offset = readOptionalOffset(args.offset, "tools.search");
+        if (offset instanceof ExecutionToolError) {
+          return Effect.fail(offset);
+        }
+
         return searchTools(executor, args.query ?? "", limit, {
           namespace: args.namespace,
+          offset,
         }).pipe(
           Effect.withSpan("mcp.tool.dispatch", {
             attributes: { "mcp.tool.name": path, "executor.tool.builtin": true },
@@ -205,7 +225,7 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
           return Effect.fail(
             new ExecutionToolError({
               message:
-                "tools.executor.sources.list expects an object: { query?: string; limit?: number }",
+                "tools.executor.sources.list expects an object: { query?: string; limit?: number; offset?: number }",
             }),
           );
         }
@@ -226,9 +246,18 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
           return Effect.fail(limit);
         }
 
+        const offset = readOptionalOffset(
+          isRecord(args) ? args.offset : undefined,
+          "tools.executor.sources.list",
+        );
+        if (offset instanceof ExecutionToolError) {
+          return Effect.fail(offset);
+        }
+
         return listExecutorSources(executor, {
           query: isRecord(args) && typeof args.query === "string" ? args.query : undefined,
           limit,
+          offset,
         }).pipe(
           Effect.withSpan("mcp.tool.dispatch", {
             attributes: { "mcp.tool.name": path, "executor.tool.builtin": true },

@@ -143,15 +143,21 @@ describe("tool discovery", () => {
       const executor = yield* makeSearchExecutor();
 
       const githubMatches = yield* searchTools(executor, "github issues", 5);
-      expect(githubMatches.map((match) => match.path)).toEqual(["github.listRepositoryIssues"]);
-      expect(githubMatches[0]?.score ?? 0).toBeGreaterThan(0);
+      expect(githubMatches.items.map((match) => match.path)).toEqual([
+        "github.listRepositoryIssues",
+      ]);
+      expect(githubMatches.items[0]?.score ?? 0).toBeGreaterThan(0);
+      expect(githubMatches.hasMore).toBe(false);
+      expect(githubMatches.nextOffset).toBeNull();
 
       const repoMatches = yield* searchTools(executor, "repo details", 5);
-      expect(repoMatches[0]?.path).toBe("github.getRepositoryDetails");
+      expect(repoMatches.items[0]?.path).toBe("github.getRepositoryDetails");
 
       const crmMatches = yield* searchTools(executor, "crm create contact", 5);
-      expect(crmMatches[0]?.path).toBe("crm.createContact");
-      expect(crmMatches[0]?.score ?? 0).toBeGreaterThan(crmMatches[1]?.score ?? 0);
+      expect(crmMatches.items[0]?.path).toBe("crm.createContact");
+      expect(crmMatches.items[0]?.score ?? 0).toBeGreaterThan(
+        crmMatches.items[1]?.score ?? 0,
+      );
     }),
   );
 
@@ -159,7 +165,49 @@ describe("tool discovery", () => {
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
       const matches = yield* searchTools(executor, "", 5);
-      expect(matches).toEqual([]);
+      expect(matches.items).toEqual([]);
+      expect(matches.total).toBe(0);
+      expect(matches.hasMore).toBe(false);
+      expect(matches.nextOffset).toBeNull();
+    }),
+  );
+
+  it.effect("paginates ranked matches via limit + offset with hasMore + nextOffset", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeSearchExecutor();
+
+      // "list" matches `listRepositoryIssues`, `searchDocs` (description has
+      // "documentation" which tokenises adjacent), `listContacts`, etc.
+      // The exact match set isn't important — the pagination invariants are.
+      const all = yield* searchTools(executor, "list", 100);
+      expect(all.items.length).toBeGreaterThan(1);
+      expect(all.total).toBe(all.items.length);
+      expect(all.hasMore).toBe(false);
+      expect(all.nextOffset).toBeNull();
+
+      // First page (limit 1) — matches truncate, hasMore + nextOffset surface.
+      const firstPage = yield* searchTools(executor, "list", 1);
+      expect(firstPage.items).toEqual([all.items[0]]);
+      expect(firstPage.total).toBe(all.total);
+      expect(firstPage.hasMore).toBe(true);
+      expect(firstPage.nextOffset).toBe(1);
+
+      // Second page using nextOffset — order matches the un-paginated rank.
+      const secondPage = yield* searchTools(executor, "list", 1, {
+        offset: firstPage.nextOffset!,
+      });
+      expect(secondPage.items).toEqual([all.items[1]]);
+      expect(secondPage.total).toBe(all.total);
+      // Whether hasMore is true depends on total; at minimum it's consistent.
+      expect(secondPage.hasMore).toBe(all.total > 2);
+      expect(secondPage.nextOffset).toBe(secondPage.hasMore ? 2 : null);
+
+      // Offset past the end — empty page, no more.
+      const past = yield* searchTools(executor, "list", 5, { offset: all.total + 10 });
+      expect(past.items).toEqual([]);
+      expect(past.total).toBe(all.total);
+      expect(past.hasMore).toBe(false);
+      expect(past.nextOffset).toBeNull();
     }),
   );
 
@@ -170,21 +218,28 @@ describe("tool discovery", () => {
       const githubOnly = yield* searchTools(executor, "list", 5, {
         namespace: "github",
       });
-      expect(githubOnly.map((match) => match.path)).toEqual(["github.listRepositoryIssues"]);
+      expect(githubOnly.items.map((match) => match.path)).toEqual([
+        "github.listRepositoryIssues",
+      ]);
 
       const crmOnly = yield* searchTools(executor, "list", 5, {
         namespace: "crm",
       });
-      expect(crmOnly.map((match) => match.path)).toEqual(["crm.listContacts"]);
+      expect(crmOnly.items.map((match) => match.path)).toEqual(["crm.listContacts"]);
 
       const sandboxResult = yield* createExecutionEngine({ executor, codeExecutor }).execute(
         'return await tools.search({ namespace: "crm", query: "create contact", limit: 5 });',
         { onElicitation: acceptAll },
       );
       expect(sandboxResult.error).toBeUndefined();
-      expect(sandboxResult.result).toEqual([
-        expect.objectContaining({ path: "crm.createContact" }),
-      ]);
+      expect(sandboxResult.result).toEqual(
+        expect.objectContaining({
+          items: [expect.objectContaining({ path: "crm.createContact" })],
+          total: 1,
+          hasMore: false,
+          nextOffset: null,
+        }),
+      );
     }),
   );
 
@@ -198,10 +253,15 @@ describe("tool discovery", () => {
       );
       expect(listed.error).toBeUndefined();
       expect(listed.result).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: "github", toolCount: 3 }),
-          expect.objectContaining({ id: "crm", toolCount: 2 }),
-        ]),
+        expect.objectContaining({
+          items: expect.arrayContaining([
+            expect.objectContaining({ id: "github", toolCount: 3 }),
+            expect.objectContaining({ id: "crm", toolCount: 2 }),
+          ]),
+          total: 2,
+          hasMore: false,
+          nextOffset: null,
+        }),
       );
 
       const searched = yield* createExecutionEngine({ executor, codeExecutor }).execute(
@@ -209,7 +269,86 @@ describe("tool discovery", () => {
         { onElicitation: acceptAll },
       );
       expect(searched.error).toBeUndefined();
-      expect(searched.result).toEqual([expect.objectContaining({ path: "crm.listContacts" })]);
+      expect(searched.result).toEqual(
+        expect.objectContaining({
+          items: [expect.objectContaining({ path: "crm.listContacts" })],
+        }),
+      );
+    }),
+  );
+
+  it.effect("paginates source listings via limit + offset", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeSearchExecutor();
+      const engine = createExecutionEngine({ executor, codeExecutor });
+
+      // total = 2 (github, crm), sorted by name ("CRM" < "GitHub")
+      const firstPage = yield* engine.execute(
+        "return await tools.executor.sources.list({ limit: 1 });",
+        { onElicitation: acceptAll },
+      );
+      expect(firstPage.error).toBeUndefined();
+      expect(firstPage.result).toEqual(
+        expect.objectContaining({
+          items: [expect.objectContaining({ id: "crm" })],
+          total: 2,
+          hasMore: true,
+          nextOffset: 1,
+        }),
+      );
+
+      const secondPage = yield* engine.execute(
+        "return await tools.executor.sources.list({ limit: 1, offset: 1 });",
+        { onElicitation: acceptAll },
+      );
+      expect(secondPage.error).toBeUndefined();
+      expect(secondPage.result).toEqual(
+        expect.objectContaining({
+          items: [expect.objectContaining({ id: "github" })],
+          total: 2,
+          hasMore: false,
+          nextOffset: null,
+        }),
+      );
+    }),
+  );
+
+  it.effect("rejects negative offsets via the engine validator", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeSearchExecutor();
+      const engine = createExecutionEngine({ executor, codeExecutor });
+
+      const badSearch = yield* engine.execute(
+        [
+          "try {",
+          '  await tools.search({ query: "list", offset: -1 });',
+          '  return "unexpected";',
+          "} catch (error) {",
+          "  return error instanceof Error ? error.message : String(error);",
+          "}",
+        ].join("\n"),
+        { onElicitation: acceptAll },
+      );
+      expect(badSearch.error).toBeUndefined();
+      expect(String(badSearch.result)).toContain(
+        "tools.search offset must be a non-negative number when provided",
+      );
+
+      const badList = yield* engine.execute(
+        [
+          "try {",
+          "  await tools.executor.sources.list({ offset: -5 });",
+          '  return "unexpected";',
+          "} catch (error) {",
+          "  return error instanceof Error ? error.message : String(error);",
+          "}",
+        ].join("\n"),
+        { onElicitation: acceptAll },
+      );
+      expect(badList.error).toBeUndefined();
+      expect(String(badList.result)).toContain(
+        "tools.executor.sources.list offset must be a non-negative number when provided",
+      );
     }),
   );
 
@@ -245,7 +384,7 @@ describe("tool discovery", () => {
       );
       expect(invalid.error).toBeUndefined();
       expect(String(invalid.result)).toContain(
-        "tools.search expects an object: { query?: string; namespace?: string; limit?: number }",
+        "tools.search expects an object: { query?: string; namespace?: string; limit?: number; offset?: number }",
       );
 
       const emptyQuery = yield* engine.execute(
@@ -253,7 +392,12 @@ describe("tool discovery", () => {
         { onElicitation: acceptAll },
       );
       expect(emptyQuery.error).toBeUndefined();
-      expect(emptyQuery.result).toEqual([]);
+      expect(emptyQuery.result).toEqual({
+        items: [],
+        total: 0,
+        hasMore: false,
+        nextOffset: null,
+      });
 
       const invalidDescribe = yield* engine.execute(
         [

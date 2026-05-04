@@ -143,6 +143,40 @@ export type ExecutorSourceListItem = {
   readonly toolCount: number;
 };
 
+/**
+ * Page of results from a list-style discovery tool. Shared by
+ * `tools.search` and `tools.executor.sources.list` so the model sees one
+ * consistent shape:
+ *
+ *   - `items`      — the page (slice).
+ *   - `total`      — count after filtering, before pagination. The model
+ *                    can use this to detect truncation.
+ *   - `hasMore`    — convenience flag for `(offset + items.length) < total`.
+ *   - `nextOffset` — concrete offset for the next page when `hasMore`,
+ *                    `null` otherwise. Pre-computing it removes a class of
+ *                    off-by-one mistakes when the model paginates.
+ */
+export type PagedResult<T> = {
+  readonly items: readonly T[];
+  readonly total: number;
+  readonly hasMore: boolean;
+  readonly nextOffset: number | null;
+};
+
+const paginate = <T>(all: readonly T[], offset: number, limit: number): PagedResult<T> => {
+  const total = all.length;
+  const start = Math.min(Math.max(offset, 0), total);
+  const items = all.slice(start, start + limit);
+  const consumed = start + items.length;
+  const hasMore = consumed < total;
+  return {
+    items,
+    total,
+    hasMore,
+    nextOffset: hasMore ? consumed : null,
+  };
+};
+
 type SearchableTool = Pick<Tool, "id" | "sourceId" | "name" | "description">;
 
 type PreparedField = {
@@ -328,40 +362,57 @@ export const searchTools = Effect.fn("executor.tools.search")(function* (
   executor: Executor,
   query: string,
   limit = 12,
-  options?: { readonly namespace?: string },
+  options?: { readonly namespace?: string; readonly offset?: number },
 ) {
+  const offset = options?.offset ?? 0;
   yield* Effect.annotateCurrentSpan({
     "executor.search.query_length": query.length,
     "executor.search.limit": limit,
+    "executor.search.offset": offset,
     ...(options?.namespace ? { "executor.search.namespace": options.namespace } : {}),
   });
 
+  const empty: PagedResult<ToolDiscoveryResult> = {
+    items: [],
+    total: 0,
+    hasMore: false,
+    nextOffset: null,
+  };
+
   if (normalizeSearchText(query).length === 0) {
-    return [] as ReadonlyArray<ToolDiscoveryResult>;
+    return empty;
   }
 
   const all = yield* executor.tools.list({ includeAnnotations: false }).pipe(Effect.orDie);
-  const results = all
+  const ranked = all
     .filter((tool: Tool) => matchesNamespace(tool, options?.namespace))
     .map((tool: Tool) => scoreToolMatch(tool, query))
     .filter((tool): tool is ToolDiscoveryResult => tool !== null)
-    .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
-    .slice(0, limit);
+    .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
+
+  const page = paginate(ranked, offset, limit);
 
   yield* Effect.annotateCurrentSpan({
     "executor.search.candidate_count": all.length,
-    "executor.search.result_count": results.length,
+    "executor.search.match_count": ranked.length,
+    "executor.search.result_count": page.items.length,
+    "executor.search.has_more": page.hasMore,
   });
-  return results;
+  return page;
 });
 
 /** What `tools.executor.sources.list()` calls inside the sandbox. */
 export const listExecutorSources = Effect.fn("executor.sources.list")(function* (
   executor: Executor,
-  options?: { readonly query?: string; readonly limit?: number },
+  options?: {
+    readonly query?: string;
+    readonly limit?: number;
+    readonly offset?: number;
+  },
 ) {
   const normalizedQuery = normalizeSearchText(options?.query ?? "");
-  const limit = options?.limit ?? 200;
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
   const sources = yield* executor.sources.list().pipe(Effect.orDie);
 
   const filtered =
@@ -379,28 +430,30 @@ export const listExecutorSources = Effect.fn("executor.sources.list")(function* 
     toolCountBySource.set(tool.sourceId, (toolCountBySource.get(tool.sourceId) ?? 0) + 1);
   }
 
-  const withCounts = filtered.map(
-    (source: Source) =>
-      ({
-        id: source.id,
-        name: source.name,
-        kind: source.kind,
-        runtime: source.runtime,
-        canRemove: source.canRemove,
-        canRefresh: source.canRefresh,
-        toolCount: toolCountBySource.get(source.id) ?? 0,
-      }) satisfies ExecutorSourceListItem,
-  );
+  const sortedWithCounts = filtered
+    .map(
+      (source: Source) =>
+        ({
+          id: source.id,
+          name: source.name,
+          kind: source.kind,
+          runtime: source.runtime,
+          canRemove: source.canRemove,
+          canRefresh: source.canRefresh,
+          toolCount: toolCountBySource.get(source.id) ?? 0,
+        }) satisfies ExecutorSourceListItem,
+    )
+    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
 
-  const results = withCounts
-    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
-    .slice(0, limit);
+  const page = paginate(sortedWithCounts, offset, limit);
 
   yield* Effect.annotateCurrentSpan({
     "executor.sources.candidate_count": sources.length,
-    "executor.sources.result_count": results.length,
+    "executor.sources.match_count": sortedWithCounts.length,
+    "executor.sources.result_count": page.items.length,
+    "executor.sources.has_more": page.hasMore,
   });
-  return results;
+  return page;
 });
 
 /** What `tools.describe.tool()` calls inside the sandbox. */
