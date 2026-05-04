@@ -1,9 +1,9 @@
 ## Highlights
 
-### Platform binaries distributed via `optionalDependencies` (codex-style)
-The CLI now ships its native binary via per-platform variants of the same `executor` npm package — one wrapper plus eight platform-tagged versions (`1.4.14-linux-x64`, `1.4.14-darwin-arm64`, ...) referenced from the wrapper's `optionalDependencies` via `npm:` alias specs. npm and bun only fetch the variant matching the current `os`/`cpu`, and there's no postinstall network call — `npm i -g executor` and `bun i -g executor` (which blocks postinstall by default) both work. For machines without node at all, install via `curl … install.sh | bash`.
+### Install paths fixed
+`npm i -g executor` and `bun i -g executor` both work cleanly on a fresh machine. For machines without node, `curl … install.sh | bash` does the same thing.
 
-This shape (modeled on codex's `@openai/codex` packaging) means new platforms ship without claiming new npm names — one trusted-publishing config on the `executor` package covers everything. **1.4.13 was a partial release that only made it to GitHub Releases, not npm; 1.4.14 is the first release of this packaging on npm.**
+> 1.4.13 was a partial release — it only made it to GitHub Releases, not npm. If you tried `npm i -g executor` and got 1.4.12, that's why. 1.4.14 is the first complete release.
 
 ### MCP sources honor upstream `destructiveHint`
 MCP sources now read `destructiveHint` from upstream tool annotations. Tools marked destructive will require approval before running, surfaced via MCP elicitation. Refresh existing sources (or remove + re-add) to pick up annotations on tools added before this change.
