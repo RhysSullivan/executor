@@ -421,4 +421,186 @@ describe("makeDynamicWorkerExecutor", () => {
       expect(result.result).toEqual({ kind: "Blob", type: "text/plain", text: "DOWNLOAD" });
     }),
   );
+
+  it.effect("preserves File tool args (name + lastModified survive)", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      let captured: { upload?: unknown } = {};
+      const invoker = makeInvoker(({ args }) => {
+        captured = (args ?? {}) as { upload?: unknown };
+        return null;
+      });
+
+      const result = yield* executor.execute(
+        `async () => {
+          const upload = new File(["hi"], "report.txt", {
+            type: "text/plain",
+            lastModified: 1700000000000,
+          });
+          await tools.uploads.send({ upload });
+        }`,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(captured.upload).toBeInstanceOf(File);
+      const file = captured.upload as File;
+      expect(file.name).toBe("report.txt");
+      expect(file.type).toBe("text/plain");
+      expect(file.lastModified).toBe(1700000000000);
+    }),
+  );
+
+  // Codec recursion: Blob nested inside an array inside an object inside
+  // an array. The structural concern is that `__encodeBinary` walks plain
+  // objects + arrays symmetrically. If it stopped at the first level the
+  // inner Blob would arrive as `{}`.
+  it.effect("preserves Blob args nested deep in arrays and objects", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      let captured: unknown;
+      const invoker = makeInvoker(({ args }) => {
+        captured = args;
+        return null;
+      });
+
+      yield* executor.execute(
+        `async () => {
+          const inner = new Blob(["MARKER"], { type: "text/plain" });
+          await tools.deep.send({
+            payload: { items: [{ blob: inner, name: "first" }, { name: "second" }] },
+          });
+        }`,
+        invoker,
+      );
+
+      const root = captured as {
+        payload: { items: Array<{ blob?: unknown; name: string }> };
+      };
+      expect(root.payload.items).toHaveLength(2);
+      expect(root.payload.items[0]!.blob).toBeInstanceOf(Blob);
+      expect(root.payload.items[0]!.name).toBe("first");
+      expect(root.payload.items[1]!.name).toBe("second");
+      expect(root.payload.items[1]!.blob).toBeUndefined();
+      const blob = root.payload.items[0]!.blob as Blob;
+      const body = yield* Effect.promise(() => blob.text());
+      expect(body).toBe("MARKER");
+    }),
+  );
+
+  // Native types that Workers RPC structured-clone supports natively. If
+  // any of these stops working it almost certainly means the dispatcher's
+  // contract regressed back toward JSON-only.
+  it.effect("preserves Date tool args", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      let captured: { when?: unknown } = {};
+      const invoker = makeInvoker(({ args }) => {
+        captured = (args ?? {}) as { when?: unknown };
+        return null;
+      });
+
+      yield* executor.execute(
+        `async () => {
+          await tools.events.log({ when: new Date("2026-05-03T12:00:00Z") });
+        }`,
+        invoker,
+      );
+
+      expect(captured.when).toBeInstanceOf(Date);
+      expect((captured.when as Date).toISOString()).toBe("2026-05-03T12:00:00.000Z");
+    }),
+  );
+
+  it.effect("preserves Map and Set tool args", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      let captured: { tags?: unknown; index?: unknown } = {};
+      const invoker = makeInvoker(({ args }) => {
+        captured = (args ?? {}) as { tags?: unknown; index?: unknown };
+        return null;
+      });
+
+      yield* executor.execute(
+        `async () => {
+          await tools.search.run({
+            tags: new Set(["red", "blue"]),
+            index: new Map([["a", 1], ["b", 2]]),
+          });
+        }`,
+        invoker,
+      );
+
+      expect(captured.tags).toBeInstanceOf(Set);
+      expect([...(captured.tags as Set<string>)].sort()).toEqual(["blue", "red"]);
+      expect(captured.index).toBeInstanceOf(Map);
+      expect((captured.index as Map<string, number>).get("a")).toBe(1);
+      expect((captured.index as Map<string, number>).get("b")).toBe(2);
+    }),
+  );
+
+  // The `tools` Proxy has guards (`then`, symbol props, empty path) that
+  // never had tests. Each one is a foot-gun for sandbox code: if `then`
+  // ever stopped returning undefined, awaiting `tools.foo` would hang.
+  it.effect("tools proxy returns undefined for `then` (so it isn't thenable)", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      const invoker = makeInvoker(() => null);
+
+      const result = yield* executor.execute(
+        `async () => {
+          // If the proxy were thenable, awaiting it would call .then(...)
+          // and either hang or invoke a phantom tool. We expect a plain
+          // object whose .then is undefined.
+          return {
+            thenIsUndefined: tools.foo.then === undefined,
+            thenableCheck: typeof tools.foo.then,
+          };
+        }`,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual({ thenIsUndefined: true, thenableCheck: "undefined" });
+    }),
+  );
+
+  it.effect("tools proxy throws when called with no path", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      const invoker = makeInvoker(() => null);
+
+      const result = yield* executor.execute(
+        `async () => {
+          try {
+            await tools({});
+            return "no error";
+          } catch (e) {
+            return e instanceof Error ? e.message : String(e);
+          }
+        }`,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toBe("Tool path missing in invocation");
+    }),
+  );
+
+  it.effect("tools proxy supports deep paths (>2 segments)", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      let capturedPath = "";
+      const invoker = makeInvoker(({ path }) => {
+        capturedPath = path;
+        return path;
+      });
+
+      const result = yield* executor.execute("async () => tools.a.b.c.d.e({})", invoker);
+
+      expect(result.error).toBeUndefined();
+      expect(capturedPath).toBe("a.b.c.d.e");
+      expect(result.result).toBe("a.b.c.d.e");
+    }),
+  );
 });
