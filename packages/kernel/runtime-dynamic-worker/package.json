@@ -20,6 +20,9 @@
     "@cloudflare/vitest-pool-workers": "^0.14.2",
     "@cloudflare/workers-types": "^4.20250620.0",
     "@effect/vitest": "catalog:",
+    "@executor-js/execution": "workspace:*",
+    "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@types/node": "catalog:",
     "vitest": "catalog:",
     "wrangler": "^4.81.0"
