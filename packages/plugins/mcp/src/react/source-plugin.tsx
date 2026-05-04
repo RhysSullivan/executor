@@ -2,9 +2,13 @@ import { lazy, type ComponentProps, type ComponentType } from "react";
 import type { SourcePlugin } from "@executor-js/sdk/client";
 import { mcpPresets } from "../sdk/presets";
 
-const LazyAddMcpSource = lazy(() => import("./AddMcpSource"));
-const LazyEditMcpSource = lazy(() => import("./EditMcpSource"));
-const LazyMcpSignInButton = lazy(() => import("./McpSignInButton"));
+const importAdd = () => import("./AddMcpSource");
+const importEdit = () => import("./EditMcpSource");
+const importSignIn = () => import("./McpSignInButton");
+
+const LazyAddMcpSource = lazy(importAdd);
+const LazyEditMcpSource = lazy(importEdit);
+const LazyMcpSignInButton = lazy(importSignIn);
 
 type AddProps = ComponentProps<SourcePlugin["add"]>;
 
@@ -41,6 +45,11 @@ export const createMcpSourcePlugin = (
     edit: LazyEditMcpSource,
     signIn: LazyMcpSignInButton,
     presets,
+    preload: () => {
+      void importAdd();
+      void importEdit();
+      void importSignIn();
+    },
   };
 };
 

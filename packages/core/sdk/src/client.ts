@@ -13,6 +13,7 @@ import {
   createContext,
   createElement,
   useContext,
+  useEffect,
   useMemo,
   type ComponentType,
   type ReactNode,
@@ -130,6 +131,10 @@ export interface SourcePlugin {
     readonly sourceId: string;
   }>;
   readonly presets?: readonly SourcePreset[];
+  /** Trigger early download of the plugin's lazy component chunks (add/edit/etc.).
+   *  Call from the host on intent (hover/focus) so the chunks land before the
+   *  user navigates into the add page. Idempotent. */
+  readonly preload?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +274,11 @@ export function ExecutorPluginsProvider(
     }),
     [plugins],
   );
+  // Kick off lazy chunk downloads for every source plugin once the host
+  // mounts, so navigating into an add/edit page doesn't suspend.
+  useEffect(() => {
+    for (const sp of value.sourcePlugins) sp.preload?.();
+  }, [value.sourcePlugins]);
   return createElement(ExecutorPluginsContext.Provider, { value }, children);
 }
 

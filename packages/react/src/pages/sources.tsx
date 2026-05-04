@@ -81,6 +81,12 @@ export function SourcesPage() {
           </Button>
         </div>
 
+        <div className="mb-8">
+          <McpInstallCard />
+        </div>
+
+        <div className="mb-8 border-t border-border/50" />
+
         {AsyncResult.match(sources, {
           onInitial: () => <SourcesGridSkeleton />,
           onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
@@ -106,12 +112,6 @@ export function SourcesPage() {
             );
           },
         })}
-
-        <div className="mb-8 border-t border-border/50" />
-
-        <div className="mb-8">
-          <McpInstallCard />
-        </div>
       </div>
 
       <ConnectDialog open={connectOpen} onOpenChange={setConnectOpen} />

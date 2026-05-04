@@ -46,7 +46,7 @@ export function SourcesAddPage(props: {
   return (
     <div className="relative min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex min-h-full max-w-4xl flex-col px-6 py-10 lg:px-10 lg:py-14">
-        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+        <Suspense fallback={null}>
           <AddComponent
             initialUrl={url}
             initialPreset={preset}
