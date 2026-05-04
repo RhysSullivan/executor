@@ -54,18 +54,19 @@ To pack the `@executor-js/*` library packages without publishing:
 
 ## Release notes
 
-User-facing release notes live in `apps/cli/release-notes/`:
+User-facing release notes live at `apps/cli/release-notes/next.md` —
+one rolling file. **This is the single source of truth users see.** Edit
+it whenever you ship a user-visible change.
 
-- `next.md` — rolling draft for the next release. **This is the single
-  source of truth users see.** Edit it whenever you ship a user-visible
-  change.
-- `v<version>.md` — archived per-release snapshots. After a release
-  publishes, rename `next.md` to `v<version>.md` so the next cycle starts
-  blank.
+`apps/cli/src/release.ts` reads `next.md` and uses its contents as the
+GitHub Release body. If the file is missing or empty it falls back to
+`gh release create --generate-notes` (auto-generated from PR titles).
 
-`apps/cli/src/release.ts` reads `v<tag>.md` first, falls back to
-`next.md`, and only invokes `gh release create --generate-notes` if both
-are absent.
+There's no per-version archive in the repo — historical release bodies
+live on GitHub Releases (durable, indexed, linkable). When you start a
+new release cycle, replace the existing `next.md` content with your new
+entries; the previous cycle's content is already preserved on the
+matching `vX.Y.Z` release page.
 
 ### Authoring rules
 

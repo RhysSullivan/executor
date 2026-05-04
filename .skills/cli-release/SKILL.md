@@ -37,10 +37,11 @@ The owner doesn't want GitHub's auto-generated "PR title by @user" list. Release
 **`apps/cli/release-notes/next.md` is the canonical user-facing changelog.** Per-package workspace `CHANGELOG.md` files were removed in late 2026 — they were empty stubs and changesets does not regenerate them under `changelog: false`. Don't create them.
 
 ### How it's wired
-`apps/cli/src/release.ts:198` picks the notes file in this order:
-1. `apps/cli/release-notes/v<version>.md` (archived per release)
-2. `apps/cli/release-notes/next.md` (rolling draft)
-3. Fall back to `gh release create --generate-notes`
+`apps/cli/src/release.ts` reads `apps/cli/release-notes/next.md` and uses
+its contents as the GitHub Release body. If the file is missing or empty,
+falls back to `gh release create --generate-notes`. There's no
+per-version archive in the repo — historical release bodies live on
+GitHub Releases (durable, indexed, linkable).
 
 ### Writing conventions
 Structure release-notes files as:
@@ -83,12 +84,13 @@ Do not `Thanks` maintainers, bots, or the repo owner — the lint script rejects
 - The `.changeset/*.md` body can be a one-liner pointing at the release-notes section it expands; users read the GitHub release body, not the changeset.
 - Frontmatter is `"executor": patch` (or `minor`/`major` if owner says so).
 
-### Post-release archival (manual)
-After a release publishes, rename `apps/cli/release-notes/next.md` → `apps/cli/release-notes/v<version>.md` and commit on `main` (or in a small follow-up PR). This:
-- Preserves the historical notes file-by-version (matches `release.ts`'s preferred lookup path).
-- Resets `next.md` absence so the next cycle starts from a blank file — no chance of last release's content leaking into the next one.
-
-`release.ts` falls back to `next.md` if `v<version>.md` is missing, so skipping the rename won't break a publish; it just leaves stale content in `next.md` for the next release.
+### Starting a new release cycle
+There's no post-release rename step. When you start work on the next
+release, replace the existing `next.md` content with new entries — the
+previous cycle's content is already preserved on the matching `vX.Y.Z`
+GitHub Release page, so overwriting locally is safe. If `next.md` content
+looks stale (i.e. mentions features already shipped), that's the signal
+to clear it.
 
 ## Beta release flow
 

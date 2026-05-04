@@ -195,13 +195,10 @@ const syncGitHubRelease = async (input: {
     return;
   }
 
-  const versionedNotes = resolve(cliRoot, "release-notes", `${input.tag}.md`);
-  const fallbackNotes = resolve(cliRoot, "release-notes", "next.md");
-  const notesFile = existsSync(versionedNotes)
-    ? versionedNotes
-    : existsSync(fallbackNotes)
-      ? fallbackNotes
-      : null;
+  // Single rolling release-notes file. Historical release bodies live on
+  // GitHub Releases — we don't archive per-version copies in the repo.
+  const notesPath = resolve(cliRoot, "release-notes", "next.md");
+  const notesFile = existsSync(notesPath) ? notesPath : null;
 
   const args = [
     "release",
