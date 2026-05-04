@@ -118,8 +118,11 @@ release-notes section it expands.
 - Changesets owns the published CLI version via `apps/cli/package.json`.
 - Only `apps/cli/package.json` should change during release versioning; the rest of the workspace is not version-synced for release PRs.
 - Changesets changelog file generation is disabled (`changelog: false`
-  in `.changeset/config.json`). Per-package `CHANGELOG.md` files used to
-  exist as compatibility stubs but were removed — changesets does not
-  recreate them with `changelog: false`.
+  in `.changeset/config.json`), but per-package `CHANGELOG.md` stubs are
+  still committed. The `changesets/action@v1` GitHub Action (the wrapper
+  around the CLI used in `release.yml`) reads each bumped package's
+  `CHANGELOG.md` to build the Version Packages PR description and crashes
+  with `ENOENT` if any are missing. The stubs satisfy that read; the
+  changesets CLI alone doesn't need them.
 - The publish workflow supports either npm trusted publishing or an `NPM_TOKEN` secret.
 - Re-running the publish workflow for the same tag is safe for packages that are already on npm; existing versions are skipped.
