@@ -38,6 +38,7 @@
     "typecheck:slow": "turbo run typecheck:slow",
     "ci": "bun run lint && bun run typecheck && bun run test",
     "lint": "oxlint -c .oxlintrc.jsonc . --deny-warnings",
+    "lint:release-notes": "bun run scripts/check-release-notes.ts",
     "lint:fix": "oxlint -c .oxlintrc.jsonc --fix .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",

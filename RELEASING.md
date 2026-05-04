@@ -52,11 +52,73 @@ To pack the `@executor-js/*` library packages without publishing:
 
 - `bun run release:publish:packages:dry-run`
 
+## Release notes
+
+User-facing release notes live in `apps/cli/release-notes/`:
+
+- `next.md` — rolling draft for the next release. **This is the single
+  source of truth users see.** Edit it whenever you ship a user-visible
+  change.
+- `v<version>.md` — archived per-release snapshots. After a release
+  publishes, rename `next.md` to `v<version>.md` so the next cycle starts
+  blank.
+
+`apps/cli/src/release.ts` reads `v<tag>.md` first, falls back to
+`next.md`, and only invokes `gh release create --generate-notes` if both
+are absent.
+
+### Authoring rules
+
+Use this section structure (mirrors what's already in `next.md`):
+
+```markdown
+## Highlights
+### <user-facing story>
+   bullets of concrete user value
+
+## Fixes
+
+## Breaking changes
+### <specific surface>
+   before / after code blocks for migrations
+```
+
+Lead with **user-visible stories**, not commit subjects. Group related
+commits into one story. Keep bullets single-line so diffs and dedupe
+tooling stay simple.
+
+### Attribution
+
+For external contributors, end the bullet with `Thanks @<user>` and the
+PR ref:
+
+```markdown
+- OAuth2 client-credentials flow end-to-end. Thanks @octocat (#456)
+```
+
+Don't `Thanks` maintainers, bots, or the repo owner. The lint script
+(`bun run lint:release-notes`) rejects `Thanks @claude`,
+`Thanks @rhyssullivan`, `Thanks @github-actions`, etc. — the full list
+is in `scripts/check-release-notes.ts`. Run it before pushing release
+notes.
+
+### When you ship a change
+
+If your PR adds a `.changeset/*.md` for the `executor` package, also
+edit `apps/cli/release-notes/next.md`. The changeset describes the
+version bump; the release-notes file describes the user impact. They're
+different audiences and shouldn't be conflated.
+
+The `.changeset/*.md` body is fine as a one-liner pointing at the
+release-notes section it expands.
+
 ## Notes
 
 - Changesets owns the published CLI version via `apps/cli/package.json`.
 - Only `apps/cli/package.json` should change during release versioning; the rest of the workspace is not version-synced for release PRs.
-- Changesets changelog file generation is disabled; GitHub release notes are generated at publish time instead.
-- Workspace `CHANGELOG.md` files are kept as compatibility files for the Changesets GitHub Action release PR flow.
+- Changesets changelog file generation is disabled (`changelog: false`
+  in `.changeset/config.json`). Per-package `CHANGELOG.md` files used to
+  exist as compatibility stubs but were removed — changesets does not
+  recreate them with `changelog: false`.
 - The publish workflow supports either npm trusted publishing or an `NPM_TOKEN` secret.
 - Re-running the publish workflow for the same tag is safe for packages that are already on npm; existing versions are skipped.

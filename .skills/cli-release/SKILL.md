@@ -30,9 +30,11 @@ Does **not** ship in the CLI:
 - Only the Changesets-generated `Version Packages` PR should move `apps/cli/package.json`. If a normal PR directly changes that version, merging it to `main` can make `.github/workflows/release.yml` tag the commit and dispatch `publish-executor-package.yml`, causing an immediate CLI publish.
 - `@executor-js/*` library packages have their own publish path.
 
-## Release notes: curated, not auto-generated
+## Release notes: single source of truth, curated, not auto-generated
 
 The owner doesn't want GitHub's auto-generated "PR title by @user" list. Release notes live at `apps/cli/release-notes/` and `apps/cli/src/release.ts` prefers them over `--generate-notes`.
+
+**`apps/cli/release-notes/next.md` is the canonical user-facing changelog.** Per-package workspace `CHANGELOG.md` files were removed in late 2026 — they were empty stubs and changesets does not regenerate them under `changelog: false`. Don't create them.
 
 ### How it's wired
 `apps/cli/src/release.ts:198` picks the notes file in this order:
@@ -58,15 +60,27 @@ Structure release-notes files as:
   before / after code blocks for migrations
 ```
 
-Lead with **user-visible stories**, not commit subjects. Group related commits into one story (e.g. 6 commits about Connections → one "Per-user OAuth" section). Include before/after CLI snippets for any breaking change.
+Lead with **user-visible stories**, not commit subjects. Group related commits into one story (e.g. 6 commits about Connections → one "Per-user OAuth" section). Include before/after CLI snippets for any breaking change. Keep bullets single-line.
+
+### Attribution
+
+External contributor bullets end with `Thanks @<user> (#PR)`:
+
+```markdown
+- OAuth2 client-credentials flow end-to-end. Thanks @octocat (#456)
+```
+
+Do not `Thanks` maintainers, bots, or the repo owner — the lint script rejects `@claude`, `@anthropic`, `@github-actions`, `@dependabot`, `@renovate`, `@rhyssullivan`, `@rhys-sullivan`. Run `bun run lint:release-notes` before pushing notes.
 
 ### When drafting from `git log`
 - Look at `git diff v<last>..HEAD -- README.md` first — it's the best single view of user-facing changes.
 - Read commit messages in bulk (`git log --oneline v<last>..HEAD -- apps/cli apps/local packages`), then bucket by theme before writing prose.
 - Don't list every commit. Merge PRs and refactor-chain commits into one line.
 
-### Changeset body vs release notes file
-- The `.changeset/*.md` body shows up in the Version Packages PR description. Use the same content (or a condensed version) as the release-notes file.
+### Pairing with changesets
+- A `.changeset/*.md` describes the version bump (semver level + a short summary for the Version Packages PR description). It is **not** the user-facing changelog.
+- If your PR adds a `.changeset/*.md` for the `executor` package, also edit `apps/cli/release-notes/next.md` for the user-facing story. They have different audiences.
+- The `.changeset/*.md` body can be a one-liner pointing at the release-notes section it expands; users read the GitHub release body, not the changeset.
 - Frontmatter is `"executor": patch` (or `minor`/`major` if owner says so).
 
 ### Post-release archival (manual)
@@ -110,6 +124,7 @@ Identical to beta except skip `release:beta:start`/`stop`. Changesets produce a 
 
 ```
 bun run changeset                          # interactive; or write .changeset/*.md directly
+bun run lint:release-notes                 # validate apps/cli/release-notes/next.md
 bun run release:beta:start                 # enter prerelease
 bun run release:beta:stop                  # exit prerelease
 bun run release:publish:dry-run            # build full CLI payload without publishing
