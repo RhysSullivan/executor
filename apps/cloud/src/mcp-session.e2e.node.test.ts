@@ -37,9 +37,9 @@ import {
   makePostgresAdapter,
   makePostgresBlobStore,
 } from "@executor-js/storage-postgres";
+import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 import executorConfig from "../executor.config";
 import { DbService } from "./services/db";
-import { makeFakeVaultClient } from "./services/__test-harness__/api-harness";
 
 // ---------------------------------------------------------------------------
 // Test-only plugin: exposes one in-memory tool that elicits once. Lets the
@@ -102,7 +102,7 @@ const buildScopedExecutor = (
   Effect.gen(function* () {
     const { db } = yield* DbService;
     const basePlugins = executorConfig.plugins({
-      workosVaultClient: makeFakeVaultClient(),
+      workosVaultClient: makeTestWorkOSVaultClient(),
     });
     const plugins = options.withElicitingPlugin
       ? ([...basePlugins, elicitingTestPlugin()] as const)
