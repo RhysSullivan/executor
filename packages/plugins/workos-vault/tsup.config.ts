@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/promise.ts",
     core: "src/sdk/index.ts",
+    testing: "src/sdk/testing.ts",
   },
   format: ["esm"],
   dts: false,

@@ -41,12 +41,7 @@ import {
   makePostgresAdapter,
   makePostgresBlobStore,
 } from "@executor-js/storage-postgres";
-import {
-  WorkOSVaultClientError,
-  type WorkOSVaultClient,
-  type WorkOSVaultObject,
-  type WorkOSVaultObjectMetadata,
-} from "@executor-js/plugin-workos-vault";
+import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 
 import executorConfig from "../../../executor.config";
 import { AuthContext } from "../../auth/middleware";
@@ -74,102 +69,12 @@ const userOrgScopeId = (userId: string, orgId: string) =>
 const defaultUserFor = (orgId: string) => `default_user_${orgId}`;
 
 // ---------------------------------------------------------------------------
-// Fake WorkOS Vault client — in-memory map keyed by name.
-// ---------------------------------------------------------------------------
-
-export const makeFakeVaultClient = (): WorkOSVaultClient => {
-  const byName = new Map<string, WorkOSVaultObject>();
-  let seq = 0;
-  const nextId = () => `vault_${++seq}_${crypto.randomUUID().slice(0, 8)}`;
-
-  const create = (opts: { name: string; value: string; context: Record<string, string> }) => {
-    const id = nextId();
-    const metadata: WorkOSVaultObjectMetadata = {
-      context: opts.context,
-      id,
-      updatedAt: new Date(),
-      versionId: `v_${seq}`,
-    };
-    byName.set(opts.name, { id, name: opts.name, value: opts.value, metadata });
-    return metadata;
-  };
-
-  const notFound = (name: string) =>
-    Object.assign(new Error(`not found: ${name}`), { status: 404 });
-
-  const read = (name: string): WorkOSVaultObject => {
-    const obj = byName.get(name);
-    if (!obj) throw notFound(name);
-    return obj;
-  };
-
-  const update = (opts: { id: string; value: string }): WorkOSVaultObject => {
-    for (const [name, obj] of byName.entries()) {
-      if (obj.id === opts.id) {
-        const updated: WorkOSVaultObject = {
-          ...obj,
-          value: opts.value,
-          metadata: { ...obj.metadata, updatedAt: new Date(), versionId: `v_${++seq}` },
-        };
-        byName.set(name, updated);
-        return updated;
-      }
-    }
-    throw notFound(opts.id);
-  };
-
-  const remove = (opts: { id: string }) => {
-    for (const [name, obj] of byName.entries()) {
-      if (obj.id === opts.id) byName.delete(name);
-    }
-  };
-
-  return {
-    use: (_op, fn) =>
-      Effect.tryPromise({
-        try: () =>
-          fn({
-            createObject: async (opts) => create(opts),
-            readObjectByName: async (name) => read(name),
-            updateObject: async (opts) => update(opts),
-            deleteObject: async (opts) => remove(opts),
-          }),
-        catch: (cause) =>
-          new WorkOSVaultClientError({ cause, operation: _op }),
-      }),
-    // The real client wraps SDK rejections in WorkOSVaultClientError so
-    // provider-side `isStatusError` checks can introspect `cause.status`.
-    // Mirror that here so our 404s flow through the same unwrap path.
-    createObject: (opts) =>
-      Effect.try({
-        try: () => create(opts),
-        catch: (cause) => new WorkOSVaultClientError({ cause, operation: "create_object" }),
-      }),
-    readObjectByName: (name) =>
-      Effect.try({
-        try: () => read(name),
-        catch: (cause) =>
-          new WorkOSVaultClientError({ cause, operation: "read_object_by_name" }),
-      }),
-    updateObject: (opts) =>
-      Effect.try({
-        try: () => update(opts),
-        catch: (cause) => new WorkOSVaultClientError({ cause, operation: "update_object" }),
-      }),
-    deleteObject: (opts) =>
-      Effect.try({
-        try: () => remove(opts),
-        catch: (cause) => new WorkOSVaultClientError({ cause, operation: "delete_object" }),
-      }),
-  };
-};
-
-// ---------------------------------------------------------------------------
 // Executor factory — mirrors apps/cloud/services/executor#createScopedExecutor
-// but with a fake vault client.
+// but with an in-memory test vault client (see
+// `@executor-js/plugin-workos-vault/testing`).
 // ---------------------------------------------------------------------------
 
-const fakeVault = makeFakeVaultClient();
+const fakeVault = makeTestWorkOSVaultClient();
 const testPlugins = executorConfig.plugins({ workosVaultClient: fakeVault });
 
 const createTestScopedExecutor = (
