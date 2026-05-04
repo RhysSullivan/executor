@@ -550,6 +550,12 @@ const packageAlreadyPublished = async (pkgDir: string) => {
   return (await proc.exited) === 0;
 };
 
+/** Recognize npm error output for "this version already exists." Used to
+ *  make publish retries idempotent — if a previous workflow run got partway
+ *  through and crashed, we should skip what's already on the registry and
+ *  push the rest. Mirrors codex's `rust-release.yml` skip pattern. */
+const ALREADY_PUBLISHED_RE = /previously published|cannot publish over|version already exists/i;
+
 const publishPackedPackage = async (pkgDir: string, channel: string) => {
   if (await packageAlreadyPublished(pkgDir)) {
     console.log(`Skipping ${pkgDir}; package version already exists on npm.`);
@@ -558,11 +564,29 @@ const publishPackedPackage = async (pkgDir: string, channel: string) => {
 
   await $`bun pm pack`.cwd(pkgDir);
 
-  if (process.env.GITHUB_ACTIONS === "true") {
-    await $`npm publish *.tgz --access public --tag ${channel} --provenance`.cwd(pkgDir);
-  } else {
-    await $`npm publish *.tgz --access public --tag ${channel}`.cwd(pkgDir);
+  const provenance = process.env.GITHUB_ACTIONS === "true" ? ["--provenance"] : [];
+  const result =
+    await $`npm publish *.tgz --access public --tag ${channel} ${provenance}`
+      .cwd(pkgDir)
+      .nothrow()
+      .quiet();
+
+  const stdout = result.stdout.toString();
+  const stderr = result.stderr.toString();
+  process.stdout.write(stdout);
+  process.stderr.write(stderr);
+
+  if (result.exitCode === 0) return;
+
+  // The pre-check via `npm view` has a propagation race — even when an
+  // earlier publish in this same run committed, `npm view` may 404 for a few
+  // seconds. Treat "already published" errors as success on retry.
+  if (ALREADY_PUBLISHED_RE.test(stderr) || ALREADY_PUBLISHED_RE.test(stdout)) {
+    console.log(`Skipping ${pkgDir}; npm reported version already published.`);
+    return;
   }
+
+  throw new Error(`npm publish failed for ${pkgDir} (exit ${result.exitCode})`);
 };
 
 /** Extract the platform-tag suffix from a variant version string.
@@ -593,14 +617,19 @@ const publish = async (channel: string) => {
   }
   platformDirs.sort();
 
+  // Publish variants sequentially. They all PUT to the same npm package
+  // (`executor`), and the registry rejects concurrent packument updates with
+  // 409 Conflict ("Failed to save packument. A common cause is if you try to
+  // publish a new package before the previous package has been fully
+  // processed.") — that's exactly what happened on v1.4.14's first attempt,
+  // where 3 of 8 raced through and the rest 409'd. Serial is plenty fast
+  // (~5s per variant × 8 ≈ 40s).
   console.log(`Publishing ${platformDirs.length} platform variant(s)...`);
-  await Promise.all(
-    platformDirs.map(async (dir) => {
-      const pkg = (await Bun.file(join(dir, "package.json")).json()) as { version: string };
-      const tag = variantTagFromVersion(pkg.version);
-      await publishPackedPackage(dir, tag);
-    }),
-  );
+  for (const dir of platformDirs) {
+    const pkg = (await Bun.file(join(dir, "package.json")).json()) as { version: string };
+    const tag = variantTagFromVersion(pkg.version);
+    await publishPackedPackage(dir, tag);
+  }
 
   const wrapperDir = join(distDir, meta.name);
   console.log(`Publishing wrapper ${wrapperDir} under @${channel}...`);

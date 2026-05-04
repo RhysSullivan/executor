@@ -3,7 +3,7 @@
 ### Install paths fixed
 `npm i -g executor` and `bun i -g executor` both work cleanly on a fresh machine. For machines without node, `curl … install.sh | bash` does the same thing.
 
-> 1.4.13 was a partial release — it only made it to GitHub Releases, not npm. If you tried `npm i -g executor` and got 1.4.12, that's why. 1.4.14 is the first complete release.
+> 1.4.13 and 1.4.14 were partial releases that didn't make it to npm cleanly. If you tried `npm i -g executor@latest` and got an older version, that's why. 1.4.15 is the first complete release of the new packaging.
 
 ### MCP sources honor upstream `destructiveHint`
 MCP sources now read `destructiveHint` from upstream tool annotations. Tools marked destructive will require approval before running, surfaced via MCP elicitation. Refresh existing sources (or remove + re-add) to pick up annotations on tools added before this change.
