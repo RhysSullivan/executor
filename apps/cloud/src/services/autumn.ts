@@ -59,9 +59,7 @@ const make = Effect.sync(() => {
     Effect.gen(function* () {
       yield* Effect.annotateCurrentSpan({ "autumn.customer.id": organizationId });
       const outcome = yield* Effect.result(
-        use((c) =>
-          c.track({ customerId: organizationId, featureId: "executions", value: 1 }),
-        ),
+        use((c) => c.track({ customerId: organizationId, featureId: "executions", value: 1 })),
       );
       if (outcome._tag === "Failure") {
         // Silent billing data loss is worth paging on — autumn.trackExecution
@@ -75,9 +73,8 @@ const make = Effect.sync(() => {
   return { use, trackExecution } satisfies IAutumnService;
 });
 
-export class AutumnService extends Context.Service<
-  AutumnService,
-  IAutumnService
->()("@executor-js/cloud/AutumnService") {
+export class AutumnService extends Context.Service<AutumnService, IAutumnService>()(
+  "@executor-js/cloud/AutumnService",
+) {
   static Default = Layer.effect(this)(make);
 }

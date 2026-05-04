@@ -69,10 +69,8 @@ const setResponseCookie = (
   options: typeof RESPONSE_COOKIE_OPTIONS,
 ) => HttpServerResponse.setCookieUnsafe(response, name, value, options);
 
-const deleteResponseCookie = (
-  response: HttpServerResponse.HttpServerResponse,
-  name: string,
-) => HttpServerResponse.setCookieUnsafe(response, name, "", DELETE_COOKIE_OPTIONS);
+const deleteResponseCookie = (response: HttpServerResponse.HttpServerResponse, name: string) =>
+  HttpServerResponse.setCookieUnsafe(response, name, "", DELETE_COOKIE_OPTIONS);
 
 // ---------------------------------------------------------------------------
 // Single non-protected API surface — public (login/callback) + session
@@ -208,7 +206,9 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           );
 
           return {
-            organizations: organizations.filter((org): org is NonNullable<typeof org> => org !== null),
+            organizations: organizations.filter(
+              (org): org is NonNullable<typeof org> => org !== null,
+            ),
             activeOrganizationId: session.organizationId,
           };
         }),
@@ -246,9 +246,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           // cookie and fail loudly; the frontend will bounce to login and
           // the callback's rehydrate path will pick up the new membership.
           const refreshed = yield* workos.refreshSession(session.sealedSession, org.id);
-          const verified = refreshed
-            ? yield* workos.authenticateSealedSession(refreshed)
-            : null;
+          const verified = refreshed ? yield* workos.authenticateSealedSession(refreshed) : null;
 
           if (!refreshed || !verified || verified.organizationId !== org.id) {
             yield* Effect.logWarning(

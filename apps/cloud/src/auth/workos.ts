@@ -172,6 +172,19 @@ const make = Effect.gen(function* () {
         }),
       ),
 
+    /**
+     * Pending invitations for an organization (i.e. not yet accepted, revoked,
+     * or expired). The SDK's `state` filter doesn't reliably narrow at the
+     * API level, so we filter after.
+     */
+    listPendingInvitations: (organizationId: string) =>
+      use((wos) => wos.userManagement.listInvitations({ organizationId })).pipe(
+        Effect.map((response) => ({
+          ...response,
+          data: response.data.filter((i) => i.state === "pending"),
+        })),
+      ),
+
     /** Remove an organization membership. */
     deleteOrgMembership: (membershipId: string) =>
       use((wos) => wos.userManagement.deleteOrganizationMembership(membershipId)),

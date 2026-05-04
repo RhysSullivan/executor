@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/cloudflare";
-import { Data, Effect } from "effect";
+import { Cause, Data, Effect, Result } from "effect";
 import {
   HttpServerRespondable,
   HttpServerResponse,
@@ -25,14 +25,28 @@ export class HttpResponseError extends Data.TaggedError("HttpResponseError")<{
   }
 }
 
-const toHttpResponseError = (error: unknown): HttpResponseError =>
-  error instanceof HttpResponseError
-    ? error
+const unwrapCause = (error: unknown): unknown => {
+  if (!Cause.isCause(error)) return error;
+
+  const failure = Cause.findError(error);
+  if (Result.isSuccess(failure)) return failure.success;
+
+  const defect = Cause.findDefect(error);
+  if (Result.isSuccess(defect)) return defect.success;
+
+  return error;
+};
+
+const toHttpResponseError = (error: unknown): HttpResponseError => {
+  const unwrapped = unwrapCause(error);
+  return unwrapped instanceof HttpResponseError
+    ? unwrapped
     : new HttpResponseError({
         status: 500,
         code: "internal_server_error",
         message: "Internal server error",
       });
+};
 
 export const isServerError = (error: unknown): boolean => toHttpResponseError(error).status >= 500;
 
@@ -45,7 +59,10 @@ export const toErrorResponse = (error: unknown): Response => {
 export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpServerResponse => {
   const mapped = toHttpResponseError(error);
   if (mapped.status >= 500) {
-    console.error("[api] toErrorServerResponse error:", error instanceof Error ? error.stack : error);
+    console.error(
+      "[api] toErrorServerResponse error:",
+      error instanceof Error ? error.stack : error,
+    );
     Sentry.captureException(error);
   }
   return HttpServerResponse.jsonUnsafe(

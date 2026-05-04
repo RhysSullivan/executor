@@ -52,6 +52,69 @@ const assertDomainInSessionOrg = (domainId: string) =>
     }
   });
 
+// Per-plan member limits live in code, not Autumn. Members aren't billable
+// usage — they're a permission attached to the plan. We still ask Autumn
+// which plan the org is on (Autumn is the billing source of truth), but
+// the cap itself is a constant here. `null` = unlimited.
+const MEMBER_LIMITS: Record<string, number | null> = {
+  free: 3,
+  "free-pay-as-you-go": 3,
+  team: null,
+};
+const DEFAULT_MEMBER_LIMIT = 3;
+
+// Compute live seat usage from WorkOS truth (active+pending memberships +
+// pending invitations) and look up the per-plan cap from MEMBER_LIMITS.
+// Recomputed on every call — no event-counting drift.
+const getMemberSeats = (organizationId: string) =>
+  Effect.gen(function* () {
+    const autumn = yield* AutumnService;
+    const workos = yield* WorkOSAuth;
+
+    const customer = yield* autumn.use((client) =>
+      client.customers.getOrCreate({ customerId: organizationId }),
+    );
+    const planId = customer.subscriptions[0]?.planId ?? "free";
+    const limit = planId in MEMBER_LIMITS ? MEMBER_LIMITS[planId] : DEFAULT_MEMBER_LIMIT;
+
+    const memberships = yield* workos.listOrgMembers(organizationId);
+    const invitations = yield* workos.listPendingInvitations(organizationId);
+
+    return {
+      used: memberships.data.length + invitations.data.length,
+      granted: limit ?? 0,
+      unlimited: limit === null,
+    };
+  });
+
+const reserveMemberSlot = Effect.gen(function* () {
+  const auth = yield* AuthContext;
+  const seats = yield* getMemberSeats(auth.organizationId).pipe(
+    Effect.tap((s) =>
+      Effect.logInfo("members.check").pipe(
+        Effect.annotateLogs({
+          "org.id": auth.organizationId,
+          "members.used": s.used,
+          "members.granted": s.granted,
+          "members.unlimited": s.unlimited,
+        }),
+      ),
+    ),
+    Effect.catchCause((cause) =>
+      Effect.gen(function* () {
+        yield* Effect.logError("members.seats lookup failed; failing closed").pipe(
+          Effect.annotateLogs({ "org.id": auth.organizationId, cause: String(cause) }),
+        );
+        return yield* new Forbidden();
+      }),
+    ),
+  );
+
+  if (!seats.unlimited && seats.used >= seats.granted) {
+    return yield* new Forbidden();
+  }
+});
+
 export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
   handlers
     .handle("listMembers", () =>
@@ -59,7 +122,30 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         const auth = yield* AuthContext;
         const workos = yield* WorkOSAuth;
 
+        // The list endpoint falls back to safe display defaults if the seats
+        // lookup errors — we never want a transient Autumn or WorkOS hiccup
+        // to blank the members page. The actual cap gate lives in
+        // `reserveMemberSlot`, which fails closed.
+        const seats = yield* getMemberSeats(auth.organizationId).pipe(
+          Effect.catchTag("AutumnError", (error) =>
+            Effect.logError("listMembers.seats: autumn lookup failed").pipe(
+              Effect.annotateLogs({ "org.id": auth.organizationId, error: String(error.cause) }),
+              Effect.as({ used: 0, granted: 0, unlimited: false }),
+            ),
+          ),
+        );
+
         const memberships = yield* workos.listOrgMembers(auth.organizationId);
+
+        yield* Effect.logInfo("listMembers.seats").pipe(
+          Effect.annotateLogs({
+            "org.id": auth.organizationId,
+            "members.count": memberships.data.length,
+            "seats.used": seats.used,
+            "seats.granted": seats.granted,
+            "seats.unlimited": seats.unlimited,
+          }),
+        );
 
         const members = yield* Effect.all(
           memberships.data.map((m) =>
@@ -81,7 +167,7 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
           { concurrency: 5 },
         );
 
-        return { members };
+        return { members, seats };
       }),
     )
     .handle("listRoles", () =>
@@ -104,6 +190,8 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         yield* requireAdmin;
         const auth = yield* AuthContext;
         const workos = yield* WorkOSAuth;
+
+        yield* reserveMemberSlot;
 
         const invitation = yield* workos.sendInvitation({
           email: payload.email,

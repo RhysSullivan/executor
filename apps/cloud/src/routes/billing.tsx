@@ -10,9 +10,8 @@ export const Route = createFileRoute("/billing")({
 });
 
 const PLAN_TAGLINES: Record<string, string> = {
-  free: "For trying things out",
-  hobby: "For individuals and small teams",
-  professional: "For teams that need more",
+  free: "Free for up to 3 members",
+  team: "$49 per organization",
 };
 
 function BillingPage() {
@@ -53,6 +52,7 @@ function BillingPage() {
   );
 
   const executions = customer?.balances?.executions;
+  const members = customer?.balances?.members;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -65,9 +65,7 @@ function BillingPage() {
         <div className="flex items-center justify-between py-4">
           <div>
             <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-foreground leading-none">
-                {planName}
-              </p>
+              <p className="text-sm font-medium text-foreground leading-none">{planName}</p>
               {isSwitching && (
                 <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
                   Switching
@@ -113,6 +111,23 @@ function BillingPage() {
         <div className="h-px bg-border/50 my-2" />
 
         {/* Usage */}
+        {members && (
+          <div className="py-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-foreground">Members</p>
+              <p className="text-sm tabular-nums text-muted-foreground">
+                {members.usage.toLocaleString()}
+                {!members.unlimited && (
+                  <span className="text-muted-foreground">
+                    {" / "}
+                    {members.granted.toLocaleString()}
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
+
         {executions && (
           <div className="py-4">
             <div className="flex items-center justify-between mb-2">

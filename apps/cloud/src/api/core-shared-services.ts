@@ -15,6 +15,7 @@ import { Layer } from "effect";
 
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
+import { SlackService } from "../services/slack";
 
 /**
  * Services that are independent of how the DB or tracer is provisioned —
@@ -25,4 +26,5 @@ import { AutumnService } from "../services/autumn";
 export const CoreSharedServices = Layer.mergeAll(
   WorkOSAuth.Default,
   AutumnService.Default,
+  SlackService.Default,
 );

@@ -23,6 +23,17 @@ declare global {
       // Billing
       AUTUMN_SECRET_KEY?: string;
 
+      // Contact / Slack Connect
+      SLACK_BOT_TOKEN?: string;
+      // Turnstile (Cloudflare CAPTCHA) — used to gate the public Slack-contact
+      // endpoint. Sitekey is public and ships in `vars`; secret is set via
+      // `wrangler secret put TURNSTILE_SECRET_KEY`.
+      TURNSTILE_SECRET_KEY?: string;
+      VITE_PUBLIC_TURNSTILE_SITEKEY?: string;
+      // Cloudflare ratelimit binding declared in wrangler.jsonc — caps total
+      // Slack-contact channel creations across all callers.
+      SLACK_INVITE_LIMITER: { limit: (input: { key: string }) => Promise<{ success: boolean }> };
+
       // MCP
       EXECUTOR_MCP_DEBUG?: string;
       MCP_AUTHKIT_DOMAIN?: string;

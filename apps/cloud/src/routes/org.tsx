@@ -1,5 +1,6 @@
 import { useReducer, useState } from "react";
-import { Exit } from "effect";
+import { Cause, Exit, Result } from "effect";
+import { Forbidden } from "../org/api";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
@@ -62,21 +63,21 @@ type InviteState = {
   email: string;
   roleSlug: string;
   status: "idle" | "sending" | "error";
-  error: string | null;
+  failure: Cause.Cause<unknown> | null;
 };
 
 const initialInviteState: InviteState = {
   email: "",
   roleSlug: "member",
   status: "idle",
-  error: null,
+  failure: null,
 };
 
 type InviteAction =
   | { type: "setEmail"; email: string }
   | { type: "setRole"; roleSlug: string }
   | { type: "send" }
-  | { type: "error"; message: string }
+  | { type: "error"; cause: Cause.Cause<unknown> }
   | { type: "reset" };
 
 function inviteReducer(state: InviteState, action: InviteAction): InviteState {
@@ -86,9 +87,9 @@ function inviteReducer(state: InviteState, action: InviteAction): InviteState {
     case "setRole":
       return { ...state, roleSlug: action.roleSlug };
     case "send":
-      return { ...state, status: "sending", error: null };
+      return { ...state, status: "sending", failure: null };
     case "error":
-      return { ...state, status: "error", error: action.message };
+      return { ...state, status: "error", failure: action.cause };
     case "reset":
       return initialInviteState;
   }
@@ -124,6 +125,12 @@ function OrgPage() {
   const canUseDomains = customerLoading
     ? false
     : check({ featureId: "domain-verification" }).allowed;
+  const seats = AsyncResult.match(membersResult, {
+    onInitial: () => null,
+    onFailure: () => null,
+    onSuccess: ({ value }) => value.seats ?? null,
+  });
+  const canInviteMember = !seats ? false : seats.unlimited || seats.used < seats.granted;
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editName, setEditName] = useState(orgName);
   const [savingName, setSavingName] = useState(false);
@@ -253,7 +260,7 @@ function OrgPage() {
           {!canUseDomains && (
             <div className="mb-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <p className="text-sm text-muted-foreground">
-                Domain verification is available on the Professional plan.
+                Join by domain is available on the Team plan.
               </p>
               <Link to="/billing/plans">
                 <Button size="sm" variant="outline">
@@ -278,6 +285,7 @@ function OrgPage() {
             ),
             onSuccess: ({ value }) => {
               if (value.domains.length === 0) {
+                if (!canUseDomains) return null;
                 return (
                   <p className="py-6 text-center text-sm text-muted-foreground">
                     No domains yet. Add your company domain so members can join without an invite.
@@ -303,10 +311,23 @@ function OrgPage() {
         {/* Members */}
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-medium text-foreground">Members</h2>
-            <Button size="sm" className="min-w-32" onClick={() => setInviteOpen(true)}>
-              Invite member
-            </Button>
+            <div>
+              <h2 className="text-sm font-medium text-foreground">Members</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Free organizations can include up to 3 members.
+              </p>
+            </div>
+            {canInviteMember ? (
+              <Button size="sm" className="min-w-32" onClick={() => setInviteOpen(true)}>
+                Invite member
+              </Button>
+            ) : (
+              <Link to="/billing/plans">
+                <Button size="sm" className="min-w-32">
+                  Upgrade
+                </Button>
+              </Link>
+            )}
           </div>
           <Input
             type="text"
@@ -586,6 +607,32 @@ function DomainCard({ domain: d, onDelete }: { domain: DomainData; onDelete: () 
   );
 }
 
+function InviteErrorAlert({ cause }: { cause: Cause.Cause<unknown> }) {
+  const failure = Cause.findError(cause);
+  const error = Result.isSuccess(failure) ? failure.success : null;
+
+  if (error instanceof Forbidden) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+        <p className="text-sm text-destructive">
+          You've reached your member limit. Upgrade to Team to invite more.
+        </p>
+        <Link to="/billing/plans">
+          <Button size="sm" variant="outline">
+            Upgrade
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+      <p className="text-sm text-destructive">Failed to send invitation. Please try again.</p>
+    </div>
+  );
+}
+
 function InviteDialog(props: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -610,9 +657,9 @@ function InviteDialog(props: {
       toast.success(`Invitation sent to ${state.email.trim()}`);
       dispatch({ type: "reset" });
       props.onOpenChange(false);
-    } else {
-      dispatch({ type: "error", message: "Failed to send invitation" });
+      return;
     }
+    dispatch({ type: "error", cause: exit.cause });
   };
 
   return (
@@ -680,11 +727,7 @@ function InviteDialog(props: {
             </div>
           )}
 
-          {state.status === "error" && state.error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-sm text-destructive">{state.error}</p>
-            </div>
-          )}
+          {state.status === "error" && state.failure && <InviteErrorAlert cause={state.failure} />}
         </div>
 
         <DialogFooter>

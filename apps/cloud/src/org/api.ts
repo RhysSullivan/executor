@@ -20,8 +20,15 @@ const OrgMember = Schema.Struct({
   isCurrentUser: Schema.Boolean,
 });
 
+const OrgMemberSeats = Schema.Struct({
+  used: Schema.Number,
+  granted: Schema.Number,
+  unlimited: Schema.Boolean,
+});
+
 const OrgMembersResponse = Schema.Struct({
   members: Schema.Array(OrgMember),
+  seats: OrgMemberSeats,
 });
 
 const OrgRole = Schema.Struct({
