@@ -107,6 +107,17 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.PORT ?? "5173", 10),
     host: "127.0.0.1",
+    watch: {
+      // Workspace packages live under packages/ and are symlinked into
+      // node_modules. Without this, chokidar treats them as ordinary
+      // node_modules and skips watching, so edits to e.g.
+      // packages/react/src/pages/sources.tsx don't trigger HMR.
+      ignored: ["!**/node_modules/@executor-js/**"],
+      // WSL2 + symlinked workspace packages can drop inotify events;
+      // polling is slower but reliable.
+      usePolling: true,
+      interval: 200,
+    },
   },
   plugins: [
     tailwindcss(),

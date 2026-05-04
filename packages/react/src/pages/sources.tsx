@@ -1,7 +1,8 @@
-import { Suspense, useState, useCallback, useMemo } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import { PlusIcon } from "lucide-react";
 import type { SourceDetectionResult } from "@executor-js/sdk";
 import {
   useSourcePlugins,
@@ -16,16 +17,21 @@ import { Button } from "../components/button";
 import { Badge } from "../components/badge";
 import { Input } from "../components/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../components/dialog";
+import {
   CardStack,
-  CardStackHeader,
   CardStackContent,
   CardStackEntry,
-  CardStackEntryField,
-  CardStackEntryMedia,
-  CardStackEntryContent,
-  CardStackEntryTitle,
-  CardStackEntryDescription,
   CardStackEntryActions,
+  CardStackEntryContent,
+  CardStackEntryDescription,
+  CardStackEntryMedia,
+  CardStackEntryTitle,
 } from "../components/card-stack";
 import { SourceFavicon } from "../components/source-favicon";
 import { Skeleton } from "../components/skeleton";
@@ -53,18 +59,104 @@ const bestDetection = (
 // ---------------------------------------------------------------------------
 
 export function SourcesPage() {
-  const sourcePlugins = useSourcePlugins();
-  const [url, setUrl] = useState("");
-  const [detecting, setDetecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const scopeId = useScope();
   const sources = useSourcesWithPending(scopeId);
+  const [connectOpen, setConnectOpen] = useState(false);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
+        <div className="mb-8 flex items-end justify-between gap-4">
+          <div>
+            <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
+              Sources
+            </h1>
+            <p className="mt-1.5 text-[14px] text-muted-foreground">
+              Tool providers available in this workspace.
+            </p>
+          </div>
+          <Button onClick={() => setConnectOpen(true)} size="sm" className="shrink-0 gap-1.5">
+            <PlusIcon className="size-4" />
+            Connect
+          </Button>
+        </div>
+
+        {AsyncResult.match(sources, {
+          onInitial: () => <SourcesGridSkeleton />,
+          onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
+          onSuccess: ({ value }) => {
+            const connectedSources = (
+              value as Array<{
+                readonly id: string;
+                readonly name: string;
+                readonly kind: string;
+                readonly url?: string;
+                readonly runtime?: boolean;
+              }>
+            ).filter((source) => !source.runtime);
+
+            if (connectedSources.length === 0) {
+              return <EmptySources onConnect={() => setConnectOpen(true)} />;
+            }
+
+            return (
+              <div className="mb-8 space-y-3">
+                <SourceGrid sources={connectedSources} />
+              </div>
+            );
+          },
+        })}
+
+        <div className="mb-8 border-t border-border/50" />
+
+        <div className="mb-8">
+          <McpInstallCard />
+        </div>
+      </div>
+
+      <ConnectDialog open={connectOpen} onOpenChange={setConnectOpen} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Connect dialog — URL detection + manual plugin chooser + presets
+// ---------------------------------------------------------------------------
+
+// Heuristic: the input either looks like a URL (auto-detect) or a free-text
+// search query (filter the preset list). Anything with a scheme, slash, or
+// host-with-TLD is treated as a URL; everything else is search.
+const looksLikeUrl = (raw: string): boolean => {
+  const v = raw.trim();
+  if (v.length === 0) return false;
+  if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(v)) return true;
+  if (v.includes("/")) return true;
+  if (/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?::\d+)?$/i.test(v)) return true;
+  return false;
+};
+
+function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const sourcePlugins = useSourcePlugins();
+  const scopeId = useScope();
   const doDetect = useAtomSet(detectSource, { mode: "promise" });
   const navigate = useNavigate();
 
+  const [query, setQuery] = useState("");
+  const [detecting, setDetecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isUrl = looksLikeUrl(query);
+  const presetSearch = isUrl ? "" : query;
+
+  const closeAndReset = useCallback(() => {
+    setQuery("");
+    setError(null);
+    setDetecting(false);
+    props.onOpenChange(false);
+  }, [props]);
+
   const handleDetect = useCallback(async () => {
-    const trimmed = url.trim();
+    const trimmed = query.trim();
     if (!trimmed) return;
     setDetecting(true);
     setError(null);
@@ -86,6 +178,7 @@ export function SourcesPage() {
       }
       const pluginKey = KIND_TO_PLUGIN_KEY[detected.kind];
       if (pluginKey) {
+        closeAndReset();
         void navigate({
           to: "/sources/add/$pluginKey",
           params: { pluginKey },
@@ -93,134 +186,111 @@ export function SourcesPage() {
         });
       } else {
         setError(`Detected source type "${detected.kind}" but no plugin is available for it.`);
+        setDetecting(false);
       }
     } catch {
       setError("Detection failed. Try adding a source manually.");
-    } finally {
       setDetecting(false);
     }
-  }, [url, doDetect, navigate, scopeId]);
+  }, [query, doDetect, navigate, scopeId, closeAndReset]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-end justify-between">
-            <div>
-              <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
-                Sources
-              </h1>
-              <p className="mt-1.5 text-[14px] text-muted-foreground">
-                Tool providers available in this workspace.
-              </p>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) closeAndReset();
+        else props.onOpenChange(open);
+      }}
+    >
+      <DialogContent className="sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>Connect a source</DialogTitle>
+          <DialogDescription>
+            Search the preset library, or paste a URL to auto-detect.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex min-w-0 flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                value={query}
+                onChange={(e) => {
+                  setQuery((e.target as HTMLInputElement).value);
+                  setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && isUrl) void handleDetect();
+                }}
+                placeholder="Search or paste a URL…"
+                disabled={detecting}
+                className="flex-1"
+              />
+              {isUrl && (
+                <Button
+                  onClick={() => void handleDetect()}
+                  disabled={detecting || !query.trim()}
+                >
+                  {detecting ? "Detecting..." : "Detect"}
+                </Button>
+              )}
+            </div>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-foreground/80">Or add manually</p>
+            <div className="flex flex-wrap gap-2">
+              {sourcePlugins.map((p) => (
+                <Link
+                  key={p.key}
+                  to="/sources/add/$pluginKey"
+                  params={{ pluginKey: p.key }}
+                  onClick={closeAndReset}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+                >
+                  {p.label}
+                </Link>
+              ))}
             </div>
           </div>
 
-          {/* URL detection input */}
-          <div className="mt-5">
-            <CardStack>
-              <CardStackContent>
-                <CardStackEntryField
-                  label="Paste URL"
-                  description="auto-detect source type"
-                  hint={error ?? undefined}
-                >
-                  <div className="flex gap-2">
-                    <Input
-                      type="url"
-                      value={url}
-                      onChange={(e) => {
-                        setUrl((e.target as HTMLInputElement).value);
-                        setError(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleDetect();
-                      }}
-                      placeholder="https://..."
-                      disabled={detecting}
-                      className="flex-1"
-                    />
-                    <Button onClick={handleDetect} disabled={detecting || !url.trim()}>
-                      {detecting ? "Detecting..." : "Detect"}
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    Or add manually:{" "}
-                    {sourcePlugins.map((p) => (
-                      <Link
-                        key={p.key}
-                        to="/sources/add/$pluginKey"
-                        params={{ pluginKey: p.key }}
-                        className="rounded-md border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-                      >
-                        {p.label}
-                      </Link>
-                    ))}
-                  </div>
-                </CardStackEntryField>
-              </CardStackContent>
-            </CardStack>
-          </div>
+          <PresetGrid
+            plugins={sourcePlugins}
+            onPick={closeAndReset}
+            searchQuery={presetSearch}
+          />
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-        <div className="mb-8">
-          <McpInstallCard />
-        </div>
+// ---------------------------------------------------------------------------
+// Empty state
+// ---------------------------------------------------------------------------
 
-        {AsyncResult.match(sources, {
-          onInitial: () => <SourcesGridSkeleton />,
-          onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
-          onSuccess: ({ value }) => {
-            const connectedSources = (
-              value as Array<{
-                readonly id: string;
-                readonly name: string;
-                readonly kind: string;
-                readonly url?: string;
-                readonly runtime?: boolean;
-              }>
-            ).filter((source) => !source.runtime);
-
-            return value.length === 0 ? (
-              <div className="mb-8 flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-4">
-                  <svg viewBox="0 0 24 24" fill="none" className="size-5">
-                    <path
-                      d="M12 6v12M6 12h12"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </div>
-                <p className="text-[14px] font-medium text-foreground/70 mb-1">No sources yet</p>
-                <p className="text-[13px] text-muted-foreground/60 mb-5">
-                  Add a source to get started.
-                </p>
-              </div>
-            ) : (
-              <div className="mb-8 space-y-8">
-                {connectedSources.length > 0 && (
-                  <section className="space-y-3">
-                    <SourceGrid sources={connectedSources} />
-                  </section>
-                )}
-              </div>
-            );
-          },
-        })}
-
-        <div className="mb-8 border-t border-border/50" />
-
-        <PresetGrid />
+function EmptySources(props: { onConnect: () => void }) {
+  return (
+    <div className="mb-8 flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-16">
+      <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+        <PlusIcon className="size-5" />
       </div>
+      <p className="mb-1 text-[14px] font-medium text-foreground/70">No sources yet</p>
+      <p className="mb-5 text-[13px] text-muted-foreground/60">
+        Connect a source to start curating tools.
+      </p>
+      <Button onClick={props.onConnect} size="sm" className="gap-1.5">
+        <PlusIcon className="size-4" />
+        Connect a source
+      </Button>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Preset grid
+// Preset grid (for inside the Connect dialog)
 // ---------------------------------------------------------------------------
 
 type PresetEntry = {
@@ -229,11 +299,16 @@ type PresetEntry = {
   pluginLabel: string;
 };
 
-function PresetGrid() {
-  const plugins = useSourcePlugins();
+function PresetGrid(props: {
+  plugins: readonly SourcePlugin[];
+  onPick: () => void;
+  /** Controlled filter query forwarded from the dialog's unified
+   *  search/URL input. Empty string disables filtering. */
+  searchQuery?: string;
+}) {
   const allPresets = useMemo(() => {
     const entries: PresetEntry[] = [];
-    for (const plugin of plugins) {
+    for (const plugin of props.plugins) {
       for (const preset of plugin.presets ?? []) {
         entries.push({
           preset,
@@ -243,58 +318,81 @@ function PresetGrid() {
       }
     }
     return entries;
-  }, [plugins]);
+  }, [props.plugins]);
+
+  const filtered = useMemo(() => {
+    const q = (props.searchQuery ?? "").trim().toLowerCase();
+    if (q.length === 0) return allPresets;
+    return allPresets.filter(({ preset, pluginLabel }) => {
+      const corpus =
+        `${preset.name} ${preset.summary ?? ""} ${pluginLabel}`.toLowerCase();
+      return corpus.includes(q);
+    });
+  }, [allPresets, props.searchQuery]);
 
   if (allPresets.length === 0) return null;
 
   return (
-    <section className="mb-8 space-y-3">
-      <CardStack searchable>
-        <CardStackHeader>Popular sources</CardStackHeader>
-        <CardStackContent>
-          {allPresets.map(({ preset, pluginKey, pluginLabel }) => {
-            const search: Record<string, string> = { preset: preset.id };
-            if (preset.url) search.url = preset.url;
-            return (
-              <CardStackEntry
-                key={`${pluginKey}-${preset.id}`}
-                asChild
-                searchText={`${preset.name} ${preset.summary ?? ""} ${pluginLabel}`}
-              >
-                <Link to="/sources/add/$pluginKey" params={{ pluginKey }} search={search}>
-                  <CardStackEntryMedia>
-                    {preset.icon ? (
-                      <img
-                        src={preset.icon}
-                        alt=""
-                        className="size-5 object-contain"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <svg viewBox="0 0 16 16" className="size-3.5" fill="none">
-                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
-                      </svg>
-                    )}
-                  </CardStackEntryMedia>
-                  <CardStackEntryContent>
-                    <CardStackEntryTitle>{preset.name}</CardStackEntryTitle>
-                    <CardStackEntryDescription>{preset.summary}</CardStackEntryDescription>
-                  </CardStackEntryContent>
-                  <CardStackEntryActions>
-                    <Badge variant="secondary">{pluginLabel}</Badge>
-                  </CardStackEntryActions>
-                </Link>
-              </CardStackEntry>
-            );
-          })}
+    <div className="flex min-w-0 flex-col gap-2">
+      <p className="text-xs font-medium text-foreground/80">Popular sources</p>
+      <CardStack className="min-w-0">
+        {/* Fixed height keeps the dialog stable as the user filters; the
+         *  inner area scrolls when the list overflows and shows an empty
+         *  state when no presets match. */}
+        <CardStackContent className="h-64 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-1 px-4 py-6 text-center">
+              <p className="text-sm text-muted-foreground">No matching presets</p>
+              <p className="text-xs text-muted-foreground/70">
+                Paste a URL above to auto-detect, or pick a source type manually.
+              </p>
+            </div>
+          ) : (
+            filtered.map(({ preset, pluginKey, pluginLabel }) => {
+              const search: Record<string, string> = { preset: preset.id };
+              if (preset.url) search.url = preset.url;
+              return (
+                <CardStackEntry key={`${pluginKey}-${preset.id}`} asChild>
+                  <Link
+                    to="/sources/add/$pluginKey"
+                    params={{ pluginKey }}
+                    search={search}
+                    onClick={props.onPick}
+                  >
+                    <CardStackEntryMedia>
+                      {preset.icon ? (
+                        <img
+                          src={preset.icon}
+                          alt=""
+                          className="size-5 object-contain"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <svg viewBox="0 0 16 16" className="size-3.5" fill="none">
+                          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
+                        </svg>
+                      )}
+                    </CardStackEntryMedia>
+                    <CardStackEntryContent>
+                      <CardStackEntryTitle>{preset.name}</CardStackEntryTitle>
+                      <CardStackEntryDescription>{preset.summary}</CardStackEntryDescription>
+                    </CardStackEntryContent>
+                    <CardStackEntryActions>
+                      <Badge variant="secondary">{pluginLabel}</Badge>
+                    </CardStackEntryActions>
+                  </Link>
+                </CardStackEntry>
+              );
+            })
+          )}
         </CardStackContent>
       </CardStack>
-    </section>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Source grid
+// Source grid — flat list of connected sources, click-through to detail
 // ---------------------------------------------------------------------------
 
 function SourceGrid(props: {
@@ -315,7 +413,6 @@ function SourceGrid(props: {
 
   return (
     <CardStack searchable>
-      <CardStackHeader>Connected</CardStackHeader>
       <CardStackContent>
         {props.sources.map((s) => {
           const pluginKey = KIND_TO_PLUGIN_KEY[s.kind] ?? s.kind;
