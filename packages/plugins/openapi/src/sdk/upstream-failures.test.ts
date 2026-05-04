@@ -76,7 +76,10 @@ const startScriptedServer = (script: ResponseScript) =>
           req.socket.destroy();
           return;
         }
-        res.writeHead(result.status ?? 200, result.headers ?? { "content-type": "application/json" });
+        res.writeHead(
+          result.status ?? 200,
+          result.headers ?? { "content-type": "application/json" },
+        );
         res.end(result.body ?? '{"ok":true}');
       });
       server.listen(0, "127.0.0.1", () => {
@@ -110,7 +113,7 @@ const makeSpec = () =>
                 },
               },
             },
-            "default": { description: "error" },
+            default: { description: "error" },
           },
         },
       },
@@ -155,19 +158,19 @@ describe("OpenAPI upstream failure modes", () => {
         .invoke("f.things.listThings", {}, autoApprove)
         .pipe(Effect.exit);
 
-      const probe = Exit.match(exit, {
-        onFailure: (cause) => ({ kind: "fail" as const, text: JSON.stringify(cause) }),
-        onSuccess: (value) => ({ kind: "success" as const, text: JSON.stringify(value) }),
+      const text = Exit.match(exit, {
+        onFailure: (cause) => JSON.stringify(cause),
+        onSuccess: (value) => JSON.stringify(value),
       });
       // The result must carry the upstream signal somewhere. If it doesn't
       // mention status or body content, sandbox code can't distinguish 500
       // from a normal `{ data: [...] }` response.
-      expect(probe.text).toMatch(/500|internal|db timeout|response|error/i);
+      expect(text).toMatch(/500|internal|db timeout|response|error/i);
       // Successful happy-path returns expose `data`. An upstream 500 must
-      // not look like a happy path.
-      if (probe.kind === "success") {
-        expect(probe.text).not.toMatch(/^{"data":/);
-      }
+      // never serialise as a `{"data":...}` envelope, on either Exit
+      // branch — asserted unconditionally so a regression in either
+      // shape surfaces here.
+      expect(text.startsWith('{"data":')).toBe(false);
     }),
   );
 
@@ -277,11 +280,7 @@ describe("OpenAPI upstream failure modes", () => {
       const { baseUrl } = yield* slowServer;
       const executor = yield* buildExecutor(baseUrl);
 
-      const result = yield* executor.tools.invoke(
-        "f.things.listThings",
-        {},
-        autoApprove,
-      );
+      const result = yield* executor.tools.invoke("f.things.listThings", {}, autoApprove);
       // Empty array via .data envelope or directly — accept either shape.
       const data = (result as { data?: unknown }).data ?? result;
       expect(data).toEqual([]);
