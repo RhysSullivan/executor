@@ -136,7 +136,12 @@ const renderTransportMessage = (value: unknown): string => {
     return value.message;
   }
 
-  if (typeof value === "object" && value !== null && "message" in value && typeof value.message === "string") {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "message" in value &&
+    typeof value.message === "string"
+  ) {
     return value.message;
   }
 
@@ -156,8 +161,12 @@ const renderTransportMessage = (value: unknown): string => {
 };
 
 export const serializeWorkerCause = (cause: Cause.Cause<unknown>): SerializedWorkerError => {
-  const failures = cause.reasons.filter(Cause.isFailReason).map((reason) => serializeWorkerErrorValue(reason.error));
-  const defects = cause.reasons.filter(Cause.isDieReason).map((reason) => serializeWorkerErrorValue(reason.defect));
+  const failures = cause.reasons
+    .filter(Cause.isFailReason)
+    .map((reason) => serializeWorkerErrorValue(reason.error));
+  const defects = cause.reasons
+    .filter(Cause.isDieReason)
+    .map((reason) => serializeWorkerErrorValue(reason.defect));
   const interrupted = cause.reasons.some(Cause.isInterruptReason);
   const primary = failures[0] ?? defects[0] ?? null;
   const kind =
@@ -215,10 +224,93 @@ export const renderWorkerError = (error: SerializedWorkerError): string => {
   return error.message;
 };
 
-const encodeWorkerRpcResponse = (response: WorkerRpcResponse): string => JSON.stringify(response);
+export type { WorkerRpcResponse };
 
-export const decodeWorkerRpcResponse = (raw: string): WorkerRpcResponse =>
-  JSON.parse(raw) as WorkerRpcResponse;
+// ---------------------------------------------------------------------------
+// Blob/File codec (both directions across the dispatcher boundary)
+//
+// Workers RPC's structured-clone allow-list excludes `Blob` / `File`, so
+// we encode them to a tagged ArrayBuffer envelope and rehydrate on the
+// far side. Symmetric in both directions: sandbox encodes args + host
+// rehydrates them; host encodes result + sandbox rehydrates it. The
+// matching encoder lives inside `module-template.ts` because it runs in
+// the dynamic Worker isolate. `ArrayBuffer` / typed arrays / primitives
+// cross structured clone natively.
+// ---------------------------------------------------------------------------
+
+type BinaryEnvelope = {
+  readonly __executorBinary: 1;
+  readonly kind: "blob" | "file";
+  readonly type: string;
+  readonly name?: string;
+  readonly lastModified?: number;
+  readonly buffer: ArrayBuffer;
+};
+
+const isBinaryEnvelope = (value: unknown): value is BinaryEnvelope =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { __executorBinary?: unknown }).__executorBinary === 1 &&
+  (value as { buffer?: unknown }).buffer instanceof ArrayBuffer &&
+  typeof (value as { type?: unknown }).type === "string";
+
+const isPlainObject = (value: object): boolean => {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+const rehydrateBinary = (value: unknown): unknown => {
+  if (value === null || typeof value !== "object") return value;
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value;
+  if (isBinaryEnvelope(value)) {
+    if (value.kind === "file" && typeof value.name === "string") {
+      return new File([value.buffer], value.name, {
+        type: value.type,
+        ...(typeof value.lastModified === "number" ? { lastModified: value.lastModified } : {}),
+      });
+    }
+    return new Blob([value.buffer], { type: value.type });
+  }
+  if (Array.isArray(value)) return value.map(rehydrateBinary);
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = rehydrateBinary(v);
+  }
+  return out;
+};
+
+// Async because `Blob.arrayBuffer()` is async. Used on tool results before
+// the dispatcher hands them back to the sandbox.
+const encodeBinary = async (value: unknown): Promise<unknown> => {
+  if (value === null || typeof value !== "object") return value;
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value;
+  if (typeof File !== "undefined" && value instanceof File) {
+    return {
+      __executorBinary: 1 as const,
+      kind: "file" as const,
+      type: value.type,
+      name: value.name,
+      lastModified: value.lastModified,
+      buffer: await value.arrayBuffer(),
+    };
+  }
+  if (value instanceof Blob) {
+    return {
+      __executorBinary: 1 as const,
+      kind: "blob" as const,
+      type: value.type,
+      buffer: await value.arrayBuffer(),
+    };
+  }
+  if (Array.isArray(value)) return Promise.all(value.map(encodeBinary));
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = await encodeBinary(v);
+  }
+  return out;
+};
 
 // ---------------------------------------------------------------------------
 // ToolDispatcher — bridges RPC calls back to SandboxToolInvoker
@@ -227,7 +319,12 @@ export const decodeWorkerRpcResponse = (raw: string): WorkerRpcResponse =>
 /**
  * An `RpcTarget` passed to the dynamic Worker so that sandboxed code can
  * invoke tools on the host. The dynamic worker calls
- * `__dispatcher.call(path, argsJson)` over Workers RPC.
+ * `__dispatcher.call(path, args)` over Workers RPC. `Uint8Array` /
+ * `ArrayBuffer` cross structured clone natively; `Blob` / `File` are
+ * encoded sandbox-side as a tagged envelope and rehydrated here via
+ * `rehydrateBinary` before the invoker sees them. JSON serialization on
+ * this hop would replace those values with `"{}"` or numeric-keyed
+ * objects, which is what broke `multipart/form-data` uploads.
  *
  * Each call is wrapped in an `executor.tool.rpc_dispatch` span so the
  * tool-invocation shell (Workers RPC roundtrip → local invoker →
@@ -248,15 +345,17 @@ export class ToolDispatcher extends RpcTarget {
     this.#runPromise = runPromise;
   }
 
-  async call(path: string, argsJson: string): Promise<string> {
-    const args = argsJson ? JSON.parse(argsJson) : undefined;
-
+  async call(path: string, args: unknown): Promise<WorkerRpcResponse> {
+    const decodedArgs = rehydrateBinary(args);
     return this.#runPromise(
-      this.#invoker.invoke({ path, args }).pipe(
-        Effect.map(
-          (value): WorkerRpcResponse => ({
-            ok: true,
-            result: value,
+      this.#invoker.invoke({ path, args: decodedArgs }).pipe(
+        Effect.flatMap((value) =>
+          Effect.tryPromise({
+            try: (): Promise<WorkerRpcResponse> =>
+              encodeBinary(value).then((result) => ({ ok: true, result })),
+            // Encoding failed (e.g. Blob.arrayBuffer rejected) — surface
+            // it as a normal failure envelope rather than throwing.
+            catch: (cause) => cause,
           }),
         ),
         Effect.catchCause((cause) =>
@@ -265,11 +364,9 @@ export class ToolDispatcher extends RpcTarget {
             error: serializeWorkerCause(cause),
           }),
         ),
-        Effect.map(encodeWorkerRpcResponse),
         Effect.withSpan("executor.tool.rpc_dispatch", {
           attributes: {
             "mcp.tool.name": path,
-            "executor.tool.args_length": argsJson.length,
           },
         }),
       ),

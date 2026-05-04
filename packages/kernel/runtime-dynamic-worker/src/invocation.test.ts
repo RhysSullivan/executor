@@ -6,7 +6,6 @@ import * as Effect from "effect/Effect";
 import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import {
   ToolDispatcher,
-  decodeWorkerRpcResponse,
   makeDynamicWorkerExecutor,
   renderWorkerError,
   serializeWorkerCause,
@@ -35,15 +34,15 @@ describe("ToolDispatcher", () => {
     const invoker = makeInvoker(({ args }) => args);
     const dispatcher = new ToolDispatcher(invoker, Effect.runPromise);
 
-    const result = await dispatcher.call("test.tool", '{"key":"value"}');
-    expect(decodeWorkerRpcResponse(result)).toEqual({ ok: true, result: { key: "value" } });
+    const result = await dispatcher.call("test.tool", { key: "value" });
+    expect(result).toEqual({ ok: true, result: { key: "value" } });
   });
 
   it("serializes tagged failures into a structured error envelope", async () => {
     const dispatcher = new ToolDispatcher(failingInvoker("tool broke"), Effect.runPromise);
 
-    const result = await dispatcher.call("broken.tool", "{}");
-    expect(decodeWorkerRpcResponse(result)).toMatchObject({
+    const result = await dispatcher.call("broken.tool", {});
+    expect(result).toMatchObject({
       ok: false,
       error: {
         kind: "fail",
@@ -68,8 +67,8 @@ describe("ToolDispatcher", () => {
       Effect.runPromise,
     );
 
-    const result = await dispatcher.call("broken.tool", "{}");
-    expect(decodeWorkerRpcResponse(result)).toEqual({
+    const result = await dispatcher.call("broken.tool", {});
+    expect(result).toEqual({
       ok: false,
       error: {
         kind: "fail",
@@ -94,8 +93,8 @@ describe("ToolDispatcher", () => {
     const invoker = makeInvoker(({ args }) => args);
     const dispatcher = new ToolDispatcher(invoker, Effect.runPromise);
 
-    const result = await dispatcher.call("test.tool", "");
-    expect(decodeWorkerRpcResponse(result)).toEqual({ ok: true, result: undefined });
+    const result = await dispatcher.call("test.tool", undefined);
+    expect(result).toEqual({ ok: true, result: undefined });
   });
 
   it("passes the tool path correctly", async () => {
@@ -106,7 +105,7 @@ describe("ToolDispatcher", () => {
     });
     const dispatcher = new ToolDispatcher(invoker, Effect.runPromise);
 
-    await dispatcher.call("my.deep.tool.path", "{}");
+    await dispatcher.call("my.deep.tool.path", {});
     expect(capturedPath).toBe("my.deep.tool.path");
   });
 });
@@ -145,7 +144,10 @@ describe("makeDynamicWorkerExecutor", () => {
     const invoker = makeInvoker(() => null);
 
     const result = await Effect.runPromise(
-      executor.execute(["Use this snippet.", "", "```ts", "async () => 42", "```"].join("\n"), invoker),
+      executor.execute(
+        ["Use this snippet.", "", "```ts", "async () => 42", "```"].join("\n"),
+        invoker,
+      ),
     );
 
     expect(result.error).toBeUndefined();
@@ -319,4 +321,104 @@ describe("makeDynamicWorkerExecutor", () => {
 
     expect(result.error).toBeDefined();
   });
+
+  // Multipart/form-data uploads (OpenAI Files API, any spec with a
+  // `multipart/form-data` body) need Blob/File/Uint8Array values to
+  // survive the sandbox→host RPC hop intact. JSON.stringify turns a Blob
+  // into "{}" and a Uint8Array into a numeric-keyed object, so
+  // `coerceFormDataRecord` produces a malformed multipart part and the
+  // upstream server 400s.
+  it.effect("preserves Uint8Array tool args across the dispatcher boundary", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      let captured: { file?: unknown } = {};
+      const invoker = makeInvoker(({ args }) => {
+        captured = (args ?? {}) as { file?: unknown };
+        return null;
+      });
+
+      yield* executor.execute(
+        `async () => {
+          const bytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+          await tools.uploads.send({ file: bytes });
+        }`,
+        invoker,
+      );
+
+      expect(captured.file).toBeInstanceOf(Uint8Array);
+      expect(Array.from(captured.file as Uint8Array)).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    }),
+  );
+
+  it.effect("preserves Blob tool args across the dispatcher boundary", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      let captured: { file?: unknown } = {};
+      const invoker = makeInvoker(({ args }) => {
+        captured = (args ?? {}) as { file?: unknown };
+        return null;
+      });
+
+      const result = yield* executor.execute(
+        `async () => {
+          const file = new Blob(["hello multipart"], { type: "text/plain" });
+          await tools.uploads.send({ file });
+        }`,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(captured.file).toBeInstanceOf(Blob);
+      const blob = captured.file as Blob;
+      expect(blob.type).toBe("text/plain");
+      const body = yield* Effect.promise(() => blob.text());
+      expect(body).toBe("hello multipart");
+    }),
+  );
+
+  // Symmetric direction: tool RESULT contains Blob/Uint8Array/File. Workers
+  // RPC has the same "Could not serialize Blob" limit on the way back, so
+  // tool implementations that return file-like data need the host→sandbox
+  // codec too. This pins down which types survive both directions.
+  it.effect("returns Uint8Array tool results to the sandbox intact", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      const invoker = makeInvoker(() => new Uint8Array([0xca, 0xfe, 0xba, 0xbe]));
+
+      const result = yield* executor.execute(
+        `async () => {
+          const bytes = await tools.download.fetch({});
+          if (!(bytes instanceof Uint8Array)) return { kind: typeof bytes, ctor: bytes && bytes.constructor && bytes.constructor.name };
+          return { kind: 'Uint8Array', length: bytes.length, bytes: Array.from(bytes) };
+        }`,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual({
+        kind: "Uint8Array",
+        length: 4,
+        bytes: [0xca, 0xfe, 0xba, 0xbe],
+      });
+    }),
+  );
+
+  it.effect("returns Blob tool results to the sandbox intact", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      const invoker = makeInvoker(() => new Blob(["DOWNLOAD"], { type: "text/plain" }));
+
+      const result = yield* executor.execute(
+        `async () => {
+          const blob = await tools.download.fetch({});
+          if (!(blob instanceof Blob)) return { kind: typeof blob };
+          return { kind: 'Blob', type: blob.type, text: await blob.text() };
+        }`,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual({ kind: "Blob", type: "text/plain", text: "DOWNLOAD" });
+    }),
+  );
 });

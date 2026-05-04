@@ -7,6 +7,13 @@
  * 2. Creates a recursive `tools` Proxy that dispatches calls via RPC.
  * 3. Executes the normalised user code with a `Promise.race` timeout.
  * 4. Returns `{ result, error?, logs }`.
+ *
+ * Tool args cross the dispatcher boundary via Workers RPC, not JSON, so
+ * `Uint8Array` / `ArrayBuffer` survive intact. `Blob` / `File` aren't on
+ * RPC's structured-clone allow-list, so we encode them to a tagged
+ * envelope (`__encodeBinary`) and the host rehydrates them. This is
+ * required for any tool whose upstream wants `multipart/form-data`
+ * (OpenAI Files API, etc.).
  */
 export const buildExecutorModule = (body: string, timeoutMs: number): string =>
   [
@@ -65,6 +72,58 @@ export const buildExecutorModule = (body: string, timeoutMs: number): string =>
     "      };",
     "    };",
     "",
+    // Blob/File aren't on Workers RPC's structured-clone allow-list, so
+    // we encode them to a tagged ArrayBuffer envelope before the call and
+    // the host rehydrates them — and symmetrically the host encodes
+    // Blob/File results which we rehydrate here. ArrayBuffer / typed
+    // arrays cross natively.
+    "    const __isPlainObject = (v) => {",
+    "      const p = Object.getPrototypeOf(v);",
+    "      return p === Object.prototype || p === null;",
+    "    };",
+    "    const __isBinaryEnvelope = (v) =>",
+    "      v && typeof v === 'object' && v.__executorBinary === 1 &&",
+    "      v.buffer instanceof ArrayBuffer && typeof v.type === 'string';",
+    "    const __encodeBinary = async (value) => {",
+    "      if (value === null || typeof value !== 'object') return value;",
+    "      if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value;",
+    "      if (typeof File !== 'undefined' && value instanceof File) {",
+    "        return {",
+    "          __executorBinary: 1,",
+    "          kind: 'file',",
+    "          type: value.type,",
+    "          name: value.name,",
+    "          lastModified: value.lastModified,",
+    "          buffer: await value.arrayBuffer(),",
+    "        };",
+    "      }",
+    "      if (value instanceof Blob) {",
+    "        return { __executorBinary: 1, kind: 'blob', type: value.type, buffer: await value.arrayBuffer() };",
+    "      }",
+    "      if (Array.isArray(value)) return Promise.all(value.map(__encodeBinary));",
+    "      if (!__isPlainObject(value)) return value;",
+    "      const out = {};",
+    "      for (const [k, v] of Object.entries(value)) out[k] = await __encodeBinary(v);",
+    "      return out;",
+    "    };",
+    "    const __decodeBinary = (value) => {",
+    "      if (value === null || typeof value !== 'object') return value;",
+    "      if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value;",
+    "      if (__isBinaryEnvelope(value)) {",
+    "        if (value.kind === 'file' && typeof value.name === 'string') {",
+    "          return new File([value.buffer], value.name, {",
+    "            type: value.type,",
+    "            ...(typeof value.lastModified === 'number' ? { lastModified: value.lastModified } : {}),",
+    "          });",
+    "        }",
+    "        return new Blob([value.buffer], { type: value.type });",
+    "      }",
+    "      if (Array.isArray(value)) return value.map(__decodeBinary);",
+    "      if (!__isPlainObject(value)) return value;",
+    "      const out = {};",
+    "      for (const [k, v] of Object.entries(value)) out[k] = __decodeBinary(v);",
+    "      return out;",
+    "    };",
     "    const __makeToolsProxy = (path = []) => new Proxy(() => undefined, {",
     "      get(_target, prop) {",
     "        if (prop === 'then' || typeof prop === 'symbol') return undefined;",
@@ -73,13 +132,14 @@ export const buildExecutorModule = (body: string, timeoutMs: number): string =>
     "      apply(_target, _thisArg, args) {",
     "        const toolPath = path.join('.');",
     "        if (!toolPath) throw new Error('Tool path missing in invocation');",
-    "        return __dispatcher.call(toolPath, JSON.stringify(args[0] ?? {})).then((raw) => {",
-    "          const data = JSON.parse(raw);",
+    "        return (async () => {",
+    "          const encoded = await __encodeBinary(args[0]);",
+    "          const data = await __dispatcher.call(toolPath, encoded);",
     "          if (!data.ok) {",
     "            throw (data.error && data.error.primary !== null ? data.error.primary : data.error.message);",
     "          }",
-    "          return data.result;",
-    "        });",
+    "          return __decodeBinary(data.result);",
+    "        })();",
     "      },",
     "    });",
     "    const tools = __makeToolsProxy();",
