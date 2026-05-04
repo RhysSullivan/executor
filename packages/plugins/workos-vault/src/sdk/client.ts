@@ -1,5 +1,9 @@
 import type { WorkOS } from "@workos-inc/node/worker";
-import { WorkOS as WorkOSClient } from "@workos-inc/node/worker";
+import {
+  GenericServerException,
+  NotFoundException,
+  WorkOS as WorkOSClient,
+} from "@workos-inc/node/worker";
 import { Data, Effect, Result } from "effect";
 
 export interface WorkOSVaultObjectMetadata {
@@ -16,10 +20,48 @@ export interface WorkOSVaultObject {
   readonly value?: string;
 }
 
+// Minimal shape carrying an HTTP-style status code. Production WorkOS errors
+// (`GenericServerException`/`NotFoundException`) and test fakes both populate
+// a numeric `status`, so the boundary normalises against this named type
+// rather than probing arbitrary unknown shapes.
+interface ErrorWithStatus extends Error {
+  readonly status: number;
+}
+
+const isErrorWithStatus = (cause: unknown): cause is ErrorWithStatus =>
+  cause instanceof Error && typeof (cause as ErrorWithStatus).status === "number";
+
+const statusFromWorkOSCause = (cause: unknown): number | undefined => {
+  if (cause instanceof GenericServerException || cause instanceof NotFoundException) {
+    return cause.status;
+  }
+  if (isErrorWithStatus(cause)) return cause.status;
+  return undefined;
+};
+
+const messageFromWorkOSCause = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
+
 export class WorkOSVaultClientError extends Data.TaggedError("WorkOSVaultClientError")<{
   readonly cause: unknown;
+  readonly message: string;
   readonly operation: string;
-}> {}
+  readonly status?: number;
+}> {
+  constructor(options: {
+    readonly cause: unknown;
+    readonly message?: string;
+    readonly operation: string;
+    readonly status?: number;
+  }) {
+    super({
+      cause: options.cause,
+      message: options.message ?? messageFromWorkOSCause(options.cause),
+      operation: options.operation,
+      status: options.status ?? statusFromWorkOSCause(options.cause),
+    });
+  }
+}
 
 export class WorkOSVaultClientInstantiationError extends Data.TaggedError(
   "WorkOSVaultClientInstantiationError",
@@ -27,7 +69,10 @@ export class WorkOSVaultClientInstantiationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export interface WorkOSVaultSdk {
+// Promise-shaped facade onto the underlying WorkOS SDK. Module-private — the
+// public surface in `WorkOSVaultClient` is Effect-only. Test doubles import
+// this type to stand up an in-memory equivalent.
+export interface WorkOSVaultPromiseApi {
   readonly createObject: (options: {
     readonly name: string;
     readonly value: string;
@@ -55,7 +100,7 @@ interface WorkOSVaultUseOptions {
 export interface WorkOSVaultClient {
   readonly use: <A>(
     operation: string,
-    fn: (client: WorkOSVaultSdk) => Promise<A>,
+    fn: (client: WorkOSVaultPromiseApi) => Promise<A>,
     options?: WorkOSVaultUseOptions,
   ) => Effect.Effect<A, WorkOSVaultClientError, never>;
   readonly createObject: (options: {
@@ -76,30 +121,20 @@ export interface WorkOSVaultClient {
   }) => Effect.Effect<void, WorkOSVaultClientError, never>;
 }
 
-const vaultErrorStatus = (error: WorkOSVaultClientError): number | null => {
-  const cause = error.cause;
-  return typeof cause === "object" &&
-    cause !== null &&
-    "status" in cause &&
-    typeof (cause as { readonly status: unknown }).status === "number"
-    ? (cause as { readonly status: number }).status
-    : null;
-};
-
 const isExpectedVaultError = (
   error: WorkOSVaultClientError,
   options: WorkOSVaultUseOptions | undefined,
 ): boolean => {
-  const status = vaultErrorStatus(error);
-  return status !== null && (options?.expectedErrorStatuses?.includes(status) ?? false);
+  if (error.status === undefined) return false;
+  return options?.expectedErrorStatuses?.includes(error.status) ?? false;
 };
 
 export const makeWorkOSVaultClient = (workos: Pick<WorkOS, "vault">): WorkOSVaultClient => {
-  const client: WorkOSVaultSdk = workos.vault;
+  const client: WorkOSVaultPromiseApi = workos.vault;
 
   const use = <A>(
     operation: string,
-    fn: (vault: WorkOSVaultSdk) => Promise<A>,
+    fn: (vault: WorkOSVaultPromiseApi) => Promise<A>,
     options?: WorkOSVaultUseOptions,
   ): Effect.Effect<A, WorkOSVaultClientError, never> => {
     const attempt = Effect.tryPromise({
@@ -116,7 +151,7 @@ export const makeWorkOSVaultClient = (workos: Pick<WorkOS, "vault">): WorkOSVaul
             return outcome;
           }
 
-          const status = vaultErrorStatus(outcome.failure);
+          const status = outcome.failure.status;
           if (isExpectedVaultError(outcome.failure, options)) {
             yield* Effect.annotateCurrentSpan({
               "workos_vault.outcome": options?.expectedErrorOutcome ?? "expected_error",

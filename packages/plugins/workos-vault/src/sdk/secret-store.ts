@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { GenericServerException, NotFoundException } from "@workos-inc/node/worker";
 
 import {
   defineSchema,
@@ -10,8 +9,8 @@ import {
 } from "@executor-js/sdk/core";
 
 import {
-  WorkOSVaultClientError,
   type WorkOSVaultClient,
+  type WorkOSVaultClientError,
   type WorkOSVaultObject,
 } from "./client";
 
@@ -155,35 +154,11 @@ export const makeWorkosVaultStore = (
 // Vault helpers — scope-prefixed object naming + 409-retry upsert.
 // ---------------------------------------------------------------------------
 
-const unwrapVaultError = (error: unknown): unknown =>
-  error instanceof WorkOSVaultClientError ? error.cause : error;
+const isStatusError = (error: WorkOSVaultClientError, status: number): boolean =>
+  error.status === status;
 
-const isStatusError = (error: unknown, status: number): boolean => {
-  const cause = unwrapVaultError(error);
-  return (
-    ((cause instanceof GenericServerException ||
-      cause instanceof NotFoundException) &&
-      cause.status === status) ||
-    (typeof cause === "object" &&
-      cause !== null &&
-      "status" in cause &&
-      typeof (cause as { status: unknown }).status === "number" &&
-      (cause as { status: number }).status === status)
-  );
-};
-
-const isKekNotReadyError = (error: unknown): boolean => {
-  const cause = unwrapVaultError(error);
-  const message =
-    cause instanceof Error
-      ? cause.message
-      : typeof cause === "string"
-        ? cause
-        : typeof cause === "object" && cause !== null && "message" in cause
-          ? String((cause as { message: unknown }).message)
-          : "";
-  return message.includes("KEK was created but is not yet ready");
-};
+const isKekNotReadyError = (error: WorkOSVaultClientError): boolean =>
+  error.message.includes("KEK was created but is not yet ready");
 
 // Default context builder. Each semantic piece of a scope id lives in
 // its own vault-context key so WorkOS's KEK matcher sees individual
@@ -327,11 +302,8 @@ const deleteSecretValue = (
     return true;
   });
 
-const formatVaultError = (error: unknown): StorageError => {
-  const cause = unwrapVaultError(error);
-  const message = cause instanceof Error ? cause.message : String(cause);
-  return new StorageError({ message, cause });
-};
+const formatVaultError = (error: WorkOSVaultClientError): StorageError =>
+  new StorageError({ message: error.message, cause: error.cause });
 
 // ---------------------------------------------------------------------------
 // makeWorkOSVaultSecretProvider — builds a SecretProvider backed by

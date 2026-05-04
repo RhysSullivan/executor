@@ -71,3 +71,60 @@ export function getStringValue(node) {
   if (expression?.type === "StringLiteral") return expression.value;
   return undefined;
 }
+
+export function isIdentifier(node, name) {
+  return node?.type === "Identifier" && (name === undefined || node.name === name);
+}
+
+export function isStringLiteral(node) {
+  return (
+    (node?.type === "Literal" && typeof node.value === "string") ||
+    node?.type === "StringLiteral"
+  );
+}
+
+export function typeName(node) {
+  if (node?.type === "Identifier") return node.name;
+  if (node?.type === "TSQualifiedName") {
+    const left = typeName(node.left);
+    const right = typeName(node.right);
+    return left && right ? `${left}.${right}` : undefined;
+  }
+  return undefined;
+}
+
+export function typeReferenceName(node) {
+  return node?.type === "TSTypeReference" ? typeName(node.typeName) : undefined;
+}
+
+export function isPromiseType(node) {
+  return typeReferenceName(node) === "Promise";
+}
+
+export function containsPromiseType(node) {
+  if (!node || typeof node !== "object") return false;
+  if (isPromiseType(node)) return true;
+
+  switch (node.type) {
+    case "TSTypeAnnotation":
+      return containsPromiseType(node.typeAnnotation);
+    case "TSFunctionType":
+      return containsPromiseType(node.returnType);
+    case "TSParenthesizedType":
+      return containsPromiseType(node.typeAnnotation);
+    case "TSUnionType":
+    case "TSIntersectionType":
+      return (node.types ?? []).some(containsPromiseType);
+    case "TSConditionalType":
+      return containsPromiseType(node.trueType) || containsPromiseType(node.falseType);
+    default:
+      return false;
+  }
+}
+
+export function nodeName(node) {
+  if (isIdentifier(node)) return node.name;
+  if (node?.type === "PrivateIdentifier") return node.name;
+  if (isStringLiteral(node)) return node.value;
+  return undefined;
+}
