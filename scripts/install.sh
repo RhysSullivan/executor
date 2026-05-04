@@ -197,16 +197,11 @@ download_and_install() {
         unzip -q "${tmp_dir}/${filename}" -d "$tmp_dir"
     fi
 
-    # The archive's bin/ directory contains the executable plus its sidecars
-    # (emscripten-module.wasm, secure-exec-v8, keyring.node). Move them all
-    # into INSTALL_DIR so the binary's relative lookups still work.
-    local extracted_bin="${tmp_dir}/bin"
-    if [[ -d "$extracted_bin" ]]; then
-        cp -R "${extracted_bin}/." "${INSTALL_DIR}/"
-    else
-        # Some archives may lack the bin/ prefix.
-        cp -R "${tmp_dir}/." "${INSTALL_DIR}/"
-    fi
+    # The archive is flat — the binary plus sidecars (emscripten-module.wasm,
+    # secure-exec-v8, keyring.node) are at the root. Copy them all into
+    # INSTALL_DIR so the binary's relative-path lookups still resolve.
+    rm -f "${tmp_dir}/${filename}"
+    cp -R "${tmp_dir}/." "${INSTALL_DIR}/"
 
     chmod 755 "${INSTALL_DIR}/${APP}"
     rm -rf "$tmp_dir"
