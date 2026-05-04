@@ -22,6 +22,14 @@ import {
 } from "./client";
 import { workosVaultPlugin } from "./plugin";
 
+interface VaultMetadataRow {
+  readonly id: string;
+  readonly scope_id: string;
+  readonly name: string;
+  readonly purpose: string | null;
+  readonly created_at: Date;
+}
+
 // ---------------------------------------------------------------------------
 // Fake status errors — the real provider's isStatusError check pattern-
 // matches on a `status` field, so these bare Error subclasses are
@@ -465,13 +473,11 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
           }),
         );
 
-        const rows = yield* adapter.findMany({
+        const rows = (yield* adapter.findMany({
           model: "workos_vault_metadata",
           where: [{ field: "id", value: "api-token" }],
-        });
-        const scopes = rows
-          .map((r) => (r as { scope_id: string }).scope_id)
-          .sort();
+        })) as readonly VaultMetadataRow[];
+        const scopes = rows.map((r) => r.scope_id).sort();
         expect(scopes).toEqual([outerId, innerId].sort());
       }),
   );

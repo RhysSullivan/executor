@@ -7,7 +7,6 @@ export {
   type WorkOSVaultCredentials,
   type WorkOSVaultObject,
   type WorkOSVaultObjectMetadata,
-  type WorkOSVaultSdk,
 } from "./client";
 export {
   workosVaultPlugin,

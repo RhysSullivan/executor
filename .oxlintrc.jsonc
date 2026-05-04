@@ -24,5 +24,19 @@
       },
     ],
   },
+  "overrides": [
+    {
+      "files": ["packages/plugins/workos-vault/src/**/*.{ts,tsx}"],
+      "rules": {
+        "executor/no-inline-object-type-assertion": "error",
+        "executor/no-instanceof-tagged-error": "error",
+        "executor/no-manual-tag-check": "error",
+        "executor/no-promise-client-surface": "error",
+        "executor/no-raw-error-throw": "error",
+        "executor/no-redundant-error-factory": "error",
+        "executor/no-unknown-shape-probing": "error",
+      },
+    },
+  ],
   "ignorePatterns": [".astro/", "**/routeTree.gen.ts", ".references/"],
 }
