@@ -1,5 +1,6 @@
 import { useReducer, useState } from "react";
-import { Exit } from "effect";
+import { Cause, Exit, Result } from "effect";
+import { Forbidden } from "../org/api";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
@@ -62,21 +63,21 @@ type InviteState = {
   email: string;
   roleSlug: string;
   status: "idle" | "sending" | "error";
-  error: string | null;
+  failure: Cause.Cause<unknown> | null;
 };
 
 const initialInviteState: InviteState = {
   email: "",
   roleSlug: "member",
   status: "idle",
-  error: null,
+  failure: null,
 };
 
 type InviteAction =
   | { type: "setEmail"; email: string }
   | { type: "setRole"; roleSlug: string }
   | { type: "send" }
-  | { type: "error"; message: string }
+  | { type: "error"; cause: Cause.Cause<unknown> }
   | { type: "reset" };
 
 function inviteReducer(state: InviteState, action: InviteAction): InviteState {
@@ -86,9 +87,9 @@ function inviteReducer(state: InviteState, action: InviteAction): InviteState {
     case "setRole":
       return { ...state, roleSlug: action.roleSlug };
     case "send":
-      return { ...state, status: "sending", error: null };
+      return { ...state, status: "sending", failure: null };
     case "error":
-      return { ...state, status: "error", error: action.message };
+      return { ...state, status: "error", failure: action.cause };
     case "reset":
       return initialInviteState;
   }
@@ -606,6 +607,32 @@ function DomainCard({ domain: d, onDelete }: { domain: DomainData; onDelete: () 
   );
 }
 
+function InviteErrorAlert({ cause }: { cause: Cause.Cause<unknown> }) {
+  const failure = Cause.findError(cause);
+  const error = Result.isSuccess(failure) ? failure.success : null;
+
+  if (error instanceof Forbidden) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+        <p className="text-sm text-destructive">
+          You've reached your member limit. Upgrade to Team to invite more.
+        </p>
+        <Link to="/billing/plans">
+          <Button size="sm" variant="outline">
+            Upgrade
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+      <p className="text-sm text-destructive">Failed to send invitation. Please try again.</p>
+    </div>
+  );
+}
+
 function InviteDialog(props: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -630,9 +657,9 @@ function InviteDialog(props: {
       toast.success(`Invitation sent to ${state.email.trim()}`);
       dispatch({ type: "reset" });
       props.onOpenChange(false);
-    } else {
-      dispatch({ type: "error", message: "Failed to send invitation" });
+      return;
     }
+    dispatch({ type: "error", cause: exit.cause });
   };
 
   return (
@@ -700,11 +727,7 @@ function InviteDialog(props: {
             </div>
           )}
 
-          {state.status === "error" && state.error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-sm text-destructive">{state.error}</p>
-            </div>
-          )}
+          {state.status === "error" && state.failure && <InviteErrorAlert cause={state.failure} />}
         </div>
 
         <DialogFooter>
