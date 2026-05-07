@@ -750,7 +750,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           );
 
           const existing = yield* ctx.storage.getSource(namespace, scope);
-          const sourceName = manifest.server?.name ?? existing?.name ?? namespace;
+          const sourceName = existing?.name ?? manifest.server?.name ?? namespace;
 
           yield* ctx
             .transaction(
@@ -813,13 +813,24 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             ...(input.auth !== undefined ? { auth: input.auth } : {}),
             ...(input.queryParams !== undefined ? { queryParams: input.queryParams } : {}),
           };
+          const nextName = input.name?.trim() || existing.name;
 
-          yield* ctx.storage.putSource({
-            namespace,
-            scope,
-            name: input.name?.trim() || existing.name,
-            config: updatedConfig,
-          });
+          yield* ctx.transaction(
+            Effect.gen(function* () {
+              yield* ctx.storage.putSource({
+                namespace,
+                scope,
+                name: nextName,
+                config: updatedConfig,
+              });
+              yield* ctx.core.sources.update({
+                id: namespace,
+                scope,
+                name: nextName,
+                url: updatedConfig.endpoint,
+              });
+            }),
+          );
         }).pipe(
           Effect.withSpan("mcp.plugin.update_source", {
             attributes: { "mcp.source.namespace": namespace },

@@ -101,7 +101,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                 ].join(" ")}
               >
                 <SourceFavicon url={s.url} />
-                <span className="flex-1 truncate">{s.name}</span>
+                <span className="flex-1 truncate" title={s.name}>{s.name}</span>
                 <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
                   {s.kind}
                 </span>
