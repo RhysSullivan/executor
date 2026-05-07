@@ -29,7 +29,9 @@ import {
   mcpUnauthorized,
 } from "./mcp";
 import { McpJwtVerificationError } from "./mcp-auth";
+import { slugifyHandle } from "./services/ids";
 import { organizations } from "./services/schema";
+import { pickFreeOrgHandle } from "./services/user-store";
 import { parseTestBearer } from "./test-bearer";
 import { DoTelemetryLive } from "./services/telemetry";
 
@@ -90,9 +92,11 @@ const handleSeedOrg = async (
   });
   // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: worker seed endpoint keeps postgres cleanup in native async finalization
   try {
-    await drizzle(sql, { schema: { organizations } })
+    const db = drizzle(sql, { schema: { organizations } });
+    const handle = await pickFreeOrgHandle(db, slugifyHandle(body.name));
+    await db
       .insert(organizations)
-      .values({ id: body.id, name: body.name })
+      .values({ id: body.id, name: body.name, handle })
       .onConflictDoUpdate({
         target: organizations.id,
         set: { name: body.name },

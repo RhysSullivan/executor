@@ -19,9 +19,15 @@ export const accounts = pgTable("accounts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Organization (billing entity, scoping root). The `id` is the WorkOS organization ID. */
+/**
+ * Organization (billing entity, scoping root). The `id` is the WorkOS
+ * organization ID. `handle` is a local URL handle, generated from `name` on
+ * create with collision suffixes; we keep it editable later without changing
+ * the underlying WorkOS id.
+ */
 export const organizations = pgTable("organizations", {
   id: text("id").primaryKey(),
+  handle: text("handle").notNull().unique(),
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
