@@ -118,6 +118,7 @@ const addSourceFromConfig = (
           baseUrl: s.baseUrl,
           namespace: s.namespace,
           headers: translateHeaders(s.headers),
+          credentialTargetScope: targetScope,
         })
         .pipe(Effect.asVoid),
     ),
@@ -128,6 +129,7 @@ const addSourceFromConfig = (
           scope: targetScope,
           namespace: s.namespace,
           headers: translateHeaders(s.headers) as Record<string, string> | undefined,
+          credentialTargetScope: targetScope,
         })
         .pipe(Effect.asVoid),
     ),
@@ -157,6 +159,7 @@ const addSourceFromConfig = (
           headers: s.headers,
           namespace: s.namespace,
           auth: translateMcpAuth(s.auth),
+          credentialTargetScope: targetScope,
         })
         .pipe(Effect.asVoid);
     }),
