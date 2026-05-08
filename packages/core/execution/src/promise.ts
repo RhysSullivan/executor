@@ -26,6 +26,7 @@ import {
   createExecutionEngine as createEffectExecutionEngine,
   type ExecutionEngine as EffectExecutionEngine,
   type ExecutionResult,
+  type ExecutionOwner,
   type PausedExecution,
   type ResumeResponse,
 } from "./engine";
@@ -42,10 +43,11 @@ export type ExecutionEngine = {
     code: string,
     options: { readonly onElicitation: ElicitationHandler },
   ) => Promise<ExecuteResult>;
-  readonly executeWithPause: (code: string) => Promise<ExecutionResult>;
+  readonly executeWithPause: (code: string, options?: ExecutionOwner) => Promise<ExecutionResult>;
   readonly resume: (
     executionId: string,
     response: ResumeResponse,
+    options?: ExecutionOwner,
   ) => Promise<ExecutionResult | null>;
   readonly getDescription: () => Promise<string>;
 };
@@ -158,8 +160,9 @@ export const toPromiseExecutionEngine = <E extends Cause.YieldableError>(
           Effect.tryPromise(() => options.onElicitation(ctx)).pipe(Effect.orDie),
       }),
     ),
-  executeWithPause: (code) => Effect.runPromise(engine.executeWithPause(code)),
-  resume: (executionId, response) => Effect.runPromise(engine.resume(executionId, response)),
+  executeWithPause: (code, options) => Effect.runPromise(engine.executeWithPause(code, options)),
+  resume: (executionId, response, options) =>
+    Effect.runPromise(engine.resume(executionId, response, options)),
   getDescription: () => Effect.runPromise(engine.getDescription),
 });
 
@@ -179,7 +182,7 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
 
 export { formatExecuteResult, formatPausedExecution } from "./engine";
 
-export type { ExecutionResult, PausedExecution, ResumeResponse };
+export type { ExecutionOwner, ExecutionResult, PausedExecution, ResumeResponse };
 
 export { buildExecuteDescription } from "./description";
 export { ExecutionToolError } from "./errors";

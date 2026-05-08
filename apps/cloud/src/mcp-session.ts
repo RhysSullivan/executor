@@ -303,6 +303,7 @@ export class McpSessionDO extends DurableObject {
         description,
         parentSpan: () => self.currentRequestSpan ?? undefined,
         debug: env.EXECUTOR_MCP_DEBUG === "true",
+        continuationOwnerId: sessionMeta.userId,
       }).pipe(Effect.withSpan("McpSessionDO.createExecutorMcpServer"));
       const transport = yield* makeMcpWorkerTransport({
         sessionIdGenerator: () => self.ctx.id.toString(),
@@ -662,6 +663,28 @@ export class McpSessionDO extends DurableObject {
         Effect.provide(DoTelemetryLive),
       ),
     );
+  }
+
+  async clearSessionForOwner(
+    token: McpSessionInit,
+    incoming?: IncomingTraceHeaders,
+  ): Promise<boolean> {
+    const self = this;
+    const program = Effect.gen(function* () {
+      const sessionMeta = yield* self.loadSessionMeta();
+      if (!sessionMeta) return false;
+      const matches =
+        sessionMeta.userId === token.userId && sessionMeta.organizationId === token.organizationId;
+      yield* Effect.annotateCurrentSpan({ "mcp.session.owner_match": matches });
+      if (!matches) return false;
+      yield* Effect.promise(() => self.cleanup());
+      return true;
+    }).pipe(
+      Effect.withSpan("McpSessionDO.clearSessionForOwner"),
+      (eff) => withIncomingParent(incoming, eff),
+      Effect.provide(DoTelemetryLive),
+    );
+    return Effect.runPromise(program);
   }
 
   private async runAlarm(): Promise<void> {

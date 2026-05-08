@@ -4,10 +4,10 @@ import type * as Cause from "effect/Cause";
 import type {
   Executor,
   InvokeOptions,
-  ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
 } from "@executor-js/sdk/core";
+import { ElicitationResponse } from "@executor-js/sdk/core";
 import { CodeExecutionError } from "@executor-js/codemode-core";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor-js/codemode-core";
 
@@ -27,6 +27,8 @@ import { buildExecuteDescription } from "./description";
 export type ExecutionEngineConfig<E extends Cause.YieldableError = CodeExecutionError> = {
   readonly executor: Executor;
   readonly codeExecutor: CodeExecutor<E>;
+  readonly maxPausedExecutionsPerOwner?: number;
+  readonly pausedExecutionTtlMs?: number;
 };
 
 export type ExecutionResult =
@@ -40,14 +42,20 @@ export type PausedExecution = {
 
 /** Internal representation with Effect runtime state for pause/resume. */
 type InternalPausedExecution<E> = PausedExecution & {
+  readonly ownerId: string | null;
   readonly response: Deferred.Deferred<typeof ElicitationResponse.Type>;
   readonly fiber: Fiber.Fiber<ExecuteResult, E>;
   readonly pauseSignalRef: Ref.Ref<Deferred.Deferred<InternalPausedExecution<E>>>;
+  timeoutId?: ReturnType<typeof setTimeout>;
 };
 
 export type ResumeResponse = {
   readonly action: "accept" | "decline" | "cancel";
   readonly content?: Record<string, unknown>;
+};
+
+export type ExecutionOwner = {
+  readonly ownerId?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -323,7 +331,10 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
    * Use this when the host doesn't support inline elicitation.
    * Returns either a completed result or a paused execution that can be resumed.
    */
-  readonly executeWithPause: (code: string) => Effect.Effect<ExecutionResult, E>;
+  readonly executeWithPause: (
+    code: string,
+    options?: ExecutionOwner,
+  ) => Effect.Effect<ExecutionResult, E>;
 
   /**
    * Resume a paused execution. Returns a completed result, a new pause, or
@@ -332,6 +343,7 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
   readonly resume: (
     executionId: string,
     response: ResumeResponse,
+    options?: ExecutionOwner,
   ) => Effect.Effect<ExecutionResult | null, E>;
 
   /**
@@ -345,7 +357,20 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
 ): ExecutionEngine<E> => {
   const { executor, codeExecutor } = config;
   const pausedExecutions = new Map<string, InternalPausedExecution<E>>();
+  const maxPausedExecutionsPerOwner = Math.max(
+    1,
+    Math.floor(config.maxPausedExecutionsPerOwner ?? 32),
+  );
+  const pausedExecutionTtlMs = Math.max(1, Math.floor(config.pausedExecutionTtlMs ?? 300_000));
   let nextId = 0;
+
+  const countPausedForOwner = (ownerId: string | null): number => {
+    let count = 0;
+    for (const paused of pausedExecutions.values()) {
+      if (paused.ownerId === ownerId) count++;
+    }
+    return count;
+  };
 
   /**
    * Race a running fiber against a pause signal. Returns when either
@@ -379,7 +404,10 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
    * The sandbox is forked as a daemon because paused executions can outlive the
    * caller scope that returned the first pause, such as an HTTP request handler.
    */
-  const startPausableExecution = Effect.fn("mcp.execute")(function* (code: string) {
+  const startPausableExecution = Effect.fn("mcp.execute")(function* (
+    code: string,
+    options?: ExecutionOwner,
+  ) {
     yield* Effect.annotateCurrentSpan({
       "mcp.execute.mode": "pausable",
       "mcp.execute.code_length": code.length,
@@ -395,17 +423,36 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
 
     const elicitationHandler: ElicitationHandler = (ctx) =>
       Effect.gen(function* () {
+        const ownerId = options?.ownerId ?? null;
+        if (countPausedForOwner(ownerId) >= maxPausedExecutionsPerOwner) {
+          return new ElicitationResponse({ action: "cancel" });
+        }
+
         const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
         const id = `exec_${++nextId}`;
 
         const paused: InternalPausedExecution<E> = {
           id,
+          ownerId,
           elicitationContext: ctx,
           response: responseDeferred,
           fiber: fiber!,
           pauseSignalRef,
         };
         pausedExecutions.set(id, paused);
+        paused.timeoutId = setTimeout(() => {
+          if (pausedExecutions.get(id) !== paused) return;
+          pausedExecutions.delete(id);
+          Effect.runFork(
+            Effect.gen(function* () {
+              yield* Deferred.succeed(paused.response, {
+                action: "cancel",
+                content: undefined,
+              });
+              yield* Fiber.interrupt(fiber!);
+            }),
+          );
+        }, pausedExecutionTtlMs);
 
         const currentSignal = yield* Ref.get(pauseSignalRef);
         yield* Deferred.succeed(currentSignal, paused);
@@ -431,6 +478,7 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
   const resumeExecution = Effect.fn("mcp.execute.resume")(function* (
     executionId: string,
     response: ResumeResponse,
+    options?: ExecutionOwner,
   ) {
     yield* Effect.annotateCurrentSpan({
       "mcp.execute.resume.action": response.action,
@@ -438,7 +486,9 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
 
     const paused = pausedExecutions.get(executionId);
     if (!paused) return null;
+    if (paused.ownerId !== null && paused.ownerId !== (options?.ownerId ?? null)) return null;
     pausedExecutions.delete(executionId);
+    clearTimeout(paused.timeoutId);
 
     // Swap in a fresh pause signal BEFORE unblocking the fiber, so the
     // next elicitation handler call signals this new Deferred.

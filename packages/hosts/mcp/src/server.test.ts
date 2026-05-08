@@ -38,8 +38,12 @@ const withClient = async <E extends Cause.YieldableError>(
   engine: ExecutionEngine<E>,
   capabilities: ClientCapabilities,
   fn: (client: Client) => Promise<void>,
+  options: {
+    readonly continuationOwnerId?: string;
+    readonly enableModelVisibleResumeTool?: boolean;
+  } = {},
 ) => {
-  const mcpServer = await Effect.runPromise(createExecutorMcpServer({ engine }));
+  const mcpServer = await Effect.runPromise(createExecutorMcpServer({ engine, ...options }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities });
   await mcpServer.connect(serverTransport);
@@ -360,16 +364,16 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
     });
   });
 
-  it("both execute and resume tools are visible", async () => {
+  it("resume tool is hidden by default", async () => {
     await withClient(makeStubEngine({}), NO_CAPS, async (client) => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name);
       expect(names).toContain("execute");
-      expect(names).toContain("resume");
+      expect(names).not.toContain("resume");
     });
   });
 
-  it("paused execution returns interaction metadata with executionId", async () => {
+  it("paused execution returns interaction metadata without a continuation handle", async () => {
     const engine = makeStubEngine({
       executeWithPause: () =>
         Effect.succeed(
@@ -391,12 +395,11 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         name: "execute",
         arguments: { code: "pause-me" },
       });
-      expect(textOf(result)).toContain("exec_42");
-      expect(textOf(result)).toContain("Need approval");
+      expect(textOf(result)).toBe("Execution paused for interaction.");
       expect(result.isError).toBeFalsy();
 
       const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured?.executionId).toBe("exec_42");
+      expect(structured?.executionId).toBeUndefined();
       expect(structured?.status).toBe("waiting_for_interaction");
     });
   });
@@ -411,14 +414,53 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         ),
     });
 
-    await withClient(engine, NO_CAPS, async (client) => {
-      const result = await client.callTool({
-        name: "resume",
-        arguments: { executionId: "exec_1", action: "accept", content: "{}" },
-      });
-      expect(result.content).toEqual([{ type: "text", text: "resumed-ok" }]);
-      expect(result.isError).toBeFalsy();
+    await withClient(
+      engine,
+      NO_CAPS,
+      async (client) => {
+        const result = await client.callTool({
+          name: "resume",
+          arguments: { executionId: "exec_1", action: "accept", content: "{}" },
+        });
+        expect(result.content).toEqual([{ type: "text", text: "resumed-ok" }]);
+        expect(result.isError).toBeFalsy();
+      },
+      { enableModelVisibleResumeTool: true },
+    );
+  });
+
+  it("resume tool passes continuation owner to the engine", async () => {
+    const owners: Array<string | null | undefined> = [];
+    const engine = makeStubEngine({
+      executeWithPause: (_code, options) =>
+        Effect.sync(() => {
+          owners.push(options?.ownerId);
+          return makePausedResult(
+            "exec_1",
+            new FormElicitation({ message: "Need approval", requestedSchema: {} }),
+          );
+        }),
+      resume: (_executionId, _response, options) =>
+        Effect.sync(() => {
+          owners.push(options?.ownerId);
+          return { status: "completed", result: { result: "resumed-ok" } };
+        }),
     });
+
+    await withClient(
+      engine,
+      NO_CAPS,
+      async (client) => {
+        await client.callTool({ name: "execute", arguments: { code: "pause-me" } });
+        await client.callTool({
+          name: "resume",
+          arguments: { executionId: "exec_1", action: "accept", content: "{}" },
+        });
+      },
+      { continuationOwnerId: "member-a", enableModelVisibleResumeTool: true },
+    );
+
+    expect(owners).toEqual(["member-a", "member-a"]);
   });
 
   it("resume tool passes parsed content to engine", async () => {
@@ -431,17 +473,22 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         }),
     });
 
-    await withClient(engine, NO_CAPS, async (client) => {
-      await client.callTool({
-        name: "resume",
-        arguments: {
-          executionId: "exec_1",
-          action: "accept",
-          content: JSON.stringify({ approved: true, name: "test" }),
-        },
-      });
-      expect(receivedContent).toEqual({ approved: true, name: "test" });
-    });
+    await withClient(
+      engine,
+      NO_CAPS,
+      async (client) => {
+        await client.callTool({
+          name: "resume",
+          arguments: {
+            executionId: "exec_1",
+            action: "accept",
+            content: JSON.stringify({ approved: true, name: "test" }),
+          },
+        });
+        expect(receivedContent).toEqual({ approved: true, name: "test" });
+      },
+      { enableModelVisibleResumeTool: true },
+    );
   });
 
   it("resume with empty content passes undefined", async () => {
@@ -454,33 +501,43 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         }),
     });
 
-    await withClient(engine, NO_CAPS, async (client) => {
-      await client.callTool({
-        name: "resume",
-        arguments: { executionId: "exec_1", action: "accept", content: "{}" },
-      });
-      expect(receivedContent).toBeUndefined();
-    });
+    await withClient(
+      engine,
+      NO_CAPS,
+      async (client) => {
+        await client.callTool({
+          name: "resume",
+          arguments: { executionId: "exec_1", action: "accept", content: "{}" },
+        });
+        expect(receivedContent).toBeUndefined();
+      },
+      { enableModelVisibleResumeTool: true },
+    );
   });
 
   it("resume with unknown executionId returns error", async () => {
     const engine = makeStubEngine({ resume: () => Effect.succeed(null) });
 
-    await withClient(engine, NO_CAPS, async (client) => {
-      const result = await client.callTool({
-        name: "resume",
-        arguments: {
-          executionId: "does-not-exist",
-          action: "accept",
-          content: "{}",
-        },
-      });
-      expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("does-not-exist");
-    });
+    await withClient(
+      engine,
+      NO_CAPS,
+      async (client) => {
+        const result = await client.callTool({
+          name: "resume",
+          arguments: {
+            executionId: "does-not-exist",
+            action: "accept",
+            content: "{}",
+          },
+        });
+        expect(result.isError).toBe(true);
+        expect(textOf(result)).toContain("does-not-exist");
+      },
+      { enableModelVisibleResumeTool: true },
+    );
   });
 
-  it("paused UrlElicitation includes url and kind in structured output", async () => {
+  it("paused UrlElicitation includes kind in structured output", async () => {
     const engine = makeStubEngine({
       executeWithPause: () =>
         Effect.succeed(
@@ -500,13 +557,13 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         name: "execute",
         arguments: { code: "oauth" },
       });
-      expect(textOf(result)).toContain("https://auth.example.com/callback");
-      expect(textOf(result)).toContain("exec_99");
+      expect(textOf(result)).toBe("Execution paused for interaction.");
 
       const structured = result.structuredContent as Record<string, unknown>;
       const interaction = structured?.interaction as Record<string, unknown>;
       expect(interaction?.kind).toBe("url");
       expect(interaction?.url).toBe("https://auth.example.com/callback");
+      expect(structured?.executionId).toBeUndefined();
     });
   });
 });
@@ -563,30 +620,40 @@ describe("MCP host server — resume content parsing", () => {
   it("array JSON is rejected (not passed as content)", async () => {
     const { engine, getContent } = makeResumeEngine();
 
-    await withClient(engine, NO_CAPS, async (client) => {
-      await client.callTool({
-        name: "resume",
-        arguments: { executionId: "exec_1", action: "accept", content: "[1,2,3]" },
-      });
-      expect(getContent()).toBeUndefined();
-    });
+    await withClient(
+      engine,
+      NO_CAPS,
+      async (client) => {
+        await client.callTool({
+          name: "resume",
+          arguments: { executionId: "exec_1", action: "accept", content: "[1,2,3]" },
+        });
+        expect(getContent()).toBeUndefined();
+      },
+      { enableModelVisibleResumeTool: true },
+    );
   });
 
   it("invalid JSON is handled gracefully (not thrown)", async () => {
     const { engine, getContent } = makeResumeEngine();
 
-    await withClient(engine, NO_CAPS, async (client) => {
-      const result = await client.callTool({
-        name: "resume",
-        arguments: {
-          executionId: "exec_1",
-          action: "accept",
-          content: "not-valid-json",
-        },
-      });
-      expect(getContent()).toBeUndefined();
-      expect(result.isError).toBeFalsy();
-    });
+    await withClient(
+      engine,
+      NO_CAPS,
+      async (client) => {
+        const result = await client.callTool({
+          name: "resume",
+          arguments: {
+            executionId: "exec_1",
+            action: "accept",
+            content: "not-valid-json",
+          },
+        });
+        expect(getContent()).toBeUndefined();
+        expect(result.isError).toBeFalsy();
+      },
+      { enableModelVisibleResumeTool: true },
+    );
   });
 });
 

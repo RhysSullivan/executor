@@ -70,6 +70,8 @@ type SharedMcpServerConfig = {
    * Enable verbose MCP capability / elicitation debug logging.
    */
   readonly debug?: boolean;
+  readonly continuationOwnerId?: string | (() => string | null | undefined);
+  readonly enableModelVisibleResumeTool?: boolean;
 };
 
 export type ExecutorMcpServerConfig<E extends Cause.YieldableError = Cause.YieldableError> =
@@ -255,6 +257,19 @@ const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>):
   structuredContent: formatted.structured,
 });
 
+const toMcpPendingInteractionResult = (
+  formatted: ReturnType<typeof formatPausedExecution>,
+): McpToolResult => {
+  const structured = formatted.structured;
+  return {
+    content: [{ type: "text", text: "Execution paused for interaction." }],
+    structuredContent: {
+      status: "waiting_for_interaction",
+      interaction: structured.interaction,
+    },
+  };
+};
+
 const formatFailureMessage = (value: unknown): string | null => {
   if (typeof value === "object" && value !== null && "message" in value) {
     const message = (value as { readonly message?: unknown }).message;
@@ -317,6 +332,11 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
       const ps = config.parentSpan;
       return typeof ps === "function" ? ps() : ps;
     };
+    const resolveContinuationOwner = (): string | null => {
+      const owner = config.continuationOwnerId;
+      const value = typeof owner === "function" ? owner() : owner;
+      return value ?? null;
+    };
     const anchor = <A, EffE>(effect: Effect.Effect<A, EffE>): Effect.Effect<A, EffE> => {
       const parent = resolveParentSpan();
       return parent ? Effect.withParentSpan(effect, parent) : effect;
@@ -353,10 +373,11 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           });
           return toMcpResult(formatExecuteResult(result));
         }
-        const outcome = yield* engine.executeWithPause(code);
+        const outcome = yield* engine.executeWithPause(code, {
+          ownerId: resolveContinuationOwner(),
+        });
         debugLog("execute.paused_flow_result", {
           status: outcome.status,
-          executionId: outcome.status === "paused" ? outcome.execution.id : undefined,
           interactionKind:
             outcome.status === "paused"
               ? pausedInteractionKind(outcome.execution.elicitationContext.request)
@@ -364,7 +385,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         });
         return outcome.status === "completed"
           ? toMcpResult(formatExecuteResult(outcome.result))
-          : toMcpPausedResult(formatPausedExecution(outcome.execution));
+          : toMcpPendingInteractionResult(formatPausedExecution(outcome.execution));
       }).pipe(
         Effect.withSpan("mcp.host.tool.execute", {
           attributes: {
@@ -381,23 +402,24 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     ): Effect.Effect<McpToolResult, E> =>
       Effect.gen(function* () {
         debugLog("resume.call", {
-          executionId,
           action,
           hasContent: content !== undefined,
           clientCapabilities: server.server.getClientCapabilities() ?? null,
         });
-        const outcome = yield* engine.resume(executionId, { action, content });
+        const outcome = yield* engine.resume(
+          executionId,
+          { action, content },
+          { ownerId: resolveContinuationOwner() },
+        );
         if (!outcome) {
-          debugLog("resume.missing_execution", { executionId });
+          debugLog("resume.missing_execution", {});
           return {
             content: [{ type: "text" as const, text: `No paused execution: ${executionId}` }],
             isError: true,
           } satisfies McpToolResult;
         }
         debugLog("resume.result", {
-          executionId,
           status: outcome.status,
-          nextExecutionId: outcome.status === "paused" ? outcome.execution.id : undefined,
           interactionKind:
             outcome.status === "paused"
               ? pausedInteractionKind(outcome.execution.elicitationContext.request)
@@ -411,7 +433,6 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           attributes: {
             "mcp.tool.name": "resume",
             "mcp.execute.resume.action": action,
-            "mcp.execute.execution_id": executionId,
           },
         }),
       );
@@ -465,23 +486,25 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
 
     const syncToolAvailability = () => {
       executeTool.enable();
-      if (supportsManagedElicitation(server)) {
-        resumeTool.disable();
-      } else {
+      if (!supportsManagedElicitation(server) && config.enableModelVisibleResumeTool === true) {
         resumeTool.enable();
+      } else {
+        resumeTool.disable();
       }
       console.error(
         "[executor] MCP capability snapshot",
         JSON.stringify({
           ...capabilitySnapshot(server),
-          resumeEnabled: !supportsManagedElicitation(server),
+          resumeEnabled:
+            !supportsManagedElicitation(server) && config.enableModelVisibleResumeTool === true,
         }),
       );
       debugLog("tool.visibility", {
         clientCapabilities: server.server.getClientCapabilities() ?? null,
         elicitationSupport: getElicitationSupport(server),
         managedElicitation: supportsManagedElicitation(server),
-        resumeEnabled: !supportsManagedElicitation(server),
+        resumeEnabled:
+          !supportsManagedElicitation(server) && config.enableModelVisibleResumeTool === true,
       });
     };
 

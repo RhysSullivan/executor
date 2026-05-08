@@ -526,6 +526,75 @@ describe("pause/resume with multiple elicitations", () => {
     { timeout: 10000 },
   );
 
+  it.effect("resume requires the same owner when one is provided", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeElicitingExecutor();
+      const engine = createExecutionEngine({ executor, codeExecutor });
+
+      const outcome1 = yield* engine.executeWithPause(
+        "return await tools.api.singleApproval({});",
+        { ownerId: "member-a" },
+      );
+      expect(outcome1.status).toBe("paused");
+      const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
+
+      const otherOwner = yield* engine.resume(
+        paused1.execution.id,
+        { action: "accept" },
+        { ownerId: "member-b" },
+      );
+      expect(otherOwner).toBeNull();
+
+      const sameOwner = yield* engine.resume(
+        paused1.execution.id,
+        { action: "accept" },
+        { ownerId: "member-a" },
+      );
+      expect(sameOwner?.status).toBe("completed");
+    }),
+  );
+
+  it.effect("resume remains available when no owner is provided", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeElicitingExecutor();
+      const engine = createExecutionEngine({ executor, codeExecutor });
+
+      const outcome1 = yield* engine.executeWithPause("return await tools.api.singleApproval({});");
+      expect(outcome1.status).toBe("paused");
+      const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
+
+      const resumed = yield* engine.resume(paused1.execution.id, { action: "accept" });
+      expect(resumed?.status).toBe("completed");
+    }),
+  );
+
+  it.effect("paused execution expires after the configured lifetime", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeElicitingExecutor();
+      const engine = createExecutionEngine({
+        executor,
+        codeExecutor,
+        pausedExecutionTtlMs: 10,
+      });
+
+      const outcome1 = yield* engine.executeWithPause(
+        "return await tools.api.singleApproval({});",
+        { ownerId: "member-a" },
+      );
+      expect(outcome1.status).toBe("paused");
+      const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
+
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 30)));
+
+      const resumed = yield* engine.resume(
+        paused1.execution.id,
+        { action: "accept" },
+        { ownerId: "member-a" },
+      );
+      expect(resumed).toBeNull();
+    }),
+  );
+
   // Regression: use separate top-level runPromise calls to match HTTP/CLI
   // pause/resume, and a single-elicit tool so no later pause can mask a dead
   // sandbox fiber.
