@@ -597,7 +597,7 @@ export default function AddOpenApiSource(props: {
       setStartingOAuth(true);
       const connectionId = openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow);
       const exit = await doStartOAuth({
-        params: { scopeId },
+        params: { scopeId: oauthTokenTargetScope },
         payload: {
           endpoint: tokenUrl,
           redirectUrl: tokenUrl,
@@ -642,7 +642,7 @@ export default function AddOpenApiSource(props: {
       tokenScope: oauthTokenTargetScope,
       run: async () => {
         const exit = await doStartOAuth({
-          params: { scopeId },
+          params: { scopeId: oauthTokenTargetScope },
           payload: {
             endpoint: authorizationUrl,
             connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
@@ -696,7 +696,6 @@ export default function AddOpenApiSource(props: {
     resolvedBaseUrl,
     preview,
     doStartOAuth,
-    scopeId,
     identity.name,
     resolvedSourceId,
     selectedOAuth2Fingerprint,

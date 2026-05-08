@@ -447,7 +447,7 @@ export default function EditOpenApiSource(props: {
     const tokenUrl = resolveOAuthUrl(oauth2.tokenUrl, source.config.baseUrl ?? "");
     if (oauth2.flow === "clientCredentials") {
       const startOAuthExit = await doStartOAuth({
-        params: { scopeId: displayScope },
+        params: { scopeId: targetScope },
         payload: {
           endpoint: tokenUrl,
           redirectUrl: tokenUrl,
@@ -502,7 +502,7 @@ export default function EditOpenApiSource(props: {
     );
     const issuerUrl = oauth2.issuerUrl ?? inferOAuthIssuerUrl(authorizationUrl);
     const startOAuthExit = await doStartOAuth({
-      params: { scopeId: displayScope },
+      params: { scopeId: targetScope },
       payload: {
         endpoint: authorizationUrl,
         connectionId,

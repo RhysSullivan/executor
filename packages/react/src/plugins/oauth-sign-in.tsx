@@ -5,7 +5,6 @@ import * as Exit from "effect/Exit";
 
 import { cancelOAuth, startOAuth } from "../api/atoms";
 import { openOAuthPopup, type OAuthPopupResult } from "../api/oauth-popup";
-import { useScope } from "../api/scope-context";
 import { Button } from "../components/button";
 import {
   OAUTH_POPUP_MESSAGE_TYPE,
@@ -66,6 +65,12 @@ export function oauthConnectionId(input: {
   return `${input.pluginId}-oauth2-${namespace}`;
 }
 
+const oauthRouteParamsForTokenScope = (
+  tokenScope: string | ScopeId,
+): { readonly scopeId: ScopeId } => ({
+  scopeId: ScopeId.make(String(tokenScope)),
+});
+
 export function useOAuthPopupFlow<
   TPayload extends OAuthCompletionPayload = OAuthCompletionPayload,
 >(options: {
@@ -84,7 +89,6 @@ export function useOAuthPopupFlow<
     popupName,
     startErrorMessage,
   } = options;
-  const scopeId = useScope();
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
   const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promiseExit" });
   const [busy, setBusy] = useState(false);
@@ -97,11 +101,11 @@ export function useOAuthPopupFlow<
   const cancelSession = useCallback(
     (sessionId: string, tokenScope: string) => {
       void doCancelOAuth({
-        params: { scopeId },
+        params: oauthRouteParamsForTokenScope(tokenScope),
         payload: { sessionId, tokenScope },
       });
     },
-    [doCancelOAuth, scopeId],
+    [doCancelOAuth],
   );
 
   const cancel = useCallback(() => {
@@ -225,7 +229,7 @@ export function useOAuthPopupFlow<
         onAuthorizationStarted: input.onAuthorizationStarted,
         run: () =>
           doStartOAuth({
-            params: { scopeId },
+            params: oauthRouteParamsForTokenScope(input.payload.tokenScope),
             payload: {
               ...input.payload,
               redirectUrl: input.payload.redirectUrl ?? oauthCallbackUrl(callbackPath),
@@ -237,7 +241,7 @@ export function useOAuthPopupFlow<
           ),
       });
     },
-    [callbackPath, doStartOAuth, openAuthorization, scopeId, startErrorMessage],
+    [callbackPath, doStartOAuth, openAuthorization, startErrorMessage],
   );
 
   return {
