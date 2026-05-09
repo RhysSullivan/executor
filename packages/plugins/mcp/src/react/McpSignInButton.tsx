@@ -72,7 +72,6 @@ export default function McpSignInButton(props: { sourceId: string }) {
         bindings ?? [],
       )}
       isConnected={isConnected}
-      detectPopupClosed={false}
       onConnected={async (nextConnectionId) => {
         await setBinding({
           params: { scopeId: userScopeId },

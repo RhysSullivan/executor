@@ -51,6 +51,14 @@ class OAuthAuthorizationStartError extends Data.TaggedError("OAuthAuthorizationS
   readonly message: string;
 }> {}
 
+class OAuthPopupClosedBeforeCompletion extends Data.TaggedError(
+  "OAuthPopupClosedBeforeCompletion",
+)<{
+  readonly popupName: string;
+  readonly sessionId: string;
+  readonly tokenScope: string;
+}> {}
+
 export type StartOAuthAuthorizationInput<TPayload extends OAuthCompletionPayload> = {
   readonly tokenScope: string;
   readonly run: () => Promise<OAuthAuthorizationStartResult>;
@@ -229,16 +237,34 @@ export function useOAuthPopupFlow<
             return;
           }
           setBusy(false);
+          setError(null);
         },
         onClosed: () => {
-          cleanupRef.current = null;
-          sessionRef.current = null;
           // `popup.closed` is advisory: COOP redirects can make a live popup
           // appear closed to the opener. Keep server OAuth state alive for a
           // callback or TTL cleanup; only explicit cancel deletes the session.
           const message =
             popupClosedMessage ??
             "Sign-in cancelled - popup was closed before completing the flow.";
+          reportHandledError(
+            new OAuthPopupClosedBeforeCompletion({
+              popupName,
+              sessionId: response.sessionId,
+              tokenScope: input.tokenScope,
+            }),
+            {
+              surface: "oauth",
+              action: "popup_closed_before_complete",
+              severity: "warning",
+              message,
+              metadata: {
+                ...input.reportMetadata,
+                popupName,
+                sessionId: response.sessionId,
+                tokenScope: input.tokenScope,
+              },
+            },
+          );
           setBusy(false);
           setError(message);
           input.onError?.(message);

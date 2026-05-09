@@ -298,7 +298,6 @@ export default function AddMcpSource(props: {
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
     popupName: "mcp-oauth",
     popupBlockedMessage: "OAuth popup was blocked",
-    detectPopupClosed: false,
     startErrorMessage: "Failed to start OAuth",
   });
 

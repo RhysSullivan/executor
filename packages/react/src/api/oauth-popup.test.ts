@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { openOAuthPopup, reserveOAuthPopup } from "./oauth-popup";
+import { OAUTH_POPUP_MESSAGE_TYPE, openOAuthPopup, reserveOAuthPopup } from "./oauth-popup";
 
 type OAuthPopupTestWindow = {
   readonly screenX: number;
@@ -8,8 +8,8 @@ type OAuthPopupTestWindow = {
   readonly outerWidth: number;
   readonly outerHeight: number;
   readonly location: { readonly origin: string };
-  readonly addEventListener: () => void;
-  readonly removeEventListener: () => void;
+  readonly addEventListener: (...args: readonly unknown[]) => void;
+  readonly removeEventListener: (...args: readonly unknown[]) => void;
   readonly open: (
     url: string,
     name: string,
@@ -226,5 +226,95 @@ describe("openOAuthPopup", () => {
     });
     expect(intervalStarted).toBe(false);
     expect(closedCalled).toBe(false);
+  });
+
+  it("keeps result listeners active after popup.closed is observed", () => {
+    let closedCalled = false;
+    let result: unknown = null;
+    const intervalCallbacks: Array<() => void> = [];
+    const messageListeners: Array<(event: MessageEvent) => void> = [];
+    const popup: FakePopup = { closed: true, close: () => {}, location: { href: "" } };
+    const previousWindow = globalThis.window;
+    const previousSetInterval = globalThis.setInterval;
+    const previousClearInterval = globalThis.clearInterval;
+    const fakeWindow: OAuthPopupTestWindow = {
+      screenX: 0,
+      screenY: 0,
+      outerWidth: 1200,
+      outerHeight: 900,
+      location: { origin: "https://app.example" },
+      addEventListener: (_type, listener) => {
+        messageListeners.push(listener as (event: MessageEvent) => void);
+      },
+      removeEventListener: () => {},
+      open: () => popup,
+    };
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: fakeWindow,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "setInterval", {
+      configurable: true,
+      value: (callback: TimerHandler) => {
+        if (typeof callback === "function") intervalCallbacks.push(callback as () => void);
+        return 1;
+      },
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "clearInterval", {
+      configurable: true,
+      value: () => {},
+      writable: true,
+    });
+
+    const teardown = openOAuthPopup<{ readonly connectionId: string }>({
+      url: "https://auth.example/authorize",
+      popupName: "oauth",
+      channelName: "oauth-channel",
+      expectedSessionId: "session-1",
+      onResult: (data) => {
+        result = data;
+      },
+      onClosed: () => {
+        closedCalled = true;
+      },
+    });
+
+    intervalCallbacks[0]?.();
+    expect(closedCalled).toBe(true);
+    expect(result).toBeNull();
+
+    messageListeners[0]?.({
+      origin: "https://app.example",
+      data: {
+        type: OAUTH_POPUP_MESSAGE_TYPE,
+        ok: true,
+        sessionId: "session-1",
+        connectionId: "connection-1",
+      },
+    } as MessageEvent);
+
+    teardown();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: previousWindow,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "setInterval", {
+      configurable: true,
+      value: previousSetInterval,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "clearInterval", {
+      configurable: true,
+      value: previousClearInterval,
+      writable: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      sessionId: "session-1",
+      connectionId: "connection-1",
+    });
   });
 });

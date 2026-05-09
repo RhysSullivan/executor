@@ -85,15 +85,17 @@ export const reserveOAuthPopup = (input: {
 };
 
 /**
- * Open a centered popup window at `url` and resolve when the popup posts
+ * Open a centered popup window at `url` and resolves when the popup posts
  * an `OAuthPopupResult` back to the opener. Returns a teardown function
  * that removes the listeners, stops polling, and closes the popup window.
  *
- * Settles exactly once via one of three paths:
+ * Settles exactly once via one of two paths:
  *   1. `onResult`      — popup posted a message back (success or error)
- *   2. `onClosed`      — user closed the popup without completing the flow,
- *                        unless `closedPollMs` is null
- *   3. teardown called — caller cancelled programmatically
+ *   2. teardown called — caller cancelled programmatically
+ *
+ * `onClosed` is advisory only. COOP redirects can make a live popup look
+ * closed to its opener, so close detection stops further close polling but
+ * leaves result listeners active for a later callback.
  *
  * If the popup is blocked (`window.open` returns null), invokes
  * `onOpenFailed` on the next microtask and returns a no-op teardown.
@@ -176,9 +178,6 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
     return () => {};
   }
 
-  // Some providers use COOP headers that can make a live cross-origin
-  // popup look closed to the opener. Callers can disable polling and rely
-  // on the explicit cancel path plus BroadcastChannel completion.
   const pollMs = input.closedPollMs === undefined ? 500 : input.closedPollMs;
   if (pollMs !== null) {
     pollHandle = setInterval(() => {
@@ -190,7 +189,7 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
         // Cross-origin access can throw during navigation; treat as open.
       }
       if (isClosed && !settled) {
-        settle();
+        stopPolling();
         input.onClosed?.();
       }
     }, pollMs);
