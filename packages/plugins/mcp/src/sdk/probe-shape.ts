@@ -191,15 +191,30 @@ export const probeMcpEndpointShape = (
                 reason: "401 without Bearer WWW-Authenticate — not an MCP auth challenge",
               } as const;
             }
+            // Spec-compliant MCP signal: the auth spec mandates a
+            // `resource_metadata=` attribute pointing at the server's
+            // RFC 9728 document. Real OAuth-protected MCP servers
+            // (sentry.dev, etc.) include it. This attribute is rare on
+            // unrelated OAuth services and is the cleanest accept signal
+            // we have when the 401 body is RFC 6750 OAuth-shape rather
+            // than JSON-RPC.
+            if (/(?:^|[\s,])resource_metadata\s*=/i.test(wwwAuth)) {
+              return { kind: "mcp", requiresAuth: true } as const;
+            }
             // SSE responses can't carry a JSON-RPC error envelope; accept the
             // Bearer challenge alone in that case (rare but spec-permissible).
             if (isSse) return { kind: "mcp", requiresAuth: true } as const;
+            // Fallback for non-OAuth MCP servers that use static API
+            // keys and don't publish RFC 9728 metadata (cubic.dev). The
+            // JSON-RPC body shape is what separates them from
+            // OAuth-protected non-MCP services that also issue bare
+            // Bearer challenges (Railway-style GraphQL, etc.).
             const body = yield* readBody(response);
             if (!isJsonRpcEnvelope(body)) {
               return {
                 kind: "not-mcp",
                 category: "auth-required",
-                reason: "401 + Bearer but body is not a JSON-RPC envelope",
+                reason: "401 + Bearer without resource_metadata or JSON-RPC body",
               } as const;
             }
             return { kind: "mcp", requiresAuth: true } as const;
