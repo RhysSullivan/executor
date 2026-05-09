@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 // NOTE: `StdioClientTransport` is NOT imported eagerly. The upstream module
 // (`@modelcontextprotocol/sdk/client/stdio.js`) touches `node:child_process`
@@ -57,6 +57,21 @@ const buildEndpointUrl = (endpoint: string, queryParams: Record<string, string>)
   return url;
 };
 
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
+
+/** Best-effort string description of an unknown failure value. The MCP
+ *  SDK's transports throw plain `Error` instances (`TypeError: Failed to
+ *  fetch`, `Error: HTTP 401`, etc.); we surface their `.message` so the
+ *  resulting `McpConnectionError` tells the user something actionable
+ *  rather than the bare "Failed connecting via sse" we used to ship. */
+const describeCause = (cause: unknown): string => {
+  const message = decodeErrorMessage(cause);
+  if (Option.isSome(message)) return message.value.message;
+  if (typeof cause === "string") return cause;
+  return "unknown error";
+};
+
 // Use the cfworker JSON Schema validator instead of the SDK's default
 // (Ajv). Ajv compiles schemas via `new Function(...)`, which throws
 // `Code generation from strings disallowed for this context` when the
@@ -87,10 +102,10 @@ const connectClient = (input: {
 
     yield* Effect.tryPromise({
       try: () => client.connect(transportInstance),
-      catch: () =>
+      catch: (cause) =>
         new McpConnectionError({
           transport: input.transport,
-          message: `Failed connecting via ${input.transport}`,
+          message: `Failed connecting via ${input.transport}: ${describeCause(cause)}`,
         }),
     }).pipe(
       Effect.withSpan("plugin.mcp.connection.handshake", {
@@ -170,6 +185,23 @@ export const createMcpConnector = (input: ConnectorInput): McpConnector => {
   if (remoteTransport === "streamable-http") return connectStreamableHttp;
   if (remoteTransport === "sse") return connectSse;
 
-  // auto — try streamable-http first, fall back to SSE
-  return connectStreamableHttp.pipe(Effect.catch(() => connectSse));
+  // auto — try streamable-http first, fall back to SSE. When both fail,
+  // surface BOTH errors. The streamable-http failure is what we care
+  // about for modern MCP servers (Sentry, Notion, Linear, etc.); the
+  // bare "Failed connecting via sse" message we used to ship hid the
+  // actual cause behind the legacy transport's separate failure.
+  return connectStreamableHttp.pipe(
+    Effect.catch((streamableError) =>
+      connectSse.pipe(
+        Effect.catch((sseError) =>
+          Effect.fail(
+            new McpConnectionError({
+              transport: "auto",
+              message: `Failed connecting via streamable-http (${streamableError.message}) and sse fallback (${sseError.message})`,
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
 };
