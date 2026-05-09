@@ -22,7 +22,9 @@
     "test": "node ../../node_modules/vitest/vitest.mjs run && node ../../node_modules/vitest/vitest.mjs run --config vitest.node.config.ts",
     "test:watch": "node ../../node_modules/vitest/vitest.mjs",
     "test:node": "node ../../node_modules/vitest/vitest.mjs run --config vitest.node.config.ts",
-    "typecheck:slow": "tsc --noEmit"
+    "typecheck:slow": "tsc --noEmit",
+    "db:migrate:ci": "bun --bun ../../node_modules/.bun/node_modules/drizzle-kit/bin.cjs migrate",
+    "deploy:ci": "bun run build && wrangler deploy"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.31.1",

@@ -1,9 +1,114 @@
 import { env } from "cloudflare:workers";
+import postgres from "postgres";
 import { createMiddleware, createStart } from "@tanstack/react-start";
 import { Effect } from "effect";
 import { handleApiRequest } from "./api";
 import { mcpFetch } from "./mcp";
 import { handleSentryTunnelRequest } from "./sentry-tunnel";
+import { resolveConnectionString } from "./services/db";
+
+// ---------------------------------------------------------------------------
+// Health/readiness endpoints — intentionally handled before app/API routing
+// so deploy automation and Cloudflare monitors can verify the worker without
+// booting the full React/API request path. `/healthz` is public and cheap;
+// `/readyz` is dependency-aware and may be protected by READINESS_TOKEN.
+// ---------------------------------------------------------------------------
+
+const jsonResponse = (payload: unknown, init?: ResponseInit) =>
+  new Response(JSON.stringify(payload), {
+    ...init,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      ...init?.headers,
+    },
+  });
+
+const currentBuild = () => ({
+  service: "executor-cloud",
+  status: "ok",
+  version: env.EXECUTOR_BUILD_VERSION ?? "dev",
+  commit: env.EXECUTOR_BUILD_SHA ?? null,
+});
+
+type DatabaseCheck = { ok: true } | { ok: false; error: string };
+
+const checkDatabase = (): Effect.Effect<DatabaseCheck, never, never> => {
+  const connectionString = resolveConnectionString();
+  if (!connectionString) {
+    return Effect.succeed({ ok: false, error: "database connection string is not configured" });
+  }
+
+  const sql = postgres(connectionString, {
+    max: 1,
+    idle_timeout: 0,
+    max_lifetime: 5,
+    connect_timeout: 5,
+    fetch_types: false,
+    prepare: false,
+    onnotice: () => undefined,
+  });
+
+  return Effect.tryPromise({
+    try: () => sql`select 1`,
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.as({ ok: true } as const),
+    Effect.catch((cause: unknown) =>
+      Effect.sync(() => {
+        console.error("[readyz] database check failed", cause);
+        return { ok: false, error: "database check failed" } as const;
+      }),
+    ),
+    Effect.ensuring(
+      Effect.promise(() =>
+        sql.end({ timeout: 0 }).then(
+          () => undefined,
+          () => undefined,
+        ),
+      ),
+    ),
+  );
+};
+
+const requiredSecretChecks = () => ({
+  WORKOS_API_KEY: Boolean(env.WORKOS_API_KEY),
+  WORKOS_CLIENT_ID: Boolean(env.WORKOS_CLIENT_ID),
+  WORKOS_COOKIE_PASSWORD: Boolean(env.WORKOS_COOKIE_PASSWORD),
+  AUTUMN_SECRET_KEY: Boolean(env.AUTUMN_SECRET_KEY),
+});
+
+const healthMiddleware = createMiddleware({ type: "request" }).server(
+  async ({ pathname, request, next }) => {
+    if (pathname === "/healthz") {
+      return jsonResponse(currentBuild());
+    }
+
+    if (pathname !== "/readyz") return next();
+
+    const readinessToken = env.READINESS_TOKEN;
+    if (readinessToken) {
+      const header = request.headers.get("x-readiness-token");
+      if (header !== readinessToken) {
+        return jsonResponse({ ...currentBuild(), status: "unauthorized" }, { status: 401 });
+      }
+    }
+
+    const database = await Effect.runPromise(checkDatabase());
+    const secrets = requiredSecretChecks();
+    const secretsOk = Object.values(secrets).every(Boolean);
+    const ok = database.ok && secretsOk;
+
+    return jsonResponse(
+      {
+        ...currentBuild(),
+        status: ok ? "ready" : "not_ready",
+        checks: { database, secrets },
+      },
+      { status: ok ? 200 : 503 },
+    );
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Marketing routes — proxied to the marketing worker via service binding
@@ -137,6 +242,7 @@ const apiRequestMiddleware = createMiddleware({ type: "request" }).server(
 
 export const startInstance = createStart(() => ({
   requestMiddleware: [
+    healthMiddleware,
     marketingMiddleware,
     mcpRequestMiddleware,
     sentryTunnelMiddleware,

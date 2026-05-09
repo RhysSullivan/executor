@@ -20,6 +20,11 @@ declare global {
       DATABASE_URL?: string;
       EXECUTOR_DIRECT_DATABASE_URL?: string;
 
+      // WorkOS AuthKit / Organizations
+      WORKOS_API_KEY?: string;
+      WORKOS_CLIENT_ID?: string;
+      WORKOS_COOKIE_PASSWORD?: string;
+
       // Billing
       AUTUMN_SECRET_KEY?: string;
 
@@ -28,6 +33,11 @@ declare global {
       MCP_AUTHKIT_DOMAIN?: string;
       MCP_RESOURCE_ORIGIN?: string;
       NODE_ENV?: string;
+
+      // Deployment/readiness metadata
+      EXECUTOR_BUILD_VERSION?: string;
+      EXECUTOR_BUILD_SHA?: string;
+      READINESS_TOKEN?: string;
 
       // Shared with frontend
       VITE_PUBLIC_SITE_URL?: string;
