@@ -23,7 +23,7 @@ import {
   headersToConfigValues,
   type ConfigFileSink,
   type OpenApiSourceConfig,
-} from "@executor-js/config";
+} from "@executor-js/config/core";
 
 import { OpenApiExtractionError, OpenApiOAuthError, OpenApiParseError } from "./errors";
 import { parse, resolveSpecText } from "./parse";

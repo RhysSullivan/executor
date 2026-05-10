@@ -13,7 +13,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.node.test.ts"],
+    include: ["src/**/*.node.test.ts", "src/**/*.e2e.node.test.ts"],
     globalSetup: ["./scripts/test-globalsetup.ts"],
     // PGlite is a single in-process WASM instance — running multiple
     // test files in parallel against the same socket leaks connections

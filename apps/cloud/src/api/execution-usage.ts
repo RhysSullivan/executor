@@ -6,16 +6,16 @@ import type { ExecutionEngine } from "@executor-js/execution";
 export const withExecutionUsageTracking = <E extends Cause.YieldableError>(
   organizationId: string,
   engine: ExecutionEngine<E>,
-  trackUsage: (organizationId: string) => void,
+  trackUsage: (organizationId: string) => Effect.Effect<void, never>,
 ): ExecutionEngine<E> => ({
   execute: (code, options) =>
     engine
       .execute(code, options)
-      .pipe(Effect.tap(() => Effect.sync(() => trackUsage(organizationId)))),
+      .pipe(Effect.tap(() => trackUsage(organizationId).pipe(Effect.forkDetach, Effect.asVoid))),
   executeWithPause: (code) =>
     engine
       .executeWithPause(code)
-      .pipe(Effect.tap(() => Effect.sync(() => trackUsage(organizationId)))),
+      .pipe(Effect.tap(() => trackUsage(organizationId).pipe(Effect.forkDetach, Effect.asVoid))),
   // resume doesn't count as usage
   resume: (executionId, response) => engine.resume(executionId, response),
   getDescription: engine.getDescription,

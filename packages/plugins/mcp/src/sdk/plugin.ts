@@ -69,7 +69,7 @@ import {
   type McpRemoteSourceConfig as McpRemoteConfigEntry,
   type McpStdioSourceConfig as McpStdioConfigEntry,
   type SourceConfig,
-} from "@executor-js/config";
+} from "@executor-js/config/core";
 
 // ---------------------------------------------------------------------------
 // Plugin config — discriminated union on transport

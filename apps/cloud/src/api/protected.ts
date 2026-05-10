@@ -1,7 +1,8 @@
 // Production wiring for the protected API. Lives outside `protected-layers.ts`
-// because `makeExecutionStack` imports `cloudflare:workers`, which the test
-// harness can't load in the workerd test runtime.
+// because `makeExecutionStack` pulls in the dynamic-worker runtime, which the
+// node test harness shouldn't load while exercising pure HTTP wiring.
 
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { HttpApiSwagger } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import { Effect, Layer } from "effect";
@@ -22,7 +23,6 @@ import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
 import { makeExecutionStack } from "../services/execution-stack";
 import { HttpResponseError } from "./error-response";
-import { RequestScopedServicesLive } from "./layers";
 import { ProtectedCloudApi, ProtectedCloudApiLive, RouterConfig } from "./protected-layers";
 import { requestScopedMiddleware } from "./request-scoped";
 
@@ -65,7 +65,9 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
     | PluginExtensionServices<CloudPlugins>;
 }>()(
   Effect.gen(function* () {
-    const longLived = yield* Effect.context<WorkOSAuth | AutumnService>();
+    const longLived = yield* Effect.context<
+      WorkOSAuth | AutumnService | Cloudflare.WorkerEnvironment
+    >();
     return (httpEffect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
@@ -112,7 +114,7 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
 // the layer rebuilds per HTTP request, satisfying Cloudflare Workers'
 // I/O isolation. Exposed as a factory so tests can swap in a counting
 // fake — see `apps/cloud/src/api.request-scope.node.test.ts`.
-export const makeProtectedApiLive = (rsLive: Layer.Layer<DbService | UserStoreService>) => {
+export const makeProtectedApiLive = <E>(rsLive: Layer.Layer<DbService | UserStoreService, E>) => {
   const protectedMiddleware = ExecutionStackMiddleware.combine(
     requestScopedMiddleware(rsLive),
   ).layer;
@@ -122,5 +124,3 @@ export const makeProtectedApiLive = (rsLive: Layer.Layer<DbService | UserStoreSe
     Layer.provideMerge(RouterConfig),
   );
 };
-
-export const ProtectedApiLive = makeProtectedApiLive(RequestScopedServicesLive);

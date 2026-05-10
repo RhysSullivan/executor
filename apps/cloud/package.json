@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run dev:proxy && concurrently -n db,vite -c blue,green \"bun run dev:db\" \"bun run dev:vite\"",
+    "dev": "bun run dev:proxy && concurrently -n db,alchemy -c blue,green \"bun run dev:db\" \"bun run dev:alchemy\"",
     "dev:proxy": "portless proxy start --multiplex --shared-port --port 5394 || (portless proxy stop -p 5394 && portless proxy start --multiplex --shared-port --port 5394)",
     "dev:db": "bun run scripts/dev-db.ts",
-    "dev:vite": "EXECUTOR_DIRECT_DATABASE_URL=true CLOUDFLARE_INCLUDE_PROCESS_ENV=true op run --env-file=.env.op -- portless --name executor-cloud vite dev",
+    "dev:alchemy": "EXECUTOR_DIRECT_DATABASE_URL=true CLOUDFLARE_INCLUDE_PROCESS_ENV=true op run --env-file=.env.op -- portless --name executor-cloud bun alchemy dev",
     "db:schema": "node --import jiti/register ../../packages/core/cli/src/index.ts generate --config ./executor.config.ts --output ./src/services/executor-schema.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
@@ -16,8 +16,10 @@
     "db:migrate:dev": "op run --env-file=.env.op -- bun --bun ../../node_modules/.bun/node_modules/drizzle-kit/bin.cjs migrate",
     "build": "node scripts/build.mjs",
     "preview": "vite preview",
-    "deploy": "op run --env-file=.env.production -- bun run build && op run --env-file=.env.production -- wrangler deploy",
-    "cf-typegen": "wrangler types",
+    "plan": "op run --env-file=.env.production -- bun alchemy plan --profile prod --stage prod",
+    "deploy": "op run --env-file=.env.production -- bun alchemy deploy --profile prod --stage prod",
+    "deploy:adopt": "op run --env-file=.env.production -- bun alchemy deploy --profile prod --stage prod --adopt",
+    "destroy": "op run --env-file=.env.production -- bun alchemy destroy --profile prod --stage prod",
     "typecheck": "tsgo --noEmit",
     "test": "node ../../node_modules/vitest/vitest.mjs run && node ../../node_modules/vitest/vitest.mjs run --config vitest.node.config.ts",
     "test:watch": "node ../../node_modules/vitest/vitest.mjs",
@@ -25,9 +27,7 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@cloudflare/vite-plugin": "^1.31.1",
     "@effect/atom-react": "catalog:",
-    "@effect/opentelemetry": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/execution": "workspace:*",
     "@executor-js/host-mcp": "workspace:*",
@@ -42,22 +42,13 @@
     "@executor-js/storage-core": "workspace:*",
     "@executor-js/storage-postgres": "workspace:*",
     "@executor-js/vite-plugin": "workspace:*",
-    "@microlabs/otel-cf-workers": "^1.0.0-rc.52",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@opentelemetry/api": "~1.9.0",
-    "@opentelemetry/exporter-logs-otlp-http": "^0.214.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
-    "@opentelemetry/resources": "^2.6.1",
-    "@opentelemetry/sdk-logs": "^0.214.0",
-    "@opentelemetry/sdk-trace-base": "^2.6.1",
-    "@opentelemetry/sdk-trace-web": "^2.6.1",
-    "@opentelemetry/semantic-conventions": "^1.40.0",
     "@sentry/cloudflare": "^10.48.0",
     "@sentry/react": "^10.48.0",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
     "@workos-inc/node": "^8.11.1",
-    "agents": "^0.10.0",
+    "alchemy": "https://registry.npmjs.org/@rhyssul/alchemy/-/alchemy-2.0.0-beta.36-rhyssul.9.tgz",
     "autumn-js": "^1.2.8",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
@@ -69,7 +60,6 @@
     "sonner": "^2.0.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.15.0",
     "@cloudflare/workers-types": "^4.20250620.0",
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
@@ -86,7 +76,6 @@
     "jiti": "^2.6.1",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "^4.1.5",
-    "wrangler": "^4.81.0"
+    "vitest": "^4.1.5"
   }
 }

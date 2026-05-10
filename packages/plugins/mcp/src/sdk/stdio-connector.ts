@@ -4,9 +4,9 @@
 //
 // Kept in its own module so `connection.ts` never imports it eagerly at
 // module load. `@modelcontextprotocol/sdk/client/stdio.js` pulls in
-// `node:child_process` at evaluation time; under `@cloudflare/vitest-pool-workers`
-// that crashes workerd at module instantiation with SIGSEGV (prod bundles
-// tree-shake it away when `dangerouslyAllowStdioMCP: false`, tests do not).
+// `node:child_process` at evaluation time; in worker-like runtimes that can
+// crash the isolate at module instantiation with SIGSEGV (prod bundles
+// tree-shake it away when `dangerouslyAllowStdioMCP: false`).
 //
 // Callers that actually need stdio transport reach it via a dynamic import
 // in `connection.ts`. Remote-only consumers (cloud/marketing) never execute

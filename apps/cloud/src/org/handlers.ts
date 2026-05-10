@@ -1,9 +1,9 @@
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Cause, Effect } from "effect";
 
 import { UserStoreService } from "../auth/context";
 import { AuthContext } from "../auth/middleware";
-import { env } from "cloudflare:workers";
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { OrgHttpApi } from "./compose";
@@ -255,6 +255,7 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         }
 
         const workos = yield* WorkOSAuth;
+        const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
         const { link } = yield* workos.generateDomainVerificationPortalLink(
           auth.organizationId,
           env.VITE_PUBLIC_SITE_URL ? `${env.VITE_PUBLIC_SITE_URL}/org` : "/org",

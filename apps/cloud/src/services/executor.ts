@@ -8,6 +8,7 @@
 // fresh connections per request, so "build once" means "once per request"
 // here.
 
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { Effect } from "effect";
 
 import {
@@ -19,7 +20,6 @@ import {
 } from "@executor-js/sdk";
 import { makePostgresAdapter, makePostgresBlobStore } from "@executor-js/storage-postgres";
 
-import { env } from "cloudflare:workers";
 import executorConfig from "../../executor.config";
 import { DbService } from "./db";
 
@@ -32,7 +32,7 @@ import { DbService } from "./db";
 
 export type CloudPlugins = ReturnType<typeof executorConfig.plugins>;
 
-const orgPlugins = (): CloudPlugins =>
+const orgPlugins = (env: Env): CloudPlugins =>
   executorConfig.plugins({
     workosCredentials: {
       apiKey: env.WORKOS_API_KEY,
@@ -62,8 +62,9 @@ export const createScopedExecutor = (
 ) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
+    const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
 
-    const plugins = orgPlugins();
+    const plugins = orgPlugins(env);
     const httpClientLayer = makeHostedHttpClientLayer({
       allowLocalNetwork: env.NODE_ENV === "test",
     });

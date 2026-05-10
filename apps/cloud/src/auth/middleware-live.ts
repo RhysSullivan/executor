@@ -27,7 +27,7 @@ export const SessionAuthLive = Layer.effect(
             .pipe(Effect.orElseSucceed(() => null));
 
           if (!result) {
-            return yield* Effect.fail(new Unauthorized());
+            return yield* new Unauthorized();
           }
 
           const session = {
@@ -58,11 +58,11 @@ export const OrgAuthLive = Layer.effect(
             .pipe(Effect.orElseSucceed(() => null));
 
           if (!result) {
-            return yield* Effect.fail(new Unauthorized());
+            return yield* new Unauthorized();
           }
 
           if (!result.organizationId) {
-            return yield* Effect.fail(new NoOrganization());
+            return yield* new NoOrganization();
           }
 
           const auth = {

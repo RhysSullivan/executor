@@ -27,14 +27,14 @@
     "exports": {
       ".": {
         "import": {
-          "types": "./dist/promise.d.ts",
+          "types": "./dist/sdk/index.d.ts",
           "default": "./dist/index.js"
         }
       },
-      "./core": {
+      "./promise": {
         "import": {
-          "types": "./dist/sdk/index.d.ts",
-          "default": "./dist/core.js"
+          "types": "./dist/promise.d.ts",
+          "default": "./dist/promise.js"
         }
       },
       "./client": {

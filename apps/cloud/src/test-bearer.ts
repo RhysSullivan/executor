@@ -1,7 +1,7 @@
 // Shared test bearer format between the test worker (runs inside workerd /
 // Miniflare) and node-pool tests (which import it directly). Kept in its own
 // zero-dependency module so node tests can pull it without dragging in the
-// worker entry, which imports `cloudflare:workers`.
+// worker entry.
 
 import type { VerifiedToken } from "./mcp-auth";
 

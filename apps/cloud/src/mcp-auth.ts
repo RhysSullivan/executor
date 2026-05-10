@@ -59,9 +59,7 @@ const withJwtVerificationSpan = <A>(
           "mcp.auth.jwt_verify.outcome": outcome.failure.reason,
         });
 
-        return isExpectedJwtVerificationError(outcome.failure)
-          ? outcome
-          : yield* Effect.fail(outcome.failure);
+        return isExpectedJwtVerificationError(outcome.failure) ? outcome : yield* outcome.failure;
       }),
     ),
     Effect.withSpan("mcp.auth.jwt_verify"),

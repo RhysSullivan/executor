@@ -1,52 +1,18 @@
 import * as Sentry from "@sentry/cloudflare";
 import handler from "@tanstack/react-start/server-entry";
-import { instrument, type TraceConfig } from "@microlabs/otel-cf-workers";
+import { Effect } from "effect";
 
-import { McpSessionDO as McpSessionDOBase } from "./mcp-session";
+import { handleApiRequest } from "./api";
+import { mcpFetch } from "./mcp";
+import { handleSentryTunnelRequest } from "./sentry-tunnel";
 
-// ---------------------------------------------------------------------------
-// OTEL config for the main fetch handler — `otel-cf-workers` owns the global
-// TracerProvider and flushes via `ctx.waitUntil` at the end of each request.
-// The DO runs in a separate isolate and uses its own self-contained WebSdk
-// (see `services/telemetry.ts#DoTelemetryLive`); `instrumentDO` from
-// otel-cf-workers is NOT used because it breaks `this` binding on
-// `WorkerTransport`'s stream primitives and crashes every MCP request with
-// DOMException "Illegal invocation".
-// ---------------------------------------------------------------------------
-
-const parseSampleRatio = (value: string | undefined): number => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 1;
-  return Math.min(1, Math.max(0, n));
-};
-
-const otelConfig = (env: Env): TraceConfig => ({
-  service: { name: "executor-cloud", version: "1.0.0" },
-  exporter: {
-    url: env.AXIOM_TRACES_URL ?? "https://api.axiom.co/v1/traces",
-    headers: {
-      Authorization: `Bearer ${env.AXIOM_TOKEN ?? ""}`,
-      "X-Axiom-Dataset": env.AXIOM_DATASET ?? "executor-cloud",
-    },
-  },
-  sampling: {
-    headSampler: {
-      // Keep remote parent decisions and make local sampling policy explicit.
-      acceptRemote: true,
-      ratio: parseSampleRatio(env.AXIOM_TRACES_SAMPLE_RATIO),
-    },
-  },
-});
-
-// otel-cf-workers owns the global TracerProvider. Sentry's OTEL compat shim
-// registers a ProxyTracerProvider of its own, which prevents otel-cf-workers
-// from finding its WorkerTracer and breaks the whole request path with
-// "global tracer is not of type WorkerTracer".
 const sentryOptions = (env: Env) => ({
   dsn: env.SENTRY_DSN,
   tracesSampleRate: 0,
   enableLogs: true,
   sendDefaultPii: true,
+  // Effect owns tracing through services/telemetry.ts. Keep Sentry limited to
+  // error/log capture so it doesn't install a competing global OTEL provider.
   skipOpenTelemetrySetup: true,
   // Our DO methods (init/handleRequest/alarm) live on the prototype, not on
   // the instance. Sentry's default DO auto-wrap only visits own properties,
@@ -56,43 +22,92 @@ const sentryOptions = (env: Env) => ({
 });
 
 // ---------------------------------------------------------------------------
-// Durable Object — wrapped with Sentry so DO errors land in Sentry (inits the
-// client inside the DO isolate, which plain `Sentry.captureException` cannot
-// do on its own). We deliberately do NOT wrap with otel-cf-workers'
-// `instrumentDO` (see note above).
-// ---------------------------------------------------------------------------
-
-export const McpSessionDO = Sentry.instrumentDurableObjectWithSentry(
-  sentryOptions,
-  McpSessionDOBase,
-);
-
-// ---------------------------------------------------------------------------
 // Worker fetch handler
 // ---------------------------------------------------------------------------
 
-// Skip OTLP wiring when no Axiom token is configured (dev without secrets).
-// Otherwise the exporter ships every span with `Bearer ` (empty), which
-// returns 401 on every batch and eventually drops the keep-alive socket —
-// the Node http agent's unhandled `'error'` then crashes the process with
-// ECONNRESET. It also registers otel-cf-workers' `WorkerTracer` as the
-// global tracer; spans started outside its config ALS then die with
-// "Config is undefined". Matches the gate in `DoTelemetryLive`.
-// `instrument()` mutates the handler it's given (replaces `.fetch` with the
-// proxied version), so capture the raw fetch first and then build the
-// instrumented handler from a separate object.
-const rawFetch = handler.fetch;
-const instrumentedHandler = instrument({ fetch: rawFetch }, otelConfig);
+const MARKETING_PATHS = ["/home", "/setup", "/privacy", "/terms", "/_astro"];
+const POSTHOG_INGEST_HOST = "us.i.posthog.com";
+const POSTHOG_ASSETS_HOST = "us-assets.i.posthog.com";
+const POSTHOG_PROXY_PATH = `/api/${(import.meta.env.VITE_PUBLIC_ANALYTICS_PATH ?? "a").replace(
+  /^\/+|\/+$/g,
+  "",
+)}`;
+
+const isMarketingPath = (pathname: string) =>
+  MARKETING_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
+const parseCookie = (cookieHeader: string | null, name: string): string | null => {
+  if (!cookieHeader) return null;
+  const match = cookieHeader
+    .split(";")
+    .map((v) => v.trim())
+    .find((v) => v.startsWith(`${name}=`));
+  return match ? match.slice(name.length + 1) || null : null;
+};
+
+const maybeMarketing = (request: Request, env: Env, pathname: string) => {
+  const host = new URL(request.url).hostname;
+  if (host !== "executor.sh") return undefined;
+
+  const shouldProxyToMarketing =
+    isMarketingPath(pathname) ||
+    (pathname === "/" && !parseCookie(request.headers.get("cookie"), "wos-session"));
+
+  if (!shouldProxyToMarketing) return undefined;
+
+  const url = new URL(request.url);
+  if (pathname === "/home") {
+    url.pathname = "/";
+  }
+  return env.MARKETING.fetch(new Request(url, request));
+};
+
+const maybePostHog = (request: Request, pathname: string) => {
+  if (pathname !== POSTHOG_PROXY_PATH && !pathname.startsWith(`${POSTHOG_PROXY_PATH}/`)) {
+    return undefined;
+  }
+
+  const url = new URL(request.url);
+  url.hostname = pathname.startsWith(`${POSTHOG_PROXY_PATH}/static/`)
+    ? POSTHOG_ASSETS_HOST
+    : POSTHOG_INGEST_HOST;
+  url.protocol = "https:";
+  url.port = "";
+  url.pathname = pathname.slice(POSTHOG_PROXY_PATH.length) || "/";
+
+  const upstream = new Request(url, request);
+  upstream.headers.delete("cookie");
+  return fetch(upstream);
+};
+
+const platformFetch = async (request: Request, env: Env) => {
+  const url = new URL(request.url);
+  const pathname = url.pathname;
+
+  const marketing = maybeMarketing(request, env, pathname);
+  if (marketing) return marketing;
+
+  const mcp = await mcpFetch(request, env);
+  if (mcp) return mcp;
+
+  if (pathname === "/api/sentry-tunnel" && request.method === "POST") {
+    if (!env.SENTRY_DSN) return new Response(null, { status: 204 });
+    return Effect.runPromise(handleSentryTunnelRequest(request, env.SENTRY_DSN));
+  }
+
+  const posthog = maybePostHog(request, pathname);
+  if (posthog) return posthog;
+
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    url.pathname = url.pathname.replace(/^\/api/, "");
+    return handleApiRequest(new Request(url, request), env);
+  }
+
+  return handler.fetch(request);
+};
 
 const dispatchHandler = {
-  fetch: (request: Request, env: Env, ctx: unknown) => {
-    const fn = env.AXIOM_TOKEN ? instrumentedHandler.fetch! : rawFetch;
-    return (fn as (req: Request, env: Env, ctx: unknown) => Response | Promise<Response>)(
-      request,
-      env,
-      ctx,
-    );
-  },
+  fetch: platformFetch,
 };
 
 export default Sentry.withSentry(sentryOptions, dispatchHandler);

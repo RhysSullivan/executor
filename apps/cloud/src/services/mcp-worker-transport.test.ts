@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
 
-import { JsonRpcRequestIdQueue, PREVIOUS_REQUEST_TIMEOUT_MS } from "./mcp-worker-transport";
+import { makeJsonRpcRequestIdQueue, PREVIOUS_REQUEST_TIMEOUT_MS } from "./mcp-worker-transport";
 
 const jsonRpcRequest = (body: unknown): Request =>
   new Request("https://example.invalid/mcp", {
@@ -11,7 +12,7 @@ const jsonRpcRequest = (body: unknown): Request =>
 
 describe("JsonRpcRequestIdQueue", () => {
   it("serialises requests with the same id", async () => {
-    const queue = new JsonRpcRequestIdQueue();
+    const queue = makeJsonRpcRequestIdQueue();
     const order: string[] = [];
 
     let releaseFirst!: () => void;
@@ -19,21 +20,26 @@ describe("JsonRpcRequestIdQueue", () => {
       const firstRunning = new Promise<void>((release) => {
         releaseFirst = release;
       });
-      queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }), async () => {
-        order.push("first:start");
-        resolve();
-        await firstRunning;
-        order.push("first:end");
-      });
+      void Effect.runPromise(
+        queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }), () =>
+          Effect.promise(async () => {
+            order.push("first:start");
+            resolve();
+            await firstRunning;
+            order.push("first:end");
+          }),
+        ),
+      );
     });
 
     await firstStarted;
 
-    const secondDone = queue.run(
-      jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }),
-      async () => {
-        order.push("second");
-      },
+    const secondDone = Effect.runPromise(
+      queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }), () =>
+        Effect.sync(() => {
+          order.push("second");
+        }),
+      ),
     );
 
     // Second must wait for first.
@@ -46,18 +52,24 @@ describe("JsonRpcRequestIdQueue", () => {
   });
 
   it("does not block requests with different ids", async () => {
-    const queue = new JsonRpcRequestIdQueue();
+    const queue = makeJsonRpcRequestIdQueue();
     let release!: () => void;
     const hung = new Promise<void>((resolve) => {
       release = resolve;
     });
 
-    queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }), () => hung);
+    void Effect.runPromise(
+      queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }), () =>
+        Effect.promise(() => hung),
+      ),
+    );
 
     const otherDone = await Promise.race([
-      queue
-        .run(jsonRpcRequest({ jsonrpc: "2.0", id: 2, method: "tools/call" }), async () => "done")
-        .then((v) => ({ kind: "settled" as const, v })),
+      Effect.runPromise(
+        queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 2, method: "tools/call" }), () =>
+          Effect.succeed("done"),
+        ),
+      ).then((v) => ({ kind: "settled" as const, v })),
       new Promise<{ kind: "blocked" }>((r) => setTimeout(() => r({ kind: "blocked" }), 200)),
     ]);
 
@@ -69,26 +81,31 @@ describe("JsonRpcRequestIdQueue", () => {
     // Override the timeout for fast CI — the production default is
     // PREVIOUS_REQUEST_TIMEOUT_MS (60s) which we cap test-side to 100ms.
     // Same behaviour, same code path; only the wall-clock budget changes.
-    const queue = new JsonRpcRequestIdQueue({ previousTimeoutMs: 100 });
+    const queue = makeJsonRpcRequestIdQueue({ previousTimeoutMs: 100 });
     const order: string[] = [];
 
     // Kick off a request and never release it — the poisoned-queue
     // shape that used to cascade for the full upstream 180s timeout.
     const firstStarted = new Promise<void>((resolve) => {
-      queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }), async () => {
-        order.push("first:start");
-        resolve();
-        await new Promise(() => undefined); // hang forever
-      });
+      void Effect.runPromise(
+        queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }), () =>
+          Effect.promise(async () => {
+            order.push("first:start");
+            resolve();
+            await new Promise(() => undefined); // hang forever
+          }),
+        ),
+      );
     });
     await firstStarted;
 
-    const result = await queue.run(
-      jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }),
-      async () => {
-        order.push("second");
-        return "ok";
-      },
+    const result = await Effect.runPromise(
+      queue.run(jsonRpcRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }), () =>
+        Effect.sync(() => {
+          order.push("second");
+          return "ok";
+        }),
+      ),
     );
 
     expect(result).toBe("ok");

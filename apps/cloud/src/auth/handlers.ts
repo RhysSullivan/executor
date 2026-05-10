@@ -1,3 +1,4 @@
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpServerResponse } from "effect/unstable/http";
 import { Duration, Effect } from "effect";
@@ -7,7 +8,6 @@ import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
 import { authorizeOrganization } from "./authorize-organization";
-import { env } from "cloudflare:workers";
 import { WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
 
@@ -93,6 +93,7 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
       .handleRaw("login", () =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
+          const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
           // Use the explicit public site URL — in dev, the request's Host
           // header points at the internal proxy target, not the public URL
           // WorkOS needs to redirect back to.

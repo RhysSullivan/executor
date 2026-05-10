@@ -45,8 +45,8 @@ import { HttpRouter } from "effect/unstable/http";
  * `DbService` + `UserStoreService` — combining drops those from the
  * outer middleware's `requires`).
  */
-export const requestScopedMiddleware = <A>(layer: Layer.Layer<A>) =>
-  HttpRouter.middleware<{ provides: A }>()((httpEffect) =>
+export const requestScopedMiddleware = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
+  HttpRouter.middleware<{ provides: A; requires: R }>()((httpEffect) =>
     Effect.scoped(
       Effect.gen(function* () {
         // Fresh MemoMap per request — see file-level note for why we

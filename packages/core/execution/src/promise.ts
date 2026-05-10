@@ -10,7 +10,7 @@
 // from `@executor-js/execution` to keep trace context intact.
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import type * as Cause from "effect/Cause";
 
 import type {
@@ -50,12 +50,18 @@ export type ExecutionEngine = {
   readonly getDescription: () => Promise<string>;
 };
 
+class PromiseExecutorError extends Data.TaggedError("PromiseExecutorError")<{
+  readonly cause: unknown;
+}> {}
+
 /**
  * Wrap a Promise-style executor into the Effect shape the engine consumes.
  */
 const fromPromise = <A>(try_: () => Promise<A>): Effect.Effect<A> =>
-  // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: Promise executor facade has already erased the SDK typed error channel
-  Effect.tryPromise({ try: try_, catch: (cause) => cause }).pipe(Effect.orDie);
+  Effect.tryPromise({ try: try_, catch: (cause) => new PromiseExecutorError({ cause }) }).pipe(
+    // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: Promise executor facade has already erased the SDK typed error channel
+    Effect.orDie,
+  );
 
 type EffectInvokeOptions = Parameters<EffectExecutor["tools"]["invoke"]>[2];
 type PromiseInvokeOptions = Parameters<PromiseExecutor["tools"]["invoke"]>[2];

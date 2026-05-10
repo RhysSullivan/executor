@@ -2,7 +2,7 @@
 // WorkOS AuthKit — Effect-native sealed session management
 // ---------------------------------------------------------------------------
 
-import { env } from "cloudflare:workers";
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { Context, Data, Effect, Layer } from "effect";
 import { GeneratePortalLinkIntent, WorkOS } from "@workos-inc/node/worker";
 import { WorkOSError, tryPromiseService, withServiceLogging } from "./errors";
@@ -19,6 +19,7 @@ class WorkOSAuthConfigurationError extends Data.TaggedError("WorkOSAuthConfigura
 // ---------------------------------------------------------------------------
 
 const make = Effect.gen(function* () {
+  const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
   const apiKey = env.WORKOS_API_KEY;
   const clientId = env.WORKOS_CLIENT_ID;
   const cookiePassword = env.WORKOS_COOKIE_PASSWORD;

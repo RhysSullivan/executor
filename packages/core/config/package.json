@@ -16,7 +16,8 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./core": "./src/core.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -25,6 +26,12 @@
         "import": {
           "types": "./dist/index.d.ts",
           "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/core.d.ts",
+          "default": "./dist/core.js"
         }
       }
     }

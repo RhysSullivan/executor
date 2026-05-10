@@ -54,6 +54,9 @@ type DrizzleRunnable = {
 type DrizzleTransactionCapable = {
   transaction: <A>(fn: (tx: unknown) => Promise<A>) => Promise<A>;
 };
+type DrizzleExecutable<T> = {
+  execute: () => T | Promise<T>;
+};
 const rowAs = <T>(row: Record<string, unknown>): T => row as T;
 const rowsAs = <T>(rows: readonly Record<string, unknown>[]): T[] => rows.map(rowAs<T>);
 
@@ -364,6 +367,16 @@ const runPromise = <T>(
     }),
   );
 
+const hasExecute = <T>(value: unknown): value is DrizzleExecutable<T> => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { readonly execute?: unknown };
+  return typeof candidate.execute === "function";
+};
+
+export const executeDrizzleQuery = <T>(
+  query: T | PromiseLike<T> | DrizzleExecutable<T>,
+): Promise<T> => (hasExecute<T>(query) ? Promise.resolve(query.execute()) : Promise.resolve(query));
+
 // ---------------------------------------------------------------------------
 // withReturning — mirrors better-auth's helper. sqlite + pg support
 // `.returning()`; mysql needs a follow-up select (not implemented since
@@ -386,7 +399,7 @@ const withReturning = (
       if (data.id !== undefined) {
         const rows = (yield* runPromise(
           "mysql select after insert",
-          () => db.select().from(table).where(eq(table.id, data.id)).limit(1),
+          () => executeDrizzleQuery(db.select().from(table).where(eq(table.id, data.id)).limit(1)),
           model,
         )) as Record<string, unknown>[];
         if (!rows[0])
@@ -403,7 +416,7 @@ const withReturning = (
     }
     const rows = (yield* runPromise(
       "insert returning",
-      () => builder.returning(),
+      () => executeDrizzleQuery(builder.returning()),
       model,
     )) as Record<string, unknown>[];
     if (!rows[0])
@@ -476,7 +489,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         const slice = data.slice(i, i + CHUNK) as Record<string, unknown>[];
         const rows = (yield* runPromise(
           "insert many returning",
-          () => db.insert(table).values(slice).returning(),
+          () => executeDrizzleQuery(db.insert(table).values(slice).returning()),
           model,
         )) as Record<string, unknown>[];
         for (const row of rows) all.push(row);
@@ -509,7 +522,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         const rows = (yield* runPromise(
           "findOne query.findFirst",
           () =>
-            Promise.resolve(
+            executeDrizzleQuery(
               db.query[model].findFirst({
                 where: clause,
                 with: includes,
@@ -521,10 +534,11 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       }
       let q = db.select().from(table);
       if (clause) q = q.where(clause);
-      const rows = (yield* runPromise("findOne select", () => q.limit(1), model)) as Record<
-        string,
-        unknown
-      >[];
+      const rows = (yield* runPromise(
+        "findOne select",
+        () => executeDrizzleQuery(q.limit(1)),
+        model,
+      )) as Record<string, unknown>[];
       return rows[0] ? rowAs<T>(rows[0]) : null;
     }).pipe(
       Effect.withSpan("executor.storage.backend.find_one", {
@@ -566,7 +580,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         }
         const rows = (yield* runPromise(
           "findMany query.findMany",
-          () => Promise.resolve(db.query[model].findMany(opts)),
+          () => executeDrizzleQuery(db.query[model].findMany(opts)),
           model,
         )) as Record<string, unknown>[];
         return rowsAs<T>(rows);
@@ -583,7 +597,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       if (offset !== undefined) q = q.offset(offset);
       const rows = (yield* runPromise(
         "findMany select",
-        () => Promise.resolve(q),
+        () => executeDrizzleQuery(q),
         model,
       )) as Record<string, unknown>[];
       return rowsAs<T>(rows);
@@ -609,7 +623,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       if (clause) findQ = findQ.where(clause);
       const matched = (yield* runPromise(
         "update pre-select",
-        () => findQ.limit(2),
+        () => executeDrizzleQuery(findQ.limit(2)),
         model,
       )) as Record<string, unknown>[];
       if (matched.length === 0) return null;
@@ -620,7 +634,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       if (provider !== "mysql") {
         const rows = (yield* runPromise(
           "update returning",
-          () => updQ.returning(),
+          () => executeDrizzleQuery(updQ.returning()),
           model,
         )) as Record<string, unknown>[];
         return rows[0] ? rowAs<T>(rows[0]) : null;
@@ -628,7 +642,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       yield* runPromise("mysql update execute", () => updQ.execute(), model);
       const reread = (yield* runPromise(
         "mysql update reread",
-        () => db.select().from(table).where(identity).limit(1),
+        () => executeDrizzleQuery(db.select().from(table).where(identity).limit(1)),
         model,
       )) as Record<string, unknown>[];
       return reread[0] ? rowAs<T>(reread[0]) : null;
@@ -661,7 +675,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         const clause = yield* compileWhere(table, where, provider);
         let q = db.select({ c: count() }).from(table);
         if (clause) q = q.where(clause);
-        const rows = (yield* runPromise("count select", () => Promise.resolve(q), model)) as {
+        const rows = (yield* runPromise("count select", () => executeDrizzleQuery(q), model)) as {
           c: number | string | bigint;
         }[];
         const raw = rows[0]?.c ?? 0;
@@ -684,14 +698,14 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         if (clause) countQ = countQ.where(clause);
         const rows = (yield* runPromise(
           "updateMany count",
-          () => Promise.resolve(countQ),
+          () => executeDrizzleQuery(countQ),
           model,
         )) as { c: number | string | bigint }[];
         const n = Number(rows[0]?.c ?? 0);
         if (n === 0) return 0;
         let updQ = db.update(table).set(update);
         if (clause) updQ = updQ.where(clause);
-        yield* runPromise("updateMany execute", () => Promise.resolve(updQ), model);
+        yield* runPromise("updateMany execute", () => executeDrizzleQuery(updQ), model);
         return n;
       }).pipe(
         Effect.withSpan("executor.storage.backend.update_many", {
@@ -708,14 +722,14 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         if (clause) findQ = findQ.where(clause);
         const matched = (yield* runPromise(
           "delete pre-select",
-          () => findQ.limit(1),
+          () => executeDrizzleQuery(findQ.limit(1)),
           model,
         )) as Record<string, unknown>[];
         const first = matched[0];
         if (!first) return;
         yield* runPromise(
           "delete exec",
-          () => Promise.resolve(db.delete(table).where(rowIdentityClause(table, first))),
+          () => executeDrizzleQuery(db.delete(table).where(rowIdentityClause(table, first))),
           model,
         );
       }).pipe(
@@ -732,14 +746,14 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         if (clause) countQ = countQ.where(clause);
         const rows = (yield* runPromise(
           "deleteMany count",
-          () => Promise.resolve(countQ),
+          () => executeDrizzleQuery(countQ),
           model,
         )) as { c: number | string | bigint }[];
         const n = Number(rows[0]?.c ?? 0);
         if (n === 0) return 0;
         let delQ = db.delete(table);
         if (clause) delQ = delQ.where(clause);
-        yield* runPromise("deleteMany exec", () => Promise.resolve(delQ), model);
+        yield* runPromise("deleteMany exec", () => executeDrizzleQuery(delQ), model);
         return n;
       }).pipe(
         Effect.withSpan("executor.storage.backend.delete_many", {

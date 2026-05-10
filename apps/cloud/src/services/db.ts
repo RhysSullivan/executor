@@ -11,7 +11,7 @@
 // Migrations are run out-of-band (e.g. via a separate script or CI step),
 // not at request time — Cloudflare Workers cannot read the filesystem.
 
-import { env } from "cloudflare:workers";
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { Context, Effect, Layer } from "effect";
 import { drizzle } from "drizzle-orm/postgres-js";
 import type { PgDatabase } from "drizzle-orm/pg-core";
@@ -33,7 +33,12 @@ export type DbServiceShape = {
   readonly db: DrizzleDb;
 };
 
-export const resolveConnectionString = () => {
+type DatabaseEnv = Pick<
+  Partial<Env>,
+  "DATABASE_URL" | "EXECUTOR_DIRECT_DATABASE_URL" | "HYPERDRIVE"
+>;
+
+export const resolveConnectionString = (env: DatabaseEnv) => {
   // Production should always use Hyperdrive when the binding exists. Keeping
   // DATABASE_URL as a higher-priority fallback made it too easy for a deployed
   // secret to silently bypass Hyperdrive.
@@ -43,8 +48,8 @@ export const resolveConnectionString = () => {
   return env.HYPERDRIVE?.connectionString || env.DATABASE_URL || "";
 };
 
-const makeSql = (): Sql =>
-  postgres(resolveConnectionString(), {
+const makeSql = (env: DatabaseEnv): Sql =>
+  postgres(resolveConnectionString(env), {
     // max=1 is correct for Hyperdrive: one request, one connection. The
     // earlier deadlock under ctx.transaction (outer sql.begin holding the
     // only connection while nested writes pulled fresh ones) is fixed in
@@ -65,23 +70,18 @@ export class DbService extends Context.Service<DbService, DbServiceShape>()(
 ) {
   static Live = Layer.effect(this)(
     Effect.acquireRelease(
-      Effect.sync((): DbServiceShape => {
-        const sql = makeSql();
+      Effect.gen(function* () {
+        const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
+        const sql = makeSql(env as DatabaseEnv);
         return { sql, db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb };
       }),
       ({ sql }) =>
         // Fire-and-forget: the Terminate round-trip sometimes hangs, and
         // we don't need to block scope close waiting for it.
-        Effect.sync(() => {
-          void Effect.runFork(
-            Effect.ignore(
-              Effect.tryPromise({
-                try: () => sql.end({ timeout: 0 }),
-                catch: (cause) => cause,
-              }),
-            ),
-          );
-        }),
+        Effect.tryPromise({
+          try: () => sql.end({ timeout: 0 }),
+          catch: () => undefined,
+        }).pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid),
     ),
   );
 }

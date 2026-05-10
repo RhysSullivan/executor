@@ -1,10 +1,22 @@
-// Augment the wrangler-generated `Cloudflare.Env` with secrets / vars set at
-// deploy time (via `wrangler secret put`, dashboard, or `.dev.vars`) that
-// don't show up in `wrangler types` output because they aren't declared in
-// wrangler.jsonc, but are what `env.X` resolves to at runtime.
+import type * as Runtime from "alchemy/Cloudflare/Workers/Runtime";
+import type { McpSessionShape } from "./mcp-session";
+
 declare global {
   namespace Cloudflare {
     interface Env {
+      // Bindings declared in alchemy.run.ts
+      HYPERDRIVE: Hyperdrive;
+      LOADER: WorkerLoader;
+      MCP_SESSION: McpSessionNamespaceBinding;
+      MARKETING: Fetcher;
+
+      // WorkOS
+      WORKOS_API_KEY: string;
+      WORKOS_CLIENT_ID: string;
+      WORKOS_COOKIE_PASSWORD: string;
+      WORKOS_CLAIM_TOKEN: string;
+      APP_URL: string;
+
       // Observability
       AXIOM_TOKEN?: string;
       AXIOM_DATASET?: string;
@@ -33,6 +45,27 @@ declare global {
       VITE_PUBLIC_SITE_URL?: string;
     }
   }
+
+  interface Env extends Cloudflare.Env {}
+
+  namespace NodeJS {
+    interface ProcessEnv extends StringifyValues<
+      Pick<
+        Cloudflare.Env,
+        | "WORKOS_API_KEY"
+        | "WORKOS_CLIENT_ID"
+        | "WORKOS_COOKIE_PASSWORD"
+        | "APP_URL"
+        | "WORKOS_CLAIM_TOKEN"
+      >
+    > {}
+  }
 }
+
+type StringifyValues<EnvType extends Record<string, unknown>> = {
+  [Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
+};
+
+type McpSessionNamespaceBinding = Runtime.DurableObjectNamespaceResource<McpSessionShape>;
 
 export {};
