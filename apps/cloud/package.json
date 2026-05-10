@@ -48,7 +48,7 @@
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
     "@workos-inc/node": "^8.11.1",
-    "alchemy": "https://registry.npmjs.org/@rhyssul/alchemy/-/alchemy-2.0.0-beta.36-rhyssul.9.tgz",
+    "alchemy": "https://registry.npmjs.org/@rhyssul/alchemy/-/alchemy-2.0.0-beta.36-rhyssul.11.tgz",
     "autumn-js": "^1.2.8",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
