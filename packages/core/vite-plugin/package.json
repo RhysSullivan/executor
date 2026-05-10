@@ -16,11 +16,7 @@
   ],
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "default": "./dist/index.js"
-    }
+    ".": "./src/index.ts"
   },
   "publishConfig": {
     "access": "public",
