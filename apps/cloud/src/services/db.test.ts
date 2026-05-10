@@ -5,8 +5,7 @@
 // Regression coverage for the pg/CloudflareSocket hang (see
 // personal-notes/pg-cloudflare-sockets-dev.md). This test:
 //
-//   - Runs inside the Cloudflare Workers runtime via
-//     @cloudflare/vitest-pool-workers
+//   - Runs against the same postgres.js code path the Cloudflare Worker uses
 //   - Talks to a real Postgres (PGlite exposed over a TCP socket by
 //     scripts/test-globalsetup.ts)
 //   - Constructs DbService.Live across multiple independent Effect scopes,
@@ -20,16 +19,17 @@
 // postgres.js the test passes: each scope acquires its own socket and
 // releases it cleanly.
 
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
 import { DbService } from "./db";
 import { makeUserStore } from "./user-store";
 
+const DbLive = DbService.Live.pipe(Layer.provide(Cloudflare.WorkerEnvironment.layer(process.env)));
+
 const program = <A, E>(body: Effect.Effect<A, E, DbService>) =>
-  Effect.runPromise(
-    body.pipe(Effect.provide(DbService.Live), Effect.scoped) as Effect.Effect<A, E, never>,
-  );
+  Effect.runPromise(body.pipe(Effect.provide(DbLive), Effect.scoped));
 
 describe("DbService", () => {
   it("executes a trivial query end-to-end", async () => {
@@ -97,7 +97,7 @@ describe("DbService", () => {
           );
         }),
       ),
-      DbService.Live,
+      DbLive,
     );
 
     const result = await Effect.runPromise(
@@ -109,9 +109,9 @@ describe("DbService", () => {
           Effect.gen(function* () {
             const { db } = yield* DbService;
             return yield* Effect.promise(() => makeUserStore(db).getOrganization(orgId));
-          }).pipe(Effect.provide(DbService.Live)),
-        ) as Effect.Effect<{ id: string; name: string } | null, never, never>;
-      }) as Effect.Effect<{ id: string; name: string } | null, never, never>,
+          }).pipe(Effect.provide(DbLive)),
+        );
+      }),
     );
 
     expect(result?.id).toBe(orgId);

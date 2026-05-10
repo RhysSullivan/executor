@@ -14,7 +14,7 @@
 // underlying `ReadableStream` passes through untouched.
 // ---------------------------------------------------------------------------
 
-import { env } from "cloudflare:workers";
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { Cause, Context, Effect, Layer, Option, Predicate, Result, Schema } from "effect";
 
@@ -43,10 +43,6 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-const AUTHKIT_DOMAIN = env.MCP_AUTHKIT_DOMAIN ?? "https://signin.executor.sh";
-const RESOURCE_ORIGIN = env.MCP_RESOURCE_ORIGIN ?? "https://executor.sh";
-const WORKOS_CLIENT_ID = env.WORKOS_CLIENT_ID;
-
 // Module-scope cache survives across MCP requests within the same worker
 // isolate. AuthKit's JWKS rotates on the order of hours/days, so a 1h TTL
 // dominates the upstream cooldown without sacrificing rotation safety —
@@ -54,7 +50,15 @@ const WORKOS_CLIENT_ID = env.WORKOS_CLIENT_ID;
 // resolver. Production telemetry showed ~222 fetches/8h with p99 1.7s on
 // the previous default-cooldown setup; this collapses that to ~1 per
 // isolate-hour.
-const jwks = createCachedRemoteJWKSet(new URL(`${AUTHKIT_DOMAIN}/oauth2/jwks`));
+const jwksByAuthkitDomain = new Map<string, ReturnType<typeof createCachedRemoteJWKSet>>();
+
+const getJwks = (authkitDomain: string) => {
+  const existing = jwksByAuthkitDomain.get(authkitDomain);
+  if (existing) return existing;
+  const next = createCachedRemoteJWKSet(new URL(`${authkitDomain}/oauth2/jwks`));
+  jwksByAuthkitDomain.set(authkitDomain, next);
+  return next;
+};
 
 const BEARER_PREFIX = "Bearer ";
 const INTERNAL_ACCOUNT_ID_HEADER = "x-executor-mcp-account-id";
@@ -70,8 +74,20 @@ const CORS_PREFLIGHT_HEADERS = {
 
 const MCP_PATH = "/mcp";
 const PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource/mcp";
-const PROTECTED_RESOURCE_METADATA_URL = `${RESOURCE_ORIGIN}${PROTECTED_RESOURCE_METADATA_PATH}`;
-const RESOURCE_URL = `${RESOURCE_ORIGIN}${MCP_PATH}`;
+
+const getMcpConfig = Effect.gen(function* () {
+  const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
+  const authkitDomain = env.MCP_AUTHKIT_DOMAIN ?? "https://signin.executor.sh";
+  const resourceOrigin = env.MCP_RESOURCE_ORIGIN ?? "https://executor.sh";
+  return {
+    authkitDomain,
+    resourceOrigin,
+    workosClientId: env.WORKOS_CLIENT_ID,
+    protectedResourceMetadataUrl: `${resourceOrigin}${PROTECTED_RESOURCE_METADATA_PATH}`,
+    resourceUrl: `${resourceOrigin}${MCP_PATH}`,
+    jwks: getJwks(authkitDomain),
+  };
+});
 
 type McpUnauthorizedReason = "missing_bearer" | "invalid_token";
 
@@ -116,7 +132,7 @@ export class McpAuth extends Context.Service<
   {
     readonly verifyBearer: (
       request: Request,
-    ) => Effect.Effect<McpAuthResult, McpJwtVerificationError>;
+    ) => Effect.Effect<McpAuthResult, McpJwtVerificationError, Cloudflare.WorkerEnvironment>;
   }
 >()("@executor-js/cloud/McpAuth") {}
 
@@ -126,14 +142,17 @@ export class McpOrganizationAuth extends Context.Service<
     readonly authorize: (
       accountId: string,
       organizationId: string,
-    ) => Effect.Effect<boolean, unknown>;
+    ) => Effect.Effect<boolean, unknown, Cloudflare.WorkerEnvironment>;
   }
 >()("@executor-js/cloud/McpOrganizationAuth") {}
 
 const verifyJwt = (token: string) =>
-  verifyWorkOSMcpAccessToken(token, jwks, {
-    issuer: AUTHKIT_DOMAIN,
-    audience: WORKOS_CLIENT_ID,
+  Effect.gen(function* () {
+    const config = yield* getMcpConfig;
+    return yield* verifyWorkOSMcpAccessToken(token, config.jwks, {
+      issuer: config.authkitDomain,
+      audience: config.workosClientId,
+    });
   });
 
 const DbLive = DbService.Live;
@@ -187,12 +206,10 @@ export const McpAuthLive = Layer.succeed(McpAuth)({
 // ---------------------------------------------------------------------------
 // Client fingerprint capture
 // ---------------------------------------------------------------------------
-// Annotates the Effect span (which nests under the otel-cf-workers fetch
-// span) with everything we can learn about a connecting MCP client: the
-// parsed JSON-RPC body, whitelisted request headers, CF request metadata,
-// and verified-JWT claims. Lets us compare how each client (Claude Code,
-// Claude.ai web, ChatGPT, custom scripts, ...) actually reports over the
-// wire. Runs before dispatch so unauthorized requests still get fingerprinted.
+// Annotates the current Effect span with everything we can learn about a
+// connecting MCP client: the parsed JSON-RPC body, whitelisted request
+// headers, CF request metadata, and verified-JWT claims. Runs before dispatch
+// so unauthorized requests still get fingerprinted.
 // ---------------------------------------------------------------------------
 
 type CfRequestMetadata = {
@@ -405,22 +422,26 @@ const annotateMcpRequest = (
 // OAuth metadata endpoints
 // ---------------------------------------------------------------------------
 
-const protectedResourceMetadata = Effect.sync(() =>
-  jsonResponse({
-    resource: RESOURCE_URL,
-    authorization_servers: [AUTHKIT_DOMAIN],
+const protectedResourceMetadata = Effect.gen(function* () {
+  const config = yield* getMcpConfig;
+  return jsonResponse({
+    resource: config.resourceUrl,
+    authorization_servers: [config.authkitDomain],
     bearer_methods_supported: ["header"],
     scopes_supported: [],
-  }),
-);
+  });
+});
 
-const authorizationServerMetadata = Effect.tryPromise({
-  try: async () => {
-    const res = await fetch(`${AUTHKIT_DOMAIN}/.well-known/oauth-authorization-server`);
-    if (!res.ok) return jsonResponse({ error: "upstream_error" }, 502);
-    return jsonResponse(await res.json());
-  },
-  catch: () => undefined,
+const authorizationServerMetadata = Effect.gen(function* () {
+  const config = yield* getMcpConfig;
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const res = await fetch(`${config.authkitDomain}/.well-known/oauth-authorization-server`);
+      if (!res.ok) return jsonResponse({ error: "upstream_error" }, 502);
+      return jsonResponse(await res.json());
+    },
+    catch: () => undefined,
+  });
 }).pipe(Effect.catchCause(() => Effect.succeed(jsonResponse({ error: "upstream_error" }, 502))));
 
 // ---------------------------------------------------------------------------
@@ -499,6 +520,7 @@ const forwardToExistingSession = (
   token: VerifiedToken,
 ) =>
   Effect.gen(function* () {
+    const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
     const ns = env.MCP_SESSION;
     const stub = ns.get(ns.idFromString(sessionId));
     const propagation = yield* currentPropagationHeaders(request);
@@ -506,9 +528,7 @@ const forwardToExistingSession = (
       withVerifiedIdentityHeaders(request, token),
       propagation,
     );
-    const raw = yield* Effect.promise(
-      () => stub.handleRequest(propagated) as Promise<Response>,
-    ).pipe(
+    const raw = yield* stub.handleRequest(propagated).pipe(
       Effect.withSpan("mcp.do.handle_request", {
         attributes: {
           "mcp.request.method": request.method,
@@ -522,10 +542,11 @@ const forwardToExistingSession = (
 
 const clearExistingSession = (request: Request, sessionId: string) =>
   Effect.gen(function* () {
+    const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
     const ns = env.MCP_SESSION;
     const stub = ns.get(ns.idFromString(sessionId));
     const propagation = yield* currentPropagationHeaders(request);
-    yield* Effect.promise(() => stub.clearSession(propagation) as Promise<void>).pipe(
+    yield* stub.clearSession(propagation).pipe(
       Effect.catchCause(() => Effect.void),
       Effect.withSpan("mcp.do.clear_session", {
         attributes: { "mcp.request.session_id_present": true },
@@ -575,12 +596,11 @@ const dispatchPost = (request: Request, token: VerifiedToken) =>
 
     if (sessionId) return yield* forwardToExistingSession(request, sessionId, true, token);
 
+    const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
     const ns = env.MCP_SESSION;
     const stub = ns.get(ns.newUniqueId());
     const propagation = yield* currentPropagationHeaders(request);
-    yield* Effect.promise(() =>
-      stub.init({ organizationId, userId: token.accountId }, propagation),
-    ).pipe(
+    yield* stub.init({ organizationId, userId: token.accountId }, propagation).pipe(
       Effect.withSpan("mcp.do.init", {
         attributes: { "mcp.request.session_id_present": false },
       }),
@@ -589,9 +609,7 @@ const dispatchPost = (request: Request, token: VerifiedToken) =>
       withVerifiedIdentityHeaders(request, token),
       propagation,
     );
-    const raw = yield* Effect.promise(
-      () => stub.handleRequest(propagated) as Promise<Response>,
-    ).pipe(
+    const raw = yield* stub.handleRequest(propagated).pipe(
       Effect.withSpan("mcp.do.handle_request", {
         attributes: {
           "mcp.request.method": request.method,
@@ -653,7 +671,7 @@ export const classifyMcpPath = (pathname: string): McpRoute => {
 export const mcpApp: Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   never,
-  HttpServerRequest.HttpServerRequest | McpAuth | McpOrganizationAuth
+  HttpServerRequest.HttpServerRequest | McpAuth | McpOrganizationAuth | Cloudflare.WorkerEnvironment
 > = Effect.gen(function* () {
   const httpRequest = yield* HttpServerRequest.HttpServerRequest;
   const request = httpRequest.source as Request;
@@ -684,7 +702,8 @@ export const mcpApp: Effect.Effect<
   });
 
   if (isMcpUnauthorized(authValue)) {
-    return unauthorized(authValue, PROTECTED_RESOURCE_METADATA_URL);
+    const config = yield* getMcpConfig;
+    return unauthorized(authValue, config.protectedResourceMetadataUrl);
   }
   const token = authValue.token;
   switch (request.method) {
@@ -708,7 +727,10 @@ export const mcpApp: Effect.Effect<
   ),
 );
 
-const rawMcpFetch = HttpEffect.toWebHandler(
+const rawMcpFetch = HttpEffect.toWebHandlerWith<
+  never,
+  HttpServerRequest.HttpServerRequest | Cloudflare.WorkerEnvironment
+>(Context.empty())(
   mcpApp.pipe(Effect.provide(Layer.mergeAll(McpAuthLive, McpOrganizationAuthLive, TelemetryLive))),
 );
 
@@ -720,7 +742,7 @@ const rawMcpFetch = HttpEffect.toWebHandler(
  * TanStack Start handle normal routing — e.g. an unknown `/.well-known/*`
  * path that should 404 through the regular route tree.
  */
-export const mcpFetch = async (request: Request): Promise<Response | null> => {
+export const mcpFetch = async (request: Request, env: Env): Promise<Response | null> => {
   if (classifyMcpPath(new URL(request.url).pathname) === null) return null;
-  return rawMcpFetch(request);
+  return rawMcpFetch(request, Context.make(Cloudflare.WorkerEnvironment, env));
 };

@@ -1,3 +1,4 @@
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { HttpApiBuilder, HttpApi } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
@@ -53,10 +54,14 @@ const makeAuthFetch = (workos: Partial<WorkOSAuth["Service"]>) => {
   const UserStoreTest = Layer.succeed(UserStoreService)({
     use: <A>() => Effect.sync(() => undefined as A),
   });
+  const WorkerEnvironmentTest = Layer.succeed(Cloudflare.WorkerEnvironment, {
+    VITE_PUBLIC_SITE_URL: "http://test.local",
+  });
   const apiLayer = HttpApiBuilder.layer(TestAuthPublicApi).pipe(
     Layer.provide(CloudAuthPublicHandlers),
     Layer.provideMerge(WorkOSTest),
     Layer.provideMerge(UserStoreTest),
+    Layer.provideMerge(WorkerEnvironmentTest),
     Layer.provideMerge(HttpServer.layerServices),
     Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
   );

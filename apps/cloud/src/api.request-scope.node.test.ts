@@ -21,6 +21,7 @@
 // for `acquireRelease`.
 // ---------------------------------------------------------------------------
 
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { describe, it, expect } from "@effect/vitest";
 import { Context, Effect, Layer } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http";
@@ -166,6 +167,8 @@ describe("makeApiLive (prod handler factory) request scoping", () => {
     // Wrap the real per-request layer with an `acquireRelease` counter.
     // `requestScopedMiddleware` calls `Layer.build` per request, so this
     // counter increments per request iff the wiring is correct.
+    const workerEnvLive = Cloudflare.WorkerEnvironment.layer(process.env);
+    const requestScopedLive = RequestScopedServicesLive.pipe(Layer.provide(workerEnvLive));
     const trackedRsLive = Layer.effectDiscard(
       Effect.acquireRelease(
         Effect.sync(() => {
@@ -176,18 +179,22 @@ describe("makeApiLive (prod handler factory) request scoping", () => {
             counts.releases += 1;
           }),
       ),
-    ).pipe(Layer.provideMerge(RequestScopedServicesLive));
+    ).pipe(Layer.provideMerge(requestScopedLive));
 
-    const handler = HttpRouter.toWebHandler(makeApiLive(trackedRsLive), {
-      disableLogger: true,
-    }).handler;
+    const handler = HttpRouter.toWebHandler(
+      makeApiLive(trackedRsLive).pipe(Layer.provide(workerEnvLive)),
+      {
+        disableLogger: true,
+      },
+    ).handler;
+    const workerEnvContext = Context.make(Cloudflare.WorkerEnvironment, process.env);
 
     // Hit a protected route. ExecutionStackMiddleware short-circuits with
     // 403 (no session cookie) but not before `requestScopedMiddleware`
     // has built the per-request layer. We don't care about the response —
     // only that the layer was built once per request.
-    await handler(new Request("http://test.local/scope"));
-    await handler(new Request("http://test.local/scope"));
+    await handler(new Request("http://test.local/scope"), workerEnvContext);
+    await handler(new Request("http://test.local/scope"), workerEnvContext);
 
     expect(counts.acquires).toBe(2);
     expect(counts.releases).toBe(2);

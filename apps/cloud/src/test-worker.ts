@@ -1,46 +1,40 @@
 // ---------------------------------------------------------------------------
-// vitest-pool-workers test entry
+// Alchemy local HTTP test entry
 // ---------------------------------------------------------------------------
 //
-// Re-exports the real McpSessionDO and drives /mcp + /.well-known/* through
-// the same Effect HttpEffect the prod worker uses. Only the `McpAuth` service
-// is swapped: the real impl calls WorkOS's JWKS endpoint, which can't be
-// reached from the test isolate.
-//
-// `stdio`-transport branch of plugin-mcp is now dynamically imported (see
-// packages/plugins/mcp/src/sdk/connection.ts), so `@modelcontextprotocol/
-// sdk/client/stdio.js` no longer touches `node:child_process` at module
-// load — that was SIGSEGV-ing workerd during test instantiation.
-// ---------------------------------------------------------------------------
+// This Worker is only used by the Alchemy local-runtime MCP e2e suite. It
+// drives the real MCP app and real Durable Object binding over workerd HTTP,
+// but swaps bearer verification for deterministic test tokens.
 
-import { HttpEffect } from "effect/unstable/http";
+import * as Runtime from "alchemy/Cloudflare/Workers/Runtime";
+import { Worker } from "alchemy/Cloudflare/Workers/Worker";
 import { Effect, Layer } from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 
 import {
   McpAuth,
-  McpAuthLive,
   McpOrganizationAuth,
-  McpOrganizationAuthLive,
   classifyMcpPath,
-  mcpAuthorized,
   mcpApp,
+  mcpAuthorized,
   mcpUnauthorized,
 } from "./mcp";
 import { McpJwtVerificationError } from "./mcp-auth";
+import McpSessionDO from "./mcp-session";
 import { organizations } from "./services/schema";
-import { parseTestBearer } from "./test-bearer";
 import { DoTelemetryLive } from "./services/telemetry";
+import { parseTestBearer } from "./test-bearer";
 
-export { McpSessionDO } from "./mcp-session";
+const TEST_BEARER_PREFIX = "Bearer ";
 
 const TestMcpAuthLive = Layer.succeed(McpAuth)({
   verifyBearer: (request) =>
     Effect.gen(function* () {
       const header = request.headers.get("authorization");
-      if (!header?.startsWith("Bearer ")) return mcpUnauthorized("missing_bearer");
-      const rawToken = header.slice("Bearer ".length);
+      if (!header?.startsWith(TEST_BEARER_PREFIX)) return mcpUnauthorized("missing_bearer");
+      const rawToken = header.slice(TEST_BEARER_PREFIX.length);
       if (rawToken === "test-system-error") {
         return yield* new McpJwtVerificationError({
           cause: "simulated_jwks_fetch_failure",
@@ -56,39 +50,37 @@ const TestMcpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth)({
   authorize: (_accountId, organizationId) => Effect.succeed(!organizationId.startsWith("revoked_")),
 });
 
-// ---------------------------------------------------------------------------
-// Test seed endpoint
-// ---------------------------------------------------------------------------
-//
-// Exposed at POST /__test__/seed-org. Tests call it via SELF.fetch to insert
-// organization rows into the same PGlite-backed database the DO reads from. Doing
-// the insert from inside the test worker avoids pulling postgres.js into the
-// test file's top-level imports (which segfaulted workerd during test
-// module instantiation).
-// ---------------------------------------------------------------------------
+const TestMcpLayers = Layer.mergeAll(TestMcpAuthLive, TestMcpOrganizationAuthLive, DoTelemetryLive);
 
-const seedConnectionString = (envArg: Record<string, unknown>) =>
-  (envArg.DATABASE_URL as string | undefined) ??
-  "postgresql://postgres:postgres@127.0.0.1:5434/postgres";
+const connectionString = (envArg: Env): string =>
+  envArg.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5434/postgres";
 
-// Per-request postgres connection. Sharing a `Sql` across requests breaks
-// mid-suite — vitest-pool-workers' isolate resets tear down the socket and
-// the next insert errors with "read end of pipe was aborted". Open + close
-// per request; the test DO runtime does the same to avoid workerd's
-// cross-request I/O guard.
-const handleSeedOrg = async (
-  request: Request,
-  envArg: Record<string, unknown>,
-): Promise<Response> => {
+export const workerEnv = {
+  DATABASE_URL:
+    process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5434/postgres",
+  EXECUTOR_DIRECT_DATABASE_URL: "true",
+  MCP_AUTHKIT_DOMAIN: "https://test-authkit.example.com",
+  MCP_RESOURCE_ORIGIN: "https://test-resource.example.com",
+  NODE_ENV: "test",
+  WORKOS_API_KEY: "test_api_key",
+  WORKOS_CLIENT_ID: "test_client_id",
+  WORKOS_COOKIE_PASSWORD: "test_cookie_password_at_least_32_chars!",
+};
+
+export class McpAlchemyTestWorker extends Worker<McpAlchemyTestWorker>()(
+  "McpAlchemyTestWorker",
+  { env: workerEnv, main: import.meta.filename },
+) {}
+
+const handleSeedOrg = async (request: Request, envArg: Env): Promise<Response> => {
   const body = (await request.json()) as { id: string; name: string };
-  const sql: Sql = postgres(seedConnectionString(envArg), {
+  const sql: Sql = postgres(connectionString(envArg), {
     max: 1,
     idle_timeout: 0,
     max_lifetime: 30,
     connect_timeout: 10,
     onnotice: () => undefined,
   });
-  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: worker seed endpoint keeps postgres cleanup in native async finalization
   try {
     await drizzle(sql, { schema: { organizations } })
       .insert(organizations)
@@ -98,43 +90,45 @@ const handleSeedOrg = async (
         set: { name: body.name },
       });
   } finally {
-    // oxlint-disable-next-line executor/no-promise-catch -- boundary: best-effort postgres close during worker seed endpoint cleanup
     await sql.end({ timeout: 0 }).catch(() => undefined);
   }
   return new Response(null, { status: 204 });
 };
 
-// Provide a WebSdk-backed tracer on the worker side so the `mcp.request` span
-// gets reported to the OTLP receiver. Prod uses the global TracerProvider
-// installed by `otel-cf-workers.instrument()`; the test worker has no such
-// instrumentation, so we reuse DoTelemetryLive (it's a plain WebSdk +
-// OTLPTraceExporter — not Durable-Object-specific) to stand in.
-const testMcpFetch = HttpEffect.toWebHandler(
-  mcpApp.pipe(
-    Effect.provide(Layer.mergeAll(TestMcpAuthLive, TestMcpOrganizationAuthLive, DoTelemetryLive)),
-  ),
-);
+const workerImpl = Effect.gen(function* () {
+  const mcpSession = yield* McpSessionDO;
 
-const realAuthMcpFetch = HttpEffect.toWebHandler(
-  mcpApp.pipe(
-    Effect.provide(Layer.mergeAll(McpAuthLive, McpOrganizationAuthLive, DoTelemetryLive)),
-  ),
-);
+  return {
+    fetch: Effect.gen(function* () {
+      const httpRequest = yield* HttpServerRequest.HttpServerRequest;
+      const request = httpRequest.source as Request;
+      const runtimeEnv = yield* Runtime.WorkerEnvironment.typed<Env>();
+      const env = {
+        ...runtimeEnv,
+        MCP_SESSION: mcpSession,
+        LOADER: runtimeEnv.LOADER,
+      } satisfies Env;
 
-export default {
-  async fetch(request: Request, envArg: Record<string, unknown>): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.pathname === "/__test__/seed-org" && request.method === "POST") {
-      return handleSeedOrg(request, envArg);
-    }
-    if (url.pathname === "/__test__/real-auth-mcp") {
-      const mcpUrl = new URL(request.url);
-      mcpUrl.pathname = "/mcp";
-      return realAuthMcpFetch(new Request(mcpUrl, request));
-    }
-    if (classifyMcpPath(url.pathname) !== null) {
-      return testMcpFetch(request);
-    }
-    return new Response("not found", { status: 404 });
-  },
-};
+      const url = new URL(request.url);
+      if (url.pathname === "/__test__/seed-org" && request.method === "POST") {
+        return HttpServerResponse.raw(yield* Effect.promise(() => handleSeedOrg(request, env)));
+      }
+      if (url.pathname === "/__test__/new-session-id") {
+        return HttpServerResponse.jsonUnsafe({
+          sessionId: env.MCP_SESSION.newUniqueId().toString(),
+        });
+      }
+      if (classifyMcpPath(url.pathname) !== null) {
+        return yield* mcpApp.pipe(
+          Effect.provide(TestMcpLayers),
+          Effect.provideService(Runtime.WorkerEnvironment, env),
+        );
+      }
+      return HttpServerResponse.text("not found", { status: 404 });
+    }),
+  };
+}).pipe(Effect.orDie);
+
+export default McpAlchemyTestWorker.asEffect().pipe(
+  Effect.provide(McpAlchemyTestWorker.make(workerImpl)),
+);

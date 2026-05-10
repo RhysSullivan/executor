@@ -14,6 +14,7 @@
 // Each test picks its own org id (usually a random UUID) so rows don't
 // collide across tests.
 
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder, HttpApiClient, HttpApiSwagger } from "effect/unstable/httpapi";
 import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
@@ -159,7 +160,9 @@ const TestApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
   Layer.provide(TestExecutionStackMiddleware),
   Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
   Layer.provideMerge(RouterConfig),
-  Layer.provideMerge(DbService.Live),
+  Layer.provideMerge(
+    DbService.Live.pipe(Layer.provide(Cloudflare.WorkerEnvironment.layer(process.env))),
+  ),
   Layer.provideMerge(HttpServer.layerServices),
 );
 

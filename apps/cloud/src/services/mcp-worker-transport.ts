@@ -1,13 +1,34 @@
-import { WorkerTransport, type WorkerTransportOptions } from "agents/mcp";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  WebStandardStreamableHTTPServerTransport,
+  type WebStandardStreamableHTTPServerTransportOptions,
+} from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import {
+  isInitializeRequest,
+  JSONRPCMessageSchema,
+  type InitializeRequestParams,
+} from "@modelcontextprotocol/sdk/types.js";
 import { Data, Effect, Exit } from "effect";
 
 export class McpWorkerTransportError extends Data.TaggedError("McpWorkerTransportError")<{
   readonly cause: unknown;
 }> {}
 
+export type McpTransportState = {
+  readonly sessionId?: string;
+  readonly initialized?: boolean;
+  readonly initializeParams?: InitializeRequestParams;
+};
+
+export type McpWorkerTransportOptions = WebStandardStreamableHTTPServerTransportOptions & {
+  readonly storage?: {
+    readonly get: () => Effect.Effect<McpTransportState | undefined, unknown>;
+    readonly set: (state: McpTransportState) => Effect.Effect<void, unknown>;
+  };
+};
+
 export type McpWorkerTransport = Readonly<{
-  transport: WorkerTransport;
+  transport: WebStandardStreamableHTTPServerTransport;
   connect: (server: McpServer) => Effect.Effect<void, McpWorkerTransportError>;
   handleRequest: (request: Request) => Effect.Effect<Response, McpWorkerTransportError>;
   close: () => Effect.Effect<void>;
@@ -23,12 +44,14 @@ type HandleRequestResult = {
   readonly replacedStandaloneSse: boolean;
 };
 
-const closeExistingStandaloneSse = (transport: WorkerTransport): boolean => {
+const closeExistingStandaloneSse = (
+  transport: WebStandardStreamableHTTPServerTransport,
+): boolean => {
   const streamId =
-    typeof Reflect.get(transport, "standaloneSseStreamId") === "string"
-      ? Reflect.get(transport, "standaloneSseStreamId")
+    typeof Reflect.get(transport, "_standaloneSseStreamId") === "string"
+      ? Reflect.get(transport, "_standaloneSseStreamId")
       : "_GET_stream";
-  const streamMapping = Reflect.get(transport, "streamMapping");
+  const streamMapping = Reflect.get(transport, "_streamMapping");
   if (!(streamMapping instanceof Map)) return false;
 
   const stream = streamMapping.get(streamId);
@@ -59,24 +82,56 @@ const jsonRpcRequestIdKey = (id: unknown): string | null => {
   }
 };
 
-const extractJsonRpcRequestIdKeys = async (request: Request): Promise<ReadonlyArray<string>> => {
-  if (request.method !== "POST") return [];
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) return [];
+const extractJsonRpcRequestIdKeys = (request: Request): Effect.Effect<ReadonlyArray<string>> =>
+  Effect.gen(function* () {
+    if (request.method !== "POST") return [];
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) return [];
 
-  const parsed = await Effect.runPromiseExit(Effect.tryPromise(() => request.clone().json()));
-  if (Exit.isFailure(parsed)) {
-    return [];
-  }
-  const messages = Array.isArray(parsed.value) ? parsed.value : [parsed.value];
-  return messages.flatMap((message) => {
-    if (!message || typeof message !== "object") return [];
-    const rpc = message as JsonRpcLike;
-    if (typeof rpc.method !== "string") return [];
-    const key = jsonRpcRequestIdKey(rpc.id);
-    return key ? [key] : [];
+    const parsedExit = yield* Effect.exit(Effect.tryPromise(() => request.clone().json()));
+    if (Exit.isFailure(parsedExit)) return [];
+    const parsed = parsedExit.value;
+    const messages = Array.isArray(parsed) ? parsed : [parsed];
+    return messages.flatMap((message) => {
+      if (!message || typeof message !== "object") return [];
+      const rpc = message as JsonRpcLike;
+      if (typeof rpc.method !== "string") return [];
+      const key = jsonRpcRequestIdKey(rpc.id);
+      return key ? [key] : [];
+    });
   });
-};
+
+const extractInitializeParams = (
+  request: Request,
+): Effect.Effect<McpTransportState["initializeParams"] | undefined, McpWorkerTransportError> =>
+  Effect.gen(function* () {
+    if (request.method !== "POST") return undefined;
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) return undefined;
+
+    const parsed = yield* Effect.tryPromise({
+      try: () => request.clone().json(),
+      catch: (cause) => new McpWorkerTransportError({ cause }),
+    });
+
+    const messages = Array.isArray(parsed) ? parsed : [parsed];
+    for (const message of messages) {
+      const decoded = yield* Effect.exit(
+        Effect.try({
+          try: () => JSONRPCMessageSchema.parse(message),
+          catch: (cause) => new McpWorkerTransportError({ cause }),
+        }),
+      );
+      if (Exit.isSuccess(decoded) && isInitializeRequest(decoded.value)) {
+        return {
+          capabilities: decoded.value.params.capabilities,
+          clientInfo: decoded.value.params.clientInfo,
+          protocolVersion: decoded.value.params.protocolVersion,
+        };
+      }
+    }
+    return undefined;
+  });
 
 // Hard ceiling on how long a same-id JSON-RPC request will wait for an
 // earlier in-flight one to finish. Stays well under the 180s upstream
@@ -87,61 +142,73 @@ const extractJsonRpcRequestIdKeys = async (request: Request): Promise<ReadonlyAr
 // id, which is recoverable; a perma-stuck queue is not.
 export const PREVIOUS_REQUEST_TIMEOUT_MS = 60_000;
 
-export class JsonRpcRequestIdQueue {
-  private readonly inFlight = new Map<string, Promise<void>>();
-  private readonly previousTimeoutMs: number;
+export type JsonRpcRequestIdQueue = Readonly<{
+  run: <A, E = never, R = never>(
+    request: Request,
+    run: () => Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>;
+}>;
 
-  constructor(options: { readonly previousTimeoutMs?: number } = {}) {
-    this.previousTimeoutMs = options.previousTimeoutMs ?? PREVIOUS_REQUEST_TIMEOUT_MS;
-  }
+export const makeJsonRpcRequestIdQueue = (
+  options: { readonly previousTimeoutMs?: number } = {},
+): JsonRpcRequestIdQueue => {
+  const inFlight = new Map<string, Promise<void>>();
+  const previousTimeoutMs = options.previousTimeoutMs ?? PREVIOUS_REQUEST_TIMEOUT_MS;
 
-  async run<A>(request: Request, run: () => Promise<A>): Promise<A> {
-    const ids = [...new Set(await extractJsonRpcRequestIdKeys(request))];
-    if (ids.length === 0) return await run();
+  return {
+    run: (request, run) =>
+      Effect.gen(function* () {
+        const ids = [...new Set(yield* extractJsonRpcRequestIdKeys(request))];
+        if (ids.length === 0) return yield* run();
 
-    const previous = ids.map((id) => this.inFlight.get(id)).filter((p) => p !== undefined);
-    let release!: () => void;
-    const current = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    for (const id of ids) {
-      this.inFlight.set(id, current);
-    }
-
-    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: promise queue must release in-flight ids after callback completion
-    try {
-      if (previous.length > 0) {
-        const settled = Promise.all(
-          previous.map((p) => Effect.runPromise(Effect.ignore(Effect.tryPromise(() => p)))),
-        );
-        const timeout = new Promise<"timeout">((resolve) =>
-          setTimeout(() => resolve("timeout"), this.previousTimeoutMs),
-        );
-        const outcome = await Promise.race([settled.then(() => "settled" as const), timeout]);
-        if (outcome === "timeout") {
-          console.warn(
-            `[mcp-worker-transport] previous in-flight request for ids=${JSON.stringify(ids)} did not release within ${this.previousTimeoutMs}ms; proceeding anyway`,
-          );
+        const previous = ids.map((id) => inFlight.get(id)).filter((p) => p !== undefined);
+        let release!: () => void;
+        const current = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        for (const id of ids) {
+          inFlight.set(id, current);
         }
-      }
-      return await run();
-    } finally {
-      for (const id of ids) {
-        if (this.inFlight.get(id) === current) {
-          this.inFlight.delete(id);
-        }
-      }
-      release();
-    }
-  }
-}
+
+        return yield* Effect.gen(function* () {
+          if (previous.length > 0) {
+            const outcome = yield* Effect.promise(() => {
+              const settled = Promise.all(previous);
+              const timeout = new Promise<"timeout">((resolve) =>
+                setTimeout(() => resolve("timeout"), previousTimeoutMs),
+              );
+              return Promise.race([settled.then(() => "settled" as const), timeout]);
+            });
+            if (outcome === "timeout") {
+              console.warn(
+                `[mcp-worker-transport] previous in-flight request for ids=${ids.join(",")} did not release within ${previousTimeoutMs}ms; proceeding anyway`,
+              );
+            }
+          }
+          return yield* run();
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              for (const id of ids) {
+                if (inFlight.get(id) === current) {
+                  inFlight.delete(id);
+                }
+              }
+              release();
+            }),
+          ),
+        );
+      }),
+  };
+};
 
 export const makeMcpWorkerTransport = (
-  options: WorkerTransportOptions,
+  options: McpWorkerTransportOptions,
 ): Effect.Effect<McpWorkerTransport> =>
   Effect.sync(() => {
-    const transport = new WorkerTransport(options);
-    const requestIdQueue = new JsonRpcRequestIdQueue();
+    const { storage, ...transportOptions } = options;
+    const transport = new WebStandardStreamableHTTPServerTransport(transportOptions);
+    const requestIdQueue = makeJsonRpcRequestIdQueue();
 
     const use = <A>(name: string, fn: () => Promise<A>) =>
       Effect.tryPromise({
@@ -149,35 +216,78 @@ export const makeMcpWorkerTransport = (
         catch: (cause) => new McpWorkerTransportError({ cause }),
       }).pipe(Effect.withSpan(`mcp.worker_transport.${name}`));
 
-    const handleWithStandaloneSseReplacement = async (
+    const restoreState = Effect.gen(function* () {
+      const state = storage
+        ? yield* storage
+            .get()
+            .pipe(Effect.mapError((cause) => new McpWorkerTransportError({ cause })))
+        : undefined;
+      if (!state?.initialized) return;
+      transport.sessionId = state.sessionId;
+      Reflect.set(transport, "_initialized", true);
+      if (state.initializeParams && transport.onmessage) {
+        transport.onmessage({
+          jsonrpc: "2.0",
+          id: "__restore__",
+          method: "initialize",
+          params: state.initializeParams,
+        });
+      }
+    });
+
+    const saveStateFromInitializeParams = (
+      initializeParams: McpTransportState["initializeParams"] | undefined,
+      response: Response,
+    ) =>
+      Effect.gen(function* () {
+        if (!storage || response.status >= 400) return;
+        if (!initializeParams) return;
+        yield* storage
+          .set({
+            sessionId: transport.sessionId,
+            initialized: true,
+            initializeParams,
+          })
+          .pipe(Effect.mapError((cause) => new McpWorkerTransportError({ cause })));
+      });
+
+    const handleWithStandaloneSseReplacement = (
       request: Request,
-    ): Promise<HandleRequestResult> => {
-      if (!isStandaloneSseGet(request)) {
+    ): Effect.Effect<HandleRequestResult, McpWorkerTransportError> =>
+      Effect.gen(function* () {
+        if (!isStandaloneSseGet(request)) {
+          return {
+            response: yield* use("handle_request_raw", () => transport.handleRequest(request)),
+            replacedStandaloneSse: false,
+          };
+        }
+
+        const initial = yield* use("handle_request_raw", () => transport.handleRequest(request));
+        if (initial.status !== 409) {
+          return { response: initial, replacedStandaloneSse: false };
+        }
+
+        const replacedStandaloneSse = closeExistingStandaloneSse(transport);
         return {
-          response: await transport.handleRequest(request),
-          replacedStandaloneSse: false,
+          response: replacedStandaloneSse
+            ? yield* use("handle_request_raw", () => transport.handleRequest(request))
+            : initial,
+          replacedStandaloneSse,
         };
-      }
-
-      const initial = await transport.handleRequest(request);
-      if (initial.status !== 409) {
-        return { response: initial, replacedStandaloneSse: false };
-      }
-
-      const replacedStandaloneSse = closeExistingStandaloneSse(transport);
-      return {
-        response: replacedStandaloneSse ? await transport.handleRequest(request) : initial,
-        replacedStandaloneSse,
-      };
-    };
+      });
 
     return {
       transport,
-      connect: (server: McpServer) => use("connect", () => server.connect(transport)),
+      connect: (server: McpServer) =>
+        use("connect", () => server.connect(transport)).pipe(Effect.andThen(restoreState)),
       handleRequest: (request: Request) =>
         Effect.gen(function* () {
-          const result = yield* use("handle_request", () =>
-            requestIdQueue.run(request, () => handleWithStandaloneSseReplacement(request)),
+          const initializeParams = yield* extractInitializeParams(request);
+          const result = yield* requestIdQueue.run(request, () =>
+            handleWithStandaloneSseReplacement(request),
+          );
+          yield* saveStateFromInitializeParams(initializeParams, result.response).pipe(
+            Effect.withSpan("mcp.worker_transport.save_state"),
           );
           yield* Effect.annotateCurrentSpan({
             "mcp.transport.replaced_standalone_sse": result.replacedStandaloneSse,

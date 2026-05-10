@@ -24,7 +24,7 @@ import {
   headersToConfigValues,
   type ConfigFileSink,
   type GraphqlSourceConfig as GraphqlConfigEntry,
-} from "@executor-js/config";
+} from "@executor-js/config/core";
 
 import {
   introspect,

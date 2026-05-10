@@ -6,7 +6,6 @@ import { DbService } from "../services/db";
 import { AutumnRoutesLive } from "./autumn";
 import {
   BootSharedServices,
-  RequestScopedServicesLive,
   RouterConfig,
   makeNonProtectedApiLive,
   makeOrgApiLive,
@@ -24,12 +23,10 @@ import { makeProtectedApiLive } from "./protected";
 // so tests can substitute a counting fake for `DbService.Live` and
 // assert per-request semantics — see
 // `apps/cloud/src/api.request-scope.node.test.ts`.
-export const makeApiLive = (requestScopedLive: Layer.Layer<DbService | UserStoreService>) =>
+export const makeApiLive = <E>(requestScopedLive: Layer.Layer<DbService | UserStoreService, E>) =>
   Layer.mergeAll(
     makeNonProtectedApiLive(requestScopedLive),
     makeOrgApiLive(requestScopedLive),
     makeProtectedApiLive(requestScopedLive),
     AutumnRoutesLive,
   ).pipe(Layer.provideMerge(RouterConfig), Layer.provideMerge(BootSharedServices));
-
-export const ApiLive = makeApiLive(RequestScopedServicesLive);

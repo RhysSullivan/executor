@@ -2,8 +2,8 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: {
-    index: "src/promise.ts",
-    core: "src/index.ts",
+    index: "src/index.ts",
+    promise: "src/promise.ts",
   },
   format: ["esm"],
   dts: false,

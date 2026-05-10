@@ -14,8 +14,9 @@
 // schema, plugin list, engine contract, MCP handshake — these tests fail
 // before prod does.
 
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Data, Effect, Layer } from "effect";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -38,6 +39,10 @@ import { makePostgresAdapter, makePostgresBlobStore } from "@executor-js/storage
 import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 import executorConfig from "../executor.config";
 import { DbService } from "./services/db";
+
+const DbLive = DbService.Live.pipe(Layer.provide(Cloudflare.WorkerEnvironment.layer(process.env)));
+
+class TransportCloseError extends Data.TaggedError("TransportCloseError") {}
 
 // ---------------------------------------------------------------------------
 // Test-only plugin: exposes one in-memory tool that elicits once. Lets the
@@ -149,11 +154,11 @@ const openSession = (
         [
           Effect.tryPromise({
             try: () => clientTransport.close(),
-            catch: (cause) => cause,
+            catch: () => new TransportCloseError(),
           }).pipe(Effect.ignore),
           Effect.tryPromise({
             try: () => serverTransport.close(),
-            catch: (cause) => cause,
+            catch: () => new TransportCloseError(),
           }).pipe(Effect.ignore),
         ],
         { discard: true },
@@ -176,7 +181,7 @@ describe("cloud MCP session end-to-end", () => {
       const tools = yield* Effect.promise(() => client.listTools());
       const names = tools.tools.map((t) => t.name);
       expect(names).toContain("execute");
-    }).pipe(Effect.provide(DbService.Live), Effect.scoped),
+    }).pipe(Effect.provide(DbLive), Effect.scoped),
   );
 
   it.effect("runs user code via the execute tool end-to-end", () =>
@@ -188,7 +193,7 @@ describe("cloud MCP session end-to-end", () => {
       expect(result.isError).toBeFalsy();
       const text = (result.content as Array<{ type: string; text: string }>)[0]!.text;
       expect(text).toContain("3");
-    }).pipe(Effect.provide(DbService.Live), Effect.scoped),
+    }).pipe(Effect.provide(DbLive), Effect.scoped),
   );
 
   // Isolates the drizzle adapter path so a schema spread drift surfaces as
@@ -200,7 +205,7 @@ describe("cloud MCP session end-to-end", () => {
       const executor = yield* buildScopedExecutor(nextOrgId(), "drizzle-probe");
       const sources = yield* executor.sources.list();
       expect(Array.isArray(sources)).toBe(true);
-    }).pipe(Effect.provide(DbService.Live), Effect.scoped),
+    }).pipe(Effect.provide(DbLive), Effect.scoped),
   );
 
   it.effect("bridges a form elicitation from engine to client and back", () =>
@@ -222,6 +227,6 @@ describe("cloud MCP session end-to-end", () => {
       const text = (result.content as Array<{ type: string; text: string }>)[0]!.text;
       expect(text).toContain("accept");
       expect(text).toContain("approved");
-    }).pipe(Effect.provide(DbService.Live), Effect.scoped),
+    }).pipe(Effect.provide(DbLive), Effect.scoped),
   );
 });

@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import * as Cloudflare from "alchemy/Cloudflare/Workers/Runtime";
 import { Cause, Effect } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { autumnHandler } from "autumn-js/backend";
@@ -30,6 +30,7 @@ const handler = Effect.gen(function* () {
   }
 
   const url = new URL(webRequest.url);
+  const env = yield* Cloudflare.WorkerEnvironment.typed<Env>();
   const body =
     request.method !== "GET" && request.method !== "HEAD"
       ? yield* Effect.mapError(

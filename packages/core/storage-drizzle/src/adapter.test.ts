@@ -8,7 +8,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Schedule } from "effect";
 import { StorageError, UniqueViolationError } from "@executor-js/storage-core";
 
-import { isTransientStorageError } from "./adapter";
+import { executeDrizzleQuery, isTransientStorageError } from "./adapter";
 
 const transientMsg = "[storage-drizzle] findOne select failed: Network connection lost.";
 
@@ -104,6 +104,26 @@ describe("transient retry policy", () => {
       );
 
       expect(calls).toBe(1);
+    }),
+  );
+});
+
+describe("executeDrizzleQuery", () => {
+  it.effect("executes drizzle builders explicitly instead of returning the builder", () =>
+    Effect.gen(function* () {
+      let executed = false;
+      const rows = [{ id: "row_1" }];
+      const result = yield* Effect.promise(() =>
+        executeDrizzleQuery({
+          execute: () => {
+            executed = true;
+            return rows;
+          },
+        }),
+      );
+
+      expect(executed).toBe(true);
+      expect(result).toEqual(rows);
     }),
   );
 });

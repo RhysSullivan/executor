@@ -8,6 +8,15 @@ import { ScopeId, SecretId } from "@executor-js/sdk";
 
 import { asOrg, fetchForOrg, TEST_BASE_URL } from "./__test-harness__/api-harness";
 
+const containsValue = (value: unknown, expected: string): boolean => {
+  if (value === expected) return true;
+  if (Array.isArray(value)) return value.some((item) => containsValue(item, expected));
+  if (value && typeof value === "object") {
+    return Object.values(value).some((item) => containsValue(item, expected));
+  }
+  return false;
+};
+
 describe("secrets api (HTTP)", () => {
   it.effect("set → list → status returns secret metadata", () =>
     Effect.gen(function* () {
@@ -23,13 +32,13 @@ describe("secrets api (HTTP)", () => {
       );
       expect(setRef.id).toBe(id);
       expect(setRef.scopeId).toBe(org);
-      expect(JSON.stringify(setRef)).not.toContain(secretValue);
+      expect(containsValue(setRef, secretValue)).toBe(false);
 
       const list = yield* asOrg(org, (client) =>
         client.secrets.list({ params: { scopeId: ScopeId.make(org) } }),
       );
       expect(list.find((s) => s.id === id)?.name).toBe("My API Token");
-      expect(JSON.stringify(list)).not.toContain(secretValue);
+      expect(containsValue(list, secretValue)).toBe(false);
 
       const status = yield* asOrg(org, (client) =>
         client.secrets.status({

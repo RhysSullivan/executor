@@ -41,6 +41,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Cloudflare
 .wrangler/
+.alchemy/
 personal-notes/
 *.har.executor
 executor.har

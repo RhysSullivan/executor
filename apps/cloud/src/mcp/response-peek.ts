@@ -15,8 +15,7 @@ class McpInternalJsonRpcError extends Data.TaggedError("McpInternalJsonRpcError"
   readonly message: string;
 }> {}
 
-const ResponseBodyTimeoutErrorData = Schema.Struct({
-  _tag: Schema.Literal("ResponseBodyTimeoutError"),
+const ResponseBodyTimeoutErrorData = Schema.TaggedStruct("ResponseBodyTimeoutError", {
   timeoutMs: Schema.Number,
 });
 const decodeResponseBodyTimeoutError = Schema.decodeUnknownOption(ResponseBodyTimeoutErrorData);
