@@ -1109,6 +1109,9 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
             yield* ctx.storage.removeSource(sourceId, scope);
           }),
         );
+        if (options?.configFile) {
+          yield* options.configFile.removeSource(sourceId);
+        }
       }),
 
     usagesForSecret: () => Effect.succeed([]),

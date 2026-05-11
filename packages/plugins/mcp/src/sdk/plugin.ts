@@ -1784,6 +1784,9 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             yield* ctx.storage.removeSource(sourceId, scope);
           }),
         );
+        if (options?.configFile) {
+          yield* options.configFile.removeSource(sourceId);
+        }
       }),
 
     usagesForSecret: () => Effect.succeed([]),

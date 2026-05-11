@@ -1337,6 +1337,9 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
             yield* ctx.storage.removeSource(sourceId, scope);
           }),
         );
+        if (options?.configFile) {
+          yield* options.configFile.removeSource(sourceId);
+        }
       }),
 
     // OpenAPI credential usages are reported by the core `credential_binding`
