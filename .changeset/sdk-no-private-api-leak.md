@@ -5,6 +5,8 @@
 "@executor-js/plugin-openapi": minor
 "@executor-js/plugin-onepassword": minor
 "@executor-js/plugin-google-discovery": minor
+"@executor-js/codemode-core": patch
+"@executor-js/plugin-example": patch
 ---
 
 Stop the published plugin bundles from importing `@executor-js/api`. The
@@ -38,3 +40,16 @@ Breaking for hosts that read `mcpPlugin(opts).routes` /
 `.handlers` / `.extensionService` directly off the SDK factory's
 return value — switch to the `*HttpPlugin` factory from
 `@executor-js/plugin-*/api`.
+
+Two unrelated published-bundle bugs surfaced by the new release-time
+smoke test (see `scripts/smoke-test-packed.ts`) are also fixed:
+
+- `@executor-js/codemode-core` was importing `ajv/dist/2020` without a
+  `.js` extension. Strict ESM resolvers reject extension-less subpath
+  imports, so the published bundle failed at load with `Cannot find
+  module '.../ajv/dist/2020'`.
+- `@executor-js/plugin-example`'s `./shared` and `./server` entries
+  imported `HttpApiEndpoint` / `HttpApiGroup` / `HttpApi` /
+  `HttpApiBuilder` from `@executor-js/sdk` (the slim Promise entry,
+  which doesn't re-export them). Switched to `@executor-js/sdk/core`,
+  the full SDK surface where those re-exports live.
