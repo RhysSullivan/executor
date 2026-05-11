@@ -11,7 +11,7 @@
 // React and other browser-only deps live in `./client` — never here.
 // ---------------------------------------------------------------------------
 
-import { Context, definePlugin, Effect, HttpApi, HttpApiBuilder } from "@executor-js/sdk";
+import { Context, definePlugin, Effect, HttpApi, HttpApiBuilder } from "@executor-js/sdk/core";
 
 import { ExampleApi } from "./shared";
 

@@ -9,7 +9,7 @@
 // No React or Node imports here — server and client both import this.
 // ---------------------------------------------------------------------------
 
-import { HttpApiEndpoint, HttpApiGroup, Schema } from "@executor-js/sdk";
+import { HttpApiEndpoint, HttpApiGroup, Schema } from "@executor-js/sdk/core";
 
 export const Greeting = Schema.Struct({
   message: Schema.String,
