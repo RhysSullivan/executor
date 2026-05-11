@@ -523,6 +523,59 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
     }),
   );
 
+  // Regression: the HTTP edge validates `oauth2` against the Struct shape of
+  // `OAuth2SourceConfigSchema` and hands the plugin a plain object — not an
+  // `OAuth2SourceConfig` instance. Storage encodes via the Class schema, which
+  // does an `instanceof` check, so without `canonicalizeOAuth2` wrapping the
+  // input the request crashed with "Expected OpenApiOAuth2SourceConfig, got
+  // {...}", the txn rolled back as `StorageError: pg transaction failed`, and
+  // the user saw an opaque `InternalError({ traceId })`.
+  it.effect("addSpec accepts plain wire-shape oauth2 config", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
+        }),
+      );
+
+      // Construct the exact shape the API endpoint validates and forwards:
+      // a plain object, not `new OAuth2SourceConfig(...)`.
+      const wireOAuth2 = {
+        kind: "oauth2",
+        securitySchemeName: "oauth2",
+        flow: "authorizationCode",
+        tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        authorizationUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+        clientIdSlot: "oauth2:oauth2:client-id",
+        clientSecretSlot: "oauth2:oauth2:client-secret",
+        connectionSlot: "oauth2:oauth2:connection",
+        scopes: [],
+      } as const;
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: TEST_SCOPE,
+        namespace: "wire_oauth",
+        baseUrl: "",
+        // Simulating the API boundary on purpose: the HTTP layer hands the
+        // plugin a plain object that satisfies the Struct shape but is not
+        // a Class instance, which is what regressed in production.
+        // oxlint-disable-next-line executor/no-double-cast
+        oauth2: wireOAuth2 as unknown as OAuth2SourceConfig,
+      });
+
+      const stored = yield* executor.openapi.getSource("wire_oauth", TEST_SCOPE);
+      expect(stored?.config.oauth2?.tokenUrl).toBe(wireOAuth2.tokenUrl);
+      expect(stored?.config.oauth2?.authorizationUrl).toBe(wireOAuth2.authorizationUrl);
+    }),
+  );
+
   it.effect("resolves secret-backed headers at invocation time", () =>
     Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;

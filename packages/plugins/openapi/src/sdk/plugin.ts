@@ -411,8 +411,15 @@ const canonicalizeOAuth2 = (
   }>;
 } => {
   if (!oauth2) return { bindings: [] };
+  // The HTTP edge validates the OAuth2 payload against the Struct shape of
+  // `OAuth2SourceConfigSchema`, so what arrives here is a plain object —
+  // not an `OAuth2SourceConfig` instance. Storage encodes via the Class
+  // schema, which does an `instanceof` check and rejects plain objects with
+  // "Expected OpenApiOAuth2SourceConfig, got ...". Wrap here so every
+  // caller (addSpec/updateSource, both the API and in-process SDK paths)
+  // hands a real instance to storage.
   return {
-    oauth2,
+    oauth2: oauth2 instanceof OAuth2SourceConfig ? oauth2 : new OAuth2SourceConfig(oauth2),
     bindings: [],
   };
 };
