@@ -1558,6 +1558,12 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                 name: updatedName,
                 config: updatedConfig,
               });
+              yield* ctx.core.sources.update({
+                id: namespace,
+                scope,
+                name: updatedName,
+                url: updatedConfig.endpoint,
+              });
               if (affectedPrefixes.length > 0 || directBindings.length > 0) {
                 yield* ctx.credentialBindings.replaceForSource({
                   targetScope: ScopeId.make(replacementTargetScope),
