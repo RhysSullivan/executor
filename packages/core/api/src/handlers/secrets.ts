@@ -48,7 +48,7 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
         Effect.gen(function* () {
           const executor = yield* ExecutorService;
           const ref = yield* executor.secrets.set(
-            new SetSecretInput({
+            SetSecretInput.make({
               id: payload.id,
               scope: path.scopeId,
               name: payload.name,
@@ -65,7 +65,7 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
         Effect.gen(function* () {
           const executor = yield* ExecutorService;
           yield* executor.secrets.remove(
-            new RemoveSecretInput({
+            RemoveSecretInput.make({
               id: path.secretId,
               targetScope: path.scopeId,
             }),

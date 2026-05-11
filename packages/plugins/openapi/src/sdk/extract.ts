@@ -67,18 +67,17 @@ const extractParameters = (
 
   return [...merged.values()]
     .filter((p) => VALID_PARAM_LOCATIONS.has(p.in))
-    .map(
-      (p) =>
-        new OperationParameter({
-          name: p.name,
-          location: p.in as ParameterLocation,
-          required: p.in === "path" ? true : p.required === true,
-          schema: Option.fromNullishOr(p.schema),
-          style: Option.fromNullishOr(p.style),
-          explode: Option.fromNullishOr(p.explode),
-          allowReserved: Option.fromNullishOr("allowReserved" in p ? p.allowReserved : undefined),
-          description: Option.fromNullishOr(p.description),
-        }),
+    .map((p) =>
+      OperationParameter.make({
+        name: p.name,
+        location: p.in as ParameterLocation,
+        required: p.in === "path" ? true : p.required === true,
+        schema: Option.fromNullishOr(p.schema),
+        style: Option.fromNullishOr(p.style),
+        explode: Option.fromNullishOr(p.explode),
+        allowReserved: Option.fromNullishOr("allowReserved" in p ? p.allowReserved : undefined),
+        description: Option.fromNullishOr(p.description),
+      }),
     );
 };
 
@@ -99,7 +98,7 @@ const buildEncodingRecord = (
       explode?: boolean;
       allowReserved?: boolean;
     };
-    out[prop] = new EncodingObject({
+    out[prop] = EncodingObject.make({
       contentType: Option.fromNullishOr(e.contentType),
       style: Option.fromNullishOr(e.style),
       explode: Option.fromNullishOr(e.explode),
@@ -118,15 +117,14 @@ const extractRequestBody = (
   const body = r.resolve<RequestBodyObject>(operation.requestBody);
   if (!body) return undefined;
 
-  const contents = declaredContents(body.content).map(
-    ({ mediaType, media }) =>
-      new MediaBinding({
-        contentType: mediaType,
-        schema: Option.fromNullishOr(media.schema),
-        encoding: Option.fromNullishOr(
-          buildEncodingRecord((media as { encoding?: Record<string, unknown> }).encoding),
-        ),
-      }),
+  const contents = declaredContents(body.content).map(({ mediaType, media }) =>
+    MediaBinding.make({
+      contentType: mediaType,
+      schema: Option.fromNullishOr(media.schema),
+      encoding: Option.fromNullishOr(
+        buildEncodingRecord((media as { encoding?: Record<string, unknown> }).encoding),
+      ),
+    }),
   );
   if (contents.length === 0) return undefined;
 
@@ -134,7 +132,7 @@ const extractRequestBody = (
   // override at invoke time with a `contentType` arg.
   const defaultContent = contents[0]!;
 
-  return new OperationRequestBody({
+  return OperationRequestBody.make({
     required: body.required === true,
     contentType: defaultContent.contentType,
     schema: defaultContent.schema,
@@ -241,7 +239,7 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
             return [
               [
                 name,
-                new ServerVariable({
+                ServerVariable.make({
                   default: String(v.default),
                   enum:
                     enumValues && enumValues.length > 0 ? Option.some(enumValues) : Option.none(),
@@ -253,7 +251,7 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
         )
       : undefined;
     return [
-      new ServerInfo({
+      ServerInfo.make({
         url: server.url,
         description: Option.fromNullishOr(server.description),
         variables: vars && Object.keys(vars).length > 0 ? Option.some(vars) : Option.none(),
@@ -293,7 +291,7 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
       const tags = (operation.tags ?? []).filter((t) => t.trim().length > 0);
 
       operations.push(
-        new ExtractedOperation({
+        ExtractedOperation.make({
           operationId: OperationId.make(deriveOperationId(method, pathTemplate, operation)),
           method,
           pathTemplate,
@@ -310,7 +308,7 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
     }
   }
 
-  return new ExtractionResult({
+  return ExtractionResult.make({
     title: Option.fromNullishOr(doc.info?.title),
     version: Option.fromNullishOr(doc.info?.version),
     servers: extractServers(doc),

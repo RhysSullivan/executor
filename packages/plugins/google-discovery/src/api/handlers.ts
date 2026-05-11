@@ -76,7 +76,7 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
             const ext = yield* GoogleDiscoveryExtensionService;
             const source = yield* ext.getSource(path.namespace, path.scopeId);
             return source
-              ? new GoogleDiscoveryStoredSourceSchema({
+              ? GoogleDiscoveryStoredSourceSchema.make({
                   namespace: source.namespace,
                   name: source.name,
                   config: source.config,

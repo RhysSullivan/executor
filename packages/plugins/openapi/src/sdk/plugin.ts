@@ -243,7 +243,7 @@ const normalizeOpenApiRefs = (node: unknown): unknown => {
 };
 
 const toBinding = (def: ToolDefinition): OperationBinding =>
-  new OperationBinding({
+  OperationBinding.make({
     method: def.operation.method,
     pathTemplate: def.operation.pathTemplate,
     parameters: [...def.operation.parameters],
@@ -299,7 +299,7 @@ const canonicalizeHeaders = (
       continue;
     }
     const slot = headerSlotFromName(name);
-    nextHeaders[name] = new ConfiguredHeaderBinding({
+    nextHeaders[name] = ConfiguredHeaderBinding.make({
       kind: "binding",
       slot,
       prefix: value.prefix,
@@ -346,7 +346,7 @@ const canonicalizeCredentialMap = (
       continue;
     }
     const slot = slotForName(name);
-    nextValues[name] = new ConfiguredHeaderBinding({
+    nextValues[name] = ConfiguredHeaderBinding.make({
       kind: "binding",
       slot,
       prefix: value.prefix,
@@ -434,7 +434,7 @@ const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number 
   ranks.get(scopeId) ?? Infinity;
 
 const coreBindingToOpenApiBinding = (binding: CredentialBindingRef): OpenApiSourceBindingRef =>
-  new OpenApiSourceBindingRef({
+  OpenApiSourceBindingRef.make({
     sourceId: binding.sourceId,
     sourceScopeId: binding.sourceScopeId,
     scopeId: binding.scopeId,
@@ -1379,7 +1379,7 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "_");
         const name = Option.getOrElse(result.title, () => namespace);
-        return new SourceDetectionResult({
+        return SourceDetectionResult.make({
           kind: "openapi",
           confidence: "high",
           endpoint: trimmed,

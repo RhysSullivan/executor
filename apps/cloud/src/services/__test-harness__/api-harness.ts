@@ -73,12 +73,12 @@ const createTestScopedExecutor = (userId: string, orgId: string, orgName: string
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
-    const orgScope = new Scope({
+    const orgScope = Scope.make({
       id: ScopeId.make(orgId),
       name: orgName,
       createdAt: new Date(),
     });
-    const userOrgScope = new Scope({
+    const userOrgScope = Scope.make({
       id: ScopeId.make(userOrgScopeId(userId, orgId)),
       name: `Personal · ${orgName}`,
       createdAt: new Date(),

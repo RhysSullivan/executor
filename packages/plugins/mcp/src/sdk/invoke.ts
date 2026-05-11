@@ -109,12 +109,12 @@ const decodeElicitParams = Schema.decodeUnknownSync(McpElicitParams);
 
 const toElicitationRequest = (params: McpElicitParams): ElicitationRequest =>
   params.mode === "url"
-    ? new UrlElicitation({
+    ? UrlElicitation.make({
         message: params.message,
         url: params.url,
         elicitationId: params.elicitationId ?? params.id ?? "",
       })
-    : new FormElicitation({
+    : FormElicitation.make({
         message: params.message,
         requestedSchema: params.requestedSchema,
       });

@@ -24,7 +24,7 @@ export type ConnectionProviderState = typeof ConnectionProviderState.Type;
 // reference them from its source config) but not token values.
 // ---------------------------------------------------------------------------
 
-export class ConnectionRef extends Schema.Class<ConnectionRef>("ConnectionRef")({
+export const ConnectionRef = Schema.Struct({
   id: ConnectionId,
   scopeId: ScopeId,
   provider: Schema.String,
@@ -39,7 +39,8 @@ export class ConnectionRef extends Schema.Class<ConnectionRef>("ConnectionRef")(
   providerState: Schema.NullOr(ConnectionProviderState),
   createdAt: Schema.Date,
   updatedAt: Schema.Date,
-}) {}
+});
+export type ConnectionRef = typeof ConnectionRef.Type;
 
 // ---------------------------------------------------------------------------
 // CreateConnectionInput — what a plugin passes to create a fresh
@@ -53,7 +54,7 @@ export class ConnectionRef extends Schema.Class<ConnectionRef>("ConnectionRef")(
 // of the first time a refresh is attempted.
 // ---------------------------------------------------------------------------
 
-export class TokenMaterial extends Schema.Class<TokenMaterial>("TokenMaterial")({
+export const TokenMaterial = Schema.Struct({
   /** Target secret id. Plugins typically derive this from the source id
    *  + a stable suffix (e.g. `${sourceId}.access_token`). */
   secretId: SecretId,
@@ -61,11 +62,10 @@ export class TokenMaterial extends Schema.Class<TokenMaterial>("TokenMaterial")(
    *  Connections UI hides connection-owned secrets. */
   name: Schema.String,
   value: Schema.String,
-}) {}
+});
+export type TokenMaterial = typeof TokenMaterial.Type;
 
-export class CreateConnectionInput extends Schema.Class<CreateConnectionInput>(
-  "CreateConnectionInput",
-)({
+export const CreateConnectionInput = Schema.Struct({
   id: ConnectionId,
   /** Executor scope id that will own this connection + its backing
    *  secrets. This is the sharing boundary: a user scope is personal,
@@ -79,7 +79,8 @@ export class CreateConnectionInput extends Schema.Class<CreateConnectionInput>(
   /** OAuth-style scope string. Distinct from the executor scope above. */
   oauthScope: Schema.NullOr(Schema.String),
   providerState: Schema.NullOr(ConnectionProviderState),
-}) {}
+});
+export type CreateConnectionInput = typeof CreateConnectionInput.Type;
 
 // ---------------------------------------------------------------------------
 // ConnectionRefreshError — typed error surface for refresh handlers.
@@ -166,9 +167,7 @@ export interface ConnectionProvider {
 // one transaction.
 // ---------------------------------------------------------------------------
 
-export class UpdateConnectionTokensInput extends Schema.Class<UpdateConnectionTokensInput>(
-  "UpdateConnectionTokensInput",
-)({
+export const UpdateConnectionTokensInput = Schema.Struct({
   id: ConnectionId,
   accessToken: Schema.String,
   refreshToken: Schema.optional(Schema.NullOr(Schema.String)),
@@ -176,12 +175,12 @@ export class UpdateConnectionTokensInput extends Schema.Class<UpdateConnectionTo
   oauthScope: Schema.optional(Schema.NullOr(Schema.String)),
   providerState: Schema.optional(Schema.NullOr(ConnectionProviderState)),
   identityLabel: Schema.optional(Schema.NullOr(Schema.String)),
-}) {}
+});
+export type UpdateConnectionTokensInput = typeof UpdateConnectionTokensInput.Type;
 
-export class RemoveConnectionInput extends Schema.Class<RemoveConnectionInput>(
-  "RemoveConnectionInput",
-)({
+export const RemoveConnectionInput = Schema.Struct({
   id: ConnectionId,
   /** Scope id whose connection row and owned token secrets should be removed. */
   targetScope: ScopeId,
-}) {}
+});
+export type RemoveConnectionInput = typeof RemoveConnectionInput.Type;

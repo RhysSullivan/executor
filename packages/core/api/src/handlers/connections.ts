@@ -34,7 +34,7 @@ export const ConnectionsHandlers = HttpApiBuilder.group(ExecutorApi, "connection
         Effect.gen(function* () {
           const executor = yield* ExecutorService;
           yield* executor.connections.remove(
-            new RemoveConnectionInput({
+            RemoveConnectionInput.make({
               id: path.connectionId,
               targetScope: path.scopeId,
             }),

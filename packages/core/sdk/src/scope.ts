@@ -2,8 +2,9 @@ import { Schema } from "effect";
 
 import { ScopeId } from "./ids";
 
-export class Scope extends Schema.Class<Scope>("Scope")({
+export const Scope = Schema.Struct({
   id: ScopeId,
   name: Schema.String,
   createdAt: Schema.Date,
-}) {}
+});
+export type Scope = typeof Scope.Type;

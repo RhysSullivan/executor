@@ -62,7 +62,7 @@ const makeFailingAdapter = (failure: StorageFailure): DBAdapter => {
   };
 };
 
-const testScope = new Scope({
+const testScope = Scope.make({
   id: ScopeId.make("test-scope"),
   name: "test",
   createdAt: new Date(),

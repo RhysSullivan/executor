@@ -157,7 +157,7 @@ describe("MCP host server — client with elicitation", () => {
 
   it("form elicitation is bridged from engine to MCP client and back", async () => {
     const engine = makeElicitingEngine(
-      new FormElicitation({
+      FormElicitation.make({
         message: "Approve this action?",
         requestedSchema: {
           type: "object",
@@ -183,7 +183,7 @@ describe("MCP host server — client with elicitation", () => {
 
   it("form elicitation declined by client → engine sees decline", async () => {
     const engine = makeElicitingEngine(
-      new FormElicitation({ message: "Accept?", requestedSchema: {} }),
+      FormElicitation.make({ message: "Accept?", requestedSchema: {} }),
       (r) => `action:${r.action}`,
     );
 
@@ -204,7 +204,7 @@ describe("MCP host server — client with elicitation", () => {
   it("empty form schema gets wrapped with minimal valid schema", async () => {
     let receivedSchema: unknown;
     const engine = makeElicitingEngine(
-      new FormElicitation({ message: "Just approve", requestedSchema: {} }),
+      FormElicitation.make({ message: "Just approve", requestedSchema: {} }),
     );
 
     await withClient(engine, ELICITATION_CAPS, async (client) => {
@@ -227,7 +227,7 @@ describe("MCP host server — client with elicitation", () => {
   it("UrlElicitation is sent as native mode:url elicitation", async () => {
     let receivedParams: Record<string, unknown> | undefined;
     const engine = makeElicitingEngine(
-      new UrlElicitation({
+      UrlElicitation.make({
         message: "Please authenticate",
         url: "https://example.com/oauth",
         elicitationId: "elic-1",
@@ -311,7 +311,7 @@ describe("MCP host server — client with form-only elicitation", () => {
   it("UrlElicitation falls back to form when client lacks url support", async () => {
     let receivedMessage: string | undefined;
     const engine = makeElicitingEngine(
-      new UrlElicitation({
+      UrlElicitation.make({
         message: "Please authenticate",
         url: "https://auth.example.com/oauth",
         elicitationId: "elic-1",
@@ -375,7 +375,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         Effect.succeed(
           makePausedResult(
             "exec_42",
-            new FormElicitation({
+            FormElicitation.make({
               message: "Need approval",
               requestedSchema: {
                 type: "object",
@@ -486,7 +486,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         Effect.succeed(
           makePausedResult(
             "exec_99",
-            new UrlElicitation({
+            UrlElicitation.make({
               message: "Please authenticate",
               url: "https://auth.example.com/callback",
               elicitationId: "elic-url-1",
@@ -518,7 +518,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
 describe("MCP host server — elicitation error handling", () => {
   it("elicitInput failure falls back to cancel", async () => {
     const engine = makeElicitingEngine(
-      new FormElicitation({
+      FormElicitation.make({
         message: "will fail",
         requestedSchema: {
           type: "object",
@@ -602,7 +602,7 @@ describe("MCP host server — multiple elicitations", () => {
           const r1 = yield* onElicitation({
             toolId: STUB_TOOL_ID,
             args: {},
-            request: new FormElicitation({
+            request: FormElicitation.make({
               message: "What is your name?",
               requestedSchema: {
                 type: "object",
@@ -614,7 +614,7 @@ describe("MCP host server — multiple elicitations", () => {
           const r2 = yield* onElicitation({
             toolId: STUB_TOOL_ID,
             args: {},
-            request: new FormElicitation({
+            request: FormElicitation.make({
               message: `Confirm: ${r1.content?.name}?`,
               requestedSchema: {
                 type: "object",

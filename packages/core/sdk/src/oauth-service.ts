@@ -568,12 +568,12 @@ export const makeOAuth2Service = (
 
       yield* deps
         .connectionsCreate(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: ConnectionId.make(input.connectionId),
             scope: ScopeId.make(input.tokenScope),
             provider: OAUTH2_PROVIDER_KEY,
             identityLabel: input.identityLabel ?? safeHostname(input.endpoint),
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: SecretId.make(oauthSecretId(input.connectionId, "access-token")),
               name: "OAuth Access Token",
               value: tokens.access_token,
@@ -737,7 +737,7 @@ export const makeOAuth2Service = (
         const secretId = oauthSecretId(connectionId, "client-secret");
         return deps
           .secretsSet(
-            new SetSecretInput({
+            SetSecretInput.make({
               id: SecretId.make(secretId),
               scope: ScopeId.make(tokenScope),
               name: "OAuth Client Secret",
@@ -809,20 +809,20 @@ export const makeOAuth2Service = (
 
       yield* deps
         .connectionsCreate(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: ConnectionId.make(connectionId),
             scope: ScopeId.make(tokenScope),
             provider: OAUTH2_PROVIDER_KEY,
             identityLabel: safeHostname(
               payload.identityLabel ?? exchangeResult.endpointForDisplay ?? endpoint,
             ),
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: SecretId.make(oauthSecretId(connectionId, "access-token")),
               name: "OAuth Access Token",
               value: exchangeResult.tokens.access_token,
             }),
             refreshToken: exchangeResult.tokens.refresh_token
-              ? new TokenMaterial({
+              ? TokenMaterial.make({
                   secretId: SecretId.make(oauthSecretId(connectionId, "refresh-token")),
                   name: "OAuth Refresh Token",
                   value: exchangeResult.tokens.refresh_token,

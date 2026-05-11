@@ -338,7 +338,7 @@ const toParameter = (
     const parameter = yield* decodeDiscoveryParameter(rawParameter);
     if (parameter.location === undefined) return null;
 
-    return new GoogleDiscoveryParameter({
+    return GoogleDiscoveryParameter.make({
       name,
       location: parameter.location,
       required: parameter.required === true,
@@ -430,10 +430,10 @@ const manifestMethodFromMethod = (input: {
       method,
     });
 
-    return new GoogleDiscoveryManifestMethod({
+    return GoogleDiscoveryManifestMethod.make({
       toolPath: toToolPath(input.service, methodId),
       description: method.description,
-      binding: new GoogleDiscoveryMethodBinding({
+      binding: GoogleDiscoveryMethodBinding.make({
         method: method.httpMethod,
         pathTemplate: path,
         parameters,
@@ -513,7 +513,7 @@ export const extractGoogleDiscoveryManifest = Effect.fn("GoogleDiscovery.extract
         }),
     );
 
-    return new GoogleDiscoveryManifest({
+    return GoogleDiscoveryManifest.make({
       title: document.title,
       service,
       version,

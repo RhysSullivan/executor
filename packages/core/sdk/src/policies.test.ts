@@ -263,11 +263,11 @@ describe("effectivePolicyFromSorted", () => {
 const recordingHandler = (calls: { count: number }): ElicitationHandler =>
   (() => {
     calls.count++;
-    return Effect.succeed(new ElicitationResponse({ action: "accept" }));
+    return Effect.succeed(ElicitationResponse.make({ action: "accept" }));
   }) as ElicitationHandler;
 
 const decliningHandler: ElicitationHandler = () =>
-  Effect.succeed(new ElicitationResponse({ action: "decline" }));
+  Effect.succeed(ElicitationResponse.make({ action: "decline" }));
 
 const policyTestSchema = defineSchema({
   ptest_marker: {
@@ -365,8 +365,8 @@ describe("executor.policies", () => {
       const executor = yield* createExecutor(
         makeTestConfig({
           scopes: [
-            new Scope({ id: userScope, name: "user", createdAt: new Date() }),
-            new Scope({ id: orgScope, name: "org", createdAt: new Date() }),
+            Scope.make({ id: userScope, name: "user", createdAt: new Date() }),
+            Scope.make({ id: orgScope, name: "org", createdAt: new Date() }),
           ],
           plugins: [policyTestPlugin()] as const,
         }),
@@ -589,8 +589,8 @@ describe("blocked tools", () => {
       const executor = yield* createExecutor(
         makeTestConfig({
           scopes: [
-            new Scope({ id: userScope, name: "user", createdAt: new Date() }),
-            new Scope({ id: orgScope, name: "org", createdAt: new Date() }),
+            Scope.make({ id: userScope, name: "user", createdAt: new Date() }),
+            Scope.make({ id: orgScope, name: "org", createdAt: new Date() }),
           ],
           plugins: [policyTestPlugin()] as const,
         }),

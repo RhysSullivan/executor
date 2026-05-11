@@ -354,7 +354,7 @@ export default function AddOpenApiSource(props: {
   for (const ch of customHeaders) {
     if (!ch.name.trim()) continue;
     const slot = headerBindingSlot(ch.name.trim());
-    configuredHeaders[ch.name.trim()] = new ConfiguredHeaderBinding({
+    configuredHeaders[ch.name.trim()] = ConfiguredHeaderBinding.make({
       kind: "binding",
       slot,
       prefix: ch.prefix,
@@ -373,7 +373,7 @@ export default function AddOpenApiSource(props: {
     if (!name) continue;
     if (param.secretId) {
       const slot = queryParamBindingSlot(name);
-      configuredQueryParams[name] = new ConfiguredHeaderBinding({
+      configuredQueryParams[name] = ConfiguredHeaderBinding.make({
         kind: "binding",
         slot,
         prefix: param.prefix,
@@ -416,7 +416,7 @@ export default function AddOpenApiSource(props: {
 
   const configuredOAuth2 =
     strategy.kind === "oauth2" && selectedOAuth2Preset
-      ? new OAuth2SourceConfig({
+      ? OAuth2SourceConfig.make({
           kind: "oauth2",
           securitySchemeName: selectedOAuth2Preset.securitySchemeName,
           flow: selectedOAuth2Preset.flow,
@@ -740,7 +740,7 @@ export default function AddOpenApiSource(props: {
     for (const binding of headerBindings) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: new OpenApiSourceBindingInput({
+        payload: OpenApiSourceBindingInput.make({
           sourceId,
           sourceScope,
           scope: binding.scope,
@@ -763,7 +763,7 @@ export default function AddOpenApiSource(props: {
     for (const binding of queryParamBindings) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: new OpenApiSourceBindingInput({
+        payload: OpenApiSourceBindingInput.make({
           sourceId,
           sourceScope,
           scope: binding.scope,
@@ -786,7 +786,7 @@ export default function AddOpenApiSource(props: {
     if (configuredOAuth2 && oauth2ClientIdSecretId) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: new OpenApiSourceBindingInput({
+        payload: OpenApiSourceBindingInput.make({
           sourceId,
           sourceScope,
           scope: bindingScope,
@@ -809,7 +809,7 @@ export default function AddOpenApiSource(props: {
     if (configuredOAuth2?.clientSecretSlot && oauth2ClientSecretSecretId) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: new OpenApiSourceBindingInput({
+        payload: OpenApiSourceBindingInput.make({
           sourceId,
           sourceScope,
           scope: bindingScope,
@@ -832,7 +832,7 @@ export default function AddOpenApiSource(props: {
     if (configuredOAuth2 && oauth2Auth) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: new OpenApiSourceBindingInput({
+        payload: OpenApiSourceBindingInput.make({
           sourceId,
           sourceScope,
           scope: oauthTokenBindingScope,

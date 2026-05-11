@@ -320,7 +320,7 @@ const makeGoogleDiscoveryPluginExtension = (ctx: PluginCtx<GoogleDiscoveryStore>
             service: manifest.service,
             version: manifest.version,
           });
-        const sourceData = new GoogleDiscoveryStoredSourceDataSchema({
+        const sourceData = GoogleDiscoveryStoredSourceDataSchema.make({
           name: input.name,
           discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
           credentials: input.credentials,
@@ -431,7 +431,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       const out: Usage[] = [];
       for (const s of sources) {
         out.push(
-          new Usage({
+          Usage.make({
             pluginId: "google-discovery",
             scopeId: ScopeId.make(s.scope_id),
             ownerKind: "google-discovery-source",
@@ -443,7 +443,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       }
       for (const r of childRows) {
         out.push(
-          new Usage({
+          Usage.make({
             pluginId: "google-discovery",
             scopeId: ScopeId.make(r.scope_id),
             ownerKind: `google-discovery-source-${r.kind.replace(/_/g, "-")}`,
@@ -460,16 +460,15 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
     Effect.gen(function* () {
       const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
       const sources = yield* typedCtx.storage.findSourcesByConnection(args.connectionId);
-      return sources.map(
-        (s) =>
-          new Usage({
-            pluginId: "google-discovery",
-            scopeId: ScopeId.make(s.scope_id),
-            ownerKind: "google-discovery-source",
-            ownerId: s.namespace,
-            ownerName: s.name,
-            slot: s.slot,
-          }),
+      return sources.map((s) =>
+        Usage.make({
+          pluginId: "google-discovery",
+          scopeId: ScopeId.make(s.scope_id),
+          ownerKind: "google-discovery-source",
+          ownerId: s.namespace,
+          ownerName: s.name,
+          slot: s.slot,
+        }),
       );
     }),
 
@@ -502,7 +501,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
         () => `${manifest.service} ${manifest.version}`,
       );
 
-      return new SourceDetectionResult({
+      return SourceDetectionResult.make({
         kind: "googleDiscovery",
         confidence: "high",
         endpoint: trimmed,
@@ -526,7 +525,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       );
       const text = yield* fetchDiscoveryDocument(existing.config.discoveryUrl, credentials);
       const manifest = yield* extractGoogleDiscoveryManifest(text);
-      const next = new GoogleDiscoveryStoredSourceDataSchema({
+      const next = GoogleDiscoveryStoredSourceDataSchema.make({
         ...existing.config,
         service: manifest.service,
         version: manifest.version,

@@ -47,7 +47,7 @@ import { workosVaultPlugin } from "@executor-js/plugin-workos-vault";
 // SourceRegistry, SecretStore, and PolicyEngine service instances.
 // ---------------------------------------------------------------------------
 
-const scope = new Scope({
+const scope = Scope.make({
   id: ScopeId.make("example-scope"),
   name: "/tmp/example-workspace",
   createdAt: new Date(),
@@ -203,7 +203,7 @@ const program = Effect.gen(function* () {
   console.log("Registered providers:", providers);
 
   yield* executor.secrets.set(
-    new SetSecretInput({
+    SetSecretInput.make({
       id: SecretId.make("example-api-token"),
       scope: "example-scope" as SetSecretInput["scope"],
       name: "Example API Token",

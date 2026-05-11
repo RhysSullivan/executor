@@ -144,16 +144,15 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
 
   const scopes =
     config.scopes && config.scopes.length > 0
-      ? config.scopes.map(
-          (s, i) =>
-            new Scope({
-              id: ScopeId.make(s.id ?? (i === 0 ? "default-scope" : `scope-${i}`)),
-              name: s.name ?? (i === 0 ? "default" : `scope-${i}`),
-              createdAt: new Date(),
-            }),
+      ? config.scopes.map((s, i) =>
+          Scope.make({
+            id: ScopeId.make(s.id ?? (i === 0 ? "default-scope" : `scope-${i}`)),
+            name: s.name ?? (i === 0 ? "default" : `scope-${i}`),
+            createdAt: new Date(),
+          }),
         )
       : [
-          new Scope({
+          Scope.make({
             id: ScopeId.make("default-scope"),
             name: "default",
             createdAt: new Date(),

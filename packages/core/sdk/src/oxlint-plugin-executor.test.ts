@@ -24,24 +24,6 @@ const runOxlintOn = async (name: string, source: string) => {
   return result;
 };
 
-const runOxlintOnFiles = async (files: ReadonlyArray<readonly [string, string]>, entry: string) => {
-  const dir = join(repoRoot, ".local", "oxlint-plugin-executor-tests");
-  await mkdir(dir, { recursive: true });
-  await Promise.all(files.map(([name, source]) => writeFile(join(dir, name), source)));
-
-  const result = spawnSync(
-    join(repoRoot, "node_modules", ".bin", "oxlint"),
-    ["-c", join(repoRoot, ".oxlintrc.jsonc"), join(dir, entry), "--deny-warnings"],
-    {
-      cwd: repoRoot,
-      encoding: "utf8",
-    },
-  );
-
-  await Promise.all(files.map(([name]) => rm(join(dir, name), { force: true })));
-  return result;
-};
-
 describe("executor oxlint plugin", () => {
   it("rejects expect calls in conditional test branches", async () => {
     const result = await runOxlintOn(
@@ -89,36 +71,51 @@ describe("executor oxlint plugin", () => {
     expect(result.stderr).toBe("");
   });
 
-  it("rejects Schema.Class schemas as HTTP payload schemas", async () => {
-    const result = await runOxlintOnFiles(
-      [
-        [
-          "schema-class-payload-types.ts",
-          `
-            import { Schema } from "effect";
+  it("rejects Schema.Class declarations anywhere", async () => {
+    const result = await runOxlintOn(
+      "schema-class.ts",
+      `
+        import { Schema } from "effect";
 
-            export class CreateThing extends Schema.Class<CreateThing>("CreateThing")({
-              name: Schema.String,
-            }) {}
-          `,
-        ],
-        [
-          "schema-class-payload.ts",
-          `
-            import { HttpApiEndpoint } from "effect/unstable/httpapi";
-            import { CreateThing } from "./schema-class-payload-types";
-
-            HttpApiEndpoint.post("createThing", "/things", {
-              payload: CreateThing,
-            });
-          `,
-        ],
-      ],
-      "schema-class-payload.ts",
+        export class Thing extends Schema.Class<Thing>("Thing")({
+          name: Schema.String,
+        }) {}
+      `,
     );
 
     expect(result.status).toBe(1);
-    expect(result.stdout).toContain("executor(no-schema-class-http-payload)");
+    expect(result.stdout).toContain("executor(no-schema-class)");
+  });
+
+  it("rejects Schema.TaggedClass declarations anywhere", async () => {
+    const result = await runOxlintOn(
+      "schema-tagged-class.ts",
+      `
+        import { Schema } from "effect";
+
+        export class Thing extends Schema.TaggedClass<Thing>()("Thing", {
+          name: Schema.String,
+        }) {}
+      `,
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("executor(no-schema-class)");
+  });
+
+  it("allows Schema.TaggedErrorClass (typed errors are exempt)", async () => {
+    const result = await runOxlintOn(
+      "tagged-error.ts",
+      `
+        import { Schema } from "effect";
+
+        export class MyError extends Schema.TaggedErrorClass<MyError>()("MyError", {
+          message: Schema.String,
+        }) {}
+      `,
+    );
+
+    expect(result.status).toBe(0);
   });
 
   it("allows structural HTTP payload schemas", async () => {

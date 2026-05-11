@@ -363,7 +363,7 @@ export default function EditOpenApiSource(props: {
     setError(null);
     const exit = await doSetBinding({
       params: { scopeId: displayScope },
-      payload: new OpenApiSourceBindingInput({
+      payload: OpenApiSourceBindingInput.make({
         sourceId: props.sourceId,
         sourceScope,
         scope: targetScope,
@@ -490,7 +490,7 @@ export default function EditOpenApiSource(props: {
       }
       const setBindingExit = await doSetBinding({
         params: { scopeId: displayScope },
-        payload: new OpenApiSourceBindingInput({
+        payload: OpenApiSourceBindingInput.make({
           sourceId: props.sourceId,
           sourceScope,
           scope: targetScope,
@@ -558,7 +558,7 @@ export default function EditOpenApiSource(props: {
       onSuccess: async (result) => {
         const setBindingExit = await doSetBinding({
           params: { scopeId: displayScope },
-          payload: new OpenApiSourceBindingInput({
+          payload: OpenApiSourceBindingInput.make({
             sourceId: props.sourceId,
             sourceScope,
             scope: targetScope,
@@ -658,7 +658,7 @@ export default function EditOpenApiSource(props: {
                   params: { scopeId: displayScope, namespace: props.sourceId },
                   payload: {
                     sourceScope,
-                    oauth2: new OAuth2SourceConfig({
+                    oauth2: OAuth2SourceConfig.make({
                       kind: "oauth2",
                       securitySchemeName: oauth2.securitySchemeName,
                       flow: oauth2.flow,

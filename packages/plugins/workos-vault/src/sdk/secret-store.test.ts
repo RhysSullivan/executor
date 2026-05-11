@@ -206,7 +206,7 @@ describe("WorkOS Vault secret provider", () => {
       const executor = yield* makeExecutor(makeFakeClient());
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("github-token"),
           scope: ScopeId.make("test-scope"),
           name: "GitHub Token",
@@ -229,7 +229,7 @@ describe("WorkOS Vault secret provider", () => {
       const executor = yield* makeExecutor(makeFakeClient());
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-key"),
           scope: ScopeId.make("test-scope"),
           name: "Initial",
@@ -238,7 +238,7 @@ describe("WorkOS Vault secret provider", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-key"),
           scope: ScopeId.make("test-scope"),
           name: "Updated",
@@ -259,7 +259,7 @@ describe("WorkOS Vault secret provider", () => {
       const executor = yield* makeExecutor(makeFakeClient());
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("remove-me"),
           scope: ScopeId.make("test-scope"),
           name: "Remove Me",
@@ -270,7 +270,7 @@ describe("WorkOS Vault secret provider", () => {
       expect(yield* executor.secrets.get("remove-me")).toBe("gone soon");
 
       yield* executor.secrets.remove(
-        new RemoveSecretInput({
+        RemoveSecretInput.make({
           id: SecretId.make("remove-me"),
           targetScope: ScopeId.make("test-scope"),
         }),
@@ -290,7 +290,7 @@ describe("WorkOS Vault secret provider", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: longSecretId,
           scope: ScopeId.make("test-scope"),
           name: "Long connection token",
@@ -299,7 +299,7 @@ describe("WorkOS Vault secret provider", () => {
       );
 
       yield* executor.secrets.remove(
-        new RemoveSecretInput({
+        RemoveSecretInput.make({
           id: longSecretId,
           targetScope: ScopeId.make("test-scope"),
         }),
@@ -318,7 +318,7 @@ describe("WorkOS Vault secret provider", () => {
       const executor = yield* makeExecutor(makeFakeClient({ conflictOnNextSecretUpdate: true }));
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("conflict"),
           scope: ScopeId.make("test-scope"),
           name: "Conflict",
@@ -327,7 +327,7 @@ describe("WorkOS Vault secret provider", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("conflict"),
           scope: ScopeId.make("test-scope"),
           name: "Conflict",
@@ -365,12 +365,12 @@ const makeLayeredExecutors = (client: WorkOSVaultClient) =>
 
     const outerId = ScopeId.make("org");
     const innerId = ScopeId.make("user-org:u1:org");
-    const outerScope = new Scope({
+    const outerScope = Scope.make({
       id: outerId,
       name: "outer",
       createdAt: new Date(),
     });
-    const innerScope = new Scope({
+    const innerScope = Scope.make({
       id: innerId,
       name: "inner",
       createdAt: new Date(),
@@ -400,7 +400,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
       const { execInner, innerId } = yield* makeLayeredExecutors(client);
 
       yield* execInner.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: innerId,
           name: "Personal token",
@@ -419,7 +419,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
 
       // Outer admin writes the org-wide default.
       yield* execOuter.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: outerId,
           name: "Org default",
@@ -428,7 +428,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
       );
       // Inner user writes their personal override at the inner scope.
       yield* execInner.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: innerId,
           name: "Personal override",
@@ -438,7 +438,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
 
       // Inner caller removes. Should only drop the inner row.
       yield* execInner.secrets.remove(
-        new RemoveSecretInput({
+        RemoveSecretInput.make({
           id: SecretId.make("api-token"),
           targetScope: innerId,
         }),
@@ -466,7 +466,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
           yield* makeLayeredExecutors(client);
 
         yield* execOuter.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("api-token"),
             scope: outerId,
             name: "Org default",
@@ -474,7 +474,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
           }),
         );
         yield* execInner.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("api-token"),
             scope: innerId,
             name: "Personal override",
@@ -497,7 +497,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
       const { execOuter, execInner, outerId, innerId } = yield* makeLayeredExecutors(client);
 
       yield* execOuter.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: outerId,
           name: "Org default",
@@ -505,7 +505,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
         }),
       );
       yield* execInner.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: innerId,
           name: "Personal override",
@@ -535,7 +535,7 @@ const makeExecutorForScope = (client: WorkOSVaultClient, scopeId: string) =>
     const schema = collectSchemas(plugins);
     const adapter = makeMemoryAdapter({ schema });
     const blobs = makeInMemoryBlobStore();
-    const scope = new Scope({
+    const scope = Scope.make({
       id: ScopeId.make(scopeId),
       name: scopeId,
       createdAt: new Date(),
@@ -566,7 +566,7 @@ describe("WorkOS Vault secret provider — KEK context", () => {
         const executor = yield* makeExecutorForScope(recording, "user-org:u1:org42");
 
         yield* executor.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("api-token"),
             scope: ScopeId.make("user-org:u1:org42"),
             name: "Personal",
@@ -597,7 +597,7 @@ describe("WorkOS Vault secret provider — KEK context", () => {
       const executor = yield* makeExecutorForScope(recording, "org42");
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: ScopeId.make("org42"),
           name: "Org default",

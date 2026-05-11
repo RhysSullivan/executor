@@ -47,9 +47,10 @@ import { makeTestBearer } from "./test-bearer";
 // cloud engine consumes is derived from the same types the handlers use.
 // ---------------------------------------------------------------------------
 
-class ApprovedResponse extends Schema.Class<ApprovedResponse>("ApprovedResponse")({
+const ApprovedResponse = Schema.Struct({
   approved: Schema.Boolean,
-}) {}
+});
+type ApprovedResponse = typeof ApprovedResponse.Type;
 
 const ApproveGroup = HttpApiGroup.make("approve").add(
   HttpApiEndpoint.post("approveThing", "/approve", {
@@ -60,7 +61,7 @@ const ApproveGroup = HttpApiGroup.make("approve").add(
 const UpstreamApi = HttpApi.make("approveApi").add(ApproveGroup);
 
 const ApproveHandlers = HttpApiBuilder.group(UpstreamApi, "approve", (h) =>
-  h.handle("approveThing", () => Effect.succeed(new ApprovedResponse({ approved: true }))),
+  h.handle("approveThing", () => Effect.succeed(ApprovedResponse.make({ approved: true }))),
 );
 
 const UpstreamApiLive = HttpApiBuilder.layer(UpstreamApi).pipe(Layer.provide(ApproveHandlers));

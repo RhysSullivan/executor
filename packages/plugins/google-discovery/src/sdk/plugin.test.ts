@@ -223,7 +223,7 @@ describe("Google Discovery plugin", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("google-client-id"),
           scope: "test-scope" as SetSecretInput["scope"],
           name: "Google Client ID",
@@ -277,7 +277,7 @@ describe("Google Discovery plugin", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("google-client-id"),
           scope: "test-scope" as SetSecretInput["scope"],
           name: "Google Client ID",
@@ -285,7 +285,7 @@ describe("Google Discovery plugin", () => {
         }),
       );
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("google-client-secret"),
           scope: "test-scope" as SetSecretInput["scope"],
           name: "Google Client Secret",
@@ -389,12 +389,12 @@ describe("Google Discovery plugin", () => {
       // the invoke path resolves via ctx.connections.accessToken.
       const connectionId = ConnectionId.make("google-discovery-oauth2-test");
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: ScopeId.make("test-scope"),
           provider: "oauth2",
           identityLabel: "Drive Test",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make(`${connectionId}.access_token`),
             name: "Drive Access Token",
             value: "secret-token",
@@ -458,8 +458,8 @@ describe("Google Discovery plugin", () => {
   const USER_SCOPE_STRING = String(USER_SCOPE);
 
   const stackedScopes = [
-    new Scope({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
-    new Scope({ id: ORG_SCOPE, name: "org", createdAt: new Date() }),
+    Scope.make({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
+    Scope.make({ id: ORG_SCOPE, name: "org", createdAt: new Date() }),
   ] as const;
 
   it.effect("shadowed addSource does not wipe the outer-scope source", () =>
@@ -609,12 +609,12 @@ describe("Google Discovery plugin", () => {
       );
       const connectionId = ConnectionId.make("google-discovery-oauth2-usages");
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: ScopeId.make("test-scope"),
           provider: "oauth2",
           identityLabel: "Drive Usages",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make(`${connectionId}.access_token`),
             name: "Drive Access Token",
             value: "secret-token",

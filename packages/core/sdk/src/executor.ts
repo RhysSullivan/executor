@@ -158,7 +158,7 @@ export interface InvokeOptions {
 }
 
 const acceptAllHandler: ElicitationHandler = () =>
-  Effect.succeed(new ElicitationResponse({ action: "accept" }));
+  Effect.succeed(ElicitationResponse.make({ action: "accept" }));
 
 const resolveElicitationHandler = (onElicitation: OnElicitation): ElicitationHandler =>
   onElicitation === "accept-all" ? acceptAllHandler : onElicitation;
@@ -1086,7 +1086,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           forceAllowId: true,
         });
 
-        return new SecretRef({
+        return SecretRef.make({
           id: input.id,
           scopeId: input.scope,
           name: input.name,
@@ -1322,7 +1322,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           }
           byId.set(
             row.id,
-            new SecretRef({
+            SecretRef.make({
               id: SecretId.make(row.id),
               scopeId: ScopeId.make(incomingScope),
               name: row.name,
@@ -1356,7 +1356,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
               if (connectionOwnedIds.has(entry.id)) continue;
               byId.set(
                 entry.id,
-                new SecretRef({
+                SecretRef.make({
                   id: SecretId.make(entry.id),
                   scopeId: ScopeId.make(innermostScopeId),
                   name: entry.name,
@@ -1383,7 +1383,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           const hasBackingValue = yield* secretRouteHasBackingValue(row);
           if (!hasBackingValue) continue;
           refs.push(
-            new SecretRef({
+            SecretRef.make({
               id: SecretId.make(row.id),
               scopeId: ScopeId.make(row.scope_id),
               name: row.name,
@@ -1429,7 +1429,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     const CONNECTION_REFRESH_SKEW_MS = 60_000;
 
     const rowToConnection = (row: ConnectionRow): ConnectionRef =>
-      new ConnectionRef({
+      ConnectionRef.make({
         id: ConnectionId.make(row.id),
         scopeId: ScopeId.make(row.scope_id),
         provider: row.provider,
@@ -1636,7 +1636,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
               forceAllowId: true,
             });
 
-            return new ConnectionRef({
+            return ConnectionRef.make({
               id: input.id,
               scopeId: input.scope,
               provider: input.provider,
@@ -2484,7 +2484,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         const rows = yield* credentialBindingRowsForSlot(input);
         const row = findInnermost(rows);
         if (!row) {
-          return new ResolvedCredentialSlot({
+          return ResolvedCredentialSlot.make({
             pluginId: input.pluginId,
             sourceId: input.sourceId,
             sourceScopeId: input.sourceScope,
@@ -2494,7 +2494,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
             status: "missing" as const,
           });
         }
-        return new ResolvedCredentialSlot({
+        return ResolvedCredentialSlot.make({
           pluginId: input.pluginId,
           sourceId: input.sourceId,
           sourceScopeId: input.sourceScope,
@@ -2528,18 +2528,17 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     ): Effect.Effect<readonly Usage[], StorageFailure> =>
       Effect.gen(function* () {
         const names = yield* sourceNamesForCredentialBindings(rows);
-        return rows.map(
-          (row) =>
-            new Usage({
-              pluginId: row.plugin_id,
-              scopeId: ScopeId.make(
-                row.kind === "secret" ? (row.secret_scope_id ?? row.scope_id) : row.scope_id,
-              ),
-              ownerKind: "credential-binding",
-              ownerId: row.source_id,
-              ownerName: names.get(`${row.source_scope_id}\u0000${row.source_id}`) ?? null,
-              slot: row.slot_key,
-            }),
+        return rows.map((row) =>
+          Usage.make({
+            pluginId: row.plugin_id,
+            scopeId: ScopeId.make(
+              row.kind === "secret" ? (row.secret_scope_id ?? row.scope_id) : row.scope_id,
+            ),
+            ownerKind: "credential-binding",
+            ownerId: row.source_id,
+            ownerName: names.get(`${row.source_scope_id}\u0000${row.source_id}`) ?? null,
+            slot: row.slot_key,
+          }),
         );
       });
 
@@ -3044,7 +3043,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           }),
         );
 
-        return new ToolSchema({
+        return ToolSchema.make({
           id: ToolId.make(opts.toolId),
           name: opts.name,
           description: opts.description,
@@ -3203,7 +3202,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           : policyForcesApproval && policy
             ? `Approve ${toolId}? (matched policy: ${policy.pattern})`
             : `Approve ${toolId}?`;
-        const request = new FormElicitation({
+        const request = FormElicitation.make({
           message: `${message}\n\nArguments:\n${approvalArgumentPreview(args)}`,
           requestedSchema: {
             type: "object",

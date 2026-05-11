@@ -265,7 +265,7 @@ const prepareOperations = (
       ? buildOperationStringForField(entry.kind, entry.field, typeMap)
       : `${extracted.kind} { ${extracted.fieldName} }`;
 
-    const binding = new OperationBinding({
+    const binding = OperationBinding.make({
       kind: extracted.kind,
       fieldName: extracted.fieldName,
       operationString,
@@ -330,7 +330,7 @@ const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number 
   ranks.get(scopeId) ?? Infinity;
 
 const coreBindingToGraphqlBinding = (binding: CredentialBindingRef): GraphqlSourceBindingRef =>
-  new GraphqlSourceBindingRef({
+  GraphqlSourceBindingRef.make({
     sourceId: binding.sourceId,
     sourceScopeId: binding.sourceScopeId,
     scopeId: binding.scopeId,
@@ -476,7 +476,7 @@ const canonicalizeCredentialMap = (
       continue;
     }
     const slot = slotForName(name);
-    nextValues[name] = new ConfiguredCredentialBinding({
+    nextValues[name] = ConfiguredCredentialBinding.make({
       kind: "binding",
       slot,
       prefix: value.prefix,
@@ -1138,7 +1138,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         const name = namespaceFromEndpoint(trimmed);
 
         if (ok) {
-          return new SourceDetectionResult({
+          return SourceDetectionResult.make({
             kind: "graphql",
             confidence: "high",
             endpoint: trimmed,
@@ -1153,7 +1153,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         // strongly implies GraphQL, surface a candidate so the user
         // can still pick it from the detect dropdown.
         if (urlMatchesToken(parsed.value, "graphql")) {
-          return new SourceDetectionResult({
+          return SourceDetectionResult.make({
             kind: "graphql",
             confidence: "low",
             endpoint: trimmed,

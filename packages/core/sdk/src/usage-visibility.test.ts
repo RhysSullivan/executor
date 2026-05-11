@@ -15,7 +15,7 @@ const leakingUsagePlugin = definePlugin(() => ({
   storage: () => ({}),
   usagesForSecret: ({ args }) =>
     Effect.succeed([
-      new Usage({
+      Usage.make({
         pluginId: "leaking-usages",
         scopeId: ScopeId.make("other-org"),
         ownerKind: "test-secret-owner",
@@ -26,7 +26,7 @@ const leakingUsagePlugin = definePlugin(() => ({
     ]),
   usagesForConnection: ({ args }) =>
     Effect.succeed([
-      new Usage({
+      Usage.make({
         pluginId: "leaking-usages",
         scopeId: ScopeId.make("other-org"),
         ownerKind: "test-connection-owner",
@@ -43,7 +43,7 @@ const makeExecutor = () =>
     const schema = collectSchemas(plugins);
     return yield* createExecutor({
       scopes: [
-        new Scope({
+        Scope.make({
           id: ScopeId.make("org-a"),
           name: "Org A",
           createdAt: new Date(),

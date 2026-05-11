@@ -60,7 +60,7 @@ export default function GraphqlSignInButton(props: { sourceId: string }) {
       onConnected={async (connectionId) => {
         await setBinding({
           params: { scopeId: userScopeId },
-          payload: new GraphqlSourceBindingInput({
+          payload: GraphqlSourceBindingInput.make({
             sourceId: props.sourceId,
             sourceScope,
             scope: userScopeId,

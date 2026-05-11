@@ -37,7 +37,7 @@ export type ParameterLocation = typeof ParameterLocation.Type;
 // Extracted operation
 // ---------------------------------------------------------------------------
 
-export class OperationParameter extends Schema.Class<OperationParameter>("OperationParameter")({
+export const OperationParameter = Schema.Struct({
   name: Schema.String,
   location: ParameterLocation,
   required: Schema.Boolean,
@@ -46,7 +46,8 @@ export class OperationParameter extends Schema.Class<OperationParameter>("Operat
   explode: Schema.OptionFromOptional(Schema.Boolean),
   allowReserved: Schema.OptionFromOptional(Schema.Boolean),
   description: Schema.OptionFromOptional(Schema.String),
-}) {}
+});
+export type OperationParameter = typeof OperationParameter.Type;
 
 /**
  * OpenAPI 3.x `Encoding Object` (§4.8.15). Declared per-property inside a
@@ -57,22 +58,22 @@ export class OperationParameter extends Schema.Class<OperationParameter>("Operat
  * - `style` / `explode` / `allowReserved` — for form-urlencoded, control
  *   array / object serialization the same way parameter-level style does.
  */
-export class EncodingObject extends Schema.Class<EncodingObject>("EncodingObject")({
+export const EncodingObject = Schema.Struct({
   contentType: Schema.OptionFromOptional(Schema.String),
   style: Schema.OptionFromOptional(Schema.String),
   explode: Schema.OptionFromOptional(Schema.Boolean),
   allowReserved: Schema.OptionFromOptional(Schema.Boolean),
-}) {}
+});
+export type EncodingObject = typeof EncodingObject.Type;
 
-export class MediaBinding extends Schema.Class<MediaBinding>("MediaBinding")({
+export const MediaBinding = Schema.Struct({
   contentType: Schema.String,
   schema: Schema.OptionFromOptional(Schema.Unknown),
   encoding: Schema.OptionFromOptional(Schema.Record(Schema.String, EncodingObject)),
-}) {}
+});
+export type MediaBinding = typeof MediaBinding.Type;
 
-export class OperationRequestBody extends Schema.Class<OperationRequestBody>(
-  "OperationRequestBody",
-)({
+export const OperationRequestBody = Schema.Struct({
   required: Schema.Boolean,
   /** Default media type — first declared in spec order (not JSON-first).
    *  Used when the caller does not override via the tool's `contentType` arg. */
@@ -84,9 +85,10 @@ export class OperationRequestBody extends Schema.Class<OperationRequestBody>(
    *  going forward; older persisted bindings may have this unset and will
    *  fall back to `{contentType, schema}`. */
   contents: Schema.OptionFromOptional(Schema.Array(MediaBinding)),
-}) {}
+});
+export type OperationRequestBody = typeof OperationRequestBody.Type;
 
-export class ExtractedOperation extends Schema.Class<ExtractedOperation>("ExtractedOperation")({
+export const ExtractedOperation = Schema.Struct({
   operationId: OperationId,
   method: HttpMethod,
   pathTemplate: Schema.String,
@@ -98,37 +100,42 @@ export class ExtractedOperation extends Schema.Class<ExtractedOperation>("Extrac
   inputSchema: Schema.OptionFromOptional(Schema.Unknown),
   outputSchema: Schema.OptionFromOptional(Schema.Unknown),
   deprecated: Schema.Boolean,
-}) {}
+});
+export type ExtractedOperation = typeof ExtractedOperation.Type;
 
-export class ServerVariable extends Schema.Class<ServerVariable>("ServerVariable")({
+export const ServerVariable = Schema.Struct({
   default: Schema.String,
   enum: Schema.OptionFromOptional(Schema.Array(Schema.String)),
   description: Schema.OptionFromOptional(Schema.String),
-}) {}
+});
+export type ServerVariable = typeof ServerVariable.Type;
 
-export class ServerInfo extends Schema.Class<ServerInfo>("ServerInfo")({
+export const ServerInfo = Schema.Struct({
   url: Schema.String,
   description: Schema.OptionFromOptional(Schema.String),
   variables: Schema.OptionFromOptional(Schema.Record(Schema.String, ServerVariable)),
-}) {}
+});
+export type ServerInfo = typeof ServerInfo.Type;
 
-export class ExtractionResult extends Schema.Class<ExtractionResult>("ExtractionResult")({
+export const ExtractionResult = Schema.Struct({
   title: Schema.OptionFromOptional(Schema.String),
   version: Schema.OptionFromOptional(Schema.String),
   servers: Schema.Array(ServerInfo),
   operations: Schema.Array(ExtractedOperation),
-}) {}
+});
+export type ExtractionResult = typeof ExtractionResult.Type;
 
 // ---------------------------------------------------------------------------
 // Operation binding — minimal invocation data (no schemas/metadata)
 // ---------------------------------------------------------------------------
 
-export class OperationBinding extends Schema.Class<OperationBinding>("OperationBinding")({
+export const OperationBinding = Schema.Struct({
   method: HttpMethod,
   pathTemplate: Schema.String,
   parameters: Schema.Array(OperationParameter),
   requestBody: Schema.OptionFromOptional(OperationRequestBody),
-}) {}
+});
+export type OperationBinding = typeof OperationBinding.Type;
 
 // ---------------------------------------------------------------------------
 // Invocation
@@ -141,13 +148,12 @@ export class OperationBinding extends Schema.Class<OperationBinding>("OperationB
 export const HeaderValue = SecretBackedValue;
 export type HeaderValue = typeof HeaderValue.Type;
 
-export class ConfiguredHeaderBinding extends Schema.Class<ConfiguredHeaderBinding>(
-  "OpenApiConfiguredHeaderBinding",
-)({
+export const ConfiguredHeaderBinding = Schema.Struct({
   kind: Schema.Literal("binding"),
   slot: Schema.String,
   prefix: Schema.optional(Schema.String),
-}) {}
+}).annotate({ identifier: "OpenApiConfiguredHeaderBinding" });
+export type ConfiguredHeaderBinding = typeof ConfiguredHeaderBinding.Type;
 
 export const ConfiguredHeaderValue = Schema.Union([Schema.String, ConfiguredHeaderBinding]);
 export type ConfiguredHeaderValue = typeof ConfiguredHeaderValue.Type;
@@ -176,21 +182,16 @@ export const OpenApiSourceBindingValue = Schema.Union([
 ]);
 export type OpenApiSourceBindingValue = typeof OpenApiSourceBindingValue.Type;
 
-export const OpenApiSourceBindingInputSchema = Schema.Struct({
+export const OpenApiSourceBindingInput = Schema.Struct({
   sourceId: Schema.String,
   sourceScope: ScopeId,
   scope: ScopeId,
   slot: Schema.String,
   value: OpenApiSourceBindingValue,
 });
+export type OpenApiSourceBindingInput = typeof OpenApiSourceBindingInput.Type;
 
-export class OpenApiSourceBindingInput extends Schema.Class<OpenApiSourceBindingInput>(
-  "OpenApiSourceBindingInput",
-)(OpenApiSourceBindingInputSchema.fields) {}
-
-export class OpenApiSourceBindingRef extends Schema.Class<OpenApiSourceBindingRef>(
-  "OpenApiSourceBindingRef",
-)({
+export const OpenApiSourceBindingRef = Schema.Struct({
   sourceId: Schema.String,
   sourceScopeId: ScopeId,
   scopeId: ScopeId,
@@ -198,7 +199,8 @@ export class OpenApiSourceBindingRef extends Schema.Class<OpenApiSourceBindingRe
   value: OpenApiSourceBindingValue,
   createdAt: Schema.Date,
   updatedAt: Schema.Date,
-}) {}
+});
+export type OpenApiSourceBindingRef = typeof OpenApiSourceBindingRef.Type;
 
 // ---------------------------------------------------------------------------
 // OAuth2 source config — carries source-owned slots and API-level config to
@@ -226,7 +228,7 @@ export class OpenApiSourceBindingRef extends Schema.Class<OpenApiSourceBindingRe
 export const OAuth2Flow = Schema.Literals(["authorizationCode", "clientCredentials"]);
 export type OAuth2Flow = typeof OAuth2Flow.Type;
 
-export const OAuth2SourceConfigSchema = Schema.Struct({
+export const OAuth2SourceConfig = Schema.Struct({
   kind: Schema.Literal("oauth2"),
   securitySchemeName: Schema.String,
   flow: OAuth2Flow,
@@ -237,15 +239,13 @@ export const OAuth2SourceConfigSchema = Schema.Struct({
   clientSecretSlot: Schema.NullOr(Schema.String),
   connectionSlot: Schema.String,
   scopes: Schema.Array(Schema.String),
-});
+}).annotate({ identifier: "OpenApiOAuth2SourceConfig" });
+export type OAuth2SourceConfig = typeof OAuth2SourceConfig.Type;
 
-export class OAuth2SourceConfig extends Schema.Class<OAuth2SourceConfig>(
-  "OpenApiOAuth2SourceConfig",
-)(OAuth2SourceConfigSchema.fields) {}
-
-export class InvocationResult extends Schema.Class<InvocationResult>("InvocationResult")({
+export const InvocationResult = Schema.Struct({
   status: Schema.Number,
   headers: Schema.Record(Schema.String, Schema.String),
   data: Schema.NullOr(Schema.Unknown),
   error: Schema.NullOr(Schema.Unknown),
-}) {}
+});
+export type InvocationResult = typeof InvocationResult.Type;

@@ -57,7 +57,7 @@ const makeOauth2SourceConfig = (params: {
   readonly authorizationUrl: string | null;
   readonly scopes: readonly string[];
 }): OAuth2SourceConfig =>
-  new OAuth2SourceConfig({
+  OAuth2SourceConfig.make({
     kind: "oauth2",
     securitySchemeName: "oauth2",
     flow: params.flow,
@@ -74,9 +74,10 @@ const makeOauth2SourceConfig = (params: {
 // test can assert which user's token got injected.
 // ---------------------------------------------------------------------------
 
-class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
+const EchoHeaders = Schema.Struct({
   authorization: Schema.optional(Schema.String),
-}) {}
+});
+type EchoHeaders = typeof EchoHeaders.Type;
 
 const ItemsGroup = HttpApiGroup.make("items").add(
   HttpApiEndpoint.get("echoHeaders", "/echo-headers", { success: EchoHeaders }),
@@ -89,7 +90,7 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
   handlers.handle("echoHeaders", () =>
     Effect.gen(function* () {
       const req = yield* HttpServerRequest.HttpServerRequest;
-      return new EchoHeaders({
+      return EchoHeaders.make({
         authorization: req.headers["authorization"],
       });
     }),
@@ -171,17 +172,17 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       const blobs = makeInMemoryBlobStore();
 
       const now = new Date();
-      const orgScope = new Scope({
+      const orgScope = Scope.make({
         id: ScopeId.make("org"),
         name: "acme-org",
         createdAt: now,
       });
-      const aliceScope = new Scope({
+      const aliceScope = Scope.make({
         id: ScopeId.make("user-alice"),
         name: "alice",
         createdAt: now,
       });
-      const bobScope = new Scope({
+      const bobScope = Scope.make({
         id: ScopeId.make("user-bob"),
         name: "bob",
         createdAt: now,
@@ -213,7 +214,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // 1. Admin seeds the org-level client credentials.
       // -------------------------------------------------------------
       yield* adminExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("petstore_client_id"),
           scope: orgScope.id,
           name: "Petstore Client ID",
@@ -221,7 +222,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         }),
       );
       yield* adminExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("petstore_client_secret"),
           scope: orgScope.id,
           name: "Petstore Client Secret",
@@ -335,7 +336,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         oauth2,
       });
       yield* aliceExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "petstore",
           sourceScope: aliceScope.id,
           scope: aliceScope.id,
@@ -351,7 +352,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         oauth2,
       });
       yield* bobExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "petstore",
           sourceScope: bobScope.id,
           scope: bobScope.id,
@@ -459,17 +460,17 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       const blobs = makeInMemoryBlobStore();
 
       const now = new Date();
-      const orgScope = new Scope({
+      const orgScope = Scope.make({
         id: ScopeId.make("org"),
         name: "acme-org",
         createdAt: now,
       });
-      const aliceScope = new Scope({
+      const aliceScope = Scope.make({
         id: ScopeId.make("user-alice"),
         name: "alice",
         createdAt: now,
       });
-      const bobScope = new Scope({
+      const bobScope = Scope.make({
         id: ScopeId.make("user-bob"),
         name: "bob",
         createdAt: now,
@@ -503,7 +504,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // pattern. Bob doesn't shadow → he falls through to the org
       // default. This exercises scope-stacked secret resolution.
       yield* adminExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("client_id"),
           scope: orgScope.id,
           name: "Client ID",
@@ -511,7 +512,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         }),
       );
       yield* adminExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("client_secret"),
           scope: orgScope.id,
           name: "Client Secret",
@@ -519,7 +520,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         }),
       );
       yield* aliceExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("client_id"),
           scope: aliceScope.id,
           name: "Alice Client ID",
@@ -527,7 +528,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         }),
       );
       yield* aliceExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("client_secret"),
           scope: aliceScope.id,
           name: "Alice Client Secret",
@@ -603,7 +604,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         oauth2,
       });
       yield* adminExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "petstore",
           sourceScope: orgScope.id,
           scope: orgScope.id,
@@ -619,7 +620,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // org defaults (`org-client`), writes at user-bob.
       const bobAuth = yield* startClientCredentials(bobExec, bobScope.id, startInput);
       yield* aliceExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "petstore",
           sourceScope: orgScope.id,
           scope: aliceScope.id,
@@ -628,7 +629,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         }),
       );
       yield* bobExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "petstore",
           sourceScope: orgScope.id,
           scope: bobScope.id,

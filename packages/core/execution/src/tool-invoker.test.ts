@@ -26,7 +26,7 @@ const EmptyInputSchema = Schema.toStandardSchemaV1(
   Schema.toStandardJSONSchemaV1(Schema.Struct({})),
 );
 
-const acceptAll = () => Effect.succeed(new ElicitationResponse({ action: "accept" }));
+const acceptAll = () => Effect.succeed(ElicitationResponse.make({ action: "accept" }));
 
 // ---------------------------------------------------------------------------
 // Test plugins — each one declares a namespace as a static source with N
@@ -443,13 +443,13 @@ const apiPlugin = definePlugin(() => ({
           handler: ({ elicit }) =>
             Effect.gen(function* () {
               const r1 = yield* elicit(
-                new FormElicitation({
+                FormElicitation.make({
                   message: "First approval",
                   requestedSchema: {},
                 }),
               );
               const r2 = yield* elicit(
-                new FormElicitation({
+                FormElicitation.make({
                   message: "Second approval",
                   requestedSchema: {},
                 }),
@@ -465,7 +465,7 @@ const apiPlugin = definePlugin(() => ({
           handler: ({ elicit }) =>
             Effect.gen(function* () {
               const r = yield* elicit(
-                new FormElicitation({
+                FormElicitation.make({
                   message: "Only approval",
                   requestedSchema: {},
                 }),

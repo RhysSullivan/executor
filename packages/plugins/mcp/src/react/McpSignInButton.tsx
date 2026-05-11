@@ -76,7 +76,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
       onConnected={async (nextConnectionId) => {
         await setBinding({
           params: { scopeId: userScopeId },
-          payload: new McpSourceBindingInput({
+          payload: McpSourceBindingInput.make({
             sourceId: props.sourceId,
             sourceScope,
             scope: userScopeId,

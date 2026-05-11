@@ -54,10 +54,11 @@ const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 // test can assert which user's token got injected.
 // ---------------------------------------------------------------------------
 
-class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
+const EchoHeaders = Schema.Struct({
   authorization: Schema.optional(Schema.String),
   token: Schema.optional(Schema.String),
-}) {}
+});
+type EchoHeaders = typeof EchoHeaders.Type;
 
 const ProjectsGroup = HttpApiGroup.make("projects").add(
   HttpApiEndpoint.get("list", "/v9/projects", { success: EchoHeaders }),
@@ -71,7 +72,7 @@ const ProjectsGroupLive = HttpApiBuilder.group(VercelApi, "projects", (handlers)
     Effect.gen(function* () {
       const req = yield* HttpServerRequest.HttpServerRequest;
       const url = new URL(req.url, "http://executor.test");
-      return new EchoHeaders({
+      return EchoHeaders.make({
         authorization: req.headers["authorization"],
         token: url.searchParams.get("token") ?? undefined,
       });
@@ -131,17 +132,17 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       const blobs = makeInMemoryBlobStore();
 
       const now = new Date();
-      const orgScope = new Scope({
+      const orgScope = Scope.make({
         id: ScopeId.make("org"),
         name: "acme-org",
         createdAt: now,
       });
-      const aliceScope = new Scope({
+      const aliceScope = Scope.make({
         id: ScopeId.make("user-alice"),
         name: "alice",
         createdAt: now,
       });
-      const bobScope = new Scope({
+      const bobScope = Scope.make({
         id: ScopeId.make("user-bob"),
         name: "bob",
         createdAt: now,
@@ -180,14 +181,14 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         namespace: "vercel",
         baseUrl,
         headers: {
-          Authorization: new ConfiguredHeaderBinding({
+          Authorization: ConfiguredHeaderBinding.make({
             kind: "binding",
             slot: "auth:vercel_api_token",
             prefix: "Bearer ",
           }),
         },
         queryParams: {
-          token: new ConfiguredHeaderBinding({
+          token: ConfiguredHeaderBinding.make({
             kind: "binding",
             slot: "query_param:vercel_team_token",
           }),
@@ -201,7 +202,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       //    write does not overwrite bob's.
       // -------------------------------------------------------------
       yield* aliceExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("vercel_api_token"),
           scope: aliceScope.id,
           name: "Vercel API Token (alice)",
@@ -209,7 +210,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* aliceExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("vercel_team_token"),
           scope: aliceScope.id,
           name: "Vercel Team Token (alice)",
@@ -217,7 +218,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* bobExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("vercel_api_token"),
           scope: bobScope.id,
           name: "Vercel API Token (bob)",
@@ -225,7 +226,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* bobExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("vercel_team_token"),
           scope: bobScope.id,
           name: "Vercel Team Token (bob)",
@@ -239,7 +240,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       //    binding owner and provider value.
       // -------------------------------------------------------------
       yield* aliceExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "vercel",
           sourceScope: orgScope.id,
           scope: aliceScope.id,
@@ -251,7 +252,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* aliceExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "vercel",
           sourceScope: orgScope.id,
           scope: aliceScope.id,
@@ -263,7 +264,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* bobExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "vercel",
           sourceScope: orgScope.id,
           scope: bobScope.id,
@@ -275,7 +276,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* bobExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "vercel",
           sourceScope: orgScope.id,
           scope: bobScope.id,
@@ -378,17 +379,17 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       const blobs = makeInMemoryBlobStore();
 
       const now = new Date();
-      const orgScope = new Scope({
+      const orgScope = Scope.make({
         id: ScopeId.make("org"),
         name: "acme-org",
         createdAt: now,
       });
-      const aliceScope = new Scope({
+      const aliceScope = Scope.make({
         id: ScopeId.make("user-alice"),
         name: "alice",
         createdAt: now,
       });
-      const bobScope = new Scope({
+      const bobScope = Scope.make({
         id: ScopeId.make("user-bob"),
         name: "bob",
         createdAt: now,
@@ -422,7 +423,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         namespace: "vercel",
         baseUrl,
         headers: {
-          Authorization: new ConfiguredHeaderBinding({
+          Authorization: ConfiguredHeaderBinding.make({
             kind: "binding",
             slot: "auth:personal-token",
             prefix: "Bearer ",
@@ -431,7 +432,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       });
 
       yield* aliceExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("alice_vercel_pat"),
           scope: aliceScope.id,
           name: "Alice Vercel PAT",
@@ -439,7 +440,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* bobExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("bob_vercel_pat"),
           scope: bobScope.id,
           name: "Bob Vercel PAT",
@@ -448,7 +449,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       );
 
       yield* aliceExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "vercel",
           sourceScope: orgScope.id,
           scope: aliceScope.id,
@@ -460,7 +461,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* bobExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "vercel",
           sourceScope: orgScope.id,
           scope: bobScope.id,
@@ -524,12 +525,12 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         const blobs = makeInMemoryBlobStore();
 
         const now = new Date();
-        const orgScope = new Scope({
+        const orgScope = Scope.make({
           id: ScopeId.make("org"),
           name: "acme-org",
           createdAt: now,
         });
-        const aliceScope = new Scope({
+        const aliceScope = Scope.make({
           id: ScopeId.make("user-alice"),
           name: "alice",
           createdAt: now,
@@ -556,7 +557,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           namespace: "vercel",
           baseUrl,
           headers: {
-            Authorization: new ConfiguredHeaderBinding({
+            Authorization: ConfiguredHeaderBinding.make({
               kind: "binding",
               slot: "auth:token",
               prefix: "Bearer ",
@@ -565,7 +566,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         });
 
         yield* adminExec.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("org_vercel_pat"),
             scope: orgScope.id,
             name: "Org Vercel PAT",
@@ -573,7 +574,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           }),
         );
         yield* adminExec.openapi.setSourceBinding(
-          new OpenApiSourceBindingInput({
+          OpenApiSourceBindingInput.make({
             sourceId: "vercel",
             sourceScope: orgScope.id,
             scope: orgScope.id,
@@ -594,7 +595,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         expect(sharedResult.data?.authorization).toBe("Bearer org-token");
 
         yield* aliceExec.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("alice_vercel_pat"),
             scope: aliceScope.id,
             name: "Alice Vercel PAT",
@@ -602,7 +603,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           }),
         );
         yield* aliceExec.openapi.setSourceBinding(
-          new OpenApiSourceBindingInput({
+          OpenApiSourceBindingInput.make({
             sourceId: "vercel",
             sourceScope: orgScope.id,
             scope: aliceScope.id,
@@ -638,7 +639,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         expect(fallbackResult.data?.authorization).toBe("Bearer org-token");
 
         yield* aliceExec.openapi.setSourceBinding(
-          new OpenApiSourceBindingInput({
+          OpenApiSourceBindingInput.make({
             sourceId: "vercel",
             sourceScope: orgScope.id,
             scope: aliceScope.id,
@@ -657,7 +658,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           namespace: "vercel",
           baseUrl,
           headers: {
-            Authorization: new ConfiguredHeaderBinding({
+            Authorization: ConfiguredHeaderBinding.make({
               kind: "binding",
               slot: "auth:token",
               prefix: "Bearer ",
@@ -702,12 +703,12 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       const adapter = makeMemoryAdapter({ schema });
       const blobs = makeInMemoryBlobStore();
       const now = new Date();
-      const orgScope = new Scope({
+      const orgScope = Scope.make({
         id: ScopeId.make("org"),
         name: "acme-org",
         createdAt: now,
       });
-      const aliceScope = new Scope({
+      const aliceScope = Scope.make({
         id: ScopeId.make("user-alice"),
         name: "alice",
         createdAt: now,
@@ -781,12 +782,12 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         const adapter = makeMemoryAdapter({ schema });
         const blobs = makeInMemoryBlobStore();
         const now = new Date();
-        const orgScope = new Scope({
+        const orgScope = Scope.make({
           id: ScopeId.make("org"),
           name: "acme-org",
           createdAt: now,
         });
-        const aliceScope = new Scope({
+        const aliceScope = Scope.make({
           id: ScopeId.make("user-alice"),
           name: "alice",
           createdAt: now,
@@ -813,7 +814,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           namespace: "vercel",
           baseUrl,
           headers: {
-            Authorization: new ConfiguredHeaderBinding({
+            Authorization: ConfiguredHeaderBinding.make({
               kind: "binding",
               slot: "auth:token",
               prefix: "Bearer ",
@@ -827,7 +828,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         });
 
         yield* aliceExec.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("alice_vercel_pat"),
             scope: aliceScope.id,
             name: "Alice Vercel PAT",
@@ -835,7 +836,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           }),
         );
         yield* aliceExec.openapi.setSourceBinding(
-          new OpenApiSourceBindingInput({
+          OpenApiSourceBindingInput.make({
             sourceId: "vercel",
             sourceScope: orgScope.id,
             scope: aliceScope.id,
@@ -886,12 +887,12 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       const adapter = makeMemoryAdapter({ schema: collectSchemas(plugins) });
       const blobs = makeInMemoryBlobStore();
       const now = new Date();
-      const orgScope = new Scope({
+      const orgScope = Scope.make({
         id: ScopeId.make("org"),
         name: "org",
         createdAt: now,
       });
-      const userScope = new Scope({
+      const userScope = Scope.make({
         id: ScopeId.make("user"),
         name: "user",
         createdAt: now,
@@ -918,7 +919,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         namespace: "vercel",
         baseUrl: "",
         headers: {
-          Authorization: new ConfiguredHeaderBinding({
+          Authorization: ConfiguredHeaderBinding.make({
             kind: "binding",
             slot: "auth:shared-token",
             prefix: "Bearer ",
@@ -926,7 +927,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         },
       });
       yield* adminExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("shared-token"),
           scope: orgScope.id,
           name: "Org token",
@@ -934,7 +935,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
       yield* adminExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "vercel",
           sourceScope: orgScope.id,
           scope: orgScope.id,
@@ -944,7 +945,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       );
 
       yield* userExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("shared-token"),
           scope: userScope.id,
           name: "User token with colliding id",
@@ -992,12 +993,12 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       const adapter = makeMemoryAdapter({ schema: collectSchemas(plugins) });
       const blobs = makeInMemoryBlobStore();
       const now = new Date();
-      const orgScope = new Scope({
+      const orgScope = Scope.make({
         id: ScopeId.make("org"),
         name: "org",
         createdAt: now,
       });
-      const userScope = new Scope({
+      const userScope = Scope.make({
         id: ScopeId.make("user"),
         name: "user",
         createdAt: now,
@@ -1024,7 +1025,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         namespace: "vercel",
         baseUrl: "",
         headers: {
-          Authorization: new ConfiguredHeaderBinding({
+          Authorization: ConfiguredHeaderBinding.make({
             kind: "binding",
             slot: "auth:personal-choice",
             prefix: "Bearer ",
@@ -1032,7 +1033,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         },
       });
       yield* adminExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("org-choice-token"),
           scope: orgScope.id,
           name: "Org choice token",
@@ -1041,7 +1042,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       );
 
       yield* userExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "vercel",
           sourceScope: orgScope.id,
           scope: userScope.id,

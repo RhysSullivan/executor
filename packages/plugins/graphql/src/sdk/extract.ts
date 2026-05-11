@@ -188,19 +188,18 @@ const extractFields = (
   return type.fields
     .filter((f) => !f.name.startsWith("__"))
     .map((field) => {
-      const args = field.args.map(
-        (arg) =>
-          new GraphqlArgument({
-            name: arg.name,
-            typeName: formatTypeRef(arg.type),
-            required: isNonNull(arg.type),
-            description: arg.description ? Option.some(arg.description) : Option.none(),
-          }),
+      const args = field.args.map((arg) =>
+        GraphqlArgument.make({
+          name: arg.name,
+          typeName: formatTypeRef(arg.type),
+          required: isNonNull(arg.type),
+          description: arg.description ? Option.some(arg.description) : Option.none(),
+        }),
       );
 
       const inputSchema = buildInputSchema(field.args, types);
 
-      return new ExtractedField({
+      return ExtractedField.make({
         fieldName: field.name,
         kind,
         description: field.description ? Option.some(field.description) : Option.none(),
@@ -239,7 +238,7 @@ export const extract = (
       const mutationFields = extractFields(schema, "mutation", schema.mutationType?.name, typeMap);
 
       return {
-        result: new ExtractionResult({
+        result: ExtractionResult.make({
           schemaName: Option.none(),
           fields: [...queryFields, ...mutationFields],
         }),

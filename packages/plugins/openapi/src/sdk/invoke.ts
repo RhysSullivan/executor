@@ -606,7 +606,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 
   const ok = status >= 200 && status < 300;
 
-  return new InvocationResult({
+  return InvocationResult.make({
     status,
     headers: responseHeaders,
     data: ok ? responseBody : null,

@@ -65,12 +65,12 @@ const connectionProviderPlugin = definePlugin(() => {
 describe("OpenAPI usage scope isolation", () => {
   it.effect("secrets.usages does not expose binding rows outside the scope stack", () =>
     Effect.gen(function* () {
-      const orgA = new Scope({
+      const orgA = Scope.make({
         id: ScopeId.make("org-a"),
         name: "Org A",
         createdAt: new Date(),
       });
-      const orgB = new Scope({
+      const orgB = Scope.make({
         id: ScopeId.make("org-b"),
         name: "Org B",
         createdAt: new Date(),
@@ -82,7 +82,7 @@ describe("OpenAPI usage scope isolation", () => {
       const secretId = SecretId.make("org-a-api-key");
 
       yield* orgAExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: secretId,
           scope: orgA.id,
           name: "Org A API Key",
@@ -91,7 +91,7 @@ describe("OpenAPI usage scope isolation", () => {
         }),
       );
       yield* orgBExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: secretId,
           scope: orgB.id,
           name: "Org B API Key",
@@ -106,7 +106,7 @@ describe("OpenAPI usage scope isolation", () => {
         baseUrl: "http://example.com",
       });
       yield* orgAExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "private_source",
           sourceScope: orgA.id,
           scope: orgA.id,
@@ -122,12 +122,12 @@ describe("OpenAPI usage scope isolation", () => {
 
   it.effect("connections.usages does not expose binding rows outside the scope stack", () =>
     Effect.gen(function* () {
-      const orgA = new Scope({
+      const orgA = Scope.make({
         id: ScopeId.make("org-a"),
         name: "Org A",
         createdAt: new Date(),
       });
-      const orgB = new Scope({
+      const orgB = Scope.make({
         id: ScopeId.make("org-b"),
         name: "Org B",
         createdAt: new Date(),
@@ -139,12 +139,12 @@ describe("OpenAPI usage scope isolation", () => {
       const connectionId = ConnectionId.make("org-a-connection");
 
       yield* orgAExec.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: orgA.id,
           provider: "test-oauth",
           identityLabel: "Org A connection",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make("org-a-connection-access"),
             name: "Org A access",
             value: "access",
@@ -156,12 +156,12 @@ describe("OpenAPI usage scope isolation", () => {
         }),
       );
       yield* orgBExec.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: orgB.id,
           provider: "test-oauth",
           identityLabel: "Org B connection",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make("org-b-connection-access"),
             name: "Org B access",
             value: "access",
@@ -180,7 +180,7 @@ describe("OpenAPI usage scope isolation", () => {
         baseUrl: "http://example.com",
       });
       yield* orgAExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "private_source",
           sourceScope: orgA.id,
           scope: orgA.id,

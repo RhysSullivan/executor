@@ -183,7 +183,7 @@ const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
         : yield* response.text.pipe(mapBodyError);
 
   const ok = response.status >= 200 && response.status < 300;
-  return new GoogleDiscoveryInvocationResult({
+  return GoogleDiscoveryInvocationResult.make({
     status: response.status,
     headers: { ...response.headers },
     data: ok ? body : null,

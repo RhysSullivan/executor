@@ -46,7 +46,7 @@ describe("keychain plugin", () => {
       yield* Effect.gen(function* () {
         // Store through SDK, pinned to keychain provider
         yield* executor.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: testId,
             scope: ScopeId.make("test-scope"),
             name: "Test Secret",
@@ -66,7 +66,7 @@ describe("keychain plugin", () => {
         Effect.ensuring(
           executor.secrets
             .remove(
-              new RemoveSecretInput({
+              RemoveSecretInput.make({
                 id: testId,
                 targetScope: ScopeId.make("test-scope"),
               }),

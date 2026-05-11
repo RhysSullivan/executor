@@ -307,7 +307,7 @@ const createLocalExecutorLayer = () => {
       const adapter = makeSqliteAdapter({ db, schema });
       const blobs = makeSqliteBlobStore({ db });
 
-      const scope = new Scope({
+      const scope = Scope.make({
         id: ScopeId.make(scopeId),
         name: cwd,
         createdAt: new Date(),

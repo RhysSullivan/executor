@@ -11,8 +11,8 @@ import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "..
 import { SpecPreview } from "../sdk/preview";
 import { StoredSourceSchema } from "../sdk/store";
 import {
-  OAuth2SourceConfigSchema,
-  OpenApiSourceBindingInputSchema,
+  OAuth2SourceConfig,
+  OpenApiSourceBindingInput,
   OpenApiSourceBindingRef,
 } from "../sdk/types";
 
@@ -78,7 +78,7 @@ const AddSpecPayload = Schema.Struct({
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
   queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
-  oauth2: Schema.optional(OAuth2SourceConfigSchema),
+  oauth2: Schema.optional(OAuth2SourceConfig),
 });
 
 const PreviewSpecPayload = Schema.Struct({
@@ -95,7 +95,7 @@ const UpdateSourcePayload = Schema.Struct({
   credentialTargetScope: Schema.optional(ScopeId),
   // Set after a successful re-authenticate to refresh the source's
   // stored OAuth2 metadata.
-  oauth2: Schema.optional(OAuth2SourceConfigSchema),
+  oauth2: Schema.optional(OAuth2SourceConfig),
 });
 
 const UpdateSourceResponse = Schema.Struct({
@@ -184,7 +184,7 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
   .add(
     HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/openapi/source-bindings", {
       params: ScopeIdParam,
-      payload: OpenApiSourceBindingInputSchema,
+      payload: OpenApiSourceBindingInput,
       success: OpenApiSourceBindingRef,
       error: DomainErrors,
     }),

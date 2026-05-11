@@ -10,11 +10,12 @@ import { compileToolDefinitions } from "./definitions";
 // Define a test API using Effect's HttpApi
 // ---------------------------------------------------------------------------
 
-class Pet extends Schema.Class<Pet>("Pet")({
+const Pet = Schema.Struct({
   id: Schema.Number,
   name: Schema.String,
   tag: Schema.optional(Schema.String),
-}) {}
+});
+type Pet = typeof Pet.Type;
 
 const CreatePetInput = Schema.Struct({
   name: Schema.String,

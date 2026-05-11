@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import {
-  ConfiguredCredentialValueSchema,
+  ConfiguredCredentialValue,
   CredentialBindingValue,
   credentialSlotKey,
   ScopedSecretCredentialInput,
@@ -22,7 +22,7 @@ export type McpRemoteTransport = typeof McpRemoteTransport.Type;
 export const McpTransport = Schema.Literals(["streamable-http", "sse", "stdio", "auto"]);
 export type McpTransport = typeof McpTransport.Type;
 
-export const ConfiguredMcpCredentialValue = ConfiguredCredentialValueSchema;
+export const ConfiguredMcpCredentialValue = ConfiguredCredentialValue;
 export type ConfiguredMcpCredentialValue = typeof ConfiguredMcpCredentialValue.Type;
 
 export const McpCredentialInput = Schema.Union([
@@ -89,19 +89,16 @@ export type McpConnectionAuthInput = typeof McpConnectionAuthInput.Type;
 export const McpSourceBindingValue = CredentialBindingValue;
 export type McpSourceBindingValue = typeof McpSourceBindingValue.Type;
 
-export const McpSourceBindingInputSchema = Schema.Struct({
+export const McpSourceBindingInput = Schema.Struct({
   sourceId: Schema.String,
   sourceScope: ScopeId,
   scope: ScopeId,
   slot: Schema.String,
   value: McpSourceBindingValue,
 });
+export type McpSourceBindingInput = typeof McpSourceBindingInput.Type;
 
-export class McpSourceBindingInput extends Schema.Class<McpSourceBindingInput>(
-  "McpSourceBindingInput",
-)(McpSourceBindingInputSchema.fields) {}
-
-export class McpSourceBindingRef extends Schema.Class<McpSourceBindingRef>("McpSourceBindingRef")({
+export const McpSourceBindingRef = Schema.Struct({
   sourceId: Schema.String,
   sourceScopeId: ScopeId,
   scopeId: ScopeId,
@@ -109,7 +106,8 @@ export class McpSourceBindingRef extends Schema.Class<McpSourceBindingRef>("McpS
   value: McpSourceBindingValue,
   createdAt: Schema.Date,
   updatedAt: Schema.Date,
-}) {}
+});
+export type McpSourceBindingRef = typeof McpSourceBindingRef.Type;
 
 // ---------------------------------------------------------------------------
 // Stored source data — discriminated union on transport
@@ -165,11 +163,12 @@ export const McpToolAnnotations = Schema.Struct({
 });
 export type McpToolAnnotations = typeof McpToolAnnotations.Type;
 
-export class McpToolBinding extends Schema.Class<McpToolBinding>("McpToolBinding")({
+export const McpToolBinding = Schema.Struct({
   toolId: Schema.String,
   toolName: Schema.String,
   description: Schema.NullOr(Schema.String),
   inputSchema: Schema.optional(Schema.Unknown),
   outputSchema: Schema.optional(Schema.Unknown),
   annotations: Schema.optional(McpToolAnnotations),
-}) {}
+});
+export type McpToolBinding = typeof McpToolBinding.Type;

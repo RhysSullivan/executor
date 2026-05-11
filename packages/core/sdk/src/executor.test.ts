@@ -423,7 +423,7 @@ describe("createExecutor", () => {
             onElicitation: (ctx) =>
               Effect.sync(() => {
                 approvalMessage = ctx.request.message;
-                return new ElicitationResponse({ action: "decline" });
+                return ElicitationResponse.make({ action: "decline" });
               }),
           },
         )
@@ -466,7 +466,7 @@ describe("createExecutor", () => {
         storage: () => ({}),
         detect: () =>
           Effect.succeed(
-            new SourceDetectionResult({
+            SourceDetectionResult.make({
               kind: "mcp",
               confidence: "low",
               endpoint: "https://example.com/source",
@@ -480,7 +480,7 @@ describe("createExecutor", () => {
         storage: () => ({}),
         detect: () =>
           Effect.succeed(
-            new SourceDetectionResult({
+            SourceDetectionResult.make({
               kind: "graphql",
               confidence: "high",
               endpoint: "https://example.com/source",
@@ -512,7 +512,7 @@ describe("createExecutor", () => {
           detect: () =>
             Effect.sync(() => {
               calls.push(id);
-              return new SourceDetectionResult({
+              return SourceDetectionResult.make({
                 kind: id,
                 confidence,
                 endpoint: `https://example.com/${id}`,
@@ -549,7 +549,7 @@ describe("createExecutor", () => {
         detect: () =>
           Effect.sync(() => {
             called = true;
-            return new SourceDetectionResult({
+            return SourceDetectionResult.make({
               kind: "detector",
               confidence: "high",
               endpoint: "http://127.0.0.1/source",
@@ -755,7 +755,7 @@ describe("createExecutor", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: ScopeId.make("test-scope"),
           name: "API Token",
@@ -782,17 +782,17 @@ describe("createExecutor", () => {
       );
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: ConnectionId.make("conn-owned"),
           scope: ScopeId.make("test-scope"),
           provider: "memory-connection",
           identityLabel: "Alice",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make("conn-owned.access_token"),
             name: "Access",
             value: "access-secret",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: SecretId.make("conn-owned.refresh_token"),
             name: "Refresh",
             value: "refresh-secret",
@@ -899,7 +899,7 @@ describe("createExecutor", () => {
                 handler: ({ elicit }) =>
                   Effect.gen(function* () {
                     const response = yield* elicit(
-                      new FormElicitation({
+                      FormElicitation.make({
                         message: "Enter credentials",
                         requestedSchema: {
                           type: "object",
@@ -930,7 +930,7 @@ describe("createExecutor", () => {
           onElicitation: (ctx) => {
             expect(Predicate.isTagged(ctx.request, "FormElicitation")).toBe(true);
             return Effect.succeed(
-              new ElicitationResponse({
+              ElicitationResponse.make({
                 action: "accept",
                 content: { username: "alice", password: "s3cret" },
               }),
@@ -960,7 +960,7 @@ describe("createExecutor", () => {
                 handler: ({ elicit }) =>
                   Effect.gen(function* () {
                     const response = yield* elicit(
-                      new UrlElicitation({
+                      UrlElicitation.make({
                         message: "Authorize the app",
                         url: "https://oauth.example.com/authorize?state=abc",
                         elicitationId: "oauth-abc",
@@ -986,7 +986,7 @@ describe("createExecutor", () => {
           onElicitation: (ctx) => {
             expect(Predicate.isTagged(ctx.request, "UrlElicitation")).toBe(true);
             return Effect.succeed(
-              new ElicitationResponse({
+              ElicitationResponse.make({
                 action: "accept",
                 content: { code: "auth-code-123" },
               }),
@@ -1020,7 +1020,7 @@ describe("createExecutor", () => {
                 handler: ({ elicit }) =>
                   Effect.gen(function* () {
                     const response = yield* elicit(
-                      new FormElicitation({
+                      FormElicitation.make({
                         message: "Anything?",
                         requestedSchema: {},
                       }),
@@ -1055,14 +1055,14 @@ describe("createExecutor", () => {
               const old = yield* ctx.secrets.get(id);
               if (old !== null) {
                 yield* ctx.secrets.remove(
-                  new RemoveSecretInput({
+                  RemoveSecretInput.make({
                     id: SecretId.make(id),
                     targetScope: ctx.scopes[0]!.id,
                   }),
                 );
               }
               yield* ctx.secrets.set(
-                new SetSecretInput({
+                SetSecretInput.make({
                   id: SecretId.make(id),
                   scope: ctx.scopes[0]!.id,
                   name: id,
@@ -1081,7 +1081,7 @@ describe("createExecutor", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("DB_PASSWORD"),
           scope: ScopeId.make("test-scope"),
           name: "DB_PASSWORD",
@@ -1181,7 +1181,7 @@ const makeSharedTenantExecutors = () =>
     const makeOne = (id: string) =>
       createExecutor({
         scopes: [
-          new Scope({
+          Scope.make({
             id: ScopeId.make(id),
             name: id,
             createdAt: new Date(),
@@ -1223,7 +1223,7 @@ describe("tenant isolation (SDK)", () => {
     Effect.gen(function* () {
       const { execA, execB } = yield* makeSharedTenantExecutors();
       yield* execA.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("shared-id"),
           scope: ScopeId.make("scope-a"),
           name: "A only",
@@ -1240,7 +1240,7 @@ describe("tenant isolation (SDK)", () => {
     Effect.gen(function* () {
       const { execA, execB } = yield* makeSharedTenantExecutors();
       yield* execA.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("shared-id"),
           scope: ScopeId.make("scope-a"),
           name: "A only",
@@ -1257,7 +1257,7 @@ describe("tenant isolation (SDK)", () => {
     Effect.gen(function* () {
       const { execA, execB } = yield* makeSharedTenantExecutors();
       yield* execA.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("shared-id"),
           scope: ScopeId.make("scope-a"),
           name: "A only",
@@ -1275,7 +1275,7 @@ describe("tenant isolation (SDK)", () => {
       const { execA } = yield* makeSharedTenantExecutors();
       const result = yield* Effect.exit(
         execA.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("x"),
             scope: ScopeId.make("not-in-stack"),
             name: "x",
@@ -1299,8 +1299,8 @@ describe("tenant isolation (SDK)", () => {
 
       const exec = yield* createExecutor({
         scopes: [
-          new Scope({ id: innerScope, name: "inner", createdAt: new Date() }),
-          new Scope({ id: outerScope, name: "outer", createdAt: new Date() }),
+          Scope.make({ id: innerScope, name: "inner", createdAt: new Date() }),
+          Scope.make({ id: outerScope, name: "outer", createdAt: new Date() }),
         ],
         adapter,
         blobs,
@@ -1309,7 +1309,7 @@ describe("tenant isolation (SDK)", () => {
       });
 
       yield* exec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("token"),
           scope: outerScope,
           name: "org token",
@@ -1317,7 +1317,7 @@ describe("tenant isolation (SDK)", () => {
         }),
       );
       yield* exec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("token"),
           scope: innerScope,
           name: "user token",
@@ -1342,8 +1342,8 @@ describe("tenant isolation (SDK)", () => {
 
       const exec = yield* createExecutor({
         scopes: [
-          new Scope({ id: innerScope, name: "inner", createdAt: new Date() }),
-          new Scope({ id: outerScope, name: "outer", createdAt: new Date() }),
+          Scope.make({ id: innerScope, name: "inner", createdAt: new Date() }),
+          Scope.make({ id: outerScope, name: "outer", createdAt: new Date() }),
         ],
         adapter,
         blobs,
@@ -1352,7 +1352,7 @@ describe("tenant isolation (SDK)", () => {
       });
 
       yield* exec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("token"),
           scope: outerScope,
           name: "org token",
@@ -1360,7 +1360,7 @@ describe("tenant isolation (SDK)", () => {
         }),
       );
       yield* exec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("token"),
           scope: innerScope,
           name: "user token",
@@ -1386,7 +1386,7 @@ describe("tenant isolation (SDK)", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("missing-secret"),
           scope: ScopeId.make("test-scope"),
           name: "Missing Secret",
@@ -1409,7 +1409,7 @@ describe("tenant isolation (SDK)", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("opaque-secret"),
           scope: ScopeId.make("test-scope"),
           name: "Opaque Secret",
@@ -1525,12 +1525,12 @@ const makeLayeredExecutors = () =>
     const outerId = ScopeId.make("org");
     const innerId = ScopeId.make("user-org:u1:org");
 
-    const outerScope = new Scope({
+    const outerScope = Scope.make({
       id: outerId,
       name: "outer",
       createdAt: new Date(),
     });
-    const innerScope = new Scope({
+    const innerScope = Scope.make({
       id: innerId,
       name: "inner",
       createdAt: new Date(),
@@ -1562,7 +1562,7 @@ describe("cross-scope write preservation (SDK)", () => {
 
         // Admin-equivalent writes the org-wide secret at the outer scope.
         yield* execInner.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("api-token"),
             scope: outerId,
             name: "Org default",
@@ -1572,7 +1572,7 @@ describe("cross-scope write preservation (SDK)", () => {
 
         // User writes a personal override at the inner scope.
         yield* execInner.secrets.set(
-          new SetSecretInput({
+          SetSecretInput.make({
             id: SecretId.make("api-token"),
             scope: innerId,
             name: "Personal override",
@@ -1708,12 +1708,12 @@ const makeMarkerExecutors = () =>
 
     const outerId = ScopeId.make("org");
     const innerId = ScopeId.make("user-org:u1:org");
-    const outerScope = new Scope({
+    const outerScope = Scope.make({
       id: outerId,
       name: "outer",
       createdAt: new Date(),
     });
-    const innerScope = new Scope({
+    const innerScope = Scope.make({
       id: innerId,
       name: "inner",
       createdAt: new Date(),
@@ -1742,7 +1742,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
       const { execOuter, execInner, outerId, innerId } = yield* makeLayeredExecutors();
 
       yield* execInner.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: outerId,
           name: "Org default",
@@ -1750,7 +1750,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
         }),
       );
       yield* execInner.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-token"),
           scope: innerId,
           name: "Personal override",
@@ -1760,7 +1760,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
 
       // Inner caller removes — should only drop the inner override.
       yield* execInner.secrets.remove(
-        new RemoveSecretInput({
+        RemoveSecretInput.make({
           id: SecretId.make("api-token"),
           targetScope: innerId,
         }),
@@ -1944,7 +1944,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
       const outerId = ScopeId.make("org");
       const innerId = ScopeId.make("user-org:u1:org");
       const execOuter = yield* createExecutor({
-        scopes: [new Scope({ id: outerId, name: "outer", createdAt: new Date() })],
+        scopes: [Scope.make({ id: outerId, name: "outer", createdAt: new Date() })],
         adapter,
         blobs,
         plugins,
@@ -1952,8 +1952,8 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
       });
       const execInner = yield* createExecutor({
         scopes: [
-          new Scope({ id: innerId, name: "inner", createdAt: new Date() }),
-          new Scope({ id: outerId, name: "outer", createdAt: new Date() }),
+          Scope.make({ id: innerId, name: "inner", createdAt: new Date() }),
+          Scope.make({ id: outerId, name: "outer", createdAt: new Date() }),
         ],
         adapter,
         blobs,

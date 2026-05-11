@@ -206,7 +206,7 @@ function RemoteEditForm(props: {
           onConnected={async (connectionId) => {
             await setBinding({
               params: { scopeId: oauthCredentialTargetScope },
-              payload: new McpSourceBindingInput({
+              payload: McpSourceBindingInput.make({
                 sourceId: props.sourceId,
                 sourceScope,
                 scope: oauthCredentialTargetScope,

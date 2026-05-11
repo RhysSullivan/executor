@@ -68,7 +68,7 @@ const elicitingTestPlugin = definePlugin(() => ({
           }) =>
             Effect.gen(function* () {
               const response = yield* elicit(
-                new FormElicitation({
+                FormElicitation.make({
                   message: "Approve?",
                   requestedSchema: {
                     type: "object",
@@ -106,7 +106,7 @@ const buildScopedExecutor = (scopeId: string, scopeName: string, options: BuildO
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
-    const scope = new Scope({
+    const scope = Scope.make({
       id: ScopeId.make(scopeId),
       name: scopeName,
       createdAt: new Date(),

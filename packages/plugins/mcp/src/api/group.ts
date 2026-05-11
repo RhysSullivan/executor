@@ -7,7 +7,7 @@ import { McpStoredSourceSchema } from "../sdk/stored-source";
 import {
   McpConnectionAuthInput,
   McpCredentialInput,
-  McpSourceBindingInputSchema,
+  McpSourceBindingInput,
   McpSourceBindingRef,
 } from "../sdk/types";
 
@@ -200,7 +200,7 @@ export const McpGroup = HttpApiGroup.make("mcp")
   .add(
     HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/mcp/source-bindings", {
       params: ScopeParams,
-      payload: McpSourceBindingInputSchema,
+      payload: McpSourceBindingInput,
       success: McpSourceBindingRef,
       error: [InternalError, McpConnectionError, McpToolDiscoveryError],
     }),

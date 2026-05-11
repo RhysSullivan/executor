@@ -45,7 +45,7 @@ const makeSharedOrgExecutors = () =>
     const aInnerId = ScopeId.make(`user-org:${USER_A}:${ORG_ID}`);
     const bInnerId = ScopeId.make(`user-org:${USER_B}:${ORG_ID}`);
 
-    const orgScope = new Scope({
+    const orgScope = Scope.make({
       id: orgScopeId,
       name: "Acme",
       createdAt: new Date(),
@@ -53,7 +53,7 @@ const makeSharedOrgExecutors = () =>
 
     const makeFor = (innerId: ScopeId) =>
       createExecutor({
-        scopes: [new Scope({ id: innerId, name: "Personal", createdAt: new Date() }), orgScope],
+        scopes: [Scope.make({ id: innerId, name: "Personal", createdAt: new Date() }), orgScope],
         adapter,
         blobs,
         plugins,

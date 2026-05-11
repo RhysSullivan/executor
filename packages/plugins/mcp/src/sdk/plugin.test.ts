@@ -274,8 +274,8 @@ describe("mcpPlugin", () => {
   const USER_SCOPE = ScopeId.make("user-scope");
 
   const stackedScopes = [
-    new Scope({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
-    new Scope({ id: ORG_SCOPE, name: "org", createdAt: new Date() }),
+    Scope.make({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
+    Scope.make({ id: ORG_SCOPE, name: "org", createdAt: new Date() }),
   ] as const;
 
   // `seedShadowed` wraps `executor.mcp.addSource` at a given scope with
@@ -638,12 +638,12 @@ describe("mcpPlugin", () => {
       const USER_SCOPE_ID = ScopeId.make("user-scope");
       const ORG_SCOPE_ID = ScopeId.make("org-scope");
       const scopes = [
-        new Scope({
+        Scope.make({
           id: USER_SCOPE_ID,
           name: "user",
           createdAt: new Date(),
         }),
-        new Scope({
+        Scope.make({
           id: ORG_SCOPE_ID,
           name: "org",
           createdAt: new Date(),
@@ -683,12 +683,12 @@ describe("mcpPlugin", () => {
       // including persisting provider state.
       const connectionId = ConnectionId.make("mcp-oauth2-team_mcp");
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: USER_SCOPE_ID,
           provider: OAUTH2_PROVIDER_KEY,
           identityLabel: "user@example.com",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make(`${connectionId}.access_token`),
             name: "MCP Access Token",
             value: "access-token-value",
@@ -802,12 +802,12 @@ describe("mcpPlugin", () => {
         makeTestConfig({ plugins: [makeMemorySecretsPlugin()(), mcpPlugin()] as const }),
       );
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: ConnectionId.make("conn-xyz"),
           scope: ScopeId.make("test-scope"),
           provider: OAUTH2_PROVIDER_KEY,
           identityLabel: "OAuth Source",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make("conn-xyz.access_token"),
             name: "MCP Access Token",
             value: "access-token-value",

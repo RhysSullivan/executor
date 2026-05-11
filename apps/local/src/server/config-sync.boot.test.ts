@@ -152,12 +152,12 @@ describe("syncFromConfig — MCP auth replay", () => {
       const executor = yield* makeExecutor();
       const connectionId = ConnectionId.make("mcp-oauth2-linear");
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: TEST_SCOPE,
           provider: OAUTH2_PROVIDER_KEY,
           identityLabel: "user@example.com",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make(`${connectionId}.access_token`),
             name: "MCP Access Token",
             value: "access-token-value",

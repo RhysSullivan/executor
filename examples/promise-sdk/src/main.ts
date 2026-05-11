@@ -99,7 +99,7 @@ if (anilistTool) {
 // ---------------------------------------------------------------------------
 
 await executor.secrets.set(
-  new SetSecretInput({
+  SetSecretInput.make({
     id: SecretId.make("api-key"),
     scope: "my-app" as SetSecretInput["scope"],
     name: "Shared API Key",

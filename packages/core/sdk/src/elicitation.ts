@@ -7,19 +7,21 @@ import { ToolId } from "./ids";
 // ---------------------------------------------------------------------------
 
 /** Tool needs structured input from the user (render a form) */
-export class FormElicitation extends Schema.TaggedClass<FormElicitation>()("FormElicitation", {
+export const FormElicitation = Schema.TaggedStruct("FormElicitation", {
   message: Schema.String,
   /** JSON Schema describing the fields to collect */
   requestedSchema: Schema.Record(Schema.String, Schema.Unknown),
-}) {}
+});
+export type FormElicitation = typeof FormElicitation.Type;
 
 /** Tool needs the user to visit a URL (OAuth, approval page, etc.) */
-export class UrlElicitation extends Schema.TaggedClass<UrlElicitation>()("UrlElicitation", {
+export const UrlElicitation = Schema.TaggedStruct("UrlElicitation", {
   message: Schema.String,
   url: Schema.String,
   /** Unique ID so the host can correlate the callback */
   elicitationId: Schema.String,
-}) {}
+});
+export type UrlElicitation = typeof UrlElicitation.Type;
 
 export type ElicitationRequest = FormElicitation | UrlElicitation;
 
@@ -30,11 +32,12 @@ export type ElicitationRequest = FormElicitation | UrlElicitation;
 export const ElicitationAction = Schema.Literals(["accept", "decline", "cancel"]);
 export type ElicitationAction = typeof ElicitationAction.Type;
 
-export class ElicitationResponse extends Schema.Class<ElicitationResponse>("ElicitationResponse")({
+export const ElicitationResponse = Schema.Struct({
   action: ElicitationAction,
   /** Present when action is "accept" — the data the user provided */
   content: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
-}) {}
+});
+export type ElicitationResponse = typeof ElicitationResponse.Type;
 
 // ---------------------------------------------------------------------------
 // Elicitation handler — the host provides this to handle requests

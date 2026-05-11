@@ -72,7 +72,7 @@ describe("GoogleDiscoveryHandlers", () => {
             namespace,
             scope,
             name: "Calendar",
-            config: new GoogleDiscoveryStoredSourceData({
+            config: GoogleDiscoveryStoredSourceData.make({
               name: "Calendar",
               discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
               service: "calendar",

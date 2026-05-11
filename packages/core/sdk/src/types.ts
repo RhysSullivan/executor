@@ -47,6 +47,11 @@ export interface RefreshSourceInput {
   readonly targetScope: string;
 }
 
+// `Tool` is the runtime view used across the SDK (with sourceId/pluginId/
+// annotations); `ToolSchema` below is the separate schema-side view that
+// `executor.tools.schema(toolId)` returns (with TypeScript previews). They
+// share a name root but are intentionally distinct shapes.
+// oxlint-disable-next-line executor/prefer-schema-inferred-types
 export interface Tool {
   readonly id: string;
   readonly sourceId: string;
@@ -67,7 +72,7 @@ export interface Tool {
 // show "calling this tool looks like this" code samples.
 // ---------------------------------------------------------------------------
 
-export class ToolSchema extends Schema.Class<ToolSchema>("ToolSchema")({
+export const ToolSchema = Schema.Struct({
   id: ToolId,
   name: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
@@ -76,7 +81,8 @@ export class ToolSchema extends Schema.Class<ToolSchema>("ToolSchema")({
   inputTypeScript: Schema.optional(Schema.String),
   outputTypeScript: Schema.optional(Schema.String),
   typeScriptDefinitions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-}) {}
+});
+export type ToolSchema = typeof ToolSchema.Type;
 
 // ---------------------------------------------------------------------------
 // Source detection — optional capability on `PluginSpec.detect`. When a
@@ -86,9 +92,7 @@ export class ToolSchema extends Schema.Class<ToolSchema>("ToolSchema")({
 // plugin.
 // ---------------------------------------------------------------------------
 
-export class SourceDetectionResult extends Schema.Class<SourceDetectionResult>(
-  "SourceDetectionResult",
-)({
+export const SourceDetectionResult = Schema.Struct({
   /** Plugin id that recognized the URL (e.g. "openapi", "graphql"). */
   kind: Schema.String,
   /** Confidence tier — UI uses this to pick a winner when multiple
@@ -102,7 +106,8 @@ export class SourceDetectionResult extends Schema.Class<SourceDetectionResult>(
   /** Namespace suggestion — the plugin's recommendation for the source
    *  id. UI may override. */
   namespace: Schema.String,
-}) {}
+});
+export type SourceDetectionResult = typeof SourceDetectionResult.Type;
 
 // ---------------------------------------------------------------------------
 // Filter passed to `executor.tools.list(...)`. Empty filter = all tools.

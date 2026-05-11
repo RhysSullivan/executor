@@ -179,7 +179,7 @@ const USER_A = ScopeId.make("user-a");
 const USER_B = ScopeId.make("user-b");
 const ORG = ScopeId.make("org");
 
-const scope = (id: ScopeId, name: string): Scope => new Scope({ id, name, createdAt: new Date() });
+const scope = (id: ScopeId, name: string): Scope => Scope.make({ id, name, createdAt: new Date() });
 
 const makeLayeredMcpExecutors = () =>
   Effect.gen(function* () {
@@ -239,12 +239,12 @@ describe("per-user MCP auth isolation", () => {
         // returns the stored value directly; no MCP AS network calls.
         const sharedConnId = "mcp-oauth2-iso-test";
         yield* execUserA.connections.create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: ConnectionId.make(sharedConnId),
             scope: USER_A,
             provider: OAUTH2_PROVIDER_KEY,
             identityLabel: "userA",
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: SecretId.make(`${sharedConnId}.access_token`),
               name: "MCP OAuth Access Token",
               value: "token-user-a",
@@ -352,7 +352,7 @@ describe("per-user MCP auth isolation", () => {
       // FIRST — so the subsequent addSource's discovery call can
       // resolve it through user A's stack.
       yield* execUserA.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SECRET,
           scope: USER_A,
           name: "User A MCP token",
@@ -437,7 +437,7 @@ describe("per-user MCP auth isolation", () => {
       const secretId = SecretId.make("shared-mcp-token");
 
       yield* execUserA.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: secretId,
           scope: ORG,
           name: "Org MCP token",
@@ -461,7 +461,7 @@ describe("per-user MCP auth isolation", () => {
       });
 
       yield* execUserA.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: secretId,
           scope: USER_A,
           name: "User colliding MCP token",

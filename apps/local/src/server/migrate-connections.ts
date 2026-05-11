@@ -252,7 +252,7 @@ const insertOpenApiCredentialBinding = (
 
 const OAuth2Flow = Schema.Literals(["authorizationCode", "clientCredentials"]);
 
-class LegacyOpenApiOAuth2 extends Schema.Class<LegacyOpenApiOAuth2>("LegacyOpenApiOAuth2")({
+const LegacyOpenApiOAuth2 = Schema.Struct({
   kind: Schema.Literal("oauth2"),
   securitySchemeName: Schema.String,
   flow: OAuth2Flow,
@@ -265,7 +265,8 @@ class LegacyOpenApiOAuth2 extends Schema.Class<LegacyOpenApiOAuth2>("LegacyOpenA
   expiresAt: Schema.NullOr(Schema.Number),
   scope: Schema.NullOr(Schema.String),
   scopes: Schema.Array(Schema.String),
-}) {}
+});
+type LegacyOpenApiOAuth2 = typeof LegacyOpenApiOAuth2.Type;
 
 const decodeOpenApiCurrent = Schema.decodeUnknownOption(OAuth2SourceConfig);
 const decodeOpenApiLegacy = decodeUnknownOptionAs<LegacyOpenApiOAuth2>(LegacyOpenApiOAuth2);

@@ -168,12 +168,12 @@ const rowsToValueMap = (
     if (row.kind === "binding" && typeof row.slot_key === "string") {
       out[name] =
         typeof row.prefix === "string"
-          ? new ConfiguredCredentialBinding({
+          ? ConfiguredCredentialBinding.make({
               kind: "binding",
               slot: row.slot_key,
               prefix: row.prefix,
             })
-          : new ConfiguredCredentialBinding({
+          : ConfiguredCredentialBinding.make({
               kind: "binding",
               slot: row.slot_key,
             });

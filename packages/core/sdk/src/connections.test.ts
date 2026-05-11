@@ -104,17 +104,17 @@ describe("connections", () => {
       );
 
       const created = yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("conn-1"),
           scope: scpid("test-scope"),
           provider: "spotify",
           identityLabel: "alice",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("conn-1.access"),
             name: "access",
             value: "access-v1",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("conn-1.refresh"),
             name: "refresh",
             value: "refresh-v1",
@@ -146,12 +146,12 @@ describe("connections", () => {
 
       const err = yield* executor.connections
         .create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: cid("conn-x"),
             scope: scpid("test-scope"),
             provider: "unregistered",
             identityLabel: null,
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: sid("conn-x.access"),
               name: "access",
               value: "a",
@@ -178,12 +178,12 @@ describe("connections", () => {
 
       const result = yield* Effect.exit(
         executor.connections.create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: cid("conn-y"),
             scope: scpid("not-in-stack"),
             provider: "spotify",
             identityLabel: null,
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: sid("conn-y.access"),
               name: "access",
               value: "a",
@@ -209,7 +209,7 @@ describe("connections", () => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: sid("bare-api"),
           scope: scpid("test-scope"),
           name: "bare API key",
@@ -218,17 +218,17 @@ describe("connections", () => {
       );
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("conn-1"),
           scope: scpid("test-scope"),
           provider: "spotify",
           identityLabel: null,
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("conn-1.access"),
             name: "access",
             value: "a",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("conn-1.refresh"),
             name: "refresh",
             value: "r",
@@ -259,12 +259,12 @@ describe("connections", () => {
         );
 
         yield* executor.connections.create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: cid("conn-1"),
             scope: scpid("test-scope"),
             provider: "spotify",
             identityLabel: null,
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: sid("conn-1.access"),
               name: "access",
               value: "a",
@@ -278,7 +278,7 @@ describe("connections", () => {
 
         const err = yield* executor.secrets
           .remove(
-            new RemoveSecretInput({
+            RemoveSecretInput.make({
               id: sid("conn-1.access"),
               targetScope: scpid("test-scope"),
             }),
@@ -299,17 +299,17 @@ describe("connections", () => {
       );
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("conn-1"),
           scope: scpid("test-scope"),
           provider: "spotify",
           identityLabel: null,
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("conn-1.access"),
             name: "access",
             value: "access-v1",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("conn-1.refresh"),
             name: "refresh",
             value: "refresh-v1",
@@ -325,7 +325,7 @@ describe("connections", () => {
       expect(yield* secretProvider.get!("conn-1.refresh", "test-scope")).toBe("refresh-v1");
 
       yield* executor.connections.remove(
-        new RemoveConnectionInput({ id: cid("conn-1"), targetScope: scpid("test-scope") }),
+        RemoveConnectionInput.make({ id: cid("conn-1"), targetScope: scpid("test-scope") }),
       );
 
       // Connection row gone.
@@ -351,17 +351,17 @@ describe("connections", () => {
       );
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("conn-1"),
           scope: scpid("test-scope"),
           provider: "spotify",
           identityLabel: null,
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("conn-1.access"),
             name: "access",
             value: "access-fresh",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("conn-1.refresh"),
             name: "refresh",
             value: "refresh-v1",
@@ -401,17 +401,17 @@ describe("connections", () => {
         );
 
         yield* executor.connections.create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: cid("conn-1"),
             scope: scpid("test-scope"),
             provider: "spotify",
             identityLabel: "alice",
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: sid("conn-1.access"),
               name: "access",
               value: "access-v1",
             }),
-            refreshToken: new TokenMaterial({
+            refreshToken: TokenMaterial.make({
               secretId: sid("conn-1.refresh"),
               name: "refresh",
               value: "refresh-v1",
@@ -483,17 +483,17 @@ describe("connections", () => {
       );
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("conn-1"),
           scope: scpid("test-scope"),
           provider: "spotify",
           identityLabel: null,
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("conn-1.access"),
             name: "access",
             value: "stale",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("conn-1.refresh"),
             name: "refresh",
             value: "refresh-v1",
@@ -567,17 +567,17 @@ describe("connections", () => {
         );
 
         yield* executor.connections.create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: cid("conn-1"),
             scope: scpid("test-scope"),
             provider: "spotify",
             identityLabel: "alice",
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: sid("conn-1.access"),
               name: "access",
               value: "stale",
             }),
-            refreshToken: new TokenMaterial({
+            refreshToken: TokenMaterial.make({
               secretId: sid("conn-1.refresh"),
               name: "refresh",
               value: "revoked",
@@ -621,17 +621,17 @@ describe("connections", () => {
       );
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("conn-1"),
           scope: scpid("test-scope"),
           provider: "spotify",
           identityLabel: null,
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("conn-1.access"),
             name: "access",
             value: "stale",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("conn-1.refresh"),
             name: "refresh",
             value: "refresh-v1",
@@ -659,12 +659,12 @@ describe("connections", () => {
         );
 
         yield* executor.connections.create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: cid("conn-1"),
             scope: scpid("test-scope"),
             provider: "static-token",
             identityLabel: null,
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: sid("conn-1.access"),
               name: "access",
               value: "a",
@@ -705,17 +705,17 @@ describe("connections", () => {
       );
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("conn-1"),
           scope: scpid("test-scope"),
           provider: "spotify",
           identityLabel: null,
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("conn-1.access"),
             name: "access",
             value: "v1",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("conn-1.refresh"),
             name: "refresh",
             value: "r1",
@@ -727,7 +727,7 @@ describe("connections", () => {
       );
 
       const updated = yield* executor.connections.updateTokens(
-        new UpdateConnectionTokensInput({
+        UpdateConnectionTokensInput.make({
           id: cid("conn-1"),
           accessToken: "v2",
           refreshToken: "r2",
@@ -759,7 +759,7 @@ describe("connections", () => {
 
       const err = yield* executor.connections
         .updateTokens(
-          new UpdateConnectionTokensInput({
+          UpdateConnectionTokensInput.make({
             id: cid("nope"),
             accessToken: "x",
           }),
@@ -779,12 +779,12 @@ describe("connections", () => {
       );
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("conn-1"),
           scope: scpid("test-scope"),
           provider: "spotify",
           identityLabel: "original",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("conn-1.access"),
             name: "access",
             value: "a",
@@ -855,12 +855,12 @@ const makeLayeredConnExecutors = () =>
 
     const outerId = scpid("org");
     const innerId = scpid("user-org:u1:org");
-    const outerScope = new Scope({
+    const outerScope = Scope.make({
       id: outerId,
       name: "outer",
       createdAt: new Date(),
     });
-    const innerScope = new Scope({
+    const innerScope = Scope.make({
       id: innerId,
       name: "inner",
       createdAt: new Date(),
@@ -889,12 +889,12 @@ describe("connections — multi-scope behaviour", () => {
       const { execOuter, execInner, outerId, innerId } = yield* makeLayeredConnExecutors();
 
       yield* execOuter.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("shared"),
           scope: outerId,
           provider: "spotify",
           identityLabel: "outer",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("shared.access.outer"),
             name: "access",
             value: "outer-access",
@@ -907,12 +907,12 @@ describe("connections — multi-scope behaviour", () => {
       );
 
       yield* execInner.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("shared"),
           scope: innerId,
           provider: "spotify",
           identityLabel: "inner",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("shared.access.inner"),
             name: "access",
             value: "inner-access",
@@ -945,12 +945,12 @@ describe("connections — multi-scope behaviour", () => {
       const { execOuter, execInner, outerId, innerId } = yield* makeLayeredConnExecutors();
 
       yield* execOuter.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("shared"),
           scope: outerId,
           provider: "spotify",
           identityLabel: "outer",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("shared.access.outer"),
             name: "access",
             value: "outer-access",
@@ -962,12 +962,12 @@ describe("connections — multi-scope behaviour", () => {
         }),
       );
       yield* execInner.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: cid("shared"),
           scope: innerId,
           provider: "spotify",
           identityLabel: "inner",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("shared.access.inner"),
             name: "access",
             value: "inner-access",
@@ -980,7 +980,7 @@ describe("connections — multi-scope behaviour", () => {
       );
 
       yield* execInner.connections.remove(
-        new RemoveConnectionInput({ id: cid("shared"), targetScope: innerId }),
+        RemoveConnectionInput.make({ id: cid("shared"), targetScope: innerId }),
       );
 
       const outerStill = yield* execOuter.connections.get("shared");
@@ -1011,12 +1011,12 @@ describe("connections — multi-scope behaviour", () => {
 
       const outerId = scpid("org");
       const innerId = scpid("user-org:u1:org");
-      const outerScope = new Scope({
+      const outerScope = Scope.make({
         id: outerId,
         name: "outer",
         createdAt: new Date(),
       });
-      const innerScope = new Scope({
+      const innerScope = Scope.make({
         id: innerId,
         name: "inner",
         createdAt: new Date(),
@@ -1039,17 +1039,17 @@ describe("connections — multi-scope behaviour", () => {
 
       const sharedConnection = cid("shared");
       yield* execOuter.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: sharedConnection,
           scope: outerId,
           provider: "spotify",
           identityLabel: "outer",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("shared.access"),
             name: "access",
             value: "outer-access",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("shared.refresh"),
             name: "refresh",
             value: "outer-refresh",
@@ -1060,17 +1060,17 @@ describe("connections — multi-scope behaviour", () => {
         }),
       );
       yield* execInner.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: sharedConnection,
           scope: innerId,
           provider: "spotify",
           identityLabel: "inner",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: sid("shared.access"),
             name: "access",
             value: "inner-access",
           }),
-          refreshToken: new TokenMaterial({
+          refreshToken: TokenMaterial.make({
             secretId: sid("shared.refresh"),
             name: "refresh",
             value: "inner-refresh",

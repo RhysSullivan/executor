@@ -63,15 +63,17 @@ const recordFindMany = (adapter: DBAdapter, calls: FindManyCall[]): DBAdapter =>
 // Define a test API with Effect HttpApi
 // ---------------------------------------------------------------------------
 
-class Item extends Schema.Class<Item>("Item")({
+const Item = Schema.Struct({
   id: Schema.Number,
   name: Schema.String,
-}) {}
+});
+type Item = typeof Item.Type;
 
-class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
+const EchoHeaders = Schema.Struct({
   authorization: Schema.optional(Schema.String),
   "x-static": Schema.optional(Schema.String),
-}) {}
+});
+type EchoHeaders = typeof EchoHeaders.Type;
 
 class QueryValidationError extends Schema.TaggedErrorClass<QueryValidationError>()(
   "QueryValidationError",
@@ -114,10 +116,10 @@ const ITEMS = [
 
 const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
   handlers
-    .handle("listItems", () => Effect.succeed(ITEMS.map((item) => new Item(item))))
+    .handle("listItems", () => Effect.succeed(ITEMS.map((item) => Item.make(item))))
     .handle("getItem", (req) =>
       Effect.succeed(
-        new Item(
+        Item.make(
           ITEMS.find((i) => i.id === req.params.itemId) ?? {
             id: 0,
             name: "Unknown",
@@ -128,7 +130,7 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
     .handle("echoHeaders", () =>
       Effect.gen(function* () {
         const req = yield* HttpServerRequest.HttpServerRequest;
-        return new EchoHeaders({
+        return EchoHeaders.make({
           authorization: req.headers["authorization"],
           "x-static": req.headers["x-static"],
         });
@@ -311,8 +313,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const executor = yield* createExecutor(
         makeTestConfig({
           scopes: [
-            new Scope({ id: userScope, name: "user", createdAt: new Date() }),
-            new Scope({ id: orgScope, name: "org", createdAt: new Date() }),
+            Scope.make({ id: userScope, name: "user", createdAt: new Date() }),
+            Scope.make({ id: orgScope, name: "org", createdAt: new Date() }),
           ],
           plugins: [
             openApiPlugin({ httpClientLayer: clientLayer }),
@@ -368,8 +370,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const executor = yield* createExecutor(
         makeTestConfig({
           scopes: [
-            new Scope({ id: userScope, name: "user", createdAt: new Date() }),
-            new Scope({ id: orgScope, name: "org", createdAt: new Date() }),
+            Scope.make({ id: userScope, name: "user", createdAt: new Date() }),
+            Scope.make({ id: orgScope, name: "org", createdAt: new Date() }),
           ],
           plugins: [
             openApiPlugin({ httpClientLayer: clientLayer }),
@@ -379,7 +381,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("user-query-token"),
           scope: userScope,
           name: "User query token",
@@ -425,7 +427,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("old-token"),
           scope: ScopeId.make(TEST_SCOPE),
           name: "Old token",
@@ -468,7 +470,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("old-client-id"),
           scope: ScopeId.make(TEST_SCOPE),
           name: "Old client ID",
@@ -476,7 +478,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         }),
       );
 
-      const oldOAuth = new OAuth2SourceConfig({
+      const oldOAuth = OAuth2SourceConfig.make({
         kind: "oauth2",
         securitySchemeName: "old",
         flow: "authorizationCode",
@@ -495,7 +497,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         oauth2: oldOAuth,
       });
       yield* executor.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "stale_oauth",
           sourceScope: ScopeId.make(TEST_SCOPE),
           scope: ScopeId.make(TEST_SCOPE),
@@ -505,7 +507,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       yield* executor.openapi.updateSource("stale_oauth", TEST_SCOPE, {
-        oauth2: new OAuth2SourceConfig({
+        oauth2: OAuth2SourceConfig.make({
           kind: "oauth2",
           securitySchemeName: "new",
           flow: "authorizationCode",
@@ -538,7 +540,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("test-api-token"),
           scope: ScopeId.make(TEST_SCOPE),
           name: "Test API Token",
@@ -591,7 +593,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("config-sync-token"),
           scope: ScopeId.make(TEST_SCOPE),
           name: "Config-sync token",
@@ -650,7 +652,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         }),
       );
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("missing-token"),
           scope: ScopeId.make(TEST_SCOPE),
           name: "Missing token",
@@ -664,7 +666,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         namespace: "noauth",
         baseUrl: "",
         headers: {
-          Authorization: new ConfiguredHeaderBinding({
+          Authorization: ConfiguredHeaderBinding.make({
             kind: "binding",
             slot: "header:authorization",
             prefix: "Bearer ",
@@ -672,7 +674,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         },
       });
       yield* executor.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "noauth",
           sourceScope: ScopeId.make(TEST_SCOPE),
           scope: ScopeId.make(TEST_SCOPE),
@@ -933,8 +935,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
   const USER_SCOPE = ScopeId.make("user-scope");
 
   const stackedScopes = [
-    new Scope({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
-    new Scope({ id: ORG_SCOPE, name: "org", createdAt: new Date() }),
+    Scope.make({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
+    Scope.make({ id: ORG_SCOPE, name: "org", createdAt: new Date() }),
   ] as const;
 
   it.effect("shadowed addSpec does not wipe the outer-scope source", () =>
@@ -1124,7 +1126,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("org-api-token"),
           scope: ORG_SCOPE,
           name: "Org API token",
@@ -1178,7 +1180,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
           const executor = yield* createExecutor(config);
 
           yield* executor.secrets.set(
-            new SetSecretInput({
+            SetSecretInput.make({
               id: SecretId.make("org-spec-token"),
               scope: ORG_SCOPE,
               name: "Org spec token",
@@ -1259,7 +1261,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       // scope — the admin is saving the source and deferring sign-in
       // to individual users.
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("acme-client-id"),
           scope: ScopeId.make(TEST_SCOPE),
           name: "Acme Client ID",
@@ -1267,7 +1269,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         }),
       );
 
-      const deferredAuth = new OAuth2SourceConfig({
+      const deferredAuth = OAuth2SourceConfig.make({
         kind: "oauth2",
         securitySchemeName: "oauth2",
         flow: "authorizationCode",
@@ -1296,7 +1298,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       expect(stored?.config.oauth2?.clientIdSlot).toBe("oauth2:oauth2:client-id");
 
       yield* executor.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "deferred",
           sourceScope: ScopeId.make(TEST_SCOPE),
           scope: ScopeId.make(TEST_SCOPE),
@@ -1352,7 +1354,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("api-key"),
           scope: ScopeId.make(TEST_SCOPE),
           name: "API Key",
@@ -1373,7 +1375,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       // Configure a slot binding pointing at the same secret.
       yield* executor.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "with_secret",
           sourceScope: ScopeId.make(TEST_SCOPE),
           scope: ScopeId.make(TEST_SCOPE),
@@ -1398,7 +1400,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         }),
       );
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("locked"),
           scope: ScopeId.make(TEST_SCOPE),
           name: "Locked",
@@ -1414,7 +1416,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         baseUrl: "http://example.com",
       });
       yield* executor.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "ref",
           sourceScope: ScopeId.make(TEST_SCOPE),
           scope: ScopeId.make(TEST_SCOPE),
@@ -1425,7 +1427,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const failure = yield* executor.secrets
         .remove(
-          new RemoveSecretInput({
+          RemoveSecretInput.make({
             id: SecretId.make("locked"),
             targetScope: ScopeId.make(TEST_SCOPE),
           }),
@@ -1441,7 +1443,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         ScopeId.make(TEST_SCOPE),
       );
       yield* executor.secrets.remove(
-        new RemoveSecretInput({
+        RemoveSecretInput.make({
           id: SecretId.make("locked"),
           targetScope: ScopeId.make(TEST_SCOPE),
         }),

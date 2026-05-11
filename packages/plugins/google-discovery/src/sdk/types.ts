@@ -15,40 +15,35 @@ export type GoogleDiscoveryHttpMethod = typeof GoogleDiscoveryHttpMethod.Type;
 export const GoogleDiscoveryParameterLocation = Schema.Literals(["path", "query", "header"]);
 export type GoogleDiscoveryParameterLocation = typeof GoogleDiscoveryParameterLocation.Type;
 
-export class GoogleDiscoveryParameter extends Schema.Class<GoogleDiscoveryParameter>(
-  "GoogleDiscoveryParameter",
-)({
+export const GoogleDiscoveryParameter = Schema.Struct({
   name: Schema.String,
   location: GoogleDiscoveryParameterLocation,
   required: Schema.Boolean,
   repeated: Schema.Boolean,
   description: Schema.OptionFromOptional(Schema.String),
   schema: Schema.OptionFromOptional(Schema.Unknown),
-}) {}
+});
+export type GoogleDiscoveryParameter = typeof GoogleDiscoveryParameter.Type;
 
-export class GoogleDiscoveryMethodBinding extends Schema.Class<GoogleDiscoveryMethodBinding>(
-  "GoogleDiscoveryMethodBinding",
-)({
+export const GoogleDiscoveryMethodBinding = Schema.Struct({
   method: GoogleDiscoveryHttpMethod,
   pathTemplate: Schema.String,
   parameters: Schema.Array(GoogleDiscoveryParameter),
   hasBody: Schema.Boolean,
-}) {}
+});
+export type GoogleDiscoveryMethodBinding = typeof GoogleDiscoveryMethodBinding.Type;
 
-export class GoogleDiscoveryManifestMethod extends Schema.Class<GoogleDiscoveryManifestMethod>(
-  "GoogleDiscoveryManifestMethod",
-)({
+export const GoogleDiscoveryManifestMethod = Schema.Struct({
   toolPath: Schema.String,
   description: Schema.OptionFromOptional(Schema.String),
   binding: GoogleDiscoveryMethodBinding,
   inputSchema: Schema.OptionFromOptional(Schema.Unknown),
   outputSchema: Schema.OptionFromOptional(Schema.Unknown),
   scopes: Schema.Array(Schema.String),
-}) {}
+});
+export type GoogleDiscoveryManifestMethod = typeof GoogleDiscoveryManifestMethod.Type;
 
-export class GoogleDiscoveryManifest extends Schema.Class<GoogleDiscoveryManifest>(
-  "GoogleDiscoveryManifest",
-)({
+export const GoogleDiscoveryManifest = Schema.Struct({
   title: Schema.OptionFromOptional(Schema.String),
   service: Schema.String,
   version: Schema.String,
@@ -57,7 +52,8 @@ export class GoogleDiscoveryManifest extends Schema.Class<GoogleDiscoveryManifes
   oauthScopes: Schema.OptionFromOptional(Schema.Record(Schema.String, Schema.String)),
   schemaDefinitions: Schema.Record(Schema.String, Schema.Unknown),
   methods: Schema.Array(GoogleDiscoveryManifestMethod),
-}) {}
+});
+export type GoogleDiscoveryManifest = typeof GoogleDiscoveryManifest.Type;
 
 // ---------------------------------------------------------------------------
 // Auth — a source either runs unauthenticated or is backed by a Connection.
@@ -98,9 +94,7 @@ export const GoogleDiscoveryFetchCredentials = Schema.Struct({
 });
 export type GoogleDiscoveryFetchCredentials = typeof GoogleDiscoveryFetchCredentials.Type;
 
-export class GoogleDiscoveryStoredSourceData extends Schema.Class<GoogleDiscoveryStoredSourceData>(
-  "GoogleDiscoveryStoredSourceData",
-)({
+export const GoogleDiscoveryStoredSourceData = Schema.Struct({
   name: Schema.String,
   discoveryUrl: Schema.String,
   credentials: Schema.optional(GoogleDiscoveryFetchCredentials),
@@ -109,16 +103,16 @@ export class GoogleDiscoveryStoredSourceData extends Schema.Class<GoogleDiscover
   rootUrl: Schema.String,
   servicePath: Schema.String,
   auth: GoogleDiscoveryAuth,
-}) {}
+});
+export type GoogleDiscoveryStoredSourceData = typeof GoogleDiscoveryStoredSourceData.Type;
 
-export class GoogleDiscoveryInvocationResult extends Schema.Class<GoogleDiscoveryInvocationResult>(
-  "GoogleDiscoveryInvocationResult",
-)({
+export const GoogleDiscoveryInvocationResult = Schema.Struct({
   status: Schema.Number,
   headers: Schema.Record(Schema.String, Schema.String),
   data: Schema.NullOr(Schema.Unknown),
   error: Schema.NullOr(Schema.Unknown),
-}) {}
+});
+export type GoogleDiscoveryInvocationResult = typeof GoogleDiscoveryInvocationResult.Type;
 
 export interface GoogleDiscoverySourceMeta {
   readonly namespace: string;

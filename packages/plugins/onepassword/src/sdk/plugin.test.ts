@@ -30,8 +30,8 @@ describe("onepassword plugin", () => {
       const initial = yield* executor.onepassword.getConfig();
       expect(initial).toBeNull();
 
-      const config = new OnePasswordConfig({
-        auth: new DesktopAppAuth({
+      const config = OnePasswordConfig.make({
+        auth: DesktopAppAuth.make({
           kind: "desktop-app",
           accountName: "my.1password.com",
         }),

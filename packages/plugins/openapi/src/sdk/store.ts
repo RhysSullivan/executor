@@ -140,7 +140,7 @@ export interface StoredSource {
 // an encodable/decodable shape for HTTP responses.
 // ---------------------------------------------------------------------------
 
-export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>("OpenApiStoredSource")({
+export const StoredSourceSchema = Schema.Struct({
   namespace: Schema.String,
   scope: Schema.String,
   name: Schema.String,
@@ -161,7 +161,8 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>("OpenAp
     // and connection ids live in OpenAPI-owned scoped binding rows.
     oauth2: Schema.optional(OAuth2SourceConfig),
   }),
-}) {}
+}).annotate({ identifier: "OpenApiStoredSource" });
+export type StoredSourceSchema = typeof StoredSourceSchema.Type;
 
 export type StoredSourceSchemaType = typeof StoredSourceSchema.Type;
 
@@ -274,12 +275,12 @@ const childRowsToValueMap = (
       if (child.kind === "binding" && child.slot_key != null) {
         out[child.name] =
           child.prefix != null
-            ? new ConfiguredHeaderBinding({
+            ? ConfiguredHeaderBinding.make({
                 kind: "binding",
                 slot: child.slot_key,
                 prefix: child.prefix,
               })
-            : new ConfiguredHeaderBinding({
+            : ConfiguredHeaderBinding.make({
                 kind: "binding",
                 slot: child.slot_key,
               });

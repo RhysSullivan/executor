@@ -60,7 +60,7 @@ export interface SecretProvider {
 // and is only reachable via `executor.secrets.get(id)`.
 // ---------------------------------------------------------------------------
 
-export class SecretRef extends Schema.Class<SecretRef>("SecretRef")({
+export const SecretRef = Schema.Struct({
   id: SecretId,
   scopeId: ScopeId,
   /** Human-readable label (e.g. "Cloudflare API Token") */
@@ -68,7 +68,8 @@ export class SecretRef extends Schema.Class<SecretRef>("SecretRef")({
   /** Which provider holds the value */
   provider: Schema.String,
   createdAt: Schema.Date,
-}) {}
+});
+export type SecretRef = typeof SecretRef.Type;
 
 // ---------------------------------------------------------------------------
 // SetSecretInput — all the metadata to write a secret in one call.
@@ -81,7 +82,7 @@ export class SecretRef extends Schema.Class<SecretRef>("SecretRef")({
 // OAuth token exchange writes to the innermost per-user scope.
 // ---------------------------------------------------------------------------
 
-export class SetSecretInput extends Schema.Class<SetSecretInput>("SetSecretInput")({
+export const SetSecretInput = Schema.Struct({
   id: SecretId,
   /** Scope id to own this secret. Must be one of the executor's
    *  configured scopes. */
@@ -93,11 +94,13 @@ export class SetSecretInput extends Schema.Class<SetSecretInput>("SetSecretInput
   /** Optional provider routing. If unset the executor picks the first
    *  writable provider in registration order. */
   provider: Schema.optional(Schema.String),
-}) {}
+});
+export type SetSecretInput = typeof SetSecretInput.Type;
 
-export class RemoveSecretInput extends Schema.Class<RemoveSecretInput>("RemoveSecretInput")({
+export const RemoveSecretInput = Schema.Struct({
   id: SecretId,
   /** Scope id whose secret row/value should be removed. Must be one of
    *  the executor's configured scopes. */
   targetScope: ScopeId,
-}) {}
+});
+export type RemoveSecretInput = typeof RemoveSecretInput.Type;

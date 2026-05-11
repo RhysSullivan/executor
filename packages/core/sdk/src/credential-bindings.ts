@@ -26,23 +26,15 @@ export const CredentialBindingValue = Schema.Union([
 ]);
 export type CredentialBindingValue = typeof CredentialBindingValue.Type;
 
-export const ConfiguredCredentialBindingSchema = Schema.Struct({
+export const ConfiguredCredentialBinding = Schema.Struct({
   kind: Schema.Literal("binding"),
   slot: Schema.String,
   prefix: Schema.optional(Schema.String),
 });
-
-export class ConfiguredCredentialBinding extends Schema.Class<ConfiguredCredentialBinding>(
-  "ConfiguredCredentialBinding",
-)(ConfiguredCredentialBindingSchema.fields) {}
+export type ConfiguredCredentialBinding = typeof ConfiguredCredentialBinding.Type;
 
 export const ConfiguredCredentialValue = Schema.Union([Schema.String, ConfiguredCredentialBinding]);
 export type ConfiguredCredentialValue = typeof ConfiguredCredentialValue.Type;
-
-export const ConfiguredCredentialValueSchema = Schema.Union([
-  Schema.String,
-  ConfiguredCredentialBindingSchema,
-]);
 
 export const ScopedSecretCredentialInput = Schema.Struct({
   secretId: Schema.String,
@@ -52,9 +44,7 @@ export const ScopedSecretCredentialInput = Schema.Struct({
 });
 export type ScopedSecretCredentialInput = typeof ScopedSecretCredentialInput.Type;
 
-export class CredentialBindingRef extends Schema.Class<CredentialBindingRef>(
-  "CredentialBindingRef",
-)({
+export const CredentialBindingRef = Schema.Struct({
   id: CredentialBindingId,
   scopeId: ScopeId,
   pluginId: Schema.String,
@@ -64,63 +54,58 @@ export class CredentialBindingRef extends Schema.Class<CredentialBindingRef>(
   value: CredentialBindingValue,
   createdAt: Schema.Date,
   updatedAt: Schema.Date,
-}) {}
+});
+export type CredentialBindingRef = typeof CredentialBindingRef.Type;
 
-export class SetCredentialBindingInput extends Schema.Class<SetCredentialBindingInput>(
-  "SetCredentialBindingInput",
-)({
+export const SetCredentialBindingInput = Schema.Struct({
   targetScope: ScopeId,
   pluginId: Schema.String,
   sourceId: Schema.String,
   sourceScope: ScopeId,
   slotKey: Schema.String,
   value: CredentialBindingValue,
-}) {}
+});
+export type SetCredentialBindingInput = typeof SetCredentialBindingInput.Type;
 
-export class CredentialBindingSourceInput extends Schema.Class<CredentialBindingSourceInput>(
-  "CredentialBindingSourceInput",
-)({
+export const CredentialBindingSourceInput = Schema.Struct({
   pluginId: Schema.String,
   sourceId: Schema.String,
   sourceScope: ScopeId,
-}) {}
+});
+export type CredentialBindingSourceInput = typeof CredentialBindingSourceInput.Type;
 
-export class CredentialBindingSlotInput extends Schema.Class<CredentialBindingSlotInput>(
-  "CredentialBindingSlotInput",
-)({
+export const CredentialBindingSlotInput = Schema.Struct({
   pluginId: Schema.String,
   sourceId: Schema.String,
   sourceScope: ScopeId,
   slotKey: Schema.String,
-}) {}
+});
+export type CredentialBindingSlotInput = typeof CredentialBindingSlotInput.Type;
 
-export class RemoveCredentialBindingInput extends Schema.Class<RemoveCredentialBindingInput>(
-  "RemoveCredentialBindingInput",
-)({
+export const RemoveCredentialBindingInput = Schema.Struct({
   targetScope: ScopeId,
   pluginId: Schema.String,
   sourceId: Schema.String,
   sourceScope: ScopeId,
   slotKey: Schema.String,
-}) {}
+});
+export type RemoveCredentialBindingInput = typeof RemoveCredentialBindingInput.Type;
 
-export class ReplaceCredentialBindingValue extends Schema.Class<ReplaceCredentialBindingValue>(
-  "ReplaceCredentialBindingValue",
-)({
+export const ReplaceCredentialBindingValue = Schema.Struct({
   slotKey: Schema.String,
   value: CredentialBindingValue,
-}) {}
+});
+export type ReplaceCredentialBindingValue = typeof ReplaceCredentialBindingValue.Type;
 
-export class ReplaceCredentialBindingsInput extends Schema.Class<ReplaceCredentialBindingsInput>(
-  "ReplaceCredentialBindingsInput",
-)({
+export const ReplaceCredentialBindingsInput = Schema.Struct({
   targetScope: ScopeId,
   pluginId: Schema.String,
   sourceId: Schema.String,
   sourceScope: ScopeId,
   slotPrefixes: Schema.Array(Schema.String),
   bindings: Schema.Array(ReplaceCredentialBindingValue),
-}) {}
+});
+export type ReplaceCredentialBindingsInput = typeof ReplaceCredentialBindingsInput.Type;
 
 export const CredentialBindingResolutionStatus = Schema.Literals([
   "resolved",
@@ -129,9 +114,7 @@ export const CredentialBindingResolutionStatus = Schema.Literals([
 ]);
 export type CredentialBindingResolutionStatus = typeof CredentialBindingResolutionStatus.Type;
 
-export class ResolvedCredentialSlot extends Schema.Class<ResolvedCredentialSlot>(
-  "ResolvedCredentialSlot",
-)({
+export const ResolvedCredentialSlot = Schema.Struct({
   pluginId: Schema.String,
   sourceId: Schema.String,
   sourceScopeId: ScopeId,
@@ -139,7 +122,8 @@ export class ResolvedCredentialSlot extends Schema.Class<ResolvedCredentialSlot>
   bindingScopeId: Schema.NullOr(ScopeId),
   kind: Schema.NullOr(CredentialBindingKind),
   status: CredentialBindingResolutionStatus,
-}) {}
+});
+export type ResolvedCredentialSlot = typeof ResolvedCredentialSlot.Type;
 
 export interface CredentialBindingsFacade {
   readonly listForSource: (
@@ -202,7 +186,7 @@ export const credentialBindingValueFromRow = (row: CredentialBindingRow): Creden
 
 export const credentialBindingRowToRef = (row: CredentialBindingRow): CredentialBindingRef => {
   const value = credentialBindingValueFromRow(row);
-  return new CredentialBindingRef({
+  return CredentialBindingRef.make({
     id: CredentialBindingId.make(row.id),
     scopeId: ScopeId.make(row.scope_id),
     pluginId: row.plugin_id,

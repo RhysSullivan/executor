@@ -97,7 +97,7 @@ const introspectionResult: IntrospectionResult = {
 
 const introspectionJson = JSON.stringify({ data: introspectionResult });
 const serveGreetingServer = serveGraphqlTestServer({ schema: makeGreetingGraphqlSchema() });
-const declineAll = () => Effect.succeed(new ElicitationResponse({ action: "decline" }));
+const declineAll = () => Effect.succeed(ElicitationResponse.make({ action: "decline" }));
 
 const sampleDataPlugin = definePlugin(() => ({
   id: "sample-read-test" as const,
@@ -221,12 +221,12 @@ describe("graphqlPlugin real protocol server", () => {
 
       const connectionId = ConnectionId.make("graphql-oauth2-test");
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: ScopeId.make(TEST_SCOPE),
           provider: "oauth2",
           identityLabel: "GraphQL Test",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make(`${connectionId}.access_token`),
             name: "GraphQL Access Token",
             value: "secret-token",
@@ -409,8 +409,8 @@ describe("graphqlPlugin", () => {
       const executor = yield* createExecutor(
         makeTestConfig({
           scopes: [
-            new Scope({ id: userScope, name: "user", createdAt: new Date() }),
-            new Scope({ id: orgScope, name: "org", createdAt: new Date() }),
+            Scope.make({ id: userScope, name: "user", createdAt: new Date() }),
+            Scope.make({ id: orgScope, name: "org", createdAt: new Date() }),
           ],
           plugins: [graphqlPlugin()] as const,
         }),
@@ -525,12 +525,12 @@ describe("graphqlPlugin", () => {
   const USER_SCOPE = "user-scope";
 
   const stackedScopes = [
-    new Scope({
+    Scope.make({
       id: ScopeId.make(USER_SCOPE),
       name: "user",
       createdAt: new Date(),
     }),
-    new Scope({
+    Scope.make({
       id: ScopeId.make(ORG_SCOPE),
       name: "org",
       createdAt: new Date(),
@@ -706,7 +706,7 @@ describe("graphqlPlugin", () => {
       });
 
       yield* executor.graphql.setSourceBinding(
-        new GraphqlSourceBindingInput({
+        GraphqlSourceBindingInput.make({
           sourceId: "shared_credentials",
           sourceScope: ScopeId.make(ORG_SCOPE),
           scope: ScopeId.make(USER_SCOPE),
@@ -715,7 +715,7 @@ describe("graphqlPlugin", () => {
         }),
       );
       yield* executor.graphql.setSourceBinding(
-        new GraphqlSourceBindingInput({
+        GraphqlSourceBindingInput.make({
           sourceId: "shared_credentials",
           sourceScope: ScopeId.make(ORG_SCOPE),
           scope: ScopeId.make(USER_SCOPE),
@@ -866,12 +866,12 @@ describe("graphqlPlugin", () => {
         const connectionId = ConnectionId.make("shared-graphql-connection");
 
         yield* executor.connections.create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: connectionId,
             scope: ScopeId.make(ORG_SCOPE),
             provider: "oauth2",
             identityLabel: "Org connection",
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: SecretId.make("org-shared-graphql-connection.access_token"),
               name: "Org access token",
               value: "org-access-token",
@@ -893,12 +893,12 @@ describe("graphqlPlugin", () => {
         });
 
         yield* executor.connections.create(
-          new CreateConnectionInput({
+          CreateConnectionInput.make({
             id: connectionId,
             scope: ScopeId.make(USER_SCOPE),
             provider: "oauth2",
             identityLabel: "User colliding connection",
-            accessToken: new TokenMaterial({
+            accessToken: TokenMaterial.make({
               secretId: SecretId.make("user-shared-graphql-connection.access_token"),
               name: "User access token",
               value: "user-access-token",
@@ -1032,7 +1032,7 @@ describe("graphqlPlugin", () => {
 
       const result = yield* executor.secrets
         .remove(
-          new RemoveSecretInput({
+          RemoveSecretInput.make({
             id: SecretId.make("locked"),
             targetScope: ScopeId.make(TEST_SCOPE),
           }),
@@ -1046,7 +1046,7 @@ describe("graphqlPlugin", () => {
       // After detaching the source, remove succeeds.
       yield* executor.graphql.removeSource("ref", TEST_SCOPE);
       yield* executor.secrets.remove(
-        new RemoveSecretInput({
+        RemoveSecretInput.make({
           id: SecretId.make("locked"),
           targetScope: ScopeId.make(TEST_SCOPE),
         }),
@@ -1064,12 +1064,12 @@ describe("graphqlPlugin", () => {
 
       const connectionId = ConnectionId.make("graphql-conn");
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: ScopeId.make(TEST_SCOPE),
           provider: "oauth2",
           identityLabel: "Conn",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make(`${connectionId}.access_token`),
             name: "Access Token",
             value: "tok",

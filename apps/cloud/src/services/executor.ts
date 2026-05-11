@@ -71,12 +71,12 @@ export const createScopedExecutor = (
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
 
-    const orgScope = new Scope({
+    const orgScope = Scope.make({
       id: ScopeId.make(organizationId),
       name: organizationName,
       createdAt: new Date(),
     });
-    const userOrgScope = new Scope({
+    const userOrgScope = Scope.make({
       id: ScopeId.make(`user-org:${userId}:${organizationId}`),
       name: `Personal · ${organizationName}`,
       createdAt: new Date(),

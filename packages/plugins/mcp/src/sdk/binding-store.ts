@@ -235,8 +235,8 @@ const rowsToValueMap = (
     if (row.kind === "binding" && typeof row.slot_key === "string") {
       const prefix = row.prefix as string | undefined | null;
       out[name] = prefix
-        ? new ConfiguredCredentialBinding({ kind: "binding", slot: row.slot_key, prefix })
-        : new ConfiguredCredentialBinding({ kind: "binding", slot: row.slot_key });
+        ? ConfiguredCredentialBinding.make({ kind: "binding", slot: row.slot_key, prefix })
+        : ConfiguredCredentialBinding.make({ kind: "binding", slot: row.slot_key });
     } else if (row.kind === "text" && typeof row.text_value === "string") {
       out[name] = row.text_value;
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -13,6 +13,8 @@ import {
 
 import { mcpPlugin } from "./plugin";
 import { serveMcpServer } from "../testing";
+
+const isFormElicitation = Schema.is(FormElicitation);
 
 // ---------------------------------------------------------------------------
 // Test MCP server on a real HTTP port
@@ -109,11 +111,11 @@ describe("MCP elicitation (end-to-end)", () => {
 
       const options: InvokeOptions = {
         onElicitation: (ctx) => {
-          if (ctx.request instanceof FormElicitation) {
+          if (isFormElicitation(ctx.request)) {
             elicitationMessages.push(ctx.request.message);
           }
           return Effect.succeed(
-            new ElicitationResponse({
+            ElicitationResponse.make({
               action: "accept",
               content: { approved: true },
             }),
@@ -145,7 +147,7 @@ describe("MCP elicitation (end-to-end)", () => {
         gatedEcho.id,
         { value: "nope" },
         {
-          onElicitation: () => Effect.succeed(new ElicitationResponse({ action: "decline" })),
+          onElicitation: () => Effect.succeed(ElicitationResponse.make({ action: "decline" })),
         },
       );
 
@@ -218,7 +220,7 @@ describe("MCP elicitation (end-to-end)", () => {
             capturedArgs = ctx.args;
             capturedRequest = ctx.request;
             return Effect.succeed(
-              new ElicitationResponse({
+              ElicitationResponse.make({
                 action: "accept",
                 content: { approved: true },
               }),
@@ -229,7 +231,7 @@ describe("MCP elicitation (end-to-end)", () => {
 
       expect(capturedToolId).toBe(gatedEcho.id);
       expect(capturedArgs).toEqual({ value: "ctx-test" });
-      expect(capturedRequest).toBeInstanceOf(FormElicitation);
+      expect(isFormElicitation(capturedRequest)).toBe(true);
 
       const form = capturedRequest as FormElicitation;
       expect(form.message).toContain('Approve echo for "ctx-test"?');
@@ -278,7 +280,7 @@ describe("MCP elicitation (end-to-end)", () => {
         {
           onElicitation: () =>
             Effect.succeed(
-              new ElicitationResponse({
+              ElicitationResponse.make({
                 action: "accept",
                 content: { approved: true },
               }),

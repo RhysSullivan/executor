@@ -143,7 +143,7 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           const ext = yield* McpExtensionService;
           const source = yield* ext.getSource(path.namespace, path.scopeId);
           return source
-            ? new McpStoredSourceSchema({
+            ? McpStoredSourceSchema.make({
                 namespace: source.namespace,
                 scope: ScopeId.make(source.scope),
                 name: source.name,

@@ -94,7 +94,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           const ext = yield* OpenApiExtensionService;
           const source = yield* ext.getSource(path.namespace, path.scopeId);
           return source
-            ? new StoredSourceSchema({
+            ? StoredSourceSchema.make({
                 namespace: source.namespace,
                 scope: source.scope,
                 name: source.name,
@@ -134,7 +134,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
-          return yield* ext.setSourceBinding(new OpenApiSourceBindingInput(payload));
+          return yield* ext.setSourceBinding(OpenApiSourceBindingInput.make(payload));
         }),
       ),
     )

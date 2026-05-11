@@ -25,7 +25,7 @@ export const makeTestConfig = <const TPlugins extends readonly AnyPlugin[] = []>
   readonly plugins?: TPlugins;
 }): ExecutorConfig<TPlugins> => {
   const scopes = options?.scopes ?? [
-    new Scope({
+    Scope.make({
       id: ScopeId.make("test-scope"),
       name: options?.scopeName ?? "test",
       createdAt: new Date(),

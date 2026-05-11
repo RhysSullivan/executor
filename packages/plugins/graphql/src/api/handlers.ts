@@ -100,7 +100,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
       capture(
         Effect.gen(function* () {
           const ext = yield* GraphqlExtensionService;
-          return yield* ext.setSourceBinding(new GraphqlSourceBindingInput(payload));
+          return yield* ext.setSourceBinding(GraphqlSourceBindingInput.make(payload));
         }),
       ),
     )

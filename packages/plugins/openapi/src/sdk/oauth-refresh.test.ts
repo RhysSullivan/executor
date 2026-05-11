@@ -59,9 +59,10 @@ const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 // prove which access token was in flight at invoke time.
 // ---------------------------------------------------------------------------
 
-class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
+const EchoHeaders = Schema.Struct({
   authorization: Schema.optional(Schema.String),
-}) {}
+});
+type EchoHeaders = typeof EchoHeaders.Type;
 
 const ItemsGroup = HttpApiGroup.make("items").add(
   HttpApiEndpoint.get("echoHeaders", "/echo-headers", { success: EchoHeaders }),
@@ -74,7 +75,7 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
   handlers.handle("echoHeaders", () =>
     Effect.gen(function* () {
       const req = yield* HttpServerRequest.HttpServerRequest;
-      return new EchoHeaders({
+      return EchoHeaders.make({
         authorization: req.headers["authorization"],
       });
     }),
@@ -162,7 +163,7 @@ const makeExecutor = () =>
     const blobs = makeInMemoryBlobStore();
 
     const scopeId = ScopeId.make("test-scope");
-    const scope = new Scope({
+    const scope = Scope.make({
       id: scopeId,
       name: "test",
       createdAt: new Date(),
@@ -178,7 +179,7 @@ const makeExecutor = () =>
     // Seed client id + secret in the executor scope so the openapi
     // provider's refresh can resolve them.
     yield* executor.secrets.set(
-      new SetSecretInput({
+      SetSecretInput.make({
         id: SecretId.make("client_id"),
         scope: scopeId,
         name: "Client ID",
@@ -186,7 +187,7 @@ const makeExecutor = () =>
       }),
     );
     yield* executor.secrets.set(
-      new SetSecretInput({
+      SetSecretInput.make({
         id: SecretId.make("client_secret"),
         scope: scopeId,
         name: "Client Secret",
@@ -212,17 +213,17 @@ const seedExpiredConnection = (
 ) =>
   Effect.gen(function* () {
     yield* executor.connections.create(
-      new CreateConnectionInput({
+      CreateConnectionInput.make({
         id: ConnectionId.make(connectionId),
         scope: scopeId,
         provider: OAUTH2_PROVIDER_KEY,
         identityLabel: "Alice",
-        accessToken: new TokenMaterial({
+        accessToken: TokenMaterial.make({
           secretId: SecretId.make(`${connectionId}.access_token`),
           name: "Access",
           value: "expired-access-v1",
         }),
-        refreshToken: new TokenMaterial({
+        refreshToken: TokenMaterial.make({
           secretId: SecretId.make(`${connectionId}.refresh_token`),
           name: "Refresh",
           value: "refresh-v1",
@@ -241,7 +242,7 @@ const seedExpiredConnection = (
         },
       }),
     );
-    return new OAuth2SourceConfig({
+    return OAuth2SourceConfig.make({
       kind: "oauth2",
       securitySchemeName: "oauth2",
       flow: "authorizationCode",
@@ -261,7 +262,7 @@ const bindOAuthConnection = (
   oauth2: OAuth2SourceConfig,
 ) =>
   executor.openapi.setSourceBinding(
-    new OpenApiSourceBindingInput({
+    OpenApiSourceBindingInput.make({
       sourceId: "petstore",
       sourceScope: scopeId,
       scope: scopeId,

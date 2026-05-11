@@ -17,7 +17,7 @@ const TEST_SOURCE_ID = "shared-api";
 const TEST_SLOT = "request.header.Authorization";
 
 const scope = (id: string, name = id) =>
-  new Scope({
+  Scope.make({
     id: ScopeId.make(id),
     name,
     createdAt: new Date(),
@@ -110,7 +110,7 @@ const makeHarness = () => {
 
 const setSecret = (executor: Executor, scopeId: ScopeId, id: string, value: string) =>
   executor.secrets.set(
-    new SetSecretInput({
+    SetSecretInput.make({
       id: SecretId.make(id),
       scope: scopeId,
       name: id,
@@ -120,12 +120,12 @@ const setSecret = (executor: Executor, scopeId: ScopeId, id: string, value: stri
 
 const createConnection = (executor: Executor, scopeId: ScopeId, id: string) =>
   executor.connections.create(
-    new CreateConnectionInput({
+    CreateConnectionInput.make({
       id: ConnectionId.make(id),
       scope: scopeId,
       provider: "memory-connection",
       identityLabel: "Test User",
-      accessToken: new TokenMaterial({
+      accessToken: TokenMaterial.make({
         secretId: SecretId.make(`${id}.access_token`),
         name: "Access",
         value: "access-token",
@@ -599,7 +599,7 @@ describe("credential bindings", () => {
 
       const result = yield* Effect.result(
         userExecutor.secrets.remove(
-          new RemoveSecretInput({
+          RemoveSecretInput.make({
             id: SecretId.make("shared-token-id"),
             targetScope: harness.scopes.userWorkspaceA.id,
           }),
@@ -684,7 +684,7 @@ describe("credential bindings", () => {
 
         const result = yield* Effect.result(
           userExecutor.secrets.remove(
-            new RemoveSecretInput({
+            RemoveSecretInput.make({
               id: SecretId.make("shared-token-id"),
               targetScope: harness.scopes.org.id,
             }),

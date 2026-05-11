@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import { InternalError, ScopeId } from "@executor-js/sdk/core";
 
 import { OnePasswordError } from "../sdk/errors";
-import { OnePasswordConfig, OnePasswordConfigSchema, Vault, ConnectionStatus } from "../sdk/types";
+import { OnePasswordConfig, Vault, ConnectionStatus } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -15,7 +15,7 @@ const ScopeParams = { scopeId: ScopeId };
 // Payloads
 // ---------------------------------------------------------------------------
 
-const ConfigurePayload = OnePasswordConfigSchema;
+const ConfigurePayload = OnePasswordConfig;
 
 const ListVaultsParams = Schema.Struct({
   authKind: Schema.Literals(["desktop-app", "service-account"]),

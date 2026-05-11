@@ -231,7 +231,7 @@ const makeOnePasswordExtension = (
       Effect.gen(function* () {
         const config = yield* ctx.storage.getConfig();
         if (!config) {
-          return new ConnectionStatus({
+          return ConnectionStatus.make({
             connected: false,
             error: "Not configured",
           });
@@ -239,7 +239,7 @@ const makeOnePasswordExtension = (
         const svc = yield* getServiceFromConfig(config, ctx, timeoutMs, preferSdk);
         const vaults = yield* svc.listVaults();
         const vault = vaults.find((v) => v.id === config.vaultId);
-        return new ConnectionStatus({
+        return ConnectionStatus.make({
           connected: true,
           vaultName: vault?.title,
         });
@@ -254,7 +254,7 @@ const makeOnePasswordExtension = (
         });
         const vaults = yield* svc.listVaults();
         return vaults
-          .map((v) => new Vault({ id: v.id, name: v.title }))
+          .map((v) => Vault.make({ id: v.id, name: v.title }))
           .sort((a, b) => a.name.localeCompare(b.name));
       }),
 

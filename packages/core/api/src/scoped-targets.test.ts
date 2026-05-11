@@ -47,7 +47,7 @@ const handlerContextFor = (executor: Executor) =>
     Context.add(ExecutionEngineService, {} as ExecutionEngineService["Service"]),
   );
 
-const scope = (id: ScopeId, name: string) => new Scope({ id, name, createdAt: new Date() });
+const scope = (id: ScopeId, name: string) => Scope.make({ id, name, createdAt: new Date() });
 
 const connectionProviderPlugin = definePlugin(() => ({
   id: "test-connection-provider" as const,
@@ -126,12 +126,12 @@ describe("core API explicit target scopes", () => {
       const connectionId = ConnectionId.make("shared-connection");
 
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: orgScope,
           provider: "memory-connection",
           identityLabel: "Org connection",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make("org-shared-connection.access_token"),
             name: "Org access token",
             value: "org-token",
@@ -143,12 +143,12 @@ describe("core API explicit target scopes", () => {
         }),
       );
       yield* executor.connections.create(
-        new CreateConnectionInput({
+        CreateConnectionInput.make({
           id: connectionId,
           scope: userScope,
           provider: "memory-connection",
           identityLabel: "User connection",
-          accessToken: new TokenMaterial({
+          accessToken: TokenMaterial.make({
             secretId: SecretId.make("user-shared-connection.access_token"),
             name: "User access token",
             value: "user-token",
@@ -235,7 +235,7 @@ describe("core API explicit target scopes", () => {
       const context = handlerContextFor(executor);
 
       yield* executor.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("client-id"),
           scope: userScope,
           name: "Client ID",

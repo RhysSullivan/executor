@@ -56,9 +56,10 @@ class OpenApiClientCredentialsTestSetupError extends Schema.TaggedErrorClass<Ope
 // Test API — single endpoint that echoes the Authorization header.
 // ---------------------------------------------------------------------------
 
-class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
+const EchoHeaders = Schema.Struct({
   authorization: Schema.optional(Schema.String),
-}) {}
+});
+type EchoHeaders = typeof EchoHeaders.Type;
 
 const ItemsGroup = HttpApiGroup.make("items").add(
   HttpApiEndpoint.get("echoHeaders", "/echo-headers", { success: EchoHeaders }),
@@ -71,7 +72,7 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
   handlers.handle("echoHeaders", () =>
     Effect.gen(function* () {
       const req = yield* HttpServerRequest.HttpServerRequest;
-      return new EchoHeaders({
+      return EchoHeaders.make({
         authorization: req.headers["authorization"],
       });
     }),
@@ -175,12 +176,12 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
       const blobs = makeInMemoryBlobStore();
 
       const now = new Date();
-      const orgScope = new Scope({
+      const orgScope = Scope.make({
         id: ScopeId.make("org"),
         name: "acme-org",
         createdAt: now,
       });
-      const userScope = new Scope({
+      const userScope = Scope.make({
         id: ScopeId.make("user-alice"),
         name: "alice",
         createdAt: now,
@@ -203,7 +204,7 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
 
       // Admin seeds the shared client_id + client_secret at the org.
       yield* adminExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("petstore_client_id"),
           scope: orgScope.id,
           name: "Petstore Client ID",
@@ -211,7 +212,7 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         }),
       );
       yield* adminExec.secrets.set(
-        new SetSecretInput({
+        SetSecretInput.make({
           id: SecretId.make("petstore_client_secret"),
           scope: orgScope.id,
           name: "Petstore Client Secret",
@@ -251,7 +252,7 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
           message: "Expected completed clientCredentials connection",
         });
       }
-      const oauth2 = new OAuth2SourceConfig({
+      const oauth2 = OAuth2SourceConfig.make({
         kind: "oauth2",
         securitySchemeName: "oauth2",
         flow: "clientCredentials",
@@ -282,7 +283,7 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         oauth2,
       });
       yield* userExec.openapi.setSourceBinding(
-        new OpenApiSourceBindingInput({
+        OpenApiSourceBindingInput.make({
           sourceId: "petstore",
           sourceScope: userScope.id,
           scope: userScope.id,

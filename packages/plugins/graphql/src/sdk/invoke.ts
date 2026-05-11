@@ -146,7 +146,7 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
     "plugin.graphql.error_count": hasErrors ? gqlBody!.errors!.length : 0,
   });
 
-  return new InvocationResult({
+  return InvocationResult.make({
     status,
     data: gqlBody?.data ?? null,
     errors: hasErrors ? gqlBody!.errors : null,

@@ -246,7 +246,7 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
   const adapter = makeSqliteAdapter({ db, schema });
   const blobs = makeSqliteBlobStore({ db });
 
-  const scope = new Scope({
+  const scope = Scope.make({
     id: ScopeId.make(scopeId),
     name: "test",
     createdAt: new Date(),

@@ -183,7 +183,7 @@ const normalizeNamespace = (config: McpSourceConfig): string =>
   });
 
 const toBinding = (entry: McpToolManifestEntry): McpToolBinding =>
-  new McpToolBinding({
+  McpToolBinding.make({
     toolId: entry.toolId,
     toolName: entry.toolName,
     description: entry.description,
@@ -236,7 +236,7 @@ const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number 
   ranks.get(scopeId) ?? Infinity;
 
 const coreBindingToMcpBinding = (binding: CredentialBindingRef): McpSourceBindingRef =>
-  new McpSourceBindingRef({
+  McpSourceBindingRef.make({
     sourceId: binding.sourceId,
     sourceScopeId: binding.sourceScopeId,
     scopeId: binding.scopeId,
@@ -380,7 +380,7 @@ const canonicalizeCredentialMap = (
       continue;
     }
     const slot = slotForName(name);
-    nextValues[name] = new ConfiguredCredentialBinding({
+    nextValues[name] = ConfiguredCredentialBinding.make({
       kind: "binding",
       slot,
       prefix: value.prefix,
@@ -1800,7 +1800,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         );
 
         if (connected) {
-          return new SourceDetectionResult({
+          return SourceDetectionResult.make({
             kind: "mcp",
             confidence: "high",
             endpoint: trimmed,
@@ -1819,7 +1819,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         // host happens to expose RFC 9728/8414 documents.
         const shape = yield* probeMcpEndpointShape(trimmed, { httpClientLayer });
         if (shape.kind === "mcp") {
-          return new SourceDetectionResult({
+          return SourceDetectionResult.make({
             kind: "mcp",
             confidence: "high",
             endpoint: trimmed,
@@ -1834,7 +1834,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         // strong hint, surface a candidate so the user can still pick
         // it from the detect dropdown rather than getting nothing.
         if (urlMatchesToken(parsed.value, "mcp")) {
-          return new SourceDetectionResult({
+          return SourceDetectionResult.make({
             kind: "mcp",
             confidence: "low",
             endpoint: trimmed,
