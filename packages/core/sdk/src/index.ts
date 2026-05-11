@@ -114,7 +114,13 @@ export {
 } from "./policies";
 
 // Secrets
-export { SecretRef, SetSecretInput, RemoveSecretInput, type SecretProvider } from "./secrets";
+export {
+  SecretRef,
+  SetSecretInput,
+  UpdateSecretInput,
+  RemoveSecretInput,
+  type SecretProvider,
+} from "./secrets";
 
 export {
   SecretBackedMap,

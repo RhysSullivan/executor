@@ -101,3 +101,21 @@ export class RemoveSecretInput extends Schema.Class<RemoveSecretInput>("RemoveSe
    *  the executor's configured scopes. */
   targetScope: ScopeId,
 }) {}
+
+// ---------------------------------------------------------------------------
+// UpdateSecretInput — update display name and/or value of an existing secret.
+// The provider is immutable; the secret value is updated in the existing
+// provider if a new value is supplied.
+// ---------------------------------------------------------------------------
+
+export class UpdateSecretInput extends Schema.Class<UpdateSecretInput>("UpdateSecretInput")({
+  id: SecretId,
+  /** Scope id where the secret row lives. Must be one of the executor's
+   *  configured scopes. */
+  scope: ScopeId,
+  /** New display name for the secret. */
+  name: Schema.optional(Schema.String),
+  /** New value for the secret. If provided, the value is updated in the
+   *  provider (encrypted if the provider encrypts). */
+  value: Schema.optional(Schema.String),
+}) {}

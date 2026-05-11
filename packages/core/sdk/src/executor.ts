@@ -75,6 +75,7 @@ import {
   NoHandlerError,
   PluginNotLoadedError,
   SecretInUseError,
+  SecretNotFoundError,
   SecretOwnedByConnectionError,
   SourceRemovalNotAllowedError,
   ToolBlockedError,
@@ -105,7 +106,13 @@ import type {
   StorageDeps,
 } from "./plugin";
 import type { Scope } from "./scope";
-import { RemoveSecretInput, SecretRef, SetSecretInput, type SecretProvider } from "./secrets";
+import {
+  RemoveSecretInput,
+  SecretRef,
+  SetSecretInput,
+  UpdateSecretInput,
+  type SecretProvider,
+} from "./secrets";
 import { Usage } from "./usages";
 import {
   ToolSchema,
@@ -238,6 +245,10 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
      *  or 1password IPC roundtrips on a pre-flight check. */
     readonly status: (id: string) => Effect.Effect<"resolved" | "missing", StorageFailure>;
     readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, StorageFailure>;
+    /** Update a secret's display name and/or value. The provider is immutable. */
+    readonly update: (
+      input: UpdateSecretInput,
+    ) => Effect.Effect<SecretRef, SecretNotFoundError | StorageFailure>;
     /** Delete a bare (non-connection-owned) secret. Connection-owned
      *  secrets are rejected with `SecretOwnedByConnectionError` — use
      *  `connections.remove` instead. Refuses with `SecretInUseError`
@@ -1069,6 +1080,69 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           name: input.name,
           provider: target.key,
           createdAt: now,
+        });
+      });
+
+    const secretsUpdate = (
+      input: UpdateSecretInput,
+    ): Effect.Effect<SecretRef, SecretNotFoundError | StorageFailure> =>
+      Effect.gen(function* () {
+        // Validate the scope is in the executor's stack.
+        if (!scopeIds.includes(input.scope)) {
+          return yield* new StorageError({
+            message:
+              `secrets.update targets scope "${input.scope}" which is not ` +
+              `in the executor's scope stack [${scopeIds.join(", ")}].`,
+            cause: undefined,
+          });
+        }
+
+        // Look up the existing secret row.
+        const row = yield* findSecretRowAtScope({
+          secretId: input.id,
+          scopeId: input.scope,
+        });
+        if (!row) {
+          return yield* new SecretNotFoundError({ secretId: SecretId.make(input.id) });
+        }
+
+        // If a new value is provided, update it in the provider.
+        if (input.value !== undefined) {
+          const provider = secretProviders.get(row.provider);
+          if (!provider) {
+            return yield* new StorageError({
+              message: `Secret provider "${row.provider}" not found`,
+              cause: undefined,
+            });
+          }
+          if (!provider.writable || !provider.set) {
+            return yield* new StorageError({
+              message: `Secret provider "${row.provider}" is read-only`,
+              cause: undefined,
+            });
+          }
+          yield* provider.set(input.id, input.value, input.scope);
+        }
+
+        // Compute the new name (fall back to existing if not provided).
+        const newName = input.name?.trim() || row.name;
+
+        // Update the secret row.
+        yield* core.update({
+          model: "secret",
+          where: [
+            { field: "id", value: input.id },
+            { field: "scope_id", value: input.scope },
+          ],
+          update: { name: newName },
+        });
+
+        return new SecretRef({
+          id: SecretId.make(row.id),
+          scopeId: ScopeId.make(row.scope_id),
+          name: newName,
+          provider: row.provider,
+          createdAt: row.created_at,
         });
       });
 
@@ -3599,6 +3673,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         getAtScope: secretsGetAtScope,
         status: secretsStatus,
         set: secretsSet,
+        update: secretsUpdate,
         remove: secretsRemove,
         list: secretsList,
         listAll: secretsListAll,

@@ -1,6 +1,6 @@
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect } from "effect";
-import { RemoveSecretInput, SetSecretInput, type SecretRef } from "@executor-js/sdk";
+import { RemoveSecretInput, SetSecretInput, UpdateSecretInput, type SecretRef } from "@executor-js/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
@@ -54,6 +54,22 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
               name: payload.name,
               value: payload.value,
               provider: payload.provider,
+            }),
+          );
+          return refToResponse(ref);
+        }),
+      ),
+    )
+    .handle("update", ({ params: path, payload }) =>
+      capture(
+        Effect.gen(function* () {
+          const executor = yield* ExecutorService;
+          const ref = yield* executor.secrets.update(
+            new UpdateSecretInput({
+              id: path.secretId,
+              scope: path.scopeId,
+              name: payload.name,
+              value: payload.value,
             }),
           );
           return refToResponse(ref);

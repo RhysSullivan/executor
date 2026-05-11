@@ -163,4 +163,120 @@ describe("secrets api (HTTP)", () => {
       expect(second.find((s) => s.id === id)?.name).toBe("updated");
     }),
   );
+
+  it.effect("update changes the secret display name", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
+
+      // Create the secret
+      yield* asOrg(org, (client) =>
+        client.secrets.set({
+          params: { scopeId: ScopeId.make(org) },
+          payload: { id: SecretId.make(id), name: "Original Name", value: "secret-value" },
+        }),
+      );
+
+      // Update the name via PATCH
+      const updated = yield* asOrg(org, (client) =>
+        client.secrets.update({
+          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+          payload: { name: "Updated Name" },
+        }),
+      );
+      expect(updated.id).toBe(id);
+      expect(updated.name).toBe("Updated Name");
+
+      // Verify the list reflects the updated name
+      const list = yield* asOrg(org, (client) =>
+        client.secrets.list({ params: { scopeId: ScopeId.make(org) } }),
+      );
+      expect(list.find((s) => s.id === id)?.name).toBe("Updated Name");
+    }),
+  );
+
+  it.effect("update on an unknown id returns 404", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const missing = `missing_${crypto.randomUUID().slice(0, 8)}`;
+
+      const result = yield* asOrg(org, (client) =>
+        client.secrets
+          .update({
+            params: { scopeId: ScopeId.make(org), secretId: SecretId.make(missing) },
+            payload: { name: "New Name" },
+          })
+          .pipe(Effect.result),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("update changes the secret value", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
+
+      // Create the secret with initial value
+      yield* asOrg(org, (client) =>
+        client.secrets.set({
+          params: { scopeId: ScopeId.make(org) },
+          payload: { id: SecretId.make(id), name: "API Key", value: "initial-secret-value" },
+        }),
+      );
+
+      // Update the value via PATCH
+      const updated = yield* asOrg(org, (client) =>
+        client.secrets.update({
+          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+          payload: { value: "updated-secret-value" },
+        }),
+      );
+      expect(updated.id).toBe(id);
+      // Name should remain unchanged
+      expect(updated.name).toBe("API Key");
+
+      // Verify the secret status is still resolved
+      const status = yield* asOrg(org, (client) =>
+        client.secrets.status({
+          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+        }),
+      );
+      expect(status.status).toBe("resolved");
+
+      // Verify the response doesn't contain the secret value
+      expect(JSON.stringify(updated)).not.toContain("updated-secret-value");
+    }),
+  );
+
+  it.effect("update changes both name and value", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
+
+      // Create the secret
+      yield* asOrg(org, (client) =>
+        client.secrets.set({
+          params: { scopeId: ScopeId.make(org) },
+          payload: { id: SecretId.make(id), name: "Original Name", value: "original-value" },
+        }),
+      );
+
+      // Update both name and value via PATCH
+      const updated = yield* asOrg(org, (client) =>
+        client.secrets.update({
+          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+          payload: { name: "Updated Name", value: "new-value" },
+        }),
+      );
+      expect(updated.id).toBe(id);
+      expect(updated.name).toBe("Updated Name");
+
+      // Verify the list reflects the updated name
+      const list = yield* asOrg(org, (client) =>
+        client.secrets.list({ params: { scopeId: ScopeId.make(org) } }),
+      );
+      expect(list.find((s) => s.id === id)?.name).toBe("Updated Name");
+    }),
+  );
 });
