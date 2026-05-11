@@ -43,6 +43,11 @@ const SetSecretPayload = Schema.Struct({
   provider: Schema.optional(Schema.String),
 });
 
+const UpdateSecretPayload = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  value: Schema.optional(Schema.String),
+});
+
 // ---------------------------------------------------------------------------
 // Error schemas with HTTP status annotations
 // ---------------------------------------------------------------------------
@@ -84,6 +89,14 @@ export const SecretsApi = HttpApiGroup.make("secrets")
       payload: SetSecretPayload,
       success: SecretRefResponse,
       error: [InternalError, SecretResolution],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.patch("update", "/scopes/:scopeId/secrets/:secretId", {
+      params: SecretParams,
+      payload: UpdateSecretPayload,
+      success: SecretRefResponse,
+      error: [InternalError, SecretNotFound],
     }),
   )
   .add(

@@ -95,6 +95,7 @@ const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
     getAtScope: (id, scope) => fromPromise(() => pe.secrets.getAtScope(id, scope)),
     status: (id) => fromPromise(() => pe.secrets.status(id)),
     set: (input) => fromPromise(() => pe.secrets.set(input)),
+    update: (input) => fromPromise(() => pe.secrets.update(input)),
     remove: (input) => fromPromise(() => pe.secrets.remove(input)),
     list: () => fromPromise(() => pe.secrets.list()),
     listAll: () => fromPromise(() => pe.secrets.listAll()),
