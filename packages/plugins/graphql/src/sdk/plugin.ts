@@ -2,9 +2,6 @@ import { Effect, Option, Schema } from "effect";
 import type { Layer } from "effect";
 import { HttpClient } from "effect/unstable/http";
 
-import { GraphqlGroup } from "../api/group";
-import { GraphqlExtensionService, GraphqlHandlers } from "../api/handlers";
-
 import {
   ConnectionId,
   ConfiguredCredentialBinding,
@@ -1183,9 +1180,9 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
 
         return null;
       }),
-
-    routes: () => GraphqlGroup,
-    handlers: () => GraphqlHandlers,
-    extensionService: GraphqlExtensionService,
   };
+  // HTTP transport (routes/handlers/extensionService) is layered on by
+  // the api-aware factory in `@executor-js/plugin-graphql/api`. Hosts that
+  // want the HTTP surface import the plugin from there; SDK-only
+  // consumers stay on this entry and avoid the server-only deps.
 });

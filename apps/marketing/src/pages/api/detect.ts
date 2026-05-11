@@ -1,9 +1,9 @@
 import type { APIRoute } from "astro";
 import { Effect } from "effect";
 import { createExecutor, makeTestConfig, type Tool } from "@executor-js/sdk";
-import { openApiPlugin } from "@executor-js/plugin-openapi";
-import { graphqlPlugin } from "@executor-js/plugin-graphql";
-import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
+import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
+import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
+import { googleDiscoveryHttpPlugin } from "@executor-js/plugin-google-discovery/api";
 
 export const prerender = false;
 
@@ -68,7 +68,7 @@ export const POST: APIRoute = async ({ request }) => {
 
     const program = Effect.gen(function* () {
       const config = makeTestConfig({
-        plugins: [openApiPlugin(), graphqlPlugin(), googleDiscoveryPlugin()],
+        plugins: [openApiHttpPlugin(), graphqlHttpPlugin(), googleDiscoveryHttpPlugin()],
       });
       const executor = yield* createExecutor(config);
 

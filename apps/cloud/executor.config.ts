@@ -1,7 +1,7 @@
 import { defineExecutorConfig } from "@executor-js/sdk";
-import { openApiPlugin } from "@executor-js/plugin-openapi";
-import { mcpPlugin } from "@executor-js/plugin-mcp";
-import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
+import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
+import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
 import { workosVaultPlugin, type WorkOSVaultClient } from "@executor-js/plugin-workos-vault";
 
 // ---------------------------------------------------------------------------
@@ -39,11 +39,11 @@ export default defineExecutorConfig({
   dialect: "pg",
   plugins: ({ workosCredentials, workosVaultClient }: CloudPluginDeps = {}) =>
     [
-      openApiPlugin(),
-      mcpPlugin({
+      openApiHttpPlugin(),
+      mcpHttpPlugin({
         dangerouslyAllowStdioMCP: false,
       }),
-      graphqlPlugin(),
+      graphqlHttpPlugin(),
       workosVaultPlugin({
         credentials: workosCredentials ?? { apiKey: "", clientId: "" },
         ...(workosVaultClient ? { client: workosVaultClient } : {}),

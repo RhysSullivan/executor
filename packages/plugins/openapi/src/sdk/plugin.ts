@@ -2,9 +2,6 @@ import { Effect, Option, Predicate, Schema } from "effect";
 import type { Layer } from "effect";
 import { HttpClient } from "effect/unstable/http";
 
-import { OpenApiGroup } from "../api/group";
-import { OpenApiExtensionService, OpenApiHandlers } from "../api/handlers";
-
 import {
   ScopeId,
   SecretId,
@@ -1407,14 +1404,9 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           namespace,
         });
       }),
-
-    // HTTP transport. `OpenApiHandlers` is the existing late-binding
-    // Layer that requires `OpenApiExtensionService`; the host satisfies
-    // it via the spec's `extensionService` Tag — at boot for local
-    // (`composePluginHandlers(plugins, executor)`), per-request for
-    // cloud (`providePluginExtensions(plugins)(executor)`).
-    routes: () => OpenApiGroup,
-    handlers: () => OpenApiHandlers,
-    extensionService: OpenApiExtensionService,
   };
+  // HTTP transport (routes/handlers/extensionService) is layered on by
+  // the api-aware factory in `@executor-js/plugin-openapi/api`. Hosts that
+  // want the HTTP surface import the plugin from there; SDK-only
+  // consumers stay on this entry and avoid the server-only deps.
 });

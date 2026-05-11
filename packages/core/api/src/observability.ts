@@ -34,16 +34,13 @@ import { Cause, Context, Effect, Layer, Option, Result, Schema } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
 import { HttpApiMiddleware, type HttpApi, type HttpApiGroup } from "effect/unstable/httpapi";
 import type { StorageFailure } from "@executor-js/storage-core";
+import { InternalError } from "@executor-js/sdk/core";
 
-/** Public 500 surface. Opaque by schema. */
-export class InternalError extends Schema.TaggedErrorClass<InternalError>()(
-  "InternalError",
-  {
-    /** Opaque correlation id for backend lookup (Sentry event id, log line, etc.). */
-    traceId: Schema.String,
-  },
-  { httpApiStatus: 500 },
-) {}
+// Re-export so existing `@executor-js/api` consumers keep working.
+// The schema lives in the SDK so plugin `HttpApiGroup` definitions can
+// reference it without dragging this server-only package into their
+// SDK chunks.
+export { InternalError };
 
 export interface ErrorCaptureShape {
   /**

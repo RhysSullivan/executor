@@ -321,3 +321,6 @@ export {
   type TypeScriptRenderOptions,
   type TypeScriptSchemaPreview,
 } from "./schema-types";
+
+// Wire-level HTTP error schemas usable by plugin HttpApiGroup definitions.
+export { InternalError } from "./api-errors";

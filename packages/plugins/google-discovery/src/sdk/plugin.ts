@@ -11,9 +11,6 @@ import {
   type ToolAnnotations,
 } from "@executor-js/sdk/core";
 
-import { GoogleDiscoveryGroup } from "../api/group";
-import { GoogleDiscoveryExtensionService, GoogleDiscoveryHandlers } from "../api/handlers";
-
 import {
   googleDiscoverySchema,
   makeGoogleDiscoveryStore,
@@ -546,7 +543,8 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
   // the `authorization-code` strategy's tokenEndpoint), so refresh
   // reaches Google through the unified code path.
 
-  routes: () => GoogleDiscoveryGroup,
-  handlers: () => GoogleDiscoveryHandlers,
-  extensionService: GoogleDiscoveryExtensionService,
+  // HTTP transport (routes/handlers/extensionService) is layered on by
+  // the api-aware factory in `@executor-js/plugin-google-discovery/api`.
+  // Hosts that want the HTTP surface import the plugin from there;
+  // SDK-only consumers stay on this entry and avoid the server-only deps.
 }));

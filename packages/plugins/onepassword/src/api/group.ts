@@ -1,7 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId } from "@executor-js/sdk/core";
-import { InternalError } from "@executor-js/api";
+import { InternalError, ScopeId } from "@executor-js/sdk/core";
 
 import { OnePasswordError } from "../sdk/errors";
 import { OnePasswordConfig, OnePasswordConfigSchema, Vault, ConnectionStatus } from "../sdk/types";

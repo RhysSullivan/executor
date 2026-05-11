@@ -1,7 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId, SecretBackedMap } from "@executor-js/sdk/core";
-import { InternalError } from "@executor-js/api";
+import { InternalError, ScopeId, SecretBackedMap } from "@executor-js/sdk/core";
 
 import { McpConnectionError, McpToolDiscoveryError } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";

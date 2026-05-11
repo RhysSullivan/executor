@@ -13,9 +13,6 @@ import type { HttpClient } from "effect/unstable/http";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 
-import { McpGroup } from "../api/group";
-import { McpExtensionService, McpHandlers } from "../api/handlers";
-
 import {
   ConfiguredCredentialBinding,
   ConnectionId,
@@ -1801,14 +1798,11 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           runtimeRef.current = null;
         }
       }).pipe(Effect.withSpan("mcp.plugin.close")),
-
-    // HTTP transport. `McpHandlers` requires `McpExtensionService`; the
-    // host satisfies it via the `extensionService` Tag — at boot for
-    // local, per request for cloud.
-    routes: () => McpGroup,
-    handlers: () => McpHandlers,
-    extensionService: McpExtensionService,
   };
+  // HTTP transport (routes/handlers/extensionService) is layered on by
+  // the api-aware factory in `@executor-js/plugin-mcp/api`. Hosts that
+  // want the HTTP surface import the plugin from there; SDK-only
+  // consumers stay on this entry and avoid the server-only deps.
 });
 
 // ---------------------------------------------------------------------------

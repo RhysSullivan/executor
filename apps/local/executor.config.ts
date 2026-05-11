@@ -1,12 +1,12 @@
 import { defineExecutorConfig } from "@executor-js/sdk";
 import type { ConfigFileSink } from "@executor-js/config";
-import { openApiPlugin } from "@executor-js/plugin-openapi";
-import { mcpPlugin } from "@executor-js/plugin-mcp";
-import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
-import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
+import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
+import { googleDiscoveryHttpPlugin } from "@executor-js/plugin-google-discovery/api";
+import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
 import { keychainPlugin } from "@executor-js/plugin-keychain";
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
-import { onepasswordPlugin } from "@executor-js/plugin-onepassword";
+import { onepasswordHttpPlugin } from "@executor-js/plugin-onepassword/api";
 
 // ---------------------------------------------------------------------------
 // Single source of truth for the local app's plugin list.
@@ -27,12 +27,12 @@ export default defineExecutorConfig({
   dialect: "sqlite",
   plugins: ({ configFile }: LocalPluginDeps = {}) =>
     [
-      openApiPlugin({ configFile }),
-      mcpPlugin({ dangerouslyAllowStdioMCP: true, configFile }),
-      googleDiscoveryPlugin(),
-      graphqlPlugin({ configFile }),
+      openApiHttpPlugin({ configFile }),
+      mcpHttpPlugin({ dangerouslyAllowStdioMCP: true, configFile }),
+      googleDiscoveryHttpPlugin(),
+      graphqlHttpPlugin({ configFile }),
       keychainPlugin(),
       fileSecretsPlugin(),
-      onepasswordPlugin(),
+      onepasswordHttpPlugin(),
     ] as const,
 });

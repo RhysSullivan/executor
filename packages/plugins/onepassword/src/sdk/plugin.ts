@@ -9,9 +9,6 @@ import {
   type StorageFailure,
 } from "@executor-js/sdk/core";
 
-import { OnePasswordGroup } from "../api/group";
-import { OnePasswordExtensionService, OnePasswordHandlers } from "../api/handlers";
-
 import { OnePasswordConfig, Vault, ConnectionStatus } from "./types";
 import type { OnePasswordAuth } from "./types";
 import { OnePasswordError } from "./errors";
@@ -308,9 +305,9 @@ export const onepasswordPlugin = definePlugin((options?: OnePasswordPluginOption
     extension: (ctx) => makeOnePasswordExtension(ctx, timeoutMs, preferSdk),
 
     secretProviders: (ctx) => [makeProvider(ctx, timeoutMs, preferSdk)],
-
-    routes: () => OnePasswordGroup,
-    handlers: () => OnePasswordHandlers,
-    extensionService: OnePasswordExtensionService,
   };
+  // HTTP transport (routes/handlers/extensionService) is layered on by
+  // the api-aware factory in `@executor-js/plugin-onepassword/api`. Hosts
+  // that want the HTTP surface import the plugin from there; SDK-only
+  // consumers stay on this entry and avoid the server-only deps.
 });
