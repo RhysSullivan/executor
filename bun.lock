@@ -127,6 +127,7 @@
       "devDependencies": {
         "@executor-js/app": "workspace:*",
         "@executor-js/local": "workspace:*",
+        "@executor-js/plugin-desktop-settings": "workspace:*",
         "@executor-js/plugin-file-secrets": "workspace:*",
         "@executor-js/plugin-google-discovery": "workspace:*",
         "@executor-js/plugin-graphql": "workspace:*",
@@ -154,6 +155,7 @@
         "@executor-js/config": "workspace:*",
         "@executor-js/execution": "workspace:*",
         "@executor-js/host-mcp": "workspace:*",
+        "@executor-js/plugin-desktop-settings": "workspace:*",
         "@executor-js/plugin-example": "workspace:*",
         "@executor-js/plugin-file-secrets": "workspace:*",
         "@executor-js/plugin-google-discovery": "workspace:*",
@@ -580,6 +582,19 @@
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
+      },
+    },
+    "packages/plugins/desktop-settings": {
+      "name": "@executor-js/plugin-desktop-settings",
+      "version": "1.4.21",
+      "dependencies": {
+        "@executor-js/sdk": "workspace:*",
+        "react": "catalog:",
+      },
+      "devDependencies": {
+        "@types/react": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
       },
     },
     "packages/plugins/example": {
@@ -1337,6 +1352,8 @@
     "@executor-js/local": ["@executor-js/local@workspace:apps/local"],
 
     "@executor-js/marketing": ["@executor-js/marketing@workspace:apps/marketing"],
+
+    "@executor-js/plugin-desktop-settings": ["@executor-js/plugin-desktop-settings@workspace:packages/plugins/desktop-settings"],
 
     "@executor-js/plugin-example": ["@executor-js/plugin-example@workspace:packages/plugins/example"],
 

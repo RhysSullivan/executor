@@ -1,7 +1,29 @@
-// Renderer ↔ main bridge.
-//
-// The Electron main process attaches the Basic auth header to outbound
-// requests via session.webRequest, so the renderer does not need any
-// auth knowledge today. This preload is kept minimal but reserved for
-// future capabilities (e.g. native menus, updater status).
-export {};
+import { contextBridge, ipcRenderer } from "electron";
+import type { DesktopServerSettings } from "../shared/server-settings";
+
+const api = {
+  /** Read the persisted server settings (port, requireAuth, password). */
+  getSettings(): Promise<DesktopServerSettings> {
+    return ipcRenderer.invoke("executor:settings:get");
+  },
+  /** Patch one or more server settings. Returns the new full settings. */
+  updateSettings(patch: Partial<DesktopServerSettings>): Promise<DesktopServerSettings> {
+    return ipcRenderer.invoke("executor:settings:update", patch);
+  },
+  /** Regenerate the random Basic-auth password. Returns the new settings. */
+  regeneratePassword(): Promise<DesktopServerSettings> {
+    return ipcRenderer.invoke("executor:settings:regenerate-password");
+  },
+  /**
+   * Stop + restart the sidecar so settings changes take effect.
+   * Renderer should reload its location after this resolves to point at
+   * the (possibly new) port.
+   */
+  restartServer(): Promise<{ readonly port: number; readonly baseUrl: string }> {
+    return ipcRenderer.invoke("executor:server:restart");
+  },
+} as const;
+
+contextBridge.exposeInMainWorld("executor", api);
+
+export type ExecutorBridge = typeof api;

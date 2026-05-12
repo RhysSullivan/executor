@@ -12,25 +12,34 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { app } from "electron";
+import { getServerSettings } from "./settings";
+import { SERVER_SETTINGS_USERNAME, type DesktopServerSettings } from "../shared/server-settings";
 
 export interface SidecarConnection {
   readonly baseUrl: string;
   readonly hostname: string;
   readonly port: number;
-  readonly authPassword: string;
+  readonly username: string;
+  readonly authPassword: string | null;
   readonly child: ChildProcess;
+}
+
+export class SidecarPortInUseError extends Error {
+  readonly port: number;
+  constructor(port: number) {
+    super(`Port ${port} is already in use. Pick another in Settings.`);
+    this.name = "SidecarPortInUseError";
+    this.port = port;
+  }
 }
 
 interface StartOptions {
   readonly hostname?: string;
 }
-
-const generatePassword = (): string => randomBytes(24).toString("base64url");
 
 const resolveSidecarCommand = (): { command: string; args: string[]; cwd: string } => {
   if (app.isPackaged) {
@@ -54,7 +63,7 @@ const resolveClientDir = (): string => {
 
 export async function startSidecar(options: StartOptions = {}): Promise<SidecarConnection> {
   const hostname = options.hostname ?? "127.0.0.1";
-  const authPassword = generatePassword();
+  const settings = getServerSettings();
   const clientDir = resolveClientDir();
   const { command, args, cwd } = resolveSidecarCommand();
 
@@ -75,14 +84,19 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
   const scopeDir = join(homedir(), ".executor");
   mkdirSync(scopeDir, { recursive: true });
 
+  const effectivePassword = settings.requireAuth ? settings.password : null;
+
   const child = spawn(command, args, {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
-      EXECUTOR_PORT: "0",
+      EXECUTOR_PORT: String(settings.port),
       EXECUTOR_HOST: hostname,
-      EXECUTOR_AUTH_PASSWORD: authPassword,
+      // Only export the password env var when auth is enabled — the sidecar
+      // treats an empty password as "no auth required". Matches the CLI's
+      // `executor web` default.
+      ...(effectivePassword ? { EXECUTOR_AUTH_PASSWORD: effectivePassword } : {}),
       EXECUTOR_CLIENT_DIR: clientDir,
       EXECUTOR_SCOPE_DIR: scopeDir,
       EXECUTOR_DATA_DIR: scopeDir,
@@ -92,6 +106,14 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
   return new Promise<SidecarConnection>((resolveStart, rejectStart) => {
     let stderrBuffer = "";
     let resolved = false;
+    let rejected = false;
+
+    const reject = (err: Error) => {
+      if (resolved || rejected) return;
+      rejected = true;
+      // oxlint-disable-next-line executor/no-promise-reject -- boundary: sidecar startup surfaces as a rejected promise
+      rejectStart(err);
+    };
 
     const onStdout = (chunk: Buffer) => {
       const text = chunk.toString("utf8");
@@ -104,7 +126,8 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
           baseUrl: `http://${hostname}:${port}`,
           hostname,
           port,
-          authPassword,
+          username: SERVER_SETTINGS_USERNAME,
+          authPassword: effectivePassword,
           child,
         });
       }
@@ -117,11 +140,16 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
     };
 
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-      if (!resolved) {
-        const message = `Sidecar exited before ready (code=${code} signal=${signal}). Stderr:\n${stderrBuffer}`;
-        // oxlint-disable-next-line executor/no-promise-reject, executor/no-error-constructor -- boundary: sidecar boot failure surfaces here as a rejected start promise
-        rejectStart(new Error(message));
+      if (resolved || rejected) return;
+      // Detect bind failure — the Node listener prints either "EADDRINUSE" or
+      // "address already in use" on stderr before exiting non-zero.
+      if (/EADDRINUSE|address already in use/i.test(stderrBuffer)) {
+        reject(new SidecarPortInUseError(settings.port));
+        return;
       }
+      const message = `Sidecar exited before ready (code=${code} signal=${signal}). Stderr:\n${stderrBuffer}`;
+      // oxlint-disable-next-line executor/no-error-constructor -- boundary: sidecar boot failure surfaces here as a rejected start promise
+      reject(new Error(message));
     };
 
     child.stdout?.on("data", onStdout);
@@ -144,3 +172,5 @@ export async function stopSidecar(child: ChildProcess): Promise<void> {
     child.kill("SIGTERM");
   });
 }
+
+export type { DesktopServerSettings };

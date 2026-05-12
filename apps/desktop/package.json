@@ -28,6 +28,7 @@
   "devDependencies": {
     "@executor-js/app": "workspace:*",
     "@executor-js/local": "workspace:*",
+    "@executor-js/plugin-desktop-settings": "workspace:*",
     "@executor-js/plugin-file-secrets": "workspace:*",
     "@executor-js/plugin-google-discovery": "workspace:*",
     "@executor-js/plugin-graphql": "workspace:*",
