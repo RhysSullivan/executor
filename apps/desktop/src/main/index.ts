@@ -1,11 +1,22 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, session, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  type MenuItemConstructorOptions,
+  nativeImage,
+  session,
+  shell,
+} from "electron";
 import windowStateKeeper from "electron-window-state";
 import log from "electron-log/main.js";
 import updater from "electron-updater";
 const { autoUpdater } = updater;
+type UpdateInfo = { readonly version: string };
 import {
   startSidecar,
   stopSidecar,
@@ -208,8 +219,144 @@ const registerIpcHandlers = () => {
   ipcMain.handle("executor:server:restart", () => restartSidecarAndReload());
 };
 
+// ──────────────────────────────────────────────────────────────────────
+// Auto-updates — opencode-style dialog flow.
+//
+// electron-updater's `checkForUpdatesAndNotify()` default swaps the app
+// silently on quit, so users have no signal an update is ready until
+// they relaunch and notice the version changed. We replace it with:
+//
+//   - autoDownload: true   — pull the next version in the background
+//   - autoInstallOnAppQuit: false — never swap silently
+//   - on 'update-downloaded' → native dialog with Restart now / Later
+//   - "Check for Updates…" app menu item runs the same flow manually
+//
+// Auto-checks at boot stay quiet on failure / no-op. The manual menu
+// invocation surfaces both outcomes explicitly via `alertOnFail`.
+// ──────────────────────────────────────────────────────────────────────
+
+let downloadedUpdateVersion: string | null = null;
+let updateDialogOpen = false;
+
+const promptInstallUpdate = async (version: string) => {
+  if (updateDialogOpen) return;
+  updateDialogOpen = true;
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: dialog wrapper guarantees the open flag clears
+  try {
+    const response = await dialog.showMessageBox({
+      type: "info",
+      title: "Update ready",
+      message: `Executor ${version} is ready to install.`,
+      detail: "Restart now to apply the update, or keep working — we'll prompt again later.",
+      buttons: ["Restart now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response.response === 0) {
+      // Stop the sidecar cleanly before Squirrel.Mac swaps the bundle.
+      if (connection) {
+        await stopSidecar(connection.child);
+        connection = null;
+      }
+      autoUpdater.quitAndInstall(false, true);
+    }
+  } finally {
+    updateDialogOpen = false;
+  }
+};
+
+const setupAutoUpdater = () => {
+  if (!app.isPackaged) return;
+  autoUpdater.logger = log;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+    downloadedUpdateVersion = info.version;
+    void promptInstallUpdate(info.version);
+  });
+  autoUpdater.on("error", (err: Error) => {
+    log.warn("[updater] error", err);
+  });
+};
+
+interface UpdateCheckOptions {
+  readonly alertOnFail: boolean;
+}
+
+const runUpdateCheck = async ({ alertOnFail }: UpdateCheckOptions) => {
+  if (!app.isPackaged) {
+    if (alertOnFail) {
+      await dialog.showMessageBox({
+        type: "info",
+        title: "Updates unavailable",
+        message: "Auto-update is only enabled in packaged builds.",
+      });
+    }
+    return;
+  }
+  if (downloadedUpdateVersion) {
+    await promptInstallUpdate(downloadedUpdateVersion);
+    return;
+  }
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: surface network/update failures only when the user asked
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    const newer = result?.isUpdateAvailable === true;
+    if (!alertOnFail) return;
+    if (newer) return; // 'update-downloaded' handler will fire the install dialog
+    await dialog.showMessageBox({
+      type: "info",
+      title: "No updates",
+      message: `You're on the latest version (${app.getVersion()}).`,
+    });
+  } catch (error) {
+    log.warn("[updater] check failed", error);
+    if (!alertOnFail) return;
+    await dialog.showMessageBox({
+      type: "error",
+      title: "Update check failed",
+      message: "Couldn't reach the update server.",
+      detail: "Check your network and try again from the menu.",
+    });
+  }
+};
+
+const installApplicationMenu = () => {
+  const isMac = process.platform === "darwin";
+  const appMenu: MenuItemConstructorOptions = {
+    label: app.name,
+    submenu: [
+      { role: "about" },
+      { label: "Check for Updates…", click: () => void runUpdateCheck({ alertOnFail: true }) },
+      { type: "separator" },
+      ...(isMac
+        ? ([
+            { role: "services" },
+            { type: "separator" },
+            { role: "hide" },
+            { role: "hideOthers" },
+            { role: "unhide" },
+            { type: "separator" },
+          ] as MenuItemConstructorOptions[])
+        : []),
+      { role: "quit" },
+    ],
+  };
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      appMenu,
+      { role: "editMenu" },
+      { role: "viewMenu" },
+      { role: "windowMenu" },
+    ]),
+  );
+};
+
 const boot = async () => {
   installDockIcon();
+  installApplicationMenu();
+  setupAutoUpdater();
   registerIpcHandlers();
   connection = await startWithCurrentSettings();
   if (!connection) {
@@ -221,10 +368,10 @@ const boot = async () => {
     return;
   }
   await createWindow(connection);
-  if (app.isPackaged) {
-    autoUpdater.logger = log;
-    void autoUpdater.checkForUpdatesAndNotify();
-  }
+  // Check at boot. If an update is available, autoDownload pulls it and
+  // the 'update-downloaded' handler fires the install dialog. Silent on
+  // no-update / failure so we don't bother users on every launch.
+  void runUpdateCheck({ alertOnFail: false });
 };
 
 if (ensureSingleInstance()) {
