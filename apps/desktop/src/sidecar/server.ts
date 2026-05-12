@@ -15,7 +15,7 @@ const authPassword = process.env.EXECUTOR_AUTH_PASSWORD;
 const clientDir = process.env.EXECUTOR_CLIENT_DIR;
 
 if (!authPassword) {
-  // oxlint-disable-next-line executor/no-error-constructor -- boundary: misconfiguration at sidecar boot is fatal
+  // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: misconfiguration at sidecar boot is fatal
   throw new Error("EXECUTOR_AUTH_PASSWORD must be set when running the desktop sidecar.");
 }
 

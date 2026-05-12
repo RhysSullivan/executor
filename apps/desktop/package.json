@@ -1,10 +1,10 @@
 {
   "name": "@executor-js/desktop",
-  "private": true,
   "version": "1.4.4",
-  "type": "module",
-  "license": "MIT",
+  "private": true,
   "homepage": "https://github.com/RhysSullivan/executor",
+  "license": "MIT",
+  "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
     "predev": "bun run --filter @executor-js/local build",

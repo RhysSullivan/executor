@@ -58,7 +58,7 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
   const { command, args, cwd } = resolveSidecarCommand();
 
   if (!existsSync(clientDir)) {
-    // oxlint-disable-next-line executor/no-error-constructor -- boundary: misconfiguration is fatal
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: misconfiguration is fatal
     throw new Error(
       `Executor client bundle not found at ${clientDir}. Run \`bun run --filter @executor-js/local build\` before launching desktop.`,
     );
@@ -105,12 +105,9 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
 
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
       if (!resolved) {
-        rejectStart(
-          // oxlint-disable-next-line executor/no-error-constructor -- boundary: sidecar boot failure surfaces here
-          new Error(
-            `Sidecar exited before ready (code=${code} signal=${signal}). Stderr:\n${stderrBuffer}`,
-          ),
-        );
+        const message = `Sidecar exited before ready (code=${code} signal=${signal}). Stderr:\n${stderrBuffer}`;
+        // oxlint-disable-next-line executor/no-promise-reject, executor/no-error-constructor -- boundary: sidecar boot failure surfaces here as a rejected start promise
+        rejectStart(new Error(message));
       }
     };
 

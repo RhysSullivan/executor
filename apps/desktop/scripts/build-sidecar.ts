@@ -57,8 +57,10 @@ const createEmbeddedMigrationsSource = async (): Promise<string> => {
 };
 
 if (!existsSync(APPS_LOCAL_DIST)) {
-  // oxlint-disable-next-line executor/no-error-constructor -- boundary: build-time fatal
-  throw new Error(`apps/local/dist not found. Run \`bun run --filter @executor-js/local build\` first.`);
+  // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: build-time fatal
+  throw new Error(
+    `apps/local/dist not found. Run \`bun run --filter @executor-js/local build\` first.`,
+  );
 }
 
 await rm(SIDECAR_OUT_DIR, { recursive: true, force: true });
@@ -73,7 +75,9 @@ await writeFile(EMBEDDED_MIGRATIONS_PATH, `${embeddedMigrations}\n`);
 // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: ensure the gen stub is restored even if compile fails
 try {
   console.log(`[build-sidecar] bun build --compile ${SIDECAR_ENTRY} → ${sidecarBinary}`);
-  await $`bun build --compile --minify --sourcemap --target=bun --outfile ${sidecarBinary} ${SIDECAR_ENTRY}`.cwd(REPO_ROOT);
+  await $`bun build --compile --minify --sourcemap --target=bun --outfile ${sidecarBinary} ${SIDECAR_ENTRY}`.cwd(
+    REPO_ROOT,
+  );
 } finally {
   await writeFile(EMBEDDED_MIGRATIONS_PATH, EMBEDDED_MIGRATIONS_STUB);
 }

@@ -42,10 +42,10 @@ export default defineConfig({
     root: "src/renderer",
     publicDir: resolve(APP_ROOT, "public"),
     define: {
-      "import.meta.env.VITE_APP_VERSION": JSON.stringify(process.env.npm_package_version ?? "0.0.0"),
-      "import.meta.env.VITE_GITHUB_URL": JSON.stringify(
-        "https://github.com/RhysSullivan/executor",
+      "import.meta.env.VITE_APP_VERSION": JSON.stringify(
+        process.env.npm_package_version ?? "0.0.0",
       ),
+      "import.meta.env.VITE_GITHUB_URL": JSON.stringify("https://github.com/RhysSullivan/executor"),
     },
     resolve: {
       alias: {

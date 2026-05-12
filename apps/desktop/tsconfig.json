@@ -11,10 +11,5 @@
     "jsx": "react-jsx",
     "types": ["node", "bun-types"]
   },
-  "include": [
-    "src",
-    "scripts",
-    "electron.vite.config.ts",
-    "electron-builder.config.ts"
-  ]
+  "include": ["src", "scripts", "electron.vite.config.ts", "electron-builder.config.ts"]
 }

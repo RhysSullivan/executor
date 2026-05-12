@@ -8,8 +8,6 @@ export default defineConfig({
   plugins: [appPlugin],
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify("0.0.0-dev"),
-    "import.meta.env.VITE_GITHUB_URL": JSON.stringify(
-      "https://github.com/RhysSullivan/executor",
-    ),
+    "import.meta.env.VITE_GITHUB_URL": JSON.stringify("https://github.com/RhysSullivan/executor"),
   },
 });
