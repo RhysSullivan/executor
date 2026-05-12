@@ -136,5 +136,11 @@ export default defineConfig({
       allow: [resolve(import.meta.dirname, "../..")],
     },
   },
-  plugins: [appPlugin, executorApiPlugin()],
+  plugins: [
+    appPlugin({
+      executorConfigPath: resolve(import.meta.dirname, "executor.config.ts"),
+      executorJsoncPath: resolve(import.meta.dirname, "executor.jsonc"),
+    }),
+    executorApiPlugin(),
+  ],
 });

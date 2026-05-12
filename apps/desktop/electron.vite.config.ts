@@ -3,6 +3,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import appPlugin from "@executor-js/app/vite";
 
 const APP_ROOT = resolve(import.meta.dirname, "../../packages/app");
+const APPS_LOCAL = resolve(import.meta.dirname, "../local");
 
 // Electron's runtime is provided by the launcher binary, not the bundle.
 // electron-log etc. ship native modules that also must stay external.
@@ -66,6 +67,11 @@ export default defineConfig({
         },
       },
     },
-    plugins: [appPlugin],
+    plugins: [
+      appPlugin({
+        executorConfigPath: resolve(APPS_LOCAL, "executor.config.ts"),
+        executorJsoncPath: resolve(APPS_LOCAL, "executor.jsonc"),
+      }),
+    ],
   },
 });
