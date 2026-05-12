@@ -6,6 +6,7 @@ import { Badge } from "@executor-js/react/components/badge";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
 import { ScopeId } from "@executor-js/sdk/core";
 import {
+  SourceCredentialLoadingBadge,
   SourceCredentialNotice,
   SourceCredentialStatusBadge,
   missingSourceCredentialLabels,
@@ -18,17 +19,6 @@ import { oauth2ClientSecretSlot, type StoredSourceSchemaType } from "../sdk/stor
 
 function OAuthBadge() {
   return <Badge variant="secondary">OAuth</Badge>;
-}
-
-function CheckingCredentialsBadge() {
-  return (
-    <Badge
-      variant="outline"
-      className="border-border bg-muted/50 text-[10px] text-muted-foreground"
-    >
-      Checking credentials
-    </Badge>
-  );
 }
 
 const effectiveClientSecretSlot = (oauth2: {
@@ -92,12 +82,12 @@ export default function OpenApiSourceSummary(props: {
   const bindingsLoaded = AsyncResult.isSuccess(bindingsResult);
   const connectionsLoaded = AsyncResult.isSuccess(connectionsResult);
   if (!bindingsLoaded) {
-    return props.variant === "panel" ? null : <CheckingCredentialsBadge />;
+    return props.variant === "panel" ? null : <SourceCredentialLoadingBadge />;
   }
 
   const bindings = AsyncResult.isSuccess(bindingsResult) ? bindingsResult.value : [];
   if (oauth2 && !connectionsLoaded) {
-    return props.variant === "panel" ? null : <CheckingCredentialsBadge />;
+    return props.variant === "panel" ? null : <SourceCredentialLoadingBadge />;
   }
   const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
   const liveConnectionIds = new Set(connections.map((connection) => connection.id));
