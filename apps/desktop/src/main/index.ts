@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, session, shell } from "electron";
 import windowStateKeeper from "electron-window-state";
 import log from "electron-log/main.js";
 import updater from "electron-updater";
@@ -63,10 +64,51 @@ const installBasicAuthHeader = (origin: string, password: string | null) => {
   };
 };
 
+/**
+ * Resolve the on-disk path to the Executor app icon. Packaged builds get
+ * the .icns/.ico baked in by electron-builder, but in dev mode Electron
+ * launches via the bare runtime binary with no bundled icon — so we set
+ * it programmatically (dock on mac, BrowserWindow on linux/win).
+ *
+ * In dev `app.getAppPath()` returns the directory of the app's
+ * `package.json` (i.e. `apps/desktop`), which is more robust than
+ * relative path math from the compiled main bundle.
+ */
+const resolveSourceIconPath = (): string =>
+  app.isPackaged
+    ? join(process.resourcesPath, "icon.png")
+    : join(app.getAppPath(), "build", "icon.png");
+
 const resolveLinuxIcon = (): string | undefined => {
   if (process.platform !== "linux") return undefined;
-  if (app.isPackaged) return join(process.resourcesPath, "icon.png");
-  return join(import.meta.dirname, "..", "..", "build", "icon.png");
+  return resolveSourceIconPath();
+};
+
+/**
+ * Set the macOS dock icon at runtime. Packaged builds already use the
+ * bundle's .icns; this matters only in dev where the bare electron binary
+ * defaults to the Electron diamond.
+ *
+ * `setIcon` accepts a file path but silently no-ops if the underlying
+ * image fails to decode — we route through `nativeImage.createFromPath`
+ * + an `isEmpty()` check so we can surface the bad-path case in the log.
+ */
+const installDockIcon = () => {
+  if (process.platform !== "darwin") return;
+  if (app.isPackaged) return;
+  if (!app.dock) return;
+  const iconPath = resolveSourceIconPath();
+  if (!existsSync(iconPath)) {
+    log.warn(`[dock-icon] file missing at ${iconPath}; skipping`);
+    return;
+  }
+  const image = nativeImage.createFromPath(iconPath);
+  if (image.isEmpty()) {
+    log.warn(`[dock-icon] failed to decode ${iconPath}; skipping`);
+    return;
+  }
+  app.dock.setIcon(image);
+  log.info(`[dock-icon] set to ${iconPath} (${image.getSize().width}×${image.getSize().height})`);
 };
 
 const createWindow = async (conn: SidecarConnection) => {
@@ -167,6 +209,7 @@ const registerIpcHandlers = () => {
 };
 
 const boot = async () => {
+  installDockIcon();
   registerIpcHandlers();
   connection = await startWithCurrentSettings();
   if (!connection) {
