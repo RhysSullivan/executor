@@ -1,17 +1,12 @@
-## Fixes
+## Highlights
 
-### Source state stays in sync between `executor.jsonc` and the runtime DB
+### Executor Desktop (mac, windows, linux)
 
-Two regressions kept `executor.jsonc` and the runtime DB from agreeing on which sources exist and how they authenticate. Together they caused deleted sources to come back after a restart and authenticated MCP sources to silently lose their credentials on boot.
+The CLI's web UI now ships as a native desktop app. Same gateway, same UI, same sources — packaged with the Bun-compiled server bundled inside the Electron app so there's no Node install, no `executor web` running in your terminal, no port to remember.
 
-- Removing a source from the UI (or via `executor.{openapi,mcp,graphql}.removeSource`) now writes the deletion through to `executor.jsonc`, so the source stays gone after a reboot. Thanks @RyanNg1403 (#408)
-- Boot-time replay of remote MCP sources now threads the `auth` block from `executor.jsonc` into `executor.mcp.addSource`, so header-auth and OAuth2 sources connect with credentials on the first request after startup instead of failing the SSE handshake unauthenticated. Thanks @RyanNg1403 (#408)
-- Updating an MCP source's auth from the UI (e.g. re-linking an OAuth connection) now writes the change back to `executor.jsonc`, so the new binding survives the next restart instead of being overwritten by stale file state. Thanks @aryasaatvik (#709)
+- Drag-to-Applications DMG with the Executor icon. Auto-updates via `electron-updater` directly from GitHub releases.
+- macOS builds are signed with a Developer ID Application cert and notarized through the App Store Connect API — first launch is a single click, no Gatekeeper dance.
+- State lives at `~/.executor/` — the same path the CLI uses. Sources, secrets, and policies set up in `executor web` show up in the desktop app and vice versa.
+- Linux: AppImage / deb / rpm for x64 and arm64. Windows: `.exe` (currently unsigned — code-signing pipeline in flight).
 
-### Variadic tool path arguments no longer crash
-
-Calling a tool with multiple positional path arguments (`executor <tool> path/a path/b ...`) no longer panics in the CLI argument parser. Thanks @grfwings (#761)
-
-### OAuth popup surfaces the real callback error
-
-OAuth callback failures previously rendered a hardcoded `"Authentication failed"`, hiding the actual cause behind a generic placeholder. The popup now shows a short tag-derived headline plus the full technical message inside a collapsible `<details>` disclosure, and skips auto-close on failure so users can read and act on the error. Thanks @Mark-Life (#774)
+Downloads land on each [GitHub release](https://github.com/RhysSullivan/executor/releases/latest) under the `executor-desktop-*` assets.
