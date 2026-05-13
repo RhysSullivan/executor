@@ -9,13 +9,18 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
-import { createExecutor, makeTestConfig } from "@executor-js/sdk";
-import { createExecutionEngine } from "@executor-js/execution";
+import { FormElicitation, ToolId, createExecutor, makeTestConfig } from "@executor-js/sdk";
+import {
+  createExecutionEngine,
+  type ExecutionEngine,
+  type ExecutionResult,
+} from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { openApiPlugin } from "@executor-js/plugin-openapi";
 import { dynamicUiPlugin } from "@executor-js/plugin-dynamic-ui";
 import { chromium, type Browser, type Frame, type Page } from "playwright-core";
 import { createServer as createViteServer } from "vite";
+import type * as Cause from "effect/Cause";
 
 import { createExecutorMcpServer } from "../server";
 
@@ -61,6 +66,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const chromeExecutablePath =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/usr/bin/google-chrome";
 const testScope = "test-scope";
+const formToolId = ToolId.make("test.form");
 
 const appsWithoutElicitationCapabilities: AppsClientCapabilities = {
   extensions: { [EXTENSION_ID]: { mimeTypes: [RESOURCE_MIME_TYPE] } },
@@ -129,6 +135,27 @@ function App() {
         <Button id="ask" onClick={ask}>Ask</Button>
         <div id="mutation-pending">{String(createItem.isPending)}</div>
         <div id="approval-status">{status}</div>
+      </CardContent>
+    </Card>
+  );
+}
+`;
+
+const generatedSchemaApprovalCode = `
+function App() {
+  const [status, setStatus] = useState("idle");
+  const requestDetails = useMutation((input) => tools.profile.submit(input), {
+    onSuccess: (result) => {
+      setStatus(JSON.stringify(result));
+    },
+    onError: (error) => setStatus(error.message),
+  });
+
+  return (
+    <Card>
+      <CardContent>
+        <Button id="ask-schema" onClick={() => requestDetails.mutate({})}>Ask for details</Button>
+        <div id="schema-status">{status}</div>
       </CardContent>
     </Card>
   );
@@ -403,26 +430,17 @@ const startOpenApiServer = (): Promise<OpenApiServer> =>
     });
   });
 
-const startMcpHarness = async (openApi: OpenApiServer): Promise<McpHarness> => {
-  const executor = await Effect.runPromise(
-    createExecutor(makeTestConfig({ plugins: [openApiPlugin()] as const })),
-  );
+const makePausedResult = (
+  id: string,
+  request: ReturnType<typeof FormElicitation.make>,
+): ExecutionResult => ({
+  status: "paused",
+  execution: { id, elicitationContext: { toolId: formToolId, args: {}, request } },
+});
 
-  await Effect.runPromise(
-    executor.openapi.addSpec({
-      scope: testScope,
-      spec: openApi.specUrl,
-      namespace: "inventory",
-    }),
-  );
-
-  const engine = createExecutionEngine({
-    executor,
-    codeExecutor: makeQuickJsExecutor({
-      timeoutMs: 5_000,
-      memoryLimitBytes: 32 * 1024 * 1024,
-    }),
-  });
+const startMcpHarnessForEngine = async <E extends Cause.YieldableError>(
+  engine: ExecutionEngine<E>,
+): Promise<McpHarness> => {
   const mcpServer = await Effect.runPromise(
     createExecutorMcpServer({ engine, plugins: [dynamicUiPlugin()] }),
   );
@@ -451,6 +469,88 @@ const startMcpHarness = async (openApi: OpenApiServer): Promise<McpHarness> => {
     },
   };
 };
+
+const startMcpHarness = async (openApi: OpenApiServer): Promise<McpHarness> => {
+  const executor = await Effect.runPromise(
+    createExecutor(makeTestConfig({ plugins: [openApiPlugin()] as const })),
+  );
+
+  await Effect.runPromise(
+    executor.openapi.addSpec({
+      scope: testScope,
+      spec: openApi.specUrl,
+      namespace: "inventory",
+    }),
+  );
+
+  const engine = createExecutionEngine({
+    executor,
+    codeExecutor: makeQuickJsExecutor({
+      timeoutMs: 5_000,
+      memoryLimitBytes: 32 * 1024 * 1024,
+    }),
+  });
+
+  return startMcpHarnessForEngine(engine);
+};
+
+const startSchemaElicitationMcpHarness = (): Promise<McpHarness> =>
+  startMcpHarnessForEngine({
+    getDescription: Effect.succeed("schema elicitation test executor"),
+    execute: () => Effect.succeed({ result: null }),
+    executeWithPause: () =>
+      Effect.succeed(
+        makePausedResult(
+          "schema_exec",
+          FormElicitation.make({
+            message: "Provide approval details",
+            requestedSchema: {
+              type: "object",
+              required: ["name", "count", "priority", "tags"],
+              properties: {
+                name: {
+                  type: "string",
+                  title: "Display name",
+                  minLength: 2,
+                  description: "Human-readable name to submit.",
+                },
+                count: {
+                  type: "integer",
+                  title: "Count",
+                  minimum: 1,
+                  default: 2,
+                },
+                priority: {
+                  type: "string",
+                  title: "Priority",
+                  enum: ["low", "high"],
+                  enumNames: ["Low", "High"],
+                },
+                notify: {
+                  type: "boolean",
+                  title: "Notify",
+                  default: false,
+                },
+                tags: {
+                  type: "array",
+                  title: "Tags",
+                  minItems: 1,
+                  items: {
+                    enum: ["alpha", "beta"],
+                    enumNames: ["Alpha", "Beta"],
+                  },
+                },
+              },
+            },
+          }),
+        ),
+      ),
+    resume: (_executionId, response) =>
+      Effect.succeed({
+        status: "completed",
+        result: { result: response.content ?? {} },
+      }),
+  });
 
 const startHostServer = (shellUrl: string, mcp: McpHarness): Promise<HostServer> =>
   new Promise((resolveServer, rejectServer) => {
@@ -736,6 +836,10 @@ describe("MCP app generated UI browser isolation", () => {
 
       await shellFrame.locator("text=Approve action").waitFor({ timeout: 10_000 });
       expect(await innerFrame.locator("text=Approve action").count()).toBe(0);
+      expect(await shellFrame.locator('[data-testid="trusted-interaction-fields"]').count()).toBe(
+        0,
+      );
+      expect(await shellFrame.locator("text=Response content").count()).toBe(0);
       expect(openApiServer.postRequests).toHaveLength(0);
 
       await shellFrame.getByRole("button", { name: "Approve" }).click({ timeout: 10_000 });
@@ -759,6 +863,65 @@ describe("MCP app generated UI browser isolation", () => {
       ]);
     } finally {
       await page.close();
+    }
+  }, 30_000);
+
+  it("renders form elicitations as typed approval fields", async () => {
+    if (!browser || !shellServer) {
+      throw new Error("Browser harness did not start.");
+    }
+
+    const schemaMcpHarness = await startSchemaElicitationMcpHarness();
+    const schemaHostServer = await startHostServer(shellServer.url, schemaMcpHarness);
+    const { page, shellFrame } = await openHarness(browser, schemaHostServer.url);
+
+    try {
+      const innerFrame = await renderGeneratedUi(page, shellFrame, generatedSchemaApprovalCode);
+      await innerFrame.locator("#ask-schema").click({ timeout: 10_000 });
+      await shellFrame.locator("text=Provide approval details").waitFor({ timeout: 10_000 });
+
+      await shellFrame.getByLabel("Display name").fill("Rhea");
+      await shellFrame.getByLabel("Count").fill("3");
+      await shellFrame.getByLabel("Priority").selectOption("high");
+      await shellFrame.getByLabel("Notify").click();
+      await shellFrame.getByLabel("Beta").click();
+      await shellFrame.getByRole("button", { name: "Approve" }).click({ timeout: 10_000 });
+
+      await innerFrame.waitForFunction(
+        () =>
+          document.querySelector("#schema-status")?.textContent ===
+          JSON.stringify({
+            name: "Rhea",
+            count: 3,
+            priority: "high",
+            notify: true,
+            tags: ["beta"],
+          }),
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      const hostState = await getHostState(page);
+      expect(hostState.resumeCalls).toEqual([
+        expect.objectContaining({
+          name: "execute-action-resume",
+          arguments: {
+            executionId: "schema_exec",
+            action: "accept",
+            content: JSON.stringify({
+              name: "Rhea",
+              count: 3,
+              priority: "high",
+              notify: true,
+              tags: ["beta"],
+            }),
+          },
+        }),
+      ]);
+    } finally {
+      await page.close();
+      await schemaHostServer.close();
+      await schemaMcpHarness.close();
     }
   }, 30_000);
 

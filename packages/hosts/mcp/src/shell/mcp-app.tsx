@@ -1,7 +1,7 @@
 import "./globals.css";
 import "@tailwindcss/browser";
 
-import React, { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
 import type { App, McpUiHostContext } from "@modelcontextprotocol/ext-apps";
@@ -18,6 +18,23 @@ import innerRendererScript from "virtual:executor-inner-renderer";
 
 type PendingInteraction = TrustedInteraction & {
   resolve: (response: TrustedInteractionResponse) => void;
+};
+
+type ElicitationFieldValue = string | number | boolean | string[];
+
+type ElicitationSchemaField = {
+  readonly name: string;
+  readonly schema: Record<string, unknown>;
+  readonly required: boolean;
+};
+
+type ElicitationFormSchema = {
+  readonly fields: readonly ElicitationSchemaField[];
+};
+
+type SelectOption = {
+  readonly value: string;
+  readonly label: string;
 };
 
 type RendererState = {
@@ -99,6 +116,196 @@ const buildRendererSrcDoc = (token: string): string => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+const toOptionalString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.length > 0 ? value : undefined;
+
+const fieldLabel = (field: ElicitationSchemaField): string =>
+  toOptionalString(field.schema.title) ?? field.name;
+
+const fieldDescription = (field: ElicitationSchemaField): string | undefined =>
+  toOptionalString(field.schema.description);
+
+const enumOptions = (schema: Record<string, unknown>): readonly SelectOption[] => {
+  const oneOf = schema.oneOf;
+  if (Array.isArray(oneOf)) {
+    return oneOf.flatMap((item): SelectOption[] => {
+      if (!isRecord(item) || typeof item.const !== "string") return [];
+      return [{ value: item.const, label: toOptionalString(item.title) ?? item.const }];
+    });
+  }
+
+  const values = schema.enum;
+  if (!isStringArray(values)) return [];
+  const labels = isStringArray(schema.enumNames) ? schema.enumNames : values;
+  return values.map((value, index) => ({ value, label: labels[index] ?? value }));
+};
+
+const multiSelectOptions = (schema: Record<string, unknown>): readonly SelectOption[] => {
+  const items = schema.items;
+  if (!isRecord(items)) return [];
+
+  const anyOf = items.anyOf;
+  if (Array.isArray(anyOf)) {
+    return anyOf.flatMap((item): SelectOption[] => {
+      if (!isRecord(item) || typeof item.const !== "string") return [];
+      return [{ value: item.const, label: toOptionalString(item.title) ?? item.const }];
+    });
+  }
+
+  const values = items.enum;
+  if (!isStringArray(values)) return [];
+  const labels = isStringArray(items.enumNames) ? items.enumNames : values;
+  return values.map((value, index) => ({ value, label: labels[index] ?? value }));
+};
+
+const parseElicitationFormSchema = (value: unknown): ElicitationFormSchema | null => {
+  if (!isRecord(value) || !isRecord(value.properties)) return null;
+  const required = isStringArray(value.required) ? value.required : [];
+  const fields = Object.entries(value.properties).flatMap(
+    ([name, schema]): ElicitationSchemaField[] =>
+      isRecord(schema) ? [{ name, schema, required: required.includes(name) }] : [],
+  );
+  return fields.length > 0 ? { fields } : null;
+};
+
+const initialFieldValue = (field: ElicitationSchemaField): ElicitationFieldValue | undefined => {
+  const value = field.schema.default;
+  if (value === undefined) return undefined;
+  if (field.schema.type === "boolean") return value === true;
+  if (field.schema.type === "number" || field.schema.type === "integer") {
+    const numberValue = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(numberValue) ? numberValue : undefined;
+  }
+  if (field.schema.type === "array") {
+    return isStringArray(value) ? value : undefined;
+  }
+  return typeof value === "string" ? value : String(value);
+};
+
+const initialFormValues = (
+  formSchema: ElicitationFormSchema | null,
+): Record<string, ElicitationFieldValue> => {
+  const values: Record<string, ElicitationFieldValue> = {};
+  for (const field of formSchema?.fields ?? []) {
+    const value = initialFieldValue(field);
+    if (value !== undefined) values[field.name] = value;
+  }
+  return values;
+};
+
+const isEmptyFormValue = (value: ElicitationFieldValue | undefined): boolean =>
+  value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
+
+const numericConstraint = (
+  schema: Record<string, unknown>,
+  key: "minimum" | "maximum",
+): number | undefined => (typeof schema[key] === "number" ? schema[key] : undefined);
+
+const lengthConstraint = (
+  schema: Record<string, unknown>,
+  key: "minLength" | "maxLength" | "minItems" | "maxItems",
+): number | undefined => (typeof schema[key] === "number" ? schema[key] : undefined);
+
+const validateEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const validateUrl = (value: string): boolean => {
+  try {
+    void new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const validateFieldValue = (
+  field: ElicitationSchemaField,
+  value: ElicitationFieldValue | undefined,
+): { value?: ElicitationFieldValue; error?: string } => {
+  if (isEmptyFormValue(value)) {
+    return field.required ? { error: "This field is required." } : {};
+  }
+
+  if (field.schema.type === "boolean") {
+    return typeof value === "boolean" ? { value } : { error: "Choose true or false." };
+  }
+
+  if (field.schema.type === "number" || field.schema.type === "integer") {
+    const numberValue = typeof value === "number" ? value : Number(value);
+    const typeLabel = field.schema.type === "integer" ? "an integer" : "a number";
+    if (!Number.isFinite(numberValue)) return { error: `Must be ${typeLabel}.` };
+    if (field.schema.type === "integer" && !Number.isInteger(numberValue)) {
+      return { error: "Must be an integer." };
+    }
+    const minimum = numericConstraint(field.schema, "minimum");
+    const maximum = numericConstraint(field.schema, "maximum");
+    if (minimum !== undefined && numberValue < minimum) return { error: `Must be >= ${minimum}.` };
+    if (maximum !== undefined && numberValue > maximum) return { error: `Must be <= ${maximum}.` };
+    return { value: numberValue };
+  }
+
+  if (field.schema.type === "array") {
+    const selected = Array.isArray(value) ? value : [];
+    const options = multiSelectOptions(field.schema);
+    const allowed = new Set(options.map((option) => option.value));
+    if (!selected.every((item) => allowed.has(item))) return { error: "Choose a valid option." };
+    const minItems = lengthConstraint(field.schema, "minItems");
+    const maxItems = lengthConstraint(field.schema, "maxItems");
+    if (minItems !== undefined && selected.length < minItems) {
+      return { error: `Choose at least ${minItems} option${minItems === 1 ? "" : "s"}.` };
+    }
+    if (maxItems !== undefined && selected.length > maxItems) {
+      return { error: `Choose at most ${maxItems} option${maxItems === 1 ? "" : "s"}.` };
+    }
+    return { value: selected };
+  }
+
+  const stringValue = String(value);
+  const options = enumOptions(field.schema);
+  if (options.length > 0 && !options.some((option) => option.value === stringValue)) {
+    return { error: "Choose a valid option." };
+  }
+  const minLength = lengthConstraint(field.schema, "minLength");
+  const maxLength = lengthConstraint(field.schema, "maxLength");
+  if (minLength !== undefined && stringValue.length < minLength) {
+    return { error: `Must be at least ${minLength} character${minLength === 1 ? "" : "s"}.` };
+  }
+  if (maxLength !== undefined && stringValue.length > maxLength) {
+    return { error: `Must be at most ${maxLength} character${maxLength === 1 ? "" : "s"}.` };
+  }
+  if (field.schema.format === "email" && !validateEmail(stringValue)) {
+    return { error: "Must be a valid email address." };
+  }
+  if (field.schema.format === "uri" && !validateUrl(stringValue)) {
+    return { error: "Must be a valid URL." };
+  }
+  return { value: stringValue };
+};
+
+const buildElicitationContent = (
+  formSchema: ElicitationFormSchema | null,
+  formValues: Record<string, ElicitationFieldValue>,
+): {
+  content?: Record<string, unknown>;
+  errors: Record<string, string>;
+} => {
+  if (!formSchema) return { content: {}, errors: {} };
+
+  const content: Record<string, unknown> = {};
+  const errors: Record<string, string> = {};
+  for (const field of formSchema.fields) {
+    const result = validateFieldValue(field, formValues[field.name]);
+    if (result.error) {
+      errors[field.name] = result.error;
+      continue;
+    }
+    if (result.value !== undefined) content[field.name] = result.value;
+  }
+  return { content, errors };
+};
 
 const TOOL_PATH_SEGMENT = /^[A-Za-z_$][\w$]*$/;
 
@@ -507,32 +714,49 @@ function TrustedInteractionModal({
   pending: PendingInteraction;
   onComplete: (response: TrustedInteractionResponse) => void;
 }) {
-  const [content, setContent] = useState("{}");
-  const [jsonError, setJsonError] = useState<string | null>(null);
   const interaction = pending.interaction;
   const message =
     typeof interaction.message === "string" && interaction.message.length > 0
       ? interaction.message
       : "Approve this action?";
   const url = typeof interaction.url === "string" ? interaction.url : null;
-  const requestedSchema =
-    typeof interaction.requestedSchema === "object" &&
-    interaction.requestedSchema !== null &&
-    Object.keys(interaction.requestedSchema).length > 0
-      ? interaction.requestedSchema
-      : null;
+  const formSchema = useMemo(
+    () => parseElicitationFormSchema(interaction.requestedSchema),
+    [interaction.requestedSchema],
+  );
+  const [formValues, setFormValues] = useState<Record<string, ElicitationFieldValue>>(() =>
+    initialFormValues(formSchema),
+  );
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setFormValues(initialFormValues(formSchema));
+    setFieldErrors({});
+  }, [formSchema]);
 
   const approve = () => {
-    try {
-      const parsed = content.trim().length > 0 ? JSON.parse(content) : {};
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        setJsonError("Response content must be a JSON object.");
-        return;
+    const result = buildElicitationContent(formSchema, formValues);
+    setFieldErrors(result.errors);
+    if (Object.keys(result.errors).length > 0) return;
+    onComplete({ action: "accept", content: result.content });
+  };
+
+  const setFieldValue = (name: string, value: ElicitationFieldValue | undefined) => {
+    setFormValues((prev) => {
+      const next = { ...prev };
+      if (value === undefined) {
+        delete next[name];
+      } else {
+        next[name] = value;
       }
-      onComplete({ action: "accept", content: parsed as Record<string, unknown> });
-    } catch (err) {
-      setJsonError(err instanceof Error ? err.message : String(err));
-    }
+      return next;
+    });
+    setFieldErrors((prev) => {
+      if (!prev[name]) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
   };
 
   const openUrl = () => {
@@ -573,21 +797,25 @@ function TrustedInteractionModal({
                 Open link
               </button>
             )}
-            {requestedSchema && (
-              <div className="space-y-2">
-                <div className="text-xs font-medium text-muted-foreground">Response content</div>
-                <Components.Textarea
-                  value={content}
-                  onChange={(event) => {
-                    setContent(event.target.value);
-                    setJsonError(null);
-                  }}
-                  className="min-h-24 font-mono text-xs"
-                />
-                <pre className="max-h-32 overflow-auto rounded-md bg-muted p-2 text-xs text-muted-foreground">
-                  {JSON.stringify(requestedSchema, null, 2)}
-                </pre>
-                {jsonError && <div className="text-xs text-destructive">{jsonError}</div>}
+            {formSchema && (
+              <div data-testid="trusted-interaction-fields" className="space-y-3">
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Additional details
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    These values will be sent with approval.
+                  </div>
+                </div>
+                {formSchema.fields.map((field) => (
+                  <TrustedInteractionField
+                    key={field.name}
+                    field={field}
+                    value={formValues[field.name]}
+                    error={fieldErrors[field.name]}
+                    onChange={(value) => setFieldValue(field.name, value)}
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -618,6 +846,182 @@ function TrustedInteractionModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function TrustedInteractionField({
+  field,
+  value,
+  error,
+  onChange,
+}: {
+  field: ElicitationSchemaField;
+  value: ElicitationFieldValue | undefined;
+  error: string | undefined;
+  onChange: (value: ElicitationFieldValue | undefined) => void;
+}) {
+  const label = fieldLabel(field);
+  const description = fieldDescription(field);
+  const fieldId = `trusted-interaction-field-${field.name}`;
+  const describedBy = description ? `${fieldId}-description` : undefined;
+  const errorId = error ? `${fieldId}-error` : undefined;
+  const ariaDescribedBy = [describedBy, errorId].filter(Boolean).join(" ") || undefined;
+
+  return (
+    <div className="space-y-1.5" data-testid={`trusted-interaction-field-${field.name}`}>
+      <div className="flex items-center justify-between gap-3">
+        <Components.Label htmlFor={fieldId} className="text-xs font-medium">
+          {label}
+          {field.required && <span className="ml-1 text-destructive">*</span>}
+        </Components.Label>
+      </div>
+      <TrustedInteractionFieldControl
+        field={field}
+        fieldId={fieldId}
+        value={value}
+        ariaDescribedBy={ariaDescribedBy}
+        invalid={Boolean(error)}
+        onChange={onChange}
+      />
+      {description && (
+        <div id={describedBy} className="text-xs text-muted-foreground">
+          {description}
+        </div>
+      )}
+      {error && (
+        <div id={errorId} className="text-xs text-destructive">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrustedInteractionFieldControl({
+  field,
+  fieldId,
+  value,
+  ariaDescribedBy,
+  invalid,
+  onChange,
+}: {
+  field: ElicitationSchemaField;
+  fieldId: string;
+  value: ElicitationFieldValue | undefined;
+  ariaDescribedBy: string | undefined;
+  invalid: boolean;
+  onChange: (value: ElicitationFieldValue | undefined) => void;
+}) {
+  const options = enumOptions(field.schema);
+  if (options.length > 0) {
+    return (
+      <select
+        id={fieldId}
+        value={typeof value === "string" ? value : ""}
+        onChange={(event) => onChange(event.target.value || undefined)}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid}
+        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20"
+      >
+        <option value="">Select...</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  const multiOptions = multiSelectOptions(field.schema);
+  if (multiOptions.length > 0) {
+    const selected = Array.isArray(value) ? value : [];
+    return (
+      <div
+        id={fieldId}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid}
+        className="space-y-1.5 rounded-md border border-border p-2"
+      >
+        {multiOptions.map((option) => {
+          const checked = selected.includes(option.value);
+          return (
+            <label key={option.value} className="flex items-center gap-2 text-sm">
+              <Components.Checkbox
+                checked={checked}
+                onCheckedChange={(nextChecked) => {
+                  const next = nextChecked === true;
+                  onChange(
+                    next
+                      ? [...selected, option.value]
+                      : selected.filter((item) => item !== option.value),
+                  );
+                }}
+              />
+              <span>{option.label}</span>
+            </label>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (field.schema.type === "boolean") {
+    return (
+      <label className="flex items-center gap-2 rounded-md border border-border p-2 text-sm">
+        <Components.Checkbox
+          id={fieldId}
+          checked={value === true}
+          onCheckedChange={(nextChecked) => onChange(nextChecked === true)}
+          aria-describedby={ariaDescribedBy}
+          aria-invalid={invalid}
+        />
+        <span>Yes</span>
+      </label>
+    );
+  }
+
+  if (field.schema.type === "number" || field.schema.type === "integer") {
+    return (
+      <Components.Input
+        id={fieldId}
+        type="number"
+        value={value === undefined ? "" : String(value)}
+        step={field.schema.type === "integer" ? 1 : "any"}
+        min={numericConstraint(field.schema, "minimum")}
+        max={numericConstraint(field.schema, "maximum")}
+        onChange={(event) => onChange(event.target.value)}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid}
+      />
+    );
+  }
+
+  const isLongText = typeof field.schema.maxLength === "number" && field.schema.maxLength > 160;
+  if (field.schema.type === "string" && isLongText && field.schema.format === undefined) {
+    return (
+      <Components.Textarea
+        id={fieldId}
+        value={typeof value === "string" ? value : ""}
+        onChange={(event) => onChange(event.target.value)}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid}
+        className="min-h-20"
+      />
+    );
+  }
+
+  const inputType =
+    field.schema.format === "email" ? "email" : field.schema.format === "uri" ? "url" : "text";
+  return (
+    <Components.Input
+      id={fieldId}
+      type={inputType}
+      value={typeof value === "string" ? value : ""}
+      onChange={(event) => onChange(event.target.value)}
+      aria-describedby={ariaDescribedBy}
+      aria-invalid={invalid}
+    />
   );
 }
 
