@@ -55,7 +55,7 @@ const orgPlugins = (): CloudPlugins =>
 // on the outer scope.
 // ---------------------------------------------------------------------------
 
-export const createScopedExecutor = (
+export const createScopedExecutorBundle = (
   userId: string,
   organizationId: string,
   organizationName: string,
@@ -86,7 +86,7 @@ export const createScopedExecutor = (
     // the opaque `InternalError({ traceId })` happens at the HTTP edge
     // via `withCapture` (see `api/protected-layers.ts`). That's
     // where `ErrorCaptureLive` (Sentry) gets wired in.
-    return yield* createExecutor({
+    const executor = yield* createExecutor({
       scopes: [userOrgScope, orgScope],
       adapter,
       blobs,
@@ -94,4 +94,14 @@ export const createScopedExecutor = (
       httpClientLayer,
       onElicitation: "accept-all",
     });
+    return { executor, plugins };
   });
+
+export const createScopedExecutor = (
+  userId: string,
+  organizationId: string,
+  organizationName: string,
+) =>
+  createScopedExecutorBundle(userId, organizationId, organizationName).pipe(
+    Effect.map(({ executor }) => executor),
+  );

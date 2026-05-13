@@ -3,6 +3,7 @@ import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
 import { observabilityMiddleware } from "@executor-js/api";
+import { composeExecutionObservers } from "@executor-js/sdk";
 import {
   CoreHandlers,
   ExecutorService,
@@ -61,7 +62,12 @@ const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
 
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const { executor, plugins } = await getExecutorBundle();
-  const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
+  const observer = composeExecutionObservers(plugins, executor);
+  const engine = createExecutionEngine({
+    executor,
+    codeExecutor: makeQuickJsExecutor(),
+    observer,
+  });
 
   const LocalApi = composePluginApi(plugins);
   // `ErrorCaptureLive` logs causes to the console and returns a short

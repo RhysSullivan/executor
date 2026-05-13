@@ -1,5 +1,5 @@
 import { Deferred, Effect, Fiber, Predicate, Ref } from "effect";
-import type * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause";
 
 import type {
   Executor,
@@ -7,6 +7,23 @@ import type {
   ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
+  ExecutionObserver,
+  ExecutionTrigger,
+  ScopeId,
+} from "@executor-js/sdk/core";
+import {
+  ExecutionFinished,
+  ExecutionId,
+  ExecutionInteractionId,
+  ExecutionStarted,
+  ExecutionToolCallId,
+  InteractionResolved,
+  InteractionStarted,
+  ScopeId as ScopeIdSchema,
+  ToolCallFinished,
+  ToolCallStarted,
+  ignoreExecutionObserverErrors,
+  noopExecutionObserver,
 } from "@executor-js/sdk/core";
 import { CodeExecutionError } from "@executor-js/codemode-core";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor-js/codemode-core";
@@ -27,6 +44,7 @@ import { buildExecuteDescription } from "./description";
 export type ExecutionEngineConfig<E extends Cause.YieldableError = CodeExecutionError> = {
   readonly executor: Executor;
   readonly codeExecutor: CodeExecutor<E>;
+  readonly observer?: ExecutionObserver<unknown>;
 };
 
 export type ExecutionResult =
@@ -48,6 +66,14 @@ type InternalPausedExecution<E> = PausedExecution & {
 export type ResumeResponse = {
   readonly action: "accept" | "decline" | "cancel";
   readonly content?: Record<string, unknown>;
+};
+
+export type ExecutionRunOptions = {
+  readonly trigger?: ExecutionTrigger;
+};
+
+export type InlineExecutionOptions = ExecutionRunOptions & {
+  readonly onElicitation: ElicitationHandler;
 };
 
 // ---------------------------------------------------------------------------
@@ -300,6 +326,23 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
   };
 };
 
+const makeExecutionId = (): ExecutionId => ExecutionId.make(`exec_${crypto.randomUUID()}`);
+const makeToolCallId = (): ExecutionToolCallId =>
+  ExecutionToolCallId.make(`tool_${crypto.randomUUID()}`);
+const makeInteractionId = (): ExecutionInteractionId =>
+  ExecutionInteractionId.make(`interaction_${crypto.randomUUID()}`);
+
+const causeToMessage = (cause: Cause.Cause<unknown>): string => Cause.pretty(cause);
+
+const responseToInteractionStatus = (
+  response: typeof ElicitationResponse.Type,
+): "accepted" | "declined" | "cancelled" =>
+  response.action === "accept"
+    ? "accepted"
+    : response.action === "decline"
+      ? "declined"
+      : "cancelled";
+
 // ---------------------------------------------------------------------------
 // Execution Engine
 // ---------------------------------------------------------------------------
@@ -315,7 +358,7 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
    */
   readonly execute: (
     code: string,
-    options: { readonly onElicitation: ElicitationHandler },
+    options: InlineExecutionOptions,
   ) => Effect.Effect<ExecuteResult, E>;
 
   /**
@@ -323,7 +366,10 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
    * Use this when the host doesn't support inline elicitation.
    * Returns either a completed result or a paused execution that can be resumed.
    */
-  readonly executeWithPause: (code: string) => Effect.Effect<ExecutionResult, E>;
+  readonly executeWithPause: (
+    code: string,
+    options?: ExecutionRunOptions,
+  ) => Effect.Effect<ExecutionResult, E>;
 
   /**
    * Resume a paused execution. Returns a completed result, a new pause, or
@@ -344,8 +390,137 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
   config: ExecutionEngineConfig<E>,
 ): ExecutionEngine<E> => {
   const { executor, codeExecutor } = config;
+  const observer = ignoreExecutionObserverErrors(config.observer ?? noopExecutionObserver);
   const pausedExecutions = new Map<string, InternalPausedExecution<E>>();
-  let nextId = 0;
+  const scopeId = executor.scopes[0]?.id ?? ScopeIdSchema.make("unknown");
+
+  const emit = observer.handle;
+
+  const observeToolCalls = (
+    invoker: SandboxToolInvoker,
+    executionId: ExecutionId,
+    currentScopeId: ScopeId,
+  ): SandboxToolInvoker => ({
+    invoke: ({ path, args }) => {
+      const toolCallId = makeToolCallId();
+      return Effect.gen(function* () {
+        yield* emit(
+          new ToolCallStarted({
+            executionId,
+            toolCallId,
+            scopeId: currentScopeId,
+            path,
+            args,
+            startedAt: new Date(),
+          }),
+        );
+
+        return yield* invoker.invoke({ path, args }).pipe(
+          Effect.tap((result) =>
+            emit(
+              new ToolCallFinished({
+                executionId,
+                toolCallId,
+                scopeId: currentScopeId,
+                path,
+                status: "completed",
+                result,
+                completedAt: new Date(),
+              }),
+            ),
+          ),
+          Effect.tapCause((cause) =>
+            emit(
+              new ToolCallFinished({
+                executionId,
+                toolCallId,
+                scopeId: currentScopeId,
+                path,
+                status: "failed",
+                error: causeToMessage(cause),
+                completedAt: new Date(),
+              }),
+            ),
+          ),
+        );
+      });
+    },
+  });
+
+  const finishFromResult = (
+    executionId: ExecutionId,
+    currentScopeId: ScopeId,
+    result: ExecuteResult,
+  ) =>
+    new ExecutionFinished({
+      executionId,
+      scopeId: currentScopeId,
+      status: result.error ? "failed" : "completed",
+      result: result.result,
+      error: result.error,
+      logs: result.logs,
+      completedAt: new Date(),
+    });
+
+  const finishFromCause = (
+    executionId: ExecutionId,
+    currentScopeId: ScopeId,
+    cause: Cause.Cause<unknown>,
+  ) =>
+    new ExecutionFinished({
+      executionId,
+      scopeId: currentScopeId,
+      status: "failed",
+      error: causeToMessage(cause),
+      completedAt: new Date(),
+    });
+
+  const observeInlineElicitation = (
+    executionId: ExecutionId,
+    currentScopeId: ScopeId,
+    handler: ElicitationHandler,
+  ): ElicitationHandler => {
+    return (ctx) => {
+      const interactionId = makeInteractionId();
+      return Effect.gen(function* () {
+        yield* emit(
+          new InteractionStarted({
+            executionId,
+            interactionId,
+            scopeId: currentScopeId,
+            context: ctx,
+            startedAt: new Date(),
+          }),
+        );
+        return yield* handler(ctx).pipe(
+          Effect.tap((response) =>
+            emit(
+              new InteractionResolved({
+                executionId,
+                interactionId,
+                scopeId: currentScopeId,
+                status: responseToInteractionStatus(response),
+                response,
+                completedAt: new Date(),
+              }),
+            ),
+          ),
+          Effect.tapCause((cause) =>
+            emit(
+              new InteractionResolved({
+                executionId,
+                interactionId,
+                scopeId: currentScopeId,
+                status: "failed",
+                error: causeToMessage(cause),
+                completedAt: new Date(),
+              }),
+            ),
+          ),
+        );
+      });
+    };
+  };
 
   /**
    * Race a running fiber against a pause signal. Returns when either
@@ -379,11 +554,25 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
    * The sandbox is forked as a daemon because paused executions can outlive the
    * caller scope that returned the first pause, such as an HTTP request handler.
    */
-  const startPausableExecution = Effect.fn("mcp.execute")(function* (code: string) {
+  const startPausableExecution = Effect.fn("mcp.execute")(function* (
+    code: string,
+    options?: ExecutionRunOptions,
+  ) {
     yield* Effect.annotateCurrentSpan({
       "mcp.execute.mode": "pausable",
       "mcp.execute.code_length": code.length,
     });
+
+    const executionId = makeExecutionId();
+    yield* emit(
+      new ExecutionStarted({
+        executionId,
+        scopeId,
+        code,
+        trigger: options?.trigger,
+        startedAt: new Date(),
+      }),
+    );
 
     // Ref holds the current pause signal. The elicitation handler reads
     // it each time it fires, so resume() can swap in a fresh Deferred
@@ -396,27 +585,69 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
     const elicitationHandler: ElicitationHandler = (ctx) =>
       Effect.gen(function* () {
         const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
-        const id = `exec_${++nextId}`;
+        const interactionId = makeInteractionId();
 
         const paused: InternalPausedExecution<E> = {
-          id,
+          id: executionId,
           elicitationContext: ctx,
           response: responseDeferred,
           fiber: fiber!,
           pauseSignalRef,
         };
-        pausedExecutions.set(id, paused);
+        pausedExecutions.set(executionId, paused);
 
         const currentSignal = yield* Ref.get(pauseSignalRef);
+        yield* emit(
+          new InteractionStarted({
+            executionId,
+            interactionId,
+            scopeId,
+            context: ctx,
+            startedAt: new Date(),
+          }),
+        );
         yield* Deferred.succeed(currentSignal, paused);
 
         // Suspend until resume() completes responseDeferred.
-        return yield* Deferred.await(responseDeferred);
+        return yield* Deferred.await(responseDeferred).pipe(
+          Effect.tap((response) =>
+            emit(
+              new InteractionResolved({
+                executionId,
+                interactionId,
+                scopeId,
+                status: responseToInteractionStatus(response),
+                response,
+                completedAt: new Date(),
+              }),
+            ),
+          ),
+          Effect.tapCause((cause) =>
+            emit(
+              new InteractionResolved({
+                executionId,
+                interactionId,
+                scopeId,
+                status: "failed",
+                error: causeToMessage(cause),
+                completedAt: new Date(),
+              }),
+            ),
+          ),
+        );
       });
 
-    const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
+    const invoker = observeToolCalls(
+      makeFullInvoker(executor, { onElicitation: elicitationHandler }),
+      executionId,
+      scopeId,
+    );
     fiber = yield* Effect.forkDetach(
-      codeExecutor.execute(code, invoker).pipe(Effect.withSpan("executor.code.exec")),
+      codeExecutor.execute(code, invoker).pipe(
+        Effect.tap((result) => emit(finishFromResult(executionId, scopeId, result))),
+        Effect.tapCause((cause) => emit(finishFromCause(executionId, scopeId, cause))),
+        Effect.withSpan("executor.code.exec"),
+      ),
     );
 
     const initialSignal = yield* Ref.get(pauseSignalRef);
@@ -459,16 +690,34 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
    */
   const runInlineExecution = Effect.fn("mcp.execute")(function* (
     code: string,
-    options: { readonly onElicitation: ElicitationHandler },
+    options: InlineExecutionOptions,
   ) {
     yield* Effect.annotateCurrentSpan({
       "mcp.execute.mode": "inline",
       "mcp.execute.code_length": code.length,
     });
-    const invoker = makeFullInvoker(executor, {
-      onElicitation: options.onElicitation,
-    });
-    return yield* codeExecutor.execute(code, invoker).pipe(Effect.withSpan("executor.code.exec"));
+    const executionId = makeExecutionId();
+    yield* emit(
+      new ExecutionStarted({
+        executionId,
+        scopeId,
+        code,
+        trigger: options.trigger,
+        startedAt: new Date(),
+      }),
+    );
+    const invoker = observeToolCalls(
+      makeFullInvoker(executor, {
+        onElicitation: observeInlineElicitation(executionId, scopeId, options.onElicitation),
+      }),
+      executionId,
+      scopeId,
+    );
+    return yield* codeExecutor.execute(code, invoker).pipe(
+      Effect.tap((result) => emit(finishFromResult(executionId, scopeId, result))),
+      Effect.tapCause((cause) => emit(finishFromCause(executionId, scopeId, cause))),
+      Effect.withSpan("executor.code.exec"),
+    );
   });
 
   return {

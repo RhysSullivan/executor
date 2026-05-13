@@ -23,6 +23,7 @@ import type {
   ElicitationRequest,
   ElicitationResponse,
 } from "./elicitation";
+import type { ExecutionObserver } from "./execution-observer";
 import type {
   ConnectionInUseError,
   ConnectionNotFoundError,
@@ -448,6 +449,15 @@ export interface PluginSpec<
    *  that delegates to the plugin's real API is a one-liner:
    *  `({ args }) => self.addSpec(args)`. */
   readonly staticSources?: (self: NoInfer<TExtension>) => readonly StaticSourceDecl<TStore>[];
+
+  /** Runtime hooks contributed by this plugin. These sit outside the
+   *  extension API because the host composes them into process/runtime
+   *  behavior instead of exposing them to end-user code. */
+  readonly runtime?: {
+    /** Observe execution lifecycle events. Observer failures are captured by
+     *  the composition helper and never fail the user execution. */
+    readonly executionObserver?: (self: NoInfer<TExtension>) => ExecutionObserver<unknown>;
+  };
 
   /** HttpApiGroup contributed by this plugin. Composed into the host's
    *  `HttpApi` via the `addGroup` helper at runtime. The host mounts
