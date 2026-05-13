@@ -7,3 +7,10 @@ export {
   ScopeHandlers,
   ExecutionsHandlers,
 } from "./handlers";
+export {
+  composePluginApi,
+  composePluginHandlers,
+  composePluginHandlerLayer,
+  providePluginExtensions,
+  type PluginExtensionServices,
+} from "./plugin-routes";

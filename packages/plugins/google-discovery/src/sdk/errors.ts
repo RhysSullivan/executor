@@ -1,10 +1,24 @@
+// Google Discovery plugin tagged errors. The three errors that cross
+// the HTTP edge carry an `HttpApiSchema` annotation so they can be
+// `.addError(...)` directly on the API group — handlers return them
+// and HttpApi encodes each as a 4xx response with a typed body, no
+// per-handler sanitisation step.
+//
+// `GoogleDiscoveryInvocationError` stays a `Data.TaggedError` because
+// it only surfaces through `invokeTool`, which runs under the core
+// `tools.invoke` endpoint — not any endpoint on the Google Discovery
+// group — so it doesn't need an HTTP annotation.
+
 import { Data, Schema } from "effect";
 import type { Option } from "effect";
 
-export class GoogleDiscoveryParseError extends Data.TaggedError("GoogleDiscoveryParseError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+export class GoogleDiscoveryParseError extends Schema.TaggedErrorClass<GoogleDiscoveryParseError>()(
+  "GoogleDiscoveryParseError",
+  {
+    message: Schema.String,
+  },
+  { httpApiStatus: 400 },
+) {}
 
 export class GoogleDiscoveryInvocationError extends Data.TaggedError(
   "GoogleDiscoveryInvocationError",
@@ -14,16 +28,18 @@ export class GoogleDiscoveryInvocationError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-export class GoogleDiscoveryOAuthError extends Schema.TaggedError<GoogleDiscoveryOAuthError>()(
+export class GoogleDiscoveryOAuthError extends Schema.TaggedErrorClass<GoogleDiscoveryOAuthError>()(
   "GoogleDiscoveryOAuthError",
   {
     message: Schema.String,
   },
+  { httpApiStatus: 400 },
 ) {}
 
-export class GoogleDiscoverySourceError extends Schema.TaggedError<GoogleDiscoverySourceError>()(
+export class GoogleDiscoverySourceError extends Schema.TaggedErrorClass<GoogleDiscoverySourceError>()(
   "GoogleDiscoverySourceError",
   {
     message: Schema.String,
   },
+  { httpApiStatus: 400 },
 ) {}

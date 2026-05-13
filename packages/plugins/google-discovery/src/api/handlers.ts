@@ -1,65 +1,47 @@
-import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
-import { Cause, Context, Effect } from "effect";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { Context, Effect } from "effect";
 
-import { runOAuthCallback } from "@executor/plugin-oauth2/http";
+import { addGroup, capture } from "@executor-js/api";
+import type { GoogleDiscoveryAddSourceInput, GoogleDiscoveryPluginExtension } from "../sdk/plugin";
+import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
+import { GoogleDiscoveryGroup } from "./group";
 
-import { addGroup } from "@executor/api";
-import type {
-  GoogleDiscoveryAddSourceInput,
-  GoogleDiscoveryOAuthAuthResult,
-  GoogleDiscoveryPluginExtension,
-} from "../sdk/plugin";
-import {
-  GoogleDiscoveryInvocationError,
-  GoogleDiscoveryOAuthError,
-  GoogleDiscoveryParseError,
-  GoogleDiscoverySourceError,
-} from "../sdk/errors";
-import {
-  GoogleDiscoveryApiError,
-  GoogleDiscoveryGroup,
-  GoogleDiscoveryInternalError,
-} from "./group";
+// ---------------------------------------------------------------------------
+// Service tag
+//
+// Holds the `Captured` shape — every method's `StorageFailure` channel
+// has been swapped for `InternalError({ traceId })`. The host app
+// provides an already-wrapped extension via
+// `Layer.succeed(GoogleDiscoveryExtensionService, withCapture(executor.googleDiscovery))`.
+// Handlers see `InternalError` in the error union, which matches
+// `.addError(InternalError)` on the group — no per-handler translation.
+// ---------------------------------------------------------------------------
 
-export class GoogleDiscoveryExtensionService extends Context.Tag("GoogleDiscoveryExtensionService")<
+export class GoogleDiscoveryExtensionService extends Context.Service<
   GoogleDiscoveryExtensionService,
   GoogleDiscoveryPluginExtension
->() {}
+>()("GoogleDiscoveryExtensionService") {}
+
+// ---------------------------------------------------------------------------
+// Composed API
+// ---------------------------------------------------------------------------
 
 const ExecutorApiWithGoogleDiscovery = addGroup(GoogleDiscoveryGroup);
 
-const GOOGLE_DISCOVERY_OAUTH_CHANNEL = "executor:google-discovery-oauth-result";
-
-const toPopupErrorMessage = (error: unknown): string => {
-  if (error instanceof GoogleDiscoveryOAuthError) {
-    return error.message;
-  }
-  return "Authentication failed";
-};
-
-const toGoogleDiscoveryApiError = (
-  error: unknown,
-): GoogleDiscoveryApiError | GoogleDiscoveryInternalError => {
-  if (error instanceof GoogleDiscoveryApiError || error instanceof GoogleDiscoveryInternalError) {
-    return error;
-  }
-  if (
-    error instanceof GoogleDiscoveryParseError ||
-    error instanceof GoogleDiscoverySourceError ||
-    error instanceof GoogleDiscoveryOAuthError ||
-    error instanceof GoogleDiscoveryInvocationError
-  ) {
-    return new GoogleDiscoveryApiError({ message: error.message });
-  }
-  return new GoogleDiscoveryInternalError({ message: "Internal server error" });
-};
-
-const sanitizeGoogleDiscoveryFailure = <A, R>(
-  effect: Effect.Effect<A, unknown, R>,
-): Effect.Effect<A, GoogleDiscoveryApiError | GoogleDiscoveryInternalError, R> =>
-  Effect.catchAllCause(effect, (cause) =>
-    Effect.fail(toGoogleDiscoveryApiError(Cause.squash(cause))),
-  );
+// ---------------------------------------------------------------------------
+// Handlers
+//
+// Each handler is exactly: yield the extension service, call the method,
+// return. Plugin SDK errors flow through the typed channel and are
+// schema-encoded to 4xx by HttpApi (see group.ts `.addError(...)` calls).
+// `StorageFailure` has already been translated to `InternalError` by
+// `withCapture` on the service instance; defects bubble up and are
+// captured + downgraded to `InternalError(traceId)` by the API-level
+// observability middleware.
+//
+// OAuth start/complete/callback live on the shared `/scopes/:scopeId/oauth/*`
+// group in `@executor-js/api` now — the plugin has no OAuth-specific handlers.
+// ---------------------------------------------------------------------------
 
 export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
   ExecutorApiWithGoogleDiscovery,
@@ -67,65 +49,52 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("probeDiscovery", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.probeDiscovery(payload.discoveryUrl);
-        }).pipe(sanitizeGoogleDiscoveryFailure),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.probeDiscovery({
+              discoveryUrl: payload.discoveryUrl,
+              credentials: payload.credentials,
+            });
+          }),
+        ),
       )
-      .handle("addSource", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.addSource(payload as GoogleDiscoveryAddSourceInput);
-        }).pipe(sanitizeGoogleDiscoveryFailure),
+      .handle("addSource", ({ params: path, payload }) =>
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.addSource({
+              ...(payload as Omit<GoogleDiscoveryAddSourceInput, "scope">),
+              scope: path.scopeId,
+            });
+          }),
+        ),
       )
-      .handle("startOAuth", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.startOAuth({
-            name: payload.name,
-            discoveryUrl: payload.discoveryUrl,
-            clientIdSecretId: payload.clientIdSecretId,
-            clientSecretSecretId: payload.clientSecretSecretId,
-            redirectUrl: payload.redirectUrl,
-            scopes: payload.scopes,
-          });
-        }).pipe(sanitizeGoogleDiscoveryFailure),
+      .handle("getSource", ({ params: path }) =>
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            const source = yield* ext.getSource(path.namespace, path.scopeId);
+            return source
+              ? GoogleDiscoveryStoredSourceSchema.make({
+                  namespace: source.namespace,
+                  name: source.name,
+                  config: source.config,
+                })
+              : null;
+          }),
+        ),
       )
-      .handle("completeOAuth", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.completeOAuth({
-            state: payload.state,
-            code: payload.code,
-            error: payload.error,
-          });
-        }).pipe(sanitizeGoogleDiscoveryFailure),
-      )
-      .handle("getSource", ({ path }) =>
-        Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.getSource(path.namespace);
-        }).pipe(sanitizeGoogleDiscoveryFailure),
-      )
-      .handle("oauthCallback", ({ urlParams }) =>
-        Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          const html = yield* runOAuthCallback<
-            GoogleDiscoveryOAuthAuthResult,
-            GoogleDiscoveryOAuthError,
-            never
-          >({
-            complete: ({ state, code, error }) =>
-              ext.completeOAuth({
-                state,
-                code: code ?? undefined,
-                error: error ?? undefined,
-              }),
-            urlParams,
-            toErrorMessage: toPopupErrorMessage,
-            channelName: GOOGLE_DISCOVERY_OAUTH_CHANNEL,
-          });
-          return yield* HttpServerResponse.html(html);
-        }).pipe(sanitizeGoogleDiscoveryFailure),
+      .handle("updateSource", ({ params: path, payload }) =>
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            yield* ext.updateSource(path.namespace, path.scopeId, {
+              name: payload.name,
+              auth: payload.auth,
+            });
+            return { updated: true };
+          }),
+        ),
       ),
 );

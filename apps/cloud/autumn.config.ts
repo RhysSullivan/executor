@@ -1,18 +1,17 @@
 import { feature, item, plan } from "atmn";
 
 // Features
-export const seats = feature({
-  id: "seats",
-  name: "Seats",
-  type: "metered",
-  consumable: false,
-});
-
 export const executions = feature({
   id: "executions",
   name: "Executions",
   type: "metered",
   consumable: true,
+});
+
+export const domainVerification = feature({
+  id: "domain-verification",
+  name: "Domain Verification",
+  type: "boolean",
 });
 
 // Plans
@@ -23,78 +22,49 @@ export const free = plan({
   items: [
     item({
       featureId: executions.id,
-      included: 5000,
+      included: 10000,
       reset: { interval: "month" },
     }),
   ],
 });
 
-export const hobby = plan({
-  id: "hobby",
-  name: "Hobby",
+export const freePayAsYouGo = plan({
+  id: "free-pay-as-you-go",
+  name: "Free Pay As You Go",
+  items: [
+    item({
+      featureId: executions.id,
+      included: 10000,
+      price: {
+        amount: 0.2,
+        billingUnits: 1000,
+        billingMethod: "usage_based",
+        interval: "month",
+      },
+    }),
+  ],
+});
+
+export const team = plan({
+  id: "team",
+  name: "Team",
   price: {
-    amount: 10,
+    amount: 49,
     interval: "month",
   },
   items: [
     item({
-      featureId: seats.id,
-      included: 1,
+      featureId: executions.id,
+      included: 250000,
       price: {
-        amount: 10,
-        billingUnits: 1,
+        amount: 0.2,
+        billingUnits: 1000,
         billingMethod: "usage_based",
         interval: "month",
       },
     }),
     item({
-      featureId: executions.id,
-      included: 50000,
-      reset: { interval: "month" },
-    }),
-  ],
-});
-
-export const professional = plan({
-  id: "professional",
-  name: "Professional",
-  price: {
-    amount: 40,
-    interval: "month",
-  },
-  items: [
-    item({
-      featureId: seats.id,
-      included: 1,
-      price: {
-        amount: 40,
-        billingUnits: 1,
-        billingMethod: "usage_based",
-        interval: "month",
-      },
-    }),
-    item({
-      featureId: executions.id,
-      included: 100000,
-      reset: { interval: "month" },
-    }),
-  ],
-});
-
-// Overage add-on
-export const executionTopUp = plan({
-  id: "execution-top-up",
-  name: "Execution Top-Up",
-  addOn: true,
-  items: [
-    item({
-      featureId: executions.id,
-      price: {
-        amount: 1,
-        billingUnits: 10000,
-        billingMethod: "prepaid",
-        interval: "month",
-      },
+      featureId: domainVerification.id,
     }),
   ],
 });

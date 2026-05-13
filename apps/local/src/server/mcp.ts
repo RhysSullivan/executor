@@ -1,8 +1,11 @@
+import { Effect } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
-import { createExecutorMcpServer, type ExecutorMcpServerConfig } from "@executor/host-mcp";
+import { createExecutorMcpServer, type ExecutorMcpServerConfig } from "@executor-js/host-mcp";
+
+import { startIntegrationsRefresh } from "./integrations";
 
 // ---------------------------------------------------------------------------
 // Streamable HTTP handler
@@ -19,6 +22,24 @@ const jsonError = (status: number, code: number, message: string): Response =>
     headers: { "content-type": "application/json" },
   });
 
+const formatBoundaryError = (error: unknown): unknown => {
+  // oxlint-disable-next-line executor/no-instanceof-error, executor/no-unknown-error-message -- boundary: MCP request handler catches unknown SDK/runtime failures for process logging
+  if (error instanceof Error) return error.stack ?? error.message;
+  return error;
+};
+
+const ignoreClose = (close: (() => Promise<void>) | undefined): Promise<void> =>
+  close
+    ? Effect.runPromise(
+        Effect.ignore(
+          Effect.tryPromise({
+            try: close,
+            catch: () => undefined,
+          }),
+        ),
+      )
+    : Promise.resolve();
+
 export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpRequestHandler => {
   const transports = new Map<string, WebStandardStreamableHTTPServerTransport>();
   const servers = new Map<string, McpServer>();
@@ -28,8 +49,8 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
     const s = servers.get(id);
     transports.delete(id);
     servers.delete(id);
-    if (opts.transport) await t?.close().catch(() => undefined);
-    if (opts.server) await s?.close().catch(() => undefined);
+    if (opts.transport) await ignoreClose(t ? () => t.close() : undefined);
+    if (opts.server) await ignoreClose(s ? () => s.close() : undefined);
   };
 
   return {
@@ -58,21 +79,24 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
         if (sid) void dispose(sid, { server: true });
       };
 
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: MCP SDK handler must return JSON-RPC errors from thrown Promise APIs
       try {
-        created = await createExecutorMcpServer(config);
+        created = await Effect.runPromise(createExecutorMcpServer(config));
         await created.connect(transport);
         const response = await transport.handleRequest(request);
 
         if (!transport.sessionId) {
-          await transport.close().catch(() => undefined);
-          await created.close().catch(() => undefined);
+          await ignoreClose(() => transport.close());
+          const server = created;
+          await ignoreClose(server ? () => server.close() : undefined);
         }
         return response;
       } catch (error) {
-        console.error("[mcp] handleRequest error:", error instanceof Error ? error.stack : error);
+        console.error("[mcp] handleRequest error:", formatBoundaryError(error));
         if (!transport.sessionId) {
-          await transport.close().catch(() => undefined);
-          await created?.close().catch(() => undefined);
+          await ignoreClose(() => transport.close());
+          const server = created;
+          await ignoreClose(server ? () => server.close() : undefined);
         }
         return jsonError(500, -32603, "Internal server error");
       }
@@ -90,7 +114,9 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
 // ---------------------------------------------------------------------------
 
 export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promise<void> => {
-  const server = await createExecutorMcpServer(config);
+  startIntegrationsRefresh();
+
+  const server = await Effect.runPromise(createExecutorMcpServer(config));
   const transport = new StdioServerTransport();
 
   const waitForExit = () =>
@@ -108,11 +134,12 @@ export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promis
       process.stdin.once("close", finish);
     });
 
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: stdio server lifetime uses Promise-based SDK/process APIs and always closes resources
   try {
     await server.connect(transport);
     await waitForExit();
   } finally {
-    await transport.close().catch(() => undefined);
-    await server.close().catch(() => undefined);
+    await ignoreClose(() => transport.close());
+    await ignoreClose(() => server.close());
   }
 };

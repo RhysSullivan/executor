@@ -1,1 +1,1 @@
-# @executor/local
+# @executor-js/local

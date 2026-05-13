@@ -1,0 +1,3 @@
+[submodule "integrationsdotsh"]
+	path = integrationsdotsh
+	url = https://github.com/RhysSullivan/integrationsdotsh.git

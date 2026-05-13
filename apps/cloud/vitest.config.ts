@@ -9,6 +9,18 @@ export default defineConfig({
   ],
   test: {
     include: ["src/**/*.test.ts"],
+    exclude: ["src/**/*.node.test.ts", "**/node_modules/**"],
     globalSetup: ["./scripts/test-globalsetup.ts"],
+    // postgres.js's Cloudflare polyfill leaves a couple of `.then()` chains
+    // on `writer.ready` uncaught when the socket tears down before the
+    // writer settles (DbService scope close). The rejection is benign —
+    // the socket is closing anyway — so filter it out rather than fail
+    // the run with noise.
+    onUnhandledError(error) {
+      // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: Vitest unhandled-error hook receives unknown host errors
+      if (error && (error as Error).message === "Stream was cancelled.") {
+        return false;
+      }
+    },
   },
 });

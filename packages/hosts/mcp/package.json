@@ -1,6 +1,6 @@
 {
-  "name": "@executor/host-mcp",
-  "version": "1.4.3",
+  "name": "@executor-js/host-mcp",
+  "version": "1.4.4",
   "private": true,
   "type": "module",
   "exports": {
@@ -15,8 +15,9 @@
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
-    "@executor/execution": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor-js/execution": "workspace:*",
+    "@executor-js/react": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@modelcontextprotocol/ext-apps": "^1.6.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "effect": "catalog:",
@@ -24,9 +25,12 @@
     "zod": "^4.3.0"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@tailwindcss/browser": "^4.2.2",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "^6.0.1",
     "bun-types": "catalog:",
     "class-variance-authority": "^0.7.1",

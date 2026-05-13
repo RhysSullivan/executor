@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { Context, Schema } from "effect";
-import { HttpApiMiddleware, HttpApiSchema, HttpApiSecurity } from "@effect/platform";
+import { HttpApiMiddleware, HttpApiSecurity } from "effect/unstable/httpapi";
 
 // ---------------------------------------------------------------------------
 // Session — what every authenticated request gets
@@ -23,34 +23,35 @@ export type Session = {
   readonly refreshedSession: string | null;
 };
 
-export class SessionContext extends Context.Tag("@executor/cloud/Session")<
-  SessionContext,
-  Session
->() {}
+export class SessionContext extends Context.Service<SessionContext, Session>()(
+  "@executor-js/cloud/Session",
+) {}
 
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 
-export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
+export class Unauthorized extends Schema.TaggedErrorClass<Unauthorized>()(
   "Unauthorized",
   {},
-  HttpApiSchema.annotations({ status: 401 }),
+  { httpApiStatus: 401 },
 ) {}
 
-export class NoOrganization extends Schema.TaggedError<NoOrganization>()(
+export class NoOrganization extends Schema.TaggedErrorClass<NoOrganization>()(
   "NoOrganization",
   {},
-  HttpApiSchema.annotations({ status: 403 }),
+  { httpApiStatus: 403 },
 ) {}
 
 // ---------------------------------------------------------------------------
 // SessionAuth — resolves the WorkOS session cookie, provides SessionContext
 // ---------------------------------------------------------------------------
 
-export class SessionAuth extends HttpApiMiddleware.Tag<SessionAuth>()("SessionAuth", {
-  failure: Unauthorized,
-  provides: SessionContext,
+export class SessionAuth extends HttpApiMiddleware.Service<
+  SessionAuth,
+  { provides: SessionContext }
+>()("SessionAuth", {
+  error: Unauthorized,
   security: {
     cookie: HttpApiSecurity.apiKey({ in: "cookie", key: "wos-session" }),
   },
@@ -60,7 +61,7 @@ export class SessionAuth extends HttpApiMiddleware.Tag<SessionAuth>()("SessionAu
 // OrgAuth — like SessionAuth but rejects sessions with no organization
 // ---------------------------------------------------------------------------
 
-export class AuthContext extends Context.Tag("@executor/cloud/AuthContext")<
+export class AuthContext extends Context.Service<
   AuthContext,
   {
     readonly accountId: string;
@@ -69,12 +70,14 @@ export class AuthContext extends Context.Tag("@executor/cloud/AuthContext")<
     readonly name: string | null;
     readonly avatarUrl: string | null;
   }
->() {}
+>()("@executor-js/cloud/AuthContext") {}
 
-export class OrgAuth extends HttpApiMiddleware.Tag<OrgAuth>()("OrgAuth", {
-  failure: Schema.Union(Unauthorized, NoOrganization),
-  provides: AuthContext,
-  security: {
-    cookie: HttpApiSecurity.apiKey({ in: "cookie", key: "wos-session" }),
+export class OrgAuth extends HttpApiMiddleware.Service<OrgAuth, { provides: AuthContext }>()(
+  "OrgAuth",
+  {
+    error: [Unauthorized, NoOrganization],
+    security: {
+      cookie: HttpApiSecurity.apiKey({ in: "cookie", key: "wos-session" }),
+    },
   },
-}) {}
+) {}

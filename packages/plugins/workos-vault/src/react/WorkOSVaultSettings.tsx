@@ -13,8 +13,8 @@ export default function WorkOSVaultSettings() {
       </div>
       <div className="px-5 py-4">
         <p className="text-xs text-muted-foreground leading-relaxed">
-          Cloud secrets are stored directly in WorkOS Vault for this workspace. Postgres is not
-          used for secret persistence.
+          Cloud secrets are stored directly in WorkOS Vault for this workspace. Postgres is not used
+          for secret persistence.
         </p>
       </div>
     </div>

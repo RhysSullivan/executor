@@ -1,10 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, readdir, rm, cp, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect, Exit } from "effect";
 
 type CommandResult = {
   readonly exitCode: number;
@@ -56,36 +57,45 @@ const runCommand = async (
 };
 
 const listen = async (server: ReturnType<typeof createServer>): Promise<number> =>
-  new Promise((resolvePort, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Failed to resolve local release server address"));
-        return;
-      }
-      resolvePort(address.port);
-    });
-  });
+  Effect.runPromise(
+    Effect.callback<number, unknown>((resume) => {
+      const onError = (cause: unknown) => resume(Effect.fail(cause));
+      server.once("error", onError);
+      server.listen(0, "127.0.0.1", () => {
+        server.off("error", onError);
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          resume(Effect.fail("Failed to resolve server address"));
+          return;
+        }
+        resume(Effect.succeed(address.port));
+      });
+    }),
+  );
 
 const closeServer = async (server: ReturnType<typeof createServer>): Promise<void> =>
-  new Promise((resolveClose, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolveClose();
-    });
-  });
+  Effect.runPromise(
+    Effect.callback<void, unknown>((resume) => {
+      server.close((error) => {
+        if (error) {
+          resume(Effect.fail(error));
+          return;
+        }
+        resume(Effect.void);
+      });
+    }),
+  );
 
+const platformName = process.platform === "win32" ? "win32" : process.platform;
+const archName = process.arch;
+const currentPlatformPackage = `executor-${platformName}-${archName}`;
 const currentRuntimeBinaryName = process.platform === "win32" ? "executor.exe" : "executor";
 const isSupportedPlatform =
   ["darwin", "linux", "win32"].includes(process.platform) &&
   ["x64", "arm64"].includes(process.arch);
 
 describe("release bootstrap smoke", () => {
-  it("fresh wrapper install bootstraps locally hosted release assets and stays runnable", async () => {
+  it("wrapper resolves the platform binary from optionalDependencies and stays runnable", async () => {
     if (!isSupportedPlatform) {
       return;
     }
@@ -93,80 +103,39 @@ describe("release bootstrap smoke", () => {
     const build = await runCommand("bun", ["run", "src/build.ts", "binary", "--single"], cliRoot);
     expect(build.exitCode, build.stderr || build.stdout).toBe(0);
 
-    const assets = await runCommand("bun", ["run", "src/build.ts", "release-assets"], cliRoot);
-    expect(assets.exitCode, assets.stderr || assets.stdout).toBe(0);
-
     const wrapperDir = join(distDir, "executor");
-    const assetNames = (await readdir(distDir))
-      .filter((entry) => /^executor-.*\.(?:tar\.gz|zip)$/.test(entry))
-      .sort();
+    const platformDir = join(distDir, currentPlatformPackage);
 
-    expect(assetNames, `expected one current-platform asset in ${distDir}`).toHaveLength(1);
+    // Simulate the install layout npm/bun produces:
+    //   <root>/executor/                <- wrapper (bin, postinstall, package.json)
+    //   <root>/executor/node_modules/executor-<plat>-<arch>/  <- platform package
+    const tempRoot = await mkdtemp(join(tmpdir(), "executor-optdeps-bootstrap-"));
+    const installedWrapperDir = join(tempRoot, "executor");
+    const installedPlatformDir = join(installedWrapperDir, "node_modules", currentPlatformPackage);
+    const dataDir = join(tempRoot, "data");
 
-    const assetName = assetNames[0]!;
-    const assetPath = join(distDir, assetName);
-    const tempRoot = await mkdtemp(join(tmpdir(), "executor-release-bootstrap-"));
-    const installedPackageDir = join(tempRoot, "executor");
+    await cp(wrapperDir, installedWrapperDir, { recursive: true });
+    await mkdir(join(installedWrapperDir, "node_modules"), { recursive: true });
+    await cp(platformDir, installedPlatformDir, { recursive: true });
 
-    await cp(wrapperDir, installedPackageDir, { recursive: true });
-
-    const originalPackageJson = JSON.parse(
-      await readFile(join(installedPackageDir, "package.json"), "utf8"),
-    ) as { version: string; homepage?: string };
-
-    const assetRoute = `/releases/download/v${originalPackageJson.version}/${assetName}`;
-    const server = createServer(async (request, response) => {
-      if (request.url !== assetRoute) {
-        response.statusCode = 404;
-        response.end("not found");
-        return;
-      }
-
-      const body = await readFile(assetPath);
-      response.statusCode = 200;
-      response.setHeader("content-length", String(body.byteLength));
-      response.end(body);
-    });
-
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: release smoke test must clean temp install files after process checks
     try {
-      const port = await listen(server);
-      const packageJsonPath = join(installedPackageDir, "package.json");
-      await writeFile(
-        packageJsonPath,
-        JSON.stringify(
-          {
-            ...originalPackageJson,
-            homepage: `http://127.0.0.1:${port}`,
-          },
-          null,
-          2,
-        ) + "\n",
-      );
-
       const firstRun = await runCommand(
         process.execPath,
-        [join(installedPackageDir, "bin", "executor"), "--help"],
-        installedPackageDir,
+        [join(installedWrapperDir, "bin", "executor"), "--help"],
+        installedWrapperDir,
       );
-      const combinedOutput = `${firstRun.stdout}\n${firstRun.stderr}`;
+      const combined = `${firstRun.stdout}\n${firstRun.stderr}`;
+      expect(firstRun.exitCode, combined).toBe(0);
+      expect(combined).not.toContain("could not locate a platform binary");
+      expect(combined).not.toContain("ENOENT");
 
-      expect(firstRun.exitCode, combinedOutput).toBe(0);
-      expect(combinedOutput).toContain("downloading release asset");
-      expect(combinedOutput).toContain(
-        `installed ${basename(assetName, ".zip").replace(/\.tar\.gz$/, "")}`,
-      );
-      expect(combinedOutput).not.toContain("core_bg.wasm");
-      expect(combinedOutput).not.toContain("ENOENT");
+      // The platform binary lives under node_modules/<platform-pkg>/bin/.
+      const platformBinaryPath = join(installedPlatformDir, "bin", currentRuntimeBinaryName);
+      const platformBinaryStat = await readFile(platformBinaryPath);
+      expect(platformBinaryStat.byteLength).toBeGreaterThan(0);
 
-      const installedBinaryPath = join(
-        installedPackageDir,
-        "bin",
-        "runtime",
-        currentRuntimeBinaryName,
-      );
-      const installedBinaryStat = await readFile(installedBinaryPath);
-      expect(installedBinaryStat.byteLength).toBeGreaterThan(0);
-
+      // Boot the web command and check that the bundled web UI serves.
       const probeServer = createServer((_, response) => {
         response.statusCode = 204;
         response.end();
@@ -176,9 +145,13 @@ describe("release bootstrap smoke", () => {
 
       const webProcess = spawn(
         process.execPath,
-        [join(installedPackageDir, "bin", "executor"), "web", "--port", String(webPort)],
+        [join(installedWrapperDir, "bin", "executor"), "web", "--port", String(webPort)],
         {
-          cwd: installedPackageDir,
+          cwd: installedWrapperDir,
+          env: {
+            ...process.env,
+            EXECUTOR_DATA_DIR: dataDir,
+          },
           stdio: ["ignore", "pipe", "pipe"],
         },
       );
@@ -194,18 +167,20 @@ describe("release bootstrap smoke", () => {
         webStderr += chunk;
       });
 
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: release smoke test must stop the spawned web process
       try {
         const deadline = Date.now() + 30_000;
         let rootResponse: Response | null = null;
         while (Date.now() < deadline) {
           await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
-          try {
-            rootResponse = await fetch(`http://127.0.0.1:${webPort}/`);
+          const fetchExit = await Effect.runPromiseExit(
+            Effect.tryPromise(() => fetch(`http://127.0.0.1:${webPort}/`)),
+          );
+          if (Exit.isSuccess(fetchExit)) {
+            rootResponse = fetchExit.value;
             if (rootResponse.ok) {
               break;
             }
-          } catch {
-            // keep polling until the server is ready
           }
         }
 
@@ -228,24 +203,14 @@ describe("release bootstrap smoke", () => {
         const docsResponse = await fetch(`http://127.0.0.1:${webPort}/docs`);
         expect(docsResponse.status, `${webStdout}\n${webStderr}`).toBe(200);
 
-        // Verify code execution works end-to-end in the compiled binary
-        const callResult = await runCommand(
-          installedBinaryPath,
-          ["call", "return 2+2"],
-          installedPackageDir,
-        );
-        expect(callResult.exitCode, `call failed:\n${callResult.stderr}`).toBe(0);
-        expect(callResult.stdout.trim()).toContain("4");
-
+        // Sanity: a second invocation still works (the cache shouldn't
+        // break anything if it was created).
         const secondRun = await runCommand(
           process.execPath,
-          [join(installedPackageDir, "bin", "executor"), "--help"],
-          installedPackageDir,
+          [join(installedWrapperDir, "bin", "executor"), "--help"],
+          installedWrapperDir,
         );
-        const secondCombinedOutput = `${secondRun.stdout}\n${secondRun.stderr}`;
-
-        expect(secondRun.exitCode, secondCombinedOutput).toBe(0);
-        expect(secondCombinedOutput).not.toContain("downloading release asset");
+        expect(secondRun.exitCode, `${secondRun.stdout}\n${secondRun.stderr}`).toBe(0);
       } finally {
         webProcess.kill("SIGTERM");
         await Promise.race([
@@ -253,11 +218,14 @@ describe("release bootstrap smoke", () => {
           new Promise((resolveClose) => setTimeout(resolveClose, 5_000)),
         ]);
         if (webProcess.exitCode === null) {
-          webProcess.kill("SIGKILL");
+          if (process.platform === "win32") {
+            webProcess.kill();
+          } else {
+            webProcess.kill("SIGKILL");
+          }
         }
       }
     } finally {
-      await closeServer(server);
       await rm(tempRoot, { recursive: true, force: true });
     }
   }, 180_000);

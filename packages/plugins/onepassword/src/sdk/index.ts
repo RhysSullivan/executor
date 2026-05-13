@@ -1,7 +1,9 @@
 export {
   onepasswordPlugin,
+  makeOnePasswordStore,
   type OnePasswordExtension,
   type OnePasswordPluginOptions,
+  type OnePasswordStore,
 } from "./plugin";
 export {
   OnePasswordConfig,

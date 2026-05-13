@@ -1,34 +1,12 @@
-import { Effect } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { env } from "cloudflare:workers";
+import { Cause, Effect } from "effect";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { autumnHandler } from "autumn-js/backend";
 
 import { WorkOSAuth } from "../auth/workos";
-import { server } from "../env";
-import { AutumnService } from "../services/autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
-import { SharedServices } from "./layers";
 
-export const makeTrackExecutionUsage = (autumn: AutumnService["Type"]) => {
-  return (organizationId: string): void => {
-    autumn
-      .use((client) =>
-        client.track({
-          customerId: organizationId,
-          featureId: "executions",
-          value: 1,
-        }),
-      )
-      .pipe(
-        Effect.catchAll((err) => {
-          console.error("[billing] track failed:", err);
-          return Effect.void;
-        }),
-        Effect.runFork,
-      );
-  };
-};
-
-const handleAutumnRequestEffect = Effect.gen(function* () {
+const handler = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const webRequest = yield* Effect.mapError(
     HttpServerRequest.toWeb(request),
@@ -44,13 +22,11 @@ const handleAutumnRequestEffect = Effect.gen(function* () {
   const session = yield* workos.authenticateRequest(webRequest);
 
   if (!session || !session.organizationId) {
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: 401,
-        code: "unauthorized",
-        message: "Unauthorized",
-      }),
-    );
+    return yield* new HttpResponseError({
+      status: 401,
+      code: "unauthorized",
+      message: "Unauthorized",
+    });
   }
 
   const url = new URL(webRequest.url);
@@ -80,7 +56,7 @@ const handleAutumnRequestEffect = Effect.gen(function* () {
         email: session.email,
       },
       clientOptions: {
-        secretKey: server.AUTUMN_SECRET_KEY,
+        secretKey: env.AUTUMN_SECRET_KEY ?? "",
       },
       pathPrefix: "/autumn",
     }),
@@ -88,24 +64,21 @@ const handleAutumnRequestEffect = Effect.gen(function* () {
 
   if (statusCode >= 400) {
     console.error("[autumn] upstream error:", statusCode, response);
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: statusCode,
-        code: "billing_request_failed",
-        message: "Billing request failed",
-      }),
-    );
+    return yield* new HttpResponseError({
+      status: statusCode,
+      code: "billing_request_failed",
+      message: "Billing request failed",
+    });
   }
 
-  return HttpServerResponse.unsafeJson(response, { status: statusCode });
+  return HttpServerResponse.jsonUnsafe(response, { status: statusCode });
 }).pipe(
-  Effect.provide(SharedServices),
-  Effect.catchAll((err) => {
+  Effect.catchCause((err) => {
     if (isServerError(err)) {
-      console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
+      console.error("[autumn] request failed:", Cause.pretty(err));
     }
     return Effect.succeed(toErrorServerResponse(err));
   }),
 );
 
-export const AutumnApiApp = handleAutumnRequestEffect;
+export const AutumnRoutesLive = HttpRouter.add("*", "/autumn/*", handler);

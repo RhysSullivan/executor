@@ -1,4 +1,6 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
+
+import { McpToolAnnotations } from "./types";
 
 // ---------------------------------------------------------------------------
 // Output types
@@ -10,6 +12,7 @@ export interface McpToolManifestEntry {
   readonly description: string | null;
   readonly inputSchema?: unknown;
   readonly outputSchema?: unknown;
+  readonly annotations?: McpToolAnnotations;
 }
 
 export interface McpServerMetadata {
@@ -32,6 +35,7 @@ const ListedTool = Schema.Struct({
   inputSchema: Schema.optional(Schema.Unknown),
   parameters: Schema.optional(Schema.Unknown),
   outputSchema: Schema.optional(Schema.Unknown),
+  annotations: Schema.optional(McpToolAnnotations),
 });
 
 const ListToolsResult = Schema.Struct({
@@ -45,6 +49,9 @@ const ServerInfo = Schema.Struct({
 
 const decodeListToolsResult = Schema.decodeUnknownOption(ListToolsResult);
 const decodeServerInfo = Schema.decodeUnknownOption(ServerInfo);
+
+export const isListToolsResult = (value: unknown): boolean =>
+  Option.isSome(decodeListToolsResult(value));
 
 // ---------------------------------------------------------------------------
 // Tool ID sanitization
@@ -79,14 +86,19 @@ export const extractManifestFromListToolsResult = (
 ): McpToolManifest => {
   const seen = new Map<string, number>();
 
-  const listed = decodeListToolsResult(listToolsResult).pipe((opt) =>
-    opt._tag === "Some" ? opt.value.tools : [],
+  const listed = decodeListToolsResult(listToolsResult).pipe(
+    Option.map((result) => result.tools),
+    Option.getOrElse(() => []),
   );
 
-  const server = decodeServerInfo(metadata?.serverInfo).pipe((opt): McpServerMetadata | null =>
-    opt._tag === "Some"
-      ? { name: opt.value.name ?? null, version: opt.value.version ?? null }
-      : null,
+  const server = decodeServerInfo(metadata?.serverInfo).pipe(
+    Option.map(
+      (info): McpServerMetadata => ({
+        name: info.name ?? null,
+        version: info.version ?? null,
+      }),
+    ),
+    Option.getOrNull,
   );
 
   const tools = listed.flatMap((tool): McpToolManifestEntry[] => {
@@ -100,6 +112,7 @@ export const extractManifestFromListToolsResult = (
         description: tool.description ?? null,
         inputSchema: tool.inputSchema ?? tool.parameters,
         outputSchema: tool.outputSchema,
+        annotations: tool.annotations,
       },
     ];
   });
@@ -118,11 +131,8 @@ const slugify = (value: string): string =>
     .replace(/^_+|_+$/g, "");
 
 const hostnameOf = (url: string): string | null => {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return null;
-  }
+  if (!URL.canParse(url)) return null;
+  return new URL(url).hostname;
 };
 
 const basenameOf = (path: string): string => path.trim().split(/[\\/]/).pop() ?? path.trim();

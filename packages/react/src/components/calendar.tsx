@@ -79,10 +79,7 @@ function Calendar({
         ),
         week: cn("mt-2 flex w-full", defaultClassNames.week),
         week_number_header: cn("w-(--cell-size) select-none", defaultClassNames.week_number_header),
-        week_number: cn(
-          "text-sm text-muted-foreground select-none",
-          defaultClassNames.week_number,
-        ),
+        week_number: cn("text-sm text-muted-foreground select-none", defaultClassNames.week_number),
         day: cn(
           "group/day relative aspect-square h-full w-full p-0 text-center select-none [&:last-child[data-selected=true]_button]:rounded-r-md",
           props.showWeekNumber

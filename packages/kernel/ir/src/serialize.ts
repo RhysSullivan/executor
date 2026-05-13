@@ -1,23 +1,20 @@
-import { JSONSchema, SchemaAST } from "effect";
-import { Option } from "effect";
-import type { JsonSchema7, JsonSchema7Root } from "effect/JSONSchema";
+import { Schema, SchemaAST } from "effect";
+import type { JsonSchema } from "effect/JsonSchema";
 import type { LiveCatalog, SerializedCatalog } from "./registry";
 
 function getSchemaIdentifier(schema: { ast: SchemaAST.AST }): string | undefined {
-  return Option.getOrUndefined(SchemaAST.getJSONIdentifier(schema.ast));
+  return SchemaAST.resolveIdentifier(schema.ast);
 }
 
 export function serialize(catalog: LiveCatalog): typeof SerializedCatalog.Type {
-  const defs: Record<string, JsonSchema7> = {};
+  const defs: Record<string, JsonSchema> = {};
 
-  function schemaToRef(schema: { ast: SchemaAST.AST } | undefined): string | undefined {
+  function schemaToRef(schema: Schema.Top | undefined): string | undefined {
     if (!schema) return undefined;
 
     const identifier = getSchemaIdentifier(schema);
-    const jsonSchema = JSONSchema.fromAST(schema.ast, {
-      definitions: defs,
-      target: "jsonSchema2020-12",
-    });
+    const document = Schema.toJsonSchemaDocument(schema);
+    Object.assign(defs, document.definitions);
 
     if (identifier) {
       return identifier;
@@ -25,7 +22,7 @@ export function serialize(catalog: LiveCatalog): typeof SerializedCatalog.Type {
 
     // Inline schema without an identifier — store under a generated key
     const key = `__inline_${Object.keys(defs).length}`;
-    defs[key] = jsonSchema;
+    defs[key] = document.schema;
     return key;
   }
 
@@ -51,21 +48,21 @@ export function deserializeToJsonSchema(serialized: typeof SerializedCatalog.Typ
     description?: string;
     tags?: ReadonlyArray<string>;
     namespace?: string;
-    input?: JsonSchema7Root;
-    output?: JsonSchema7Root;
-    error?: JsonSchema7Root;
+    input?: JsonSchema;
+    output?: JsonSchema;
+    error?: JsonSchema;
   }>;
   types: Record<string, unknown>;
 } {
   const types = serialized.types;
 
-  function resolveRef(ref: string | undefined): JsonSchema7Root | undefined {
+  function resolveRef(ref: string | undefined): JsonSchema | undefined {
     if (!ref) return undefined;
     const schema = types[ref];
     if (!schema) return undefined;
     return {
-      ...(schema as JsonSchema7Root),
-      $defs: types as Record<string, JsonSchema7>,
+      ...(schema as JsonSchema),
+      $defs: types as Record<string, JsonSchema>,
     };
   }
 

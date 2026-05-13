@@ -1,30 +1,41 @@
 import { useState } from "react";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { mcpSourceAtom, updateMcpSource } from "./atoms";
-import { useScope } from "@executor/react/api/scope-context";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
 import {
-  SourceIdentityFields,
-  useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
-import { Button } from "@executor/react/components/button";
+  mcpSourceAtom,
+  mcpSourceBindingsAtom,
+  setMcpSourceBinding,
+  updateMcpSource,
+} from "./atoms";
+import { connectionsAtom } from "@executor-js/react/api/atoms";
+import { useScope, useScopeStack } from "@executor-js/react/api/scope-context";
+import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { slugifyNamespace, useSourceIdentity } from "@executor-js/react/plugins/source-identity";
+import { useCredentialTargetScope } from "@executor-js/react/plugins/credential-target-scope";
+import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
 import {
-  CardStack,
-  CardStackContent,
-  CardStackEntryField,
-} from "@executor/react/components/card-stack";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
-import { Badge } from "@executor/react/components/badge";
+  HttpCredentialsEditor,
+  serializeHttpCredentials,
+  serializeScopedHttpCredentials,
+  type HttpCredentialsState,
+} from "@executor-js/react/plugins/http-credentials";
+import {
+  effectiveCredentialBindingForScope,
+  httpCredentialsFromConfiguredCredentialBindings,
+  initialCredentialTargetScope,
+} from "@executor-js/react/plugins/credential-bindings";
+import { SourceOAuthConnectionControl } from "@executor-js/react/plugins/source-oauth-connection";
+import { Button } from "@executor-js/react/components/button";
+import { Badge } from "@executor-js/react/components/badge";
+import { ScopeId } from "@executor-js/sdk/core";
+import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
+import {
+  McpSourceBindingInput,
+  type McpCredentialInput,
+  type McpSourceBindingRef,
+} from "../sdk/types";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
-
-// ---------------------------------------------------------------------------
-// Editable header entry
-// ---------------------------------------------------------------------------
-
-type HeaderEntry = {
-  readonly name: string;
-  readonly value: string;
-};
 
 // ---------------------------------------------------------------------------
 // Remote edit form
@@ -33,72 +44,107 @@ type HeaderEntry = {
 function RemoteEditForm(props: {
   sourceId: string;
   initial: McpStoredSourceSchemaType & { config: { transport: "remote" } };
+  bindings: readonly McpSourceBindingRef[];
   onSave: () => void;
 }) {
-  const scopeId = useScope();
-  const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
-  const refreshSource = useAtomRefresh(mcpSourceAtom(scopeId, props.sourceId));
+  const displayScope = useScope();
+  const scopeStack = useScopeStack();
+  const sourceScope = ScopeId.make(props.initial.scope);
+  const { credentialTargetScope, credentialScopeOptions } = useCredentialTargetScope({
+    sourceScope,
+    initialTargetScope: initialCredentialTargetScope(sourceScope, props.bindings),
+  });
+  const {
+    credentialTargetScope: oauthCredentialTargetScope,
+    setCredentialTargetScope: setOAuthCredentialTargetScope,
+  } = useCredentialTargetScope({
+    sourceScope,
+    initialTargetScope: initialCredentialTargetScope(sourceScope, props.bindings),
+  });
+  const doUpdate = useAtomSet(updateMcpSource, { mode: "promiseExit" });
+  const setBinding = useAtomSet(setMcpSourceBinding, { mode: "promise" });
+  const secretList = useSecretPickerSecrets();
+  const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 
   const identity = useSourceIdentity({
     fallbackName: props.initial.name,
     fallbackNamespace: props.initial.namespace,
   });
   const [endpoint, setEndpoint] = useState(props.initial.config.endpoint);
-  const [headerEntries, setHeaderEntries] = useState<HeaderEntry[]>(() =>
-    Object.entries(props.initial.config.headers ?? {}).map(([name, value]) => ({
-      name,
-      value,
-    })),
+  const [credentials, setCredentials] = useState<HttpCredentialsState>(() =>
+    httpCredentialsFromConfiguredCredentialBindings({
+      headers: props.initial.config.headers,
+      queryParams: props.initial.config.queryParams,
+      bindings: props.bindings,
+    }),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [credentialsDirty, setCredentialsDirty] = useState(false);
 
   const identityDirty = identity.name.trim() !== props.initial.name.trim();
+  const metadataDirty = identityDirty || endpoint.trim() !== props.initial.config.endpoint.trim();
+  const dirty = metadataDirty || credentialsDirty;
+  const oauth2 = props.initial.config.auth.kind === "oauth2" ? props.initial.config.auth : null;
+  const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
+  const scopeRanks = new Map(scopeStack.map((scope, index) => [scope.id, index] as const));
+  const connectionBinding = oauth2
+    ? effectiveCredentialBindingForScope(
+        props.bindings,
+        oauth2.connectionSlot,
+        oauthCredentialTargetScope,
+        scopeRanks,
+      )
+    : null;
+  const boundConnectionId =
+    connectionBinding?.value.kind === "connection" ? connectionBinding.value.connectionId : null;
+  const isConnected =
+    boundConnectionId !== null &&
+    connections.some((connection) => connection.id === boundConnectionId);
+  const oauthRequestCredentials = serializeHttpCredentials(credentials);
 
-  const updateHeader = (index: number, field: "name" | "value", val: string) => {
-    setHeaderEntries((prev) =>
-      prev.map((entry, i) => (i === index ? { ...entry, [field]: val } : entry)),
-    );
-    setDirty(true);
-  };
-
-  const removeHeader = (index: number) => {
-    setHeaderEntries((prev) => prev.filter((_, i) => i !== index));
-    setDirty(true);
-  };
-
-  const addHeader = () => {
-    setHeaderEntries((prev) => [...prev, { name: "", value: "" }]);
-    setDirty(true);
+  const handleCredentialsChange = (next: HttpCredentialsState) => {
+    setCredentials(next);
+    setCredentialsDirty(true);
   };
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
-    try {
-      const headersObj: Record<string, string> = {};
-      for (const entry of headerEntries) {
-        const name = entry.name.trim();
-        if (name) headersObj[name] = entry.value;
-      }
-
-      await doUpdate({
-        path: { scopeId, namespace: props.sourceId },
-        payload: {
-          name: identity.name.trim() || undefined,
-          endpoint: endpoint.trim() || undefined,
-          headers: headersObj,
-        },
-      });
-      refreshSource();
-      setDirty(false);
-      props.onSave();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update source");
-    } finally {
-      setSaving(false);
+    const { headers, queryParams } = serializeScopedHttpCredentials(
+      credentials,
+      credentialTargetScope,
+    );
+    const payload: {
+      sourceScope: ScopeId;
+      name?: string;
+      endpoint?: string;
+      headers?: Record<string, McpCredentialInput>;
+      queryParams?: Record<string, McpCredentialInput>;
+      credentialTargetScope?: ScopeId;
+    } = {
+      sourceScope,
+      name: metadataDirty ? identity.name.trim() || undefined : undefined,
+      endpoint: metadataDirty ? endpoint.trim() || undefined : undefined,
+    };
+    if (credentialsDirty) {
+      payload.headers = headers;
+      payload.queryParams = queryParams as Record<string, McpCredentialInput>;
+      payload.credentialTargetScope = credentialTargetScope;
     }
+    const exit = await doUpdate({
+      params: { scopeId: displayScope, namespace: props.sourceId },
+      payload,
+      reactivityKeys: sourceWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      setError("Failed to update source");
+      setSaving(false);
+      return;
+    }
+    setCredentialsDirty(false);
+    setSaving(false);
+    props.onSave();
   };
 
   return (
@@ -119,56 +165,61 @@ function RemoteEditForm(props: {
         </Badge>
       </div>
 
-      <SourceIdentityFields identity={identity} namespaceReadOnly />
+      <McpRemoteSourceFields
+        url={endpoint}
+        onUrlChange={setEndpoint}
+        identity={identity}
+        preview={{
+          name: props.initial.name,
+          serverName: props.initial.name,
+          connected: true,
+          toolCount: null,
+        }}
+        namespaceReadOnly
+      />
 
-      {/* Endpoint */}
-      <CardStack>
-        <CardStackContent className="border-t-0">
-          <CardStackEntryField label="Endpoint">
-            <Input
-              value={endpoint}
-              onChange={(e) => {
-                setEndpoint((e.target as HTMLInputElement).value);
-                setDirty(true);
-              }}
-              placeholder="https://mcp.example.com"
-              className="font-mono text-sm"
-            />
-          </CardStackEntryField>
-        </CardStackContent>
-      </CardStack>
+      <HttpCredentialsEditor
+        credentials={credentials}
+        onChange={handleCredentialsChange}
+        existingSecrets={secretList}
+        sourceName={identity.name}
+        targetScope={credentialTargetScope}
+        credentialScopeOptions={credentialScopeOptions}
+        bindingScopeOptions={credentialScopeOptions}
+      />
 
-      {/* Headers */}
-      <section className="space-y-2.5">
-        <Label>Headers</Label>
-        {headerEntries.map((entry, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <Input
-              value={entry.name}
-              onChange={(e) => updateHeader(i, "name", (e.target as HTMLInputElement).value)}
-              placeholder="Header name"
-              className="h-8 text-sm font-mono flex-1"
-            />
-            <Input
-              value={entry.value}
-              onChange={(e) => updateHeader(i, "value", (e.target as HTMLInputElement).value)}
-              placeholder="Header value"
-              className="h-8 text-sm font-mono flex-1"
-            />
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground hover:text-destructive shrink-0"
-              onClick={() => removeHeader(i)}
-            >
-              Remove
-            </Button>
-          </div>
-        ))}
-        <Button variant="outline" size="sm" className="w-full border-dashed" onClick={addHeader}>
-          + Add header
-        </Button>
-      </section>
+      {oauth2 && (
+        <SourceOAuthConnectionControl
+          popupName="mcp-oauth"
+          pluginId="mcp"
+          namespace={slugifyNamespace(props.initial.namespace) || "mcp"}
+          fallbackNamespace="mcp"
+          endpoint={endpoint.trim()}
+          tokenScope={oauthCredentialTargetScope}
+          onTokenScopeChange={setOAuthCredentialTargetScope}
+          credentialScopeOptions={credentialScopeOptions}
+          connectionId={boundConnectionId}
+          sourceLabel={`${identity.name.trim() || props.initial.namespace || "MCP"} OAuth`}
+          headers={oauthRequestCredentials.headers}
+          queryParams={oauthRequestCredentials.queryParams}
+          isConnected={isConnected}
+          onConnected={async (connectionId) => {
+            await setBinding({
+              params: { scopeId: oauthCredentialTargetScope },
+              payload: McpSourceBindingInput.make({
+                sourceId: props.sourceId,
+                sourceScope,
+                scope: oauthCredentialTargetScope,
+                slot: oauth2.connectionSlot,
+                value: { kind: "connection", connectionId },
+              }),
+              reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
+            });
+          }}
+          reconnectingLabel="Reconnecting…"
+          signingInLabel="Signing in…"
+        />
+      )}
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
@@ -180,7 +231,7 @@ function RemoteEditForm(props: {
         <Button variant="ghost" onClick={props.onSave}>
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
+        <Button onClick={handleSave} disabled={!dirty || saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
@@ -239,9 +290,16 @@ export default function EditMcpSource({
   readonly onSave: () => void;
 }) {
   const scopeId = useScope();
-  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, sourceId));
+  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, sourceId)) as AsyncResult.AsyncResult<
+    McpStoredSourceSchemaType | null,
+    unknown
+  >;
+  const source =
+    AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
+  const sourceScope = source ? ScopeId.make(source.scope) : scopeId;
+  const bindingsResult = useAtomValue(mcpSourceBindingsAtom(scopeId, sourceId, sourceScope));
 
-  if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
+  if (!AsyncResult.isSuccess(sourceResult) || !source || !AsyncResult.isSuccess(bindingsResult)) {
     return (
       <div className="space-y-6">
         <div>
@@ -251,8 +309,6 @@ export default function EditMcpSource({
       </div>
     );
   }
-
-  const source = sourceResult.value;
 
   if (source.config.transport === "stdio") {
     return (
@@ -268,6 +324,7 @@ export default function EditMcpSource({
     <RemoteEditForm
       sourceId={sourceId}
       initial={source as McpStoredSourceSchemaType & { config: { transport: "remote" } }}
+      bindings={bindingsResult.value}
       onSave={onSave}
     />
   );

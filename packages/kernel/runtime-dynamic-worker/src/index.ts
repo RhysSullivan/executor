@@ -1,4 +1,4 @@
-export type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
+export type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor-js/codemode-core";
 
 export {
   makeDynamicWorkerExecutor,

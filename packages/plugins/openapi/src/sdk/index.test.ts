@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "@effect/platform";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Effect, Option, Schema } from "effect";
 
 import { parse } from "./parse";
@@ -10,28 +10,30 @@ import { compileToolDefinitions } from "./definitions";
 // Define a test API using Effect's HttpApi
 // ---------------------------------------------------------------------------
 
-class Pet extends Schema.Class<Pet>("Pet")({
+const Pet = Schema.Struct({
   id: Schema.Number,
   name: Schema.String,
   tag: Schema.optional(Schema.String),
-}) {}
+});
+type Pet = typeof Pet.Type;
 
-class CreatePetInput extends Schema.Class<CreatePetInput>("CreatePetInput")({
+const CreatePetInput = Schema.Struct({
   name: Schema.String,
   tag: Schema.optional(Schema.String),
-}) {}
+});
 
-class PetNotFound extends Schema.TaggedError<PetNotFound>()("PetNotFound", {
+class PetNotFound extends Schema.TaggedErrorClass<PetNotFound>()("PetNotFound", {
   message: Schema.String,
 }) {}
 
 const PetstoreGroup = HttpApiGroup.make("pets")
-  .add(HttpApiEndpoint.get("listPets", "/pets").addSuccess(Schema.Array(Pet)))
-  .add(HttpApiEndpoint.post("createPet", "/pets").setPayload(CreatePetInput).addSuccess(Pet))
+  .add(HttpApiEndpoint.get("listPets", "/pets", { success: Schema.Array(Pet) }))
+  .add(HttpApiEndpoint.post("createPet", "/pets", { payload: CreatePetInput, success: Pet }))
   .add(
-    HttpApiEndpoint.get("getPet", "/pets/:petId")
-      .addSuccess(Pet)
-      .addError(PetNotFound, { status: 404 }),
+    HttpApiEndpoint.get("getPet", "/pets/:petId", {
+      success: Pet,
+      error: PetNotFound,
+    }),
   );
 
 const PetstoreApi = HttpApi.make("petstore").add(PetstoreGroup);
@@ -194,9 +196,10 @@ describe("OpenAPI plugin", () => {
 
       const vars = Option.getOrThrow(server.variables);
       expect(vars.region!.default).toBe("us");
-      expect(
-        Option.getOrElse(vars.region!.enum, () => [] as readonly string[]),
-      ).toEqual(["us", "de"]);
+      expect(Option.getOrElse(vars.region!.enum, () => [] as readonly string[])).toEqual([
+        "us",
+        "de",
+      ]);
       expect(Option.getOrElse(vars.region!.description, () => "")).toBe(
         "The data-storage-location for an organization",
       );

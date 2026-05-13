@@ -1,6 +1,9 @@
-import React, { createContext, useContext } from "react";
-import { Atom } from "@effect-atom/atom";
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import React, { createContext, useContext, useEffect } from "react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import { usePostHog } from "posthog-js/react";
+import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 
 import { CloudApiClient } from "./client";
 
@@ -26,14 +29,25 @@ type AuthOrganization = {
 
 export const authAtom = CloudApiClient.query("cloudAuth", "me", {
   timeToLive: "5 minutes",
+  reactivityKeys: [ReactivityKey.auth],
 });
 
 export const organizationsAtom = Atom.refreshOnWindowFocus(
-  CloudApiClient.query("cloudAuth", "organizations", { timeToLive: "1 minute" }),
+  CloudApiClient.query("cloudAuth", "organizations", {
+    timeToLive: "1 minute",
+    reactivityKeys: [ReactivityKey.auth],
+  }),
 );
 
 export const switchOrganization = CloudApiClient.mutation("cloudAuth", "switchOrganization");
 export const createOrganization = CloudApiClient.mutation("cloudAuth", "createOrganization");
+
+export const pendingInvitationsAtom = CloudApiClient.query("cloudAuth", "pendingInvitations", {
+  timeToLive: "1 minute",
+  reactivityKeys: [ReactivityKey.auth],
+});
+
+export const acceptInvitation = CloudApiClient.mutation("cloudAuth", "acceptInvitation");
 
 // ---------------------------------------------------------------------------
 // Provider + hook
@@ -50,8 +64,9 @@ export const useAuth = () => useContext(AuthContext);
 
 const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
   const result = useAtomValue(authAtom);
+  const posthog = usePostHog();
 
-  const state: AuthState = Result.match(result, {
+  const state: AuthState = AsyncResult.match(result, {
     onInitial: () => ({ status: "loading" as const }),
     onSuccess: ({ value }) => ({
       status: "authenticated" as const,
@@ -60,6 +75,25 @@ const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
     }),
     onFailure: () => ({ status: "unauthenticated" as const }),
   });
+
+  const userId = state.status === "authenticated" ? state.user.id : null;
+  const email = state.status === "authenticated" ? state.user.email : null;
+  const name = state.status === "authenticated" ? state.user.name : null;
+  const orgId = state.status === "authenticated" ? (state.organization?.id ?? null) : null;
+  const orgName = state.status === "authenticated" ? (state.organization?.name ?? null) : null;
+  const isUnauthenticated = state.status === "unauthenticated";
+
+  useEffect(() => {
+    if (!posthog) return;
+    if (userId) {
+      posthog.identify(userId, { email, name });
+      if (orgId) {
+        posthog.group("organization", orgId, { name: orgName });
+      }
+    } else if (isUnauthenticated) {
+      posthog.reset();
+    }
+  }, [posthog, userId, email, name, orgId, orgName, isUnauthenticated]);
 
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
 };

@@ -1,86 +1,72 @@
-import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from "@effect/platform";
-import { Effect, Layer } from "effect";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpServer } from "effect/unstable/http";
+import { Layer } from "effect";
 
-import { CoreExecutorApi } from "@executor/api";
-import { CoreHandlers } from "@executor/api/server";
-import { OpenApiGroup, OpenApiHandlers } from "@executor/plugin-openapi/api";
-import { McpGroup, McpHandlers } from "@executor/plugin-mcp/api";
-import { GraphqlGroup, GraphqlHandlers } from "@executor/plugin-graphql/api";
-
-import { OrgAuth } from "../auth/middleware";
 import { OrgAuthLive, SessionAuthLive } from "../auth/middleware-live";
+import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
 import {
   CloudAuthPublicHandlers,
   CloudSessionAuthHandlers,
   NonProtectedApi,
 } from "../auth/handlers";
-import { WorkOSAuth } from "../auth/workos";
-import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
+import { TelemetryLive } from "../services/telemetry";
 import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
 
-const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
-  .add(McpGroup)
-  .add(GraphqlGroup)
-  .middleware(OrgAuth);
+import { CoreSharedServices } from "./core-shared-services";
+import { ProtectedCloudApi, RouterConfig } from "./protected-layers";
+import { requestScopedMiddleware } from "./request-scoped";
+
+export { CoreSharedServices, ProtectedCloudApi, RouterConfig };
 
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 
-export const SharedServices = Layer.mergeAll(
-  DbLive,
-  UserStoreLive,
-  WorkOSAuth.Default,
-  AutumnService.Default,
-  HttpServer.layerContext,
+// Per-request layer. Anything that opens an I/O object (postgres.js socket,
+// fetch stream readers, anything backed by a `Writable`) MUST live here —
+// `provideRequestScoped` rebuilds it per request so Cloudflare Workers'
+// I/O isolation is satisfied. See `api.request-scope.test.ts`.
+export const RequestScopedServicesLive = Layer.mergeAll(DbLive, UserStoreLive);
+
+// Boot-scoped layer. Built once at worker boot, reused across requests.
+// Safe for config, in-memory caches, the global tracer provider, and
+// stateless service shells.
+export const BootSharedServices = Layer.mergeAll(
+  CoreSharedServices,
+  HttpServer.layerServices,
+  TelemetryLive,
 );
 
-export const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
+// Routes that don't require an authenticated org session — login,
+// callbacks, etc. Mounts at the paths declared inside `NonProtectedApi`.
+//
+// `rsLive` is the per-request DB layer. It's passed in as a parameter so
+// tests can substitute a counting fake for `DbService.Live` and assert
+// per-request semantics. Handlers here yield `UserStoreService` directly;
+// without per-request scoping the postgres.js socket pins to the worker's
+// boot scope and Cloudflare Workers' I/O isolation kills the second
+// request.
+export const makeNonProtectedApiLive = (rsLive: Layer.Layer<DbService | UserStoreService>) =>
+  HttpApiBuilder.layer(NonProtectedApi).pipe(
+    Layer.provide(Layer.mergeAll(CloudAuthPublicHandlers, CloudSessionAuthHandlers)),
+    Layer.provideMerge(ApiKeyService.WorkOS),
+    Layer.provide(requestScopedMiddleware(rsLive).layer),
+    Layer.provideMerge(SessionAuthLive),
+  );
 
-export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      CoreHandlers,
-      OpenApiHandlers,
-      McpHandlers,
-      GraphqlHandlers,
-      OrgAuthLive,
-    ),
-  ),
-);
+// Routes scoped to a specific org (membership management, switching, etc.).
+// Auth is enforced by `OrgAuth` middleware declared on `OrgHttpApi`.
+export const makeOrgApiLive = (rsLive: Layer.Layer<DbService | UserStoreService>) =>
+  HttpApiBuilder.layer(OrgHttpApi).pipe(
+    Layer.provide(OrgHandlers),
+    Layer.provide(requestScopedMiddleware(rsLive).layer),
+    Layer.provideMerge(OrgAuthLive),
+  );
 
-const NonProtectedApiLive = HttpApiBuilder.api(NonProtectedApi).pipe(
-  Layer.provide(Layer.mergeAll(CloudAuthPublicHandlers, CloudSessionAuthHandlers)),
-  Layer.provideMerge(SessionAuthLive),
-);
-
-const OrgApiLive = HttpApiBuilder.api(OrgHttpApi).pipe(
-  Layer.provide(OrgHandlers),
-  Layer.provideMerge(OrgAuthLive),
-);
-
-const NonProtectedRequestLayer = NonProtectedApiLive.pipe(
-  Layer.provideMerge(RouterConfig),
-  Layer.provideMerge(HttpServer.layerContext),
-  Layer.provideMerge(HttpApiBuilder.Router.Live),
-  Layer.provideMerge(HttpApiBuilder.Middleware.layer),
-);
-
-const OrgRequestLayer = OrgApiLive.pipe(
-  Layer.provideMerge(RouterConfig),
-  Layer.provideMerge(HttpServer.layerContext),
-  Layer.provideMerge(HttpApiBuilder.Router.Live),
-  Layer.provideMerge(HttpApiBuilder.Middleware.layer),
-);
-
-export const NonProtectedApiApp = Effect.flatMap(
-  HttpApiBuilder.httpApp.pipe(Effect.provide(NonProtectedRequestLayer)),
-  HttpMiddleware.logger,
-).pipe(Effect.provide(SharedServices));
-
-export const OrgApiApp = Effect.flatMap(
-  HttpApiBuilder.httpApp.pipe(Effect.provide(OrgRequestLayer)),
-  HttpMiddleware.logger,
-).pipe(Effect.provide(SharedServices));
+// Default exports use the production per-request layer. Existing callers
+// that import `NonProtectedApiLive`/`OrgApiLive` continue to work; the
+// `make*` factories exist for tests that need to swap in a fake.
+export const NonProtectedApiLive = makeNonProtectedApiLive(RequestScopedServicesLive);
+export const OrgApiLive = makeOrgApiLive(RequestScopedServicesLive);

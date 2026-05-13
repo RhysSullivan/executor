@@ -1,6 +1,6 @@
 {
-  "name": "@executor/plugin-workos-vault",
-  "version": "0.0.1",
+  "name": "@executor-js/plugin-workos-vault",
+  "version": "0.0.2",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/workos-vault",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"
@@ -18,7 +18,9 @@
   "exports": {
     ".": "./src/sdk/index.ts",
     "./promise": "./src/promise.ts",
-    "./react": "./src/react/index.ts"
+    "./react": "./src/react/index.ts",
+    "./client": "./src/react/plugin-client.tsx",
+    "./testing": "./src/sdk/testing.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -34,6 +36,12 @@
           "types": "./dist/sdk/index.d.ts",
           "default": "./dist/core.js"
         }
+      },
+      "./testing": {
+        "import": {
+          "types": "./dist/sdk/testing.d.ts",
+          "default": "./dist/testing.js"
+        }
       }
     }
   },
@@ -45,11 +53,12 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@workos-inc/node": "^8.11.1",
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@executor-js/storage-core": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "react": "catalog:",
@@ -57,11 +66,11 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@executor/react": "workspace:*",
+    "@executor-js/react": "workspace:*",
     "react": ">=18"
   },
   "peerDependenciesMeta": {
-    "@executor/react": {
+    "@executor-js/react": {
       "optional": true
     },
     "react": {

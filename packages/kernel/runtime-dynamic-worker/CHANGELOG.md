@@ -1,1 +1,1 @@
-# @executor/runtime-dynamic-worker
+# @executor-js/runtime-dynamic-worker

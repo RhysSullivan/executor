@@ -1,32 +1,34 @@
 import { Schema } from "effect";
-import type { JsonSchema7Root } from "effect/JSONSchema";
+import type { JsonSchema } from "effect/JsonSchema";
 
-export class ToolRegistration extends Schema.Class<ToolRegistration>("ToolRegistration")({
+export const ToolRegistration = Schema.Struct({
   path: Schema.String,
   description: Schema.optional(Schema.String),
   sourceId: Schema.String,
   input: Schema.optional(Schema.String),
   output: Schema.optional(Schema.String),
   error: Schema.optional(Schema.String),
-}) {}
+});
+export type ToolRegistration = typeof ToolRegistration.Type;
 
-export class SerializedCatalog extends Schema.Class<SerializedCatalog>("SerializedCatalog")({
+export const SerializedCatalog = Schema.Struct({
   version: Schema.Literal("v4.1"),
-  types: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  types: Schema.Record(Schema.String, Schema.Unknown),
   tools: Schema.Array(ToolRegistration),
-}) {}
+});
+export type SerializedCatalog = typeof SerializedCatalog.Type;
 
 export interface LiveToolRegistration {
   readonly path: string;
   readonly description?: string;
   readonly sourceId: string;
-  readonly input?: Schema.Schema.AnyNoContext;
-  readonly output?: Schema.Schema.AnyNoContext;
-  readonly error?: Schema.Schema.AnyNoContext;
+  readonly input?: Schema.Top;
+  readonly output?: Schema.Top;
+  readonly error?: Schema.Top;
 }
 
 export interface LiveCatalog {
   readonly version: "v4.1";
-  readonly types: Record<string, JsonSchema7Root>;
+  readonly types: Record<string, JsonSchema>;
   readonly tools: readonly LiveToolRegistration[];
 }

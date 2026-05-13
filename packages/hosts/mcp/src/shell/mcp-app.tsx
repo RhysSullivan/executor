@@ -22,6 +22,10 @@ import { createToolsProxy, createRunFn } from "./proxy";
 import { useQuery, useMutation } from "./hooks";
 import * as Components from "./components";
 
+type EvaluatedComponent =
+  | { component: React.ComponentType; config: Record<string, unknown> }
+  | { error: string };
+
 // ---------------------------------------------------------------------------
 // Theme application from MCP Apps host context
 // ---------------------------------------------------------------------------
@@ -54,7 +58,7 @@ function evaluateComponent(
   compiled: string,
   tools: Record<string, unknown>,
   run: (code: string) => Promise<unknown>,
-): { component: React.ComponentType } | { error: string } {
+): EvaluatedComponent {
   // Build the scope object that the model's code can access
   const scope: Record<string, unknown> = {
     // React core
@@ -139,11 +143,7 @@ function ShellApp() {
       const renderCode = (code: string) => {
         try {
           const compiled = compileJsx(code);
-          const evalResult = evaluateComponent(
-            compiled,
-            toolsRef.current,
-            runRef.current,
-          );
+          const evalResult = evaluateComponent(compiled, toolsRef.current, runRef.current);
 
           if ("error" in evalResult) {
             setError(evalResult.error);
@@ -171,9 +171,7 @@ function ShellApp() {
       };
 
       app.ontoolresult = (result: CallToolResult) => {
-        const structured = result.structuredContent as
-          | Record<string, unknown>
-          | undefined;
+        const structured = result.structuredContent as Record<string, unknown> | undefined;
         const code = structured?.code;
 
         if (code && typeof code === "string") {
@@ -200,7 +198,7 @@ function ShellApp() {
                   </Components.Alert>
                 ) : (
                   <pre className="text-xs font-mono whitespace-pre-wrap overflow-auto max-h-[80vh]">
-                    {data ? JSON.stringify(data, null, 2) : text ?? "(no result)"}
+                    {data ? JSON.stringify(data, null, 2) : (text ?? "(no result)")}
                   </pre>
                 )}
               </Components.CardContent>
@@ -240,9 +238,7 @@ function ShellApp() {
   if (connectionError) {
     return (
       <div className="flex items-center justify-center h-full p-4">
-        <div className="text-destructive text-sm">
-          Connection error: {connectionError.message}
-        </div>
+        <div className="text-destructive text-sm">Connection error: {connectionError.message}</div>
       </div>
     );
   }
@@ -272,17 +268,13 @@ function ShellApp() {
   if (!component) {
     return (
       <div className="flex items-center justify-center h-full p-4">
-        <div className="text-muted-foreground text-sm">
-          Waiting for UI...
-        </div>
+        <div className="text-muted-foreground text-sm">Waiting for UI...</div>
       </div>
     );
   }
 
   const Component = component;
-  const maxHeight = typeof componentConfig.maxHeight === "number"
-    ? componentConfig.maxHeight
-    : 800;
+  const maxHeight = typeof componentConfig.maxHeight === "number" ? componentConfig.maxHeight : 800;
 
   return (
     <Components.TooltipProvider>
@@ -308,10 +300,7 @@ function ShellApp() {
 // Error boundary for catching runtime errors in model-generated components
 // ---------------------------------------------------------------------------
 
-class ErrorBoundary extends React.Component<
-  { children: ReactNode },
-  { error: Error | null }
-> {
+class ErrorBoundary extends React.Component<{ children: ReactNode }, { error: Error | null }> {
   constructor(props: { children: ReactNode }) {
     super(props);
     this.state = { error: null };
@@ -321,7 +310,7 @@ class ErrorBoundary extends React.Component<
     return { error };
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       return (
         <Components.Alert variant="destructive">
@@ -330,9 +319,7 @@ class ErrorBoundary extends React.Component<
           <Components.AlertDescription className="font-mono text-xs whitespace-pre-wrap">
             {this.state.error.message}
             {this.state.error.stack && (
-              <pre className="mt-2 text-xs opacity-60">
-                {this.state.error.stack}
-              </pre>
+              <pre className="mt-2 text-xs opacity-60">{this.state.error.stack}</pre>
             )}
           </Components.AlertDescription>
         </Components.Alert>

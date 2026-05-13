@@ -46,7 +46,7 @@ const config: KnipConfig = {
     },
     "packages/plugins/onepassword": {
       includeEntryExports: true,
-      ignoreDependencies: ["@executor/react"],
+      ignoreDependencies: ["@executor-js/react"],
     },
     "packages/plugins/graphql": {
       includeEntryExports: true,

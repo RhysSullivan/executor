@@ -1,32 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtomSet, useAtomValue, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
-import {
-  openOAuthPopup,
-  type OAuthPopupResult,
-} from "@executor/plugin-oauth2/react";
-
-import { secretsAtom, setSecret } from "@executor/react/api/atoms";
-import { useScope } from "@executor/react/api/scope-context";
-import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
-import { SecretId } from "@executor/sdk";
-import { Badge } from "@executor/react/components/badge";
-import { Button } from "@executor/react/components/button";
+import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { useScope, useUserScope } from "@executor-js/react/api/scope-context";
+import type { SecretPickerSecret } from "@executor-js/react/plugins/secret-picker";
+import { CreatableSecretPicker } from "@executor-js/react/plugins/secret-header-auth";
+import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
+import type { ScopeId } from "@executor-js/sdk";
+import { Badge } from "@executor-js/react/components/badge";
+import { Button } from "@executor-js/react/components/button";
 import {
   CardStack,
   CardStackContent,
   CardStackEntryField,
-} from "@executor/react/components/card-stack";
+} from "@executor-js/react/components/card-stack";
 import {
   SourceIdentityFields,
   slugifyNamespace,
   useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
+} from "@executor-js/react/plugins/source-identity";
+import {
+  oauthCallbackUrl,
+  oauthConnectionId,
+  useOAuthPopupFlow,
+} from "@executor-js/react/plugins/oauth-sign-in";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@executor/react/components/collapsible";
+} from "@executor-js/react/components/collapsible";
 import {
   Field,
   FieldContent,
@@ -36,109 +41,26 @@ import {
   FieldLegend,
   FieldSet,
   FieldTitle,
-} from "@executor/react/components/field";
-import { FilterTabs } from "@executor/react/components/filter-tabs";
-import { FloatActions } from "@executor/react/components/float-actions";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
-import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
-import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
-import { addGoogleDiscoverySource, probeGoogleDiscovery, startGoogleDiscoveryOAuth } from "./atoms";
+} from "@executor-js/react/components/field";
+import { FilterTabs } from "@executor-js/react/components/filter-tabs";
+import { FloatActions } from "@executor-js/react/components/float-actions";
+import { Input } from "@executor-js/react/components/input";
+import { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
+import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
+import { addGoogleDiscoverySourceOptimistic, probeGoogleDiscovery } from "./atoms";
+import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";
+import { googleDiscoveryPresets, type GoogleDiscoveryPreset } from "../sdk/presets";
+
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
+  Option.match(Option.flatMap(Exit.findErrorOption(exit), decodeErrorMessage), {
+    onNone: () => fallback,
+    onSome: ({ message }) => message,
+  });
 
 type GoogleAuthKind = "none" | "oauth2";
-
-// ---------------------------------------------------------------------------
-// Inline secret creation
-// ---------------------------------------------------------------------------
-
-function InlineCreateSecret(props: {
-  headerName: string;
-  suggestedId: string;
-  onCreated: (secretId: string) => void;
-  onCancel: () => void;
-}) {
-  const [secretId, setSecretIdValue] = useState(props.suggestedId);
-  const [secretName, setSecretName] = useState(props.headerName);
-  const [secretValue, setSecretValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const scopeId = useScope();
-  const doSet = useAtomSet(setSecret, { mode: "promise" });
-  const refreshSecrets = useAtomRefresh(secretsAtom(scopeId));
-
-  const handleSave = async () => {
-    if (!secretId.trim() || !secretValue.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await doSet({
-        path: { scopeId },
-        payload: {
-          id: SecretId.make(secretId.trim()),
-          name: secretName.trim() || secretId.trim(),
-          value: secretValue.trim(),
-          purpose: `Google OAuth: ${props.headerName}`,
-        },
-      });
-      refreshSecrets();
-      props.onCreated(secretId.trim());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save secret");
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-2.5">
-      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">ID</Label>
-          <Input
-            value={secretId}
-            onChange={(e) => setSecretIdValue((e.target as HTMLInputElement).value)}
-            placeholder="google-client-secret"
-            className="h-8 text-xs font-mono"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Label
-          </Label>
-          <Input
-            value={secretName}
-            onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
-            placeholder="Client Secret"
-            className="h-8 text-xs"
-          />
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
-        <Input
-          type="password"
-          value={secretValue}
-          onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
-          placeholder="paste your client secret…"
-          className="h-8 text-xs font-mono"
-        />
-      </div>
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
-      <div className="flex justify-end gap-1.5 pt-0.5">
-        <Button variant="outline" size="xs" onClick={props.onCancel}>
-          Cancel
-        </Button>
-        <Button
-          size="xs"
-          onClick={handleSave}
-          disabled={!secretId.trim() || !secretValue.trim() || saving}
-        >
-          {saving ? "Saving…" : "Create and use"}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Client secret field with inline creation
@@ -146,49 +68,35 @@ function InlineCreateSecret(props: {
 
 function SecretBackedField(props: {
   label: string;
+  help?: string;
   suggestedSecretId: string;
-  headerName: string;
   secretId: string | null;
   onSelect: (secretId: string | null) => void;
   secretList: readonly SecretPickerSecret[];
   placeholder: string;
+  targetScope: ScopeId;
   clearable?: boolean;
 }) {
-  const [creating, setCreating] = useState(false);
-  const { label, secretId, onSelect, secretList, placeholder, clearable = true } = props;
-
-  if (creating) {
-    return (
-      <div className="space-y-2">
-        <Label>{label}</Label>
-        <InlineCreateSecret
-          headerName={props.headerName}
-          suggestedId={props.suggestedSecretId}
-          onCreated={(id) => {
-            onSelect(id);
-            setCreating(false);
-          }}
-          onCancel={() => setCreating(false)}
-        />
-      </div>
-    );
-  }
+  const { label, help, secretId, onSelect, secretList, placeholder, clearable = true } = props;
 
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <div className="space-y-1">
+        <FieldLabel className="text-[11px]">{label}</FieldLabel>
+        {help && <p className="text-xs text-muted-foreground">{help}</p>}
+      </div>
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
-          <SecretPicker
+          <CreatableSecretPicker
             value={secretId}
-            onSelect={onSelect}
+            onSelect={(id) => onSelect(id)}
             secrets={secretList}
             placeholder={placeholder}
+            suggestedId={props.suggestedSecretId}
+            secretLabel={label}
+            targetScope={props.targetScope}
           />
         </div>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={() => setCreating(true)}>
-          + New
-        </Button>
         {clearable && secretId && (
           <Button variant="outline" onClick={() => onSelect(null)}>
             Clear
@@ -199,142 +107,46 @@ function SecretBackedField(props: {
   );
 }
 
-type GoogleDiscoveryTemplate = {
-  id: string;
-  name: string;
-  summary: string;
-  service: string;
-  version: string;
-  discoveryUrl: string;
+type GoogleDiscoveryTemplate = GoogleDiscoveryPreset & {
+  readonly discoveryUrl: string;
+  readonly service: string;
+  readonly version: string;
 };
 
-const defaultGoogleDiscoveryUrl = (service: string, version: string): string =>
-  `https://www.googleapis.com/discovery/v1/apis/${service}/${version}/rest`;
+const GOOGLE_G_ICON = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
 
-const googleDiscoveryTemplate = (template: GoogleDiscoveryTemplate): GoogleDiscoveryTemplate => ({
-  ...template,
-  discoveryUrl:
-    template.discoveryUrl || defaultGoogleDiscoveryUrl(template.service, template.version),
-});
+function parseGoogleDiscoveryPreset(preset: GoogleDiscoveryPreset): GoogleDiscoveryTemplate {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor normalizes user-provided preset URLs
+  try {
+    const url = new URL(preset.url);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const apisIndex = parts.indexOf("apis");
+    const service = apisIndex >= 0 ? parts[apisIndex + 1] : undefined;
+    const version =
+      apisIndex >= 0 ? parts[apisIndex + 2] : (url.searchParams.get("version") ?? undefined);
+    return {
+      ...preset,
+      discoveryUrl: preset.url,
+      service: service ?? url.hostname.replace(/\.googleapis\.com$/, ""),
+      version: version ?? "",
+    };
+  } catch {
+    return { ...preset, discoveryUrl: preset.url, service: preset.id, version: "" };
+  }
+}
 
-const GOOGLE_DISCOVERY_TEMPLATES: readonly GoogleDiscoveryTemplate[] = [
-  googleDiscoveryTemplate({
-    id: "google-calendar",
-    name: "Google Calendar",
-    summary: "Calendars, events, ACLs, and scheduling workflows.",
-    service: "calendar",
-    version: "v3",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-drive",
-    name: "Google Drive",
-    summary: "Files, folders, permissions, comments, and shared drives.",
-    service: "drive",
-    version: "v3",
-    discoveryUrl: defaultGoogleDiscoveryUrl("drive", "v3"),
-  }),
-  googleDiscoveryTemplate({
-    id: "google-gmail",
-    name: "Gmail",
-    summary: "Messages, threads, labels, drafts, and mailbox automation.",
-    service: "gmail",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-docs",
-    name: "Google Docs",
-    summary: "Documents, structural edits, text ranges, and formatting.",
-    service: "docs",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/docs/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-sheets",
-    name: "Google Sheets",
-    summary: "Spreadsheets, values, ranges, formatting, and batch updates.",
-    service: "sheets",
-    version: "v4",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-slides",
-    name: "Google Slides",
-    summary: "Presentations, slides, page elements, and deck updates.",
-    service: "slides",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/slides/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-forms",
-    name: "Google Forms",
-    summary: "Forms, questions, responses, quizzes, and form metadata.",
-    service: "forms",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/forms/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-people",
-    name: "Google People",
-    summary: "Contacts, profiles, directory people, and contact groups.",
-    service: "people",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/people/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-tasks",
-    name: "Google Tasks",
-    summary: "Task lists, task items, notes, and due dates.",
-    service: "tasks",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-chat",
-    name: "Google Chat",
-    summary: "Spaces, messages, members, reactions, and chat workflows.",
-    service: "chat",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/chat/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-bigquery",
-    name: "Google BigQuery",
-    summary: "Datasets, tables, jobs, routines, and analytics workflows.",
-    service: "bigquery",
-    version: "v2",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/bigquery/v2/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-youtube",
-    name: "YouTube Data",
-    summary: "Channels, playlists, videos, comments, captions, and uploads.",
-    service: "youtube",
-    version: "v3",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest",
-  }),
-];
+const GOOGLE_DISCOVERY_TEMPLATES = googleDiscoveryPresets.map(parseGoogleDiscoveryPreset);
 
-const GOOGLE_SERVICE_ICON_URLS: Record<string, string> = {
-  calendar: "https://fonts.gstatic.com/s/i/productlogos/calendar_2020q4/v8/192px.svg",
-  drive: "https://fonts.gstatic.com/s/i/productlogos/drive_2020q4/v8/192px.svg",
-  gmail:
-    "https://fonts.gstatic.com/s/i/productlogos/gmail_2020q4/v8/web-96dp/logo_gmail_2020q4_color_2x_web_96dp.png",
-  docs: "https://fonts.gstatic.com/s/i/productlogos/docs_2020q4/v12/192px.svg",
-  sheets: "https://fonts.gstatic.com/s/i/productlogos/sheets_2020q4/v8/192px.svg",
-  slides: "https://fonts.gstatic.com/s/i/productlogos/slides_2020q4/v12/192px.svg",
-  forms: "https://fonts.gstatic.com/s/i/productlogos/forms_2020q4/v6/192px.svg",
-  people: "https://fonts.gstatic.com/s/i/productlogos/contacts/v9/192px.svg",
-  tasks: "https://fonts.gstatic.com/s/i/productlogos/tasks/v10/192px.svg",
-  chat: "https://fonts.gstatic.com/s/i/productlogos/chat_2020q4/v8/192px.svg",
-  bigquery: "https://fonts.gstatic.com/s/i/productlogos/cloud/v8/192px.svg",
-  youtube: "https://fonts.gstatic.com/s/i/productlogos/youtube/v9/192px.svg",
-};
+const iconForService = (service: string): string | undefined =>
+  GOOGLE_DISCOVERY_TEMPLATES.find((template) => template.service === service)?.icon;
 
-function GoogleServiceIcon(props: { readonly service: string; readonly className?: string }) {
-  const { service, className = "size-11" } = props;
-  const src = GOOGLE_SERVICE_ICON_URLS[service] ?? GOOGLE_SERVICE_ICON_URLS.bigquery;
+function GoogleServiceIcon(props: {
+  readonly icon?: string;
+  readonly service?: string;
+  readonly className?: string;
+}) {
+  const { icon, service, className = "size-11" } = props;
+  const src = icon ?? (service ? iconForService(service) : undefined) ?? GOOGLE_G_ICON;
 
   return (
     <img
@@ -368,27 +180,20 @@ type ProbeResult = {
 
 type OAuthAuth = {
   kind: "oauth2";
+  connectionId: string;
   clientIdSecretId: string;
   clientSecretSecretId: string | null;
-  accessTokenSecretId: string;
-  refreshTokenSecretId: string | null;
-  tokenType: string;
-  expiresAt: number | null;
-  scope: string | null;
   scopes: string[];
 };
-
-type GoogleOAuthPopupResult = OAuthPopupResult<OAuthAuth>;
-
-const OAUTH_RESULT_CHANNEL = "executor:google-discovery-oauth-result";
-const OAUTH_POPUP_NAME = "google-discovery-oauth";
 
 export default function AddGoogleDiscoverySource(props: {
   readonly onComplete: () => void;
   readonly onCancel: () => void;
   readonly initialUrl?: string;
+  readonly initialPreset?: string;
 }) {
   const defaultTemplate =
+    GOOGLE_DISCOVERY_TEMPLATES.find((template) => template.id === props.initialPreset) ??
     GOOGLE_DISCOVERY_TEMPLATES.find((template) => template.id === "google-sheets") ??
     GOOGLE_DISCOVERY_TEMPLATES[0]!;
   const [discoveryUrl, setDiscoveryUrl] = useState(
@@ -408,28 +213,29 @@ export default function AddGoogleDiscoverySource(props: {
   });
   const [oauthAuth, setOauthAuth] = useState<OAuthAuth | null>(null);
   const [loadingProbe, setLoadingProbe] = useState(false);
-  const [startingOAuth, setStartingOAuth] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showScopes, setShowScopes] = useState(false);
+  const resolvedNamespace =
+    slugifyNamespace(identity.namespace) ||
+    slugifyNamespace(probe?.name ?? selectedTemplate?.name ?? "") ||
+    "google";
 
   const scopeId = useScope();
-  const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
-  const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startGoogleDiscoveryOAuth, { mode: "promise" });
-  const secrets = useAtomValue(secretsAtom(scopeId));
+  const userScopeId = useUserScope();
+  const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promiseExit" });
+  const doAdd = useAtomSet(addGoogleDiscoverySourceOptimistic(scopeId), {
+    mode: "promiseExit",
+  });
+  const secretList = useSecretPickerSecrets();
+  const oauth = useOAuthPopupFlow({
+    popupName: GOOGLE_DISCOVERY_OAUTH_POPUP_NAME,
+    popupBlockedMessage: "OAuth popup was blocked",
+    popupClosedMessage: "OAuth cancelled: popup was closed before completing the flow.",
+    startErrorMessage: "Failed to start OAuth",
+  });
 
   const canUseOAuth = useMemo(() => (probe?.scopes.length ?? 0) > 0, [probe]);
-  const secretList: readonly SecretPickerSecret[] = Result.match(secrets, {
-    onInitial: () => [] as SecretPickerSecret[],
-    onFailure: () => [] as SecretPickerSecret[],
-    onSuccess: ({ value }) =>
-      value.map((secret) => ({
-        id: secret.id,
-        name: secret.name,
-        provider: secret.provider ? String(secret.provider) : undefined,
-      })),
-  });
 
   const applyTemplate = useCallback(
     (template: GoogleDiscoveryTemplate) => {
@@ -451,25 +257,26 @@ export default function AddGoogleDiscoverySource(props: {
     setError(null);
     setOauthAuth(null);
     setShowScopes(false);
-    try {
-      const result = await doProbe({
-        path: { scopeId },
-        payload: { discoveryUrl: discoveryUrl.trim() },
-      });
-      setProbe({
-        ...result,
-        scopes: [...result.scopes],
-        operations: [...result.operations],
-      });
-      if (result.scopes.length === 0) {
-        setAuthKind("none");
-      }
-    } catch (e) {
+    const exit = await doProbe({
+      params: { scopeId },
+      payload: { discoveryUrl: discoveryUrl.trim() },
+    });
+    if (Exit.isFailure(exit)) {
       setProbe(null);
-      setError(e instanceof Error ? e.message : "Failed to inspect discovery document");
-    } finally {
       setLoadingProbe(false);
+      setError(errorMessageFromExit(exit, "Failed to inspect discovery document"));
+      return;
     }
+    const result = exit.value;
+    setProbe({
+      ...result,
+      scopes: [...result.scopes],
+      operations: [...result.operations],
+    });
+    if (result.scopes.length === 0) {
+      setAuthKind("none");
+    }
+    setLoadingProbe(false);
   }, [discoveryUrl, doProbe, scopeId]);
 
   // Keep the latest handleProbe in a ref so the debounced effect can call it
@@ -490,92 +297,96 @@ export default function AddGoogleDiscoverySource(props: {
     return () => clearTimeout(handle);
   }, [discoveryUrl, probe]);
 
-  const oauthCleanup = useRef<(() => void) | null>(null);
-
   const handleStartOAuth = useCallback(async () => {
     if (!probe || !clientIdSecretId) return;
-    oauthCleanup.current?.();
-    oauthCleanup.current = null;
-    setStartingOAuth(true);
     setError(null);
-    try {
-      const response = await doStartOAuth({
-        path: { scopeId },
-        payload: {
-          name: identity.name.trim() || probe.name,
-          discoveryUrl: discoveryUrl.trim(),
+    const scopes = [...probe.scopes];
+    await oauth.start({
+      payload: {
+        endpoint: discoveryUrl.trim(),
+        redirectUrl: oauthCallbackUrl(),
+        connectionId: oauthConnectionId({
+          pluginId: "google-discovery",
+          namespace: resolvedNamespace,
+        }),
+        tokenScope: userScopeId,
+        identityLabel: `${identity.name.trim() || probe.title || probe.name} OAuth`,
+        strategy: googleDiscoveryOAuthStrategy({
           clientIdSecretId,
           clientSecretSecretId,
-          redirectUrl: `${window.location.origin}/api/google-discovery/oauth/callback`,
-          scopes: probe.scopes,
-        },
-      });
-
-      oauthCleanup.current = openOAuthPopup<OAuthAuth>({
-        url: response.authorizationUrl,
-        popupName: OAUTH_POPUP_NAME,
-        channelName: OAUTH_RESULT_CHANNEL,
-        onResult: (result: GoogleOAuthPopupResult) => {
-          oauthCleanup.current = null;
-          setStartingOAuth(false);
-          if (result.ok) {
-            setOauthAuth({
-              kind: "oauth2",
-              clientIdSecretId: result.clientIdSecretId,
-              clientSecretSecretId: result.clientSecretSecretId,
-              accessTokenSecretId: result.accessTokenSecretId,
-              refreshTokenSecretId: result.refreshTokenSecretId,
-              tokenType: result.tokenType,
-              expiresAt: result.expiresAt,
-              scope: result.scope,
-              scopes: [...result.scopes],
-            });
-            setError(null);
-          } else {
-            setError(result.error);
-          }
-        },
-        onOpenFailed: () => {
-          oauthCleanup.current = null;
-          setStartingOAuth(false);
-          setError("OAuth popup was blocked");
-        },
-      });
-    } catch (e) {
-      setStartingOAuth(false);
-      setError(e instanceof Error ? e.message : "Failed to start OAuth");
-    }
-  }, [probe, doStartOAuth, scopeId, identity, discoveryUrl, clientIdSecretId, clientSecretSecretId]);
+          scopes,
+        }),
+        pluginId: "google-discovery",
+      },
+      onSuccess: (result) => {
+        setOauthAuth({
+          kind: "oauth2",
+          connectionId: result.connectionId,
+          clientIdSecretId,
+          clientSecretSecretId,
+          scopes,
+        });
+        setError(null);
+      },
+      onError: setError,
+    });
+  }, [
+    probe,
+    discoveryUrl,
+    identity.name,
+    clientIdSecretId,
+    clientSecretSecretId,
+    resolvedNamespace,
+    oauth,
+    userScopeId,
+  ]);
 
   const handleCancelOAuth = useCallback(() => {
-    oauthCleanup.current?.();
-    oauthCleanup.current = null;
-    setStartingOAuth(false);
-  }, []);
+    oauth.cancel();
+  }, [oauth]);
 
   const handleAdd = useCallback(async () => {
     if (!probe) return;
     setAdding(true);
     setError(null);
-    try {
-      await doAdd({
-        path: { scopeId },
-        payload: {
-          name: identity.name.trim() || probe.name,
-          discoveryUrl: discoveryUrl.trim(),
-          namespace: slugifyNamespace(identity.namespace) || undefined,
-          auth:
-            authKind === "oauth2"
-              ? (oauthAuth ?? { kind: "none" as const })
-              : { kind: "none" as const },
-        },
-      });
-      props.onComplete();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to add source");
+    const displayName = identity.name.trim() || probe.name;
+    const namespace = resolvedNamespace;
+    const exit = await doAdd({
+      params: { scopeId },
+      payload: {
+        name: displayName,
+        discoveryUrl: discoveryUrl.trim(),
+        namespace,
+        auth:
+          authKind === "oauth2" && oauthAuth
+            ? {
+                kind: "oauth2" as const,
+                connectionId: oauthAuth.connectionId,
+                clientIdSecretId: oauthAuth.clientIdSecretId,
+                clientSecretSecretId: oauthAuth.clientSecretSecretId,
+                scopes: oauthAuth.scopes,
+              }
+            : { kind: "none" as const },
+      },
+      reactivityKeys: [...sourceWriteKeys],
+    });
+    if (Exit.isFailure(exit)) {
+      setError(errorMessageFromExit(exit, "Failed to add source"));
       setAdding(false);
+      return;
     }
-  }, [probe, doAdd, identity, discoveryUrl, authKind, oauthAuth, props, scopeId]);
+    props.onComplete();
+  }, [
+    probe,
+    doAdd,
+    identity,
+    discoveryUrl,
+    authKind,
+    oauthAuth,
+    props,
+    scopeId,
+    resolvedNamespace,
+  ]);
 
   const addDisabled =
     !probe || adding || (authKind === "oauth2" && (!canUseOAuth || oauthAuth === null));
@@ -606,7 +417,11 @@ export default function AddGoogleDiscoverySource(props: {
               return (
                 <FieldLabel key={template.id} htmlFor={inputId}>
                   <Field orientation="horizontal">
-                    <GoogleServiceIcon service={template.service} className="size-8" />
+                    <GoogleServiceIcon
+                      icon={template.icon}
+                      service={template.service}
+                      className="size-8"
+                    />
                     <FieldContent>
                       <FieldTitle>{template.name}</FieldTitle>
                       <FieldDescription className="line-clamp-2">
@@ -645,7 +460,6 @@ export default function AddGoogleDiscoverySource(props: {
               )}
             </div>
           </CardStackEntryField>
-
         </CardStackContent>
       </CardStack>
 
@@ -661,6 +475,7 @@ export default function AddGoogleDiscoverySource(props: {
             <div className="flex items-center gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background/80 shadow-xs">
                 <GoogleServiceIcon
+                  icon={selectedTemplate?.icon}
                   service={selectedTemplate?.service ?? probe.service}
                   className="size-5"
                 />
@@ -696,23 +511,25 @@ export default function AddGoogleDiscoverySource(props: {
         {authKind === "oauth2" && (
           <div className="space-y-3 rounded-xl border border-border bg-card px-4 py-4">
             <SecretBackedField
-              label="OAuth Client ID"
-              headerName="Client ID"
+              label="Client ID secret"
+              help="Select or create the Google OAuth client ID secret."
               suggestedSecretId="google-oauth-client-id"
               secretId={clientIdSecretId}
               onSelect={setClientIdSecretId}
               secretList={secretList}
-              placeholder="Pick or create a secret"
+              placeholder="Select client ID secret"
+              targetScope={userScopeId}
               clearable={false}
             />
             <SecretBackedField
-              label="OAuth Client Secret"
-              headerName="Client Secret"
+              label="Client secret"
+              help="Optional for public clients with PKCE."
               suggestedSecretId="google-oauth-client-secret"
               secretId={clientSecretSecretId}
               onSelect={setClientSecretSecretId}
               secretList={secretList}
-              placeholder="Optional for confidential clients"
+              placeholder="Select client secret"
+              targetScope={userScopeId}
             />
             <Collapsible open={showScopes} onOpenChange={setShowScopes} className="space-y-2">
               <div className="flex items-start justify-between gap-3">
@@ -738,9 +555,9 @@ export default function AddGoogleDiscoverySource(props: {
                   <Button
                     variant="outline"
                     onClick={handleStartOAuth}
-                    disabled={!probe || !clientIdSecretId || !canUseOAuth || startingOAuth}
+                    disabled={!probe || !clientIdSecretId || !canUseOAuth || oauth.busy}
                   >
-                    {startingOAuth ? (
+                    {oauth.busy ? (
                       <>
                         <Spinner className="size-3.5" /> Waiting…
                       </>
@@ -750,7 +567,7 @@ export default function AddGoogleDiscoverySource(props: {
                       "Connect Google"
                     )}
                   </Button>
-                  {startingOAuth && (
+                  {oauth.busy && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -779,7 +596,7 @@ export default function AddGoogleDiscoverySource(props: {
             </Collapsible>
             {oauthAuth && (
               <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-                Connected. Access token stored as secret `{oauthAuth.accessTokenSecretId}`.
+                Connected. Manage this connection from the Connections page.
               </div>
             )}
           </div>

@@ -1,16 +1,16 @@
 import { Effect, Schema } from "effect";
-import { FileSystem } from "@effect/platform";
-import type { PlatformError } from "@effect/platform/Error";
+import { FileSystem } from "effect";
+import type { PlatformError } from "effect/PlatformError";
 import * as jsonc from "jsonc-parser";
 import { ExecutorFileConfig } from "./schema";
 
-export class ConfigParseError {
-  readonly _tag = "ConfigParseError";
-  constructor(
-    readonly path: string,
-    readonly message: string,
-  ) {}
-}
+export class ConfigParseError extends Schema.TaggedErrorClass<ConfigParseError>()(
+  "ConfigParseError",
+  {
+    path: Schema.String,
+    message: Schema.String,
+  },
+) {}
 
 /**
  * Load and validate an executor config file.
@@ -38,11 +38,17 @@ export const loadConfig = (
       const msg = errors
         .map((e) => `offset ${e.offset}: ${jsonc.printParseErrorCode(e.error)}`)
         .join("; ");
-      return yield* Effect.fail(new ConfigParseError(path, msg));
+      return yield* new ConfigParseError({ path, message: msg });
     }
 
-    const decoded = yield* Schema.decodeUnknown(ExecutorFileConfig)(parsed).pipe(
-      Effect.mapError((e) => new ConfigParseError(path, String(e))),
+    const decoded = yield* Schema.decodeUnknownEffect(ExecutorFileConfig)(parsed).pipe(
+      Effect.mapError(
+        (error) =>
+          new ConfigParseError({
+            path,
+            message: error.issue.toString(),
+          }),
+      ),
     );
 
     return decoded;

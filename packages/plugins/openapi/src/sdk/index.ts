@@ -1,15 +1,22 @@
-export { parse } from "./parse";
+export { parse, resolveSpecText, fetchSpecText } from "./parse";
 export { extract } from "./extract";
-export { invoke, makeOpenApiInvoker } from "./invoke";
-export { openApiPlugin, type OpenApiSpecConfig, type OpenApiPluginExtension } from "./plugin";
+export { invoke, invokeWithLayer, resolveHeaders, annotationsForOperation } from "./invoke";
 export {
-  type OpenApiOperationStore,
+  openApiPlugin,
+  type OpenApiSpecConfig,
+  type OpenApiPluginExtension,
+  type OpenApiPluginOptions,
+  type OpenApiUpdateSourceInput,
+} from "./plugin";
+export {
+  openapiSchema,
+  type OpenapiSchema,
+  type OpenapiStore,
   type StoredOperation,
   type StoredSource,
   type SourceConfig,
-} from "./operation-store";
-export { makeKvOperationStore, makeInMemoryOperationStore } from "./kv-operation-store";
-export { withConfigFile } from "./config-file-store";
+  makeDefaultOpenapiStore,
+} from "./store";
 export {
   previewSpec,
   SecurityScheme,
@@ -29,15 +36,23 @@ export {
   preferredContent,
 } from "./openapi-utils";
 
-export { OpenApiParseError, OpenApiExtractionError, OpenApiInvocationError } from "./errors";
+export {
+  OpenApiParseError,
+  OpenApiExtractionError,
+  OpenApiInvocationError,
+  OpenApiOAuthError,
+} from "./errors";
 
 export {
+  EncodingObject,
   ExtractedOperation,
   ExtractionResult,
-  InvocationConfig,
   InvocationResult,
-  OAuth2Auth,
-  OpenApiOAuthSession,
+  MediaBinding,
+  OAuth2SourceConfig,
+  OpenApiSourceBindingInput,
+  OpenApiSourceBindingRef,
+  OpenApiSourceBindingValue,
   OperationBinding,
   OperationParameter,
   OperationRequestBody,

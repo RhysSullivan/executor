@@ -191,14 +191,17 @@ function FieldError({
       return null;
     }
 
+    // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: FieldError receives typed UI validation messages, not thrown errors
     const uniqueErrors = [...new Map(errors.map((error) => [error?.message, error])).values()];
 
     if (uniqueErrors?.length == 1) {
+      // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: FieldError receives typed UI validation messages, not thrown errors
       return uniqueErrors[0]?.message;
     }
 
     return (
       <ul className="ml-4 flex list-disc flex-col gap-1">
+        {/* oxlint-disable-next-line executor/no-unknown-error-message -- boundary: FieldError receives typed UI validation messages, not thrown errors */}
         {uniqueErrors.map((error, index) => error?.message && <li key={index}>{error.message}</li>)}
       </ul>
     );

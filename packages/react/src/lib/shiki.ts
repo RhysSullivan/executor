@@ -194,7 +194,8 @@ export function ensureLang(lang: SupportedLang, onLoaded?: () => void): boolean 
 
 import type { CodeHighlighterPlugin, ThemeInput } from "streamdown";
 
-const tokensCache = new Map<string, unknown>();
+type HighlightResult = NonNullable<ReturnType<CodeHighlighterPlugin["highlight"]>>;
+const tokensCache = new Map<string, HighlightResult>();
 
 /**
  * Read the current system color-scheme preference synchronously. Used in
@@ -210,7 +211,7 @@ export function createCodeHighlighterPlugin(): CodeHighlighterPlugin {
   return {
     name: "shiki" as const,
     type: "code-highlighter" as const,
-    getSupportedLanguages: () => [...SUPPORTED_LANGS] as string[] as never,
+    getSupportedLanguages: () => [...SUPPORTED_LANGS],
     getThemes: () => [DEFAULT_LIGHT_THEME as ThemeInput, DEFAULT_DARK_THEME as ThemeInput],
     supportsLanguage: (language: string) => isSupportedLang(language),
     highlight(options, callback) {
@@ -220,7 +221,7 @@ export function createCodeHighlighterPlugin(): CodeHighlighterPlugin {
       const key = `${activeTheme}:${lang}:${options.code.length}:${options.code.slice(0, 128)}`;
 
       const cached = tokensCache.get(key);
-      if (cached) return cached as never;
+      if (cached) return cached;
 
       const isReady = ensureLang(lang, () => {
         // Language just loaded — highlight and notify via callback
@@ -229,7 +230,7 @@ export function createCodeHighlighterPlugin(): CodeHighlighterPlugin {
           themes: { light: activeTheme, dark: activeTheme },
         });
         tokensCache.set(key, result);
-        callback?.(result as never);
+        callback?.(result);
       });
 
       if (!isReady) return null;
@@ -239,7 +240,7 @@ export function createCodeHighlighterPlugin(): CodeHighlighterPlugin {
         themes: { light: activeTheme, dark: activeTheme },
       });
       tokensCache.set(key, result);
-      return result as never;
+      return result;
     },
   };
 }

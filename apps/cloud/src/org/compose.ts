@@ -1,4 +1,4 @@
-import { HttpApi } from "@effect/platform";
+import { HttpApi } from "effect/unstable/httpapi";
 import { OrgAuth } from "../auth/middleware";
 import { OrgApi } from "./api";
 

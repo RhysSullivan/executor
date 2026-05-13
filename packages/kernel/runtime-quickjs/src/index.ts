@@ -1,9 +1,10 @@
 import {
   recoverExecutionBody,
+  stripTypeScript,
   type CodeExecutor,
   type ExecuteResult,
   type SandboxToolInvoker,
-} from "@executor/codemode-core";
+} from "@executor-js/codemode-core";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import {
@@ -36,7 +37,11 @@ class QuickJsExecutionError extends Data.TaggedError("QuickJsExecutionError")<{
   readonly message: string;
 }> {}
 
+// Large OpenAPI specs can take longer to parse inside QuickJS, so keep the
+// default execution budget at five minutes unless a caller opts into less.
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_STACK_SIZE_BYTES = 1 * 1024 * 1024;
 const EXECUTION_FILENAME = "executor-quickjs-runtime.js";
 
 const toError = (cause: unknown): Error =>
@@ -44,16 +49,17 @@ const toError = (cause: unknown): Error =>
 
 const toErrorMessage = (cause: unknown): string => {
   if (typeof cause === "object" && cause !== null) {
-    const stack = "stack" in cause && typeof cause.stack === "string" ? cause.stack : undefined;
     const message =
       "message" in cause && typeof cause.message === "string" ? cause.message : undefined;
 
-    if (stack) {
-      return stack;
-    }
-
     if (message) {
       return message;
+    }
+
+    const stack = "stack" in cause && typeof cause.stack === "string" ? cause.stack : undefined;
+
+    if (stack) {
+      return stack;
     }
   }
 
@@ -86,7 +92,11 @@ const normalizeExecutionError = (cause: unknown, deadlineMs: number, timeoutMs: 
 };
 
 const buildExecutionSource = (code: string): string => {
-  const body = recoverExecutionBody(code);
+  // QuickJS evaluates plain JavaScript only; strip any TS type syntax
+  // first. A parse failure here throws a SyntaxError which the outer
+  // `Effect.tryPromise` maps to `QuickJsExecutionError` with the
+  // sucrase-formatted message intact.
+  const body = stripTypeScript(recoverExecutionBody(code));
 
   return [
     '"use strict";',
@@ -165,10 +175,13 @@ const createLogBridge = (context: QuickJSContext, logs: string[]): QuickJSHandle
     return context.undefined;
   });
 
+type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
+
 const createToolBridge = (
   context: QuickJSContext,
   toolInvoker: SandboxToolInvoker,
   pendingDeferreds: Set<QuickJSDeferredPromise>,
+  runPromise: RunPromise,
 ): QuickJSHandle =>
   context.newFunction("__executor_invokeTool", (pathHandle, argsHandle) => {
     const path = context.getString(pathHandle);
@@ -182,7 +195,7 @@ const createToolBridge = (
       pendingDeferreds.delete(deferred);
     });
 
-    void Effect.runPromise(toolInvoker.invoke({ path, args })).then(
+    void runPromise(toolInvoker.invoke({ path, args })).then(
       (value) => {
         if (!deferred.alive) {
           return;
@@ -278,6 +291,7 @@ const evaluateInQuickJs = async (
   options: QuickJsExecutorOptions,
   code: string,
   toolInvoker: SandboxToolInvoker,
+  runPromise: RunPromise,
 ): Promise<ExecuteResult> => {
   const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const deadlineMs = Date.now() + timeoutMs;
@@ -287,13 +301,8 @@ const evaluateInQuickJs = async (
   const runtime = QuickJS.newRuntime();
 
   try {
-    if (options.memoryLimitBytes !== undefined) {
-      runtime.setMemoryLimit(options.memoryLimitBytes);
-    }
-
-    if (options.maxStackSizeBytes !== undefined) {
-      runtime.setMaxStackSize(options.maxStackSizeBytes);
-    }
+    runtime.setMemoryLimit(options.memoryLimitBytes ?? DEFAULT_MEMORY_LIMIT_BYTES);
+    runtime.setMaxStackSize(options.maxStackSizeBytes ?? DEFAULT_MAX_STACK_SIZE_BYTES);
 
     runtime.setInterruptHandler(shouldInterruptAfterDeadline(deadlineMs));
 
@@ -303,7 +312,7 @@ const evaluateInQuickJs = async (
       context.setProp(context.global, "__executor_log", logBridge);
       logBridge.dispose();
 
-      const toolBridge = createToolBridge(context, toolInvoker, pendingDeferreds);
+      const toolBridge = createToolBridge(context, toolInvoker, pendingDeferreds, runPromise);
       context.setProp(context.global, "__executor_invokeTool", toolBridge);
       toolBridge.dispose();
 
@@ -387,12 +396,22 @@ const runInQuickJs = (
   code: string,
   toolInvoker: SandboxToolInvoker,
 ): Effect.Effect<ExecuteResult, QuickJsExecutionError> =>
-  Effect.tryPromise({
-    try: () => evaluateInQuickJs(options, code, toolInvoker),
-    catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),
-  });
+  Effect.gen(function* () {
+    const context = yield* Effect.context<never>();
+    const runPromise = Effect.runPromiseWith(context);
+    return yield* Effect.tryPromise({
+      try: () => evaluateInQuickJs(options, code, toolInvoker, runPromise),
+      catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),
+    });
+  }).pipe(
+    Effect.withSpan("executor.code.exec.quickjs", {
+      attributes: { "executor.runtime": "quickjs" },
+    }),
+  );
 
-export const makeQuickJsExecutor = (options: QuickJsExecutorOptions = {}): CodeExecutor => ({
+export const makeQuickJsExecutor = (
+  options: QuickJsExecutorOptions = {},
+): CodeExecutor<QuickJsExecutionError> => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     runInQuickJs(options, code, toolInvoker),
 });

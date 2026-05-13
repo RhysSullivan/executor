@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { buildExecutorModule } from "./module-template";
 
 describe("buildExecutorModule", () => {

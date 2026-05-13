@@ -1,17 +1,19 @@
 import { useState } from "react";
-import { useAtomSet, useAtomValue, useAtomRefresh } from "@effect-atom/atom-react";
-import { Result } from "@effect-atom/atom-react";
-import { useScope } from "@executor/react/api/scope-context";
-import { Button } from "@executor/react/components/button";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { Button } from "@executor-js/react/components/button";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@executor/react/components/select";
+} from "@executor-js/react/components/select";
 import {
   Dialog,
   DialogContent,
@@ -20,13 +22,13 @@ import {
   DialogDescription,
   DialogFooter,
   DialogClose,
-} from "@executor/react/components/dialog";
+} from "@executor-js/react/components/dialog";
 import {
   CardStackEntry,
   CardStackEntryActions,
   CardStackEntryContent,
   CardStackEntryDescription,
-} from "@executor/react/components/card-stack";
+} from "@executor-js/react/components/card-stack";
 
 import {
   onepasswordConfigAtom,
@@ -50,23 +52,26 @@ function VaultPicker(props: {
   const scopeId = useScope();
   const vaultsResult = useAtomValue(onepasswordVaultsAtom(props.authKind, account, scopeId));
 
-  const { vaults, isLoading, error } = Result.matchWithError(
-    vaultsResult as Result.Result<{ vaults: ReadonlyArray<{ id: string; name: string }> }, Error>,
+  const { vaults, isLoading, error } = AsyncResult.matchWithError(
+    vaultsResult as AsyncResult.AsyncResult<
+      { vaults: ReadonlyArray<{ id: string; name: string }> },
+      Error
+    >,
     {
       onInitial: () => ({
         vaults: [] as { id: string; name: string }[],
         isLoading: true,
         error: null,
       }),
-      onError: (error) => ({
+      onError: () => ({
         vaults: [] as { id: string; name: string }[],
         isLoading: false,
-        error: error.message,
+        error: "Failed to list vaults",
       }),
-      onDefect: (defect) => ({
+      onDefect: () => ({
         vaults: [] as { id: string; name: string }[],
         isLoading: false,
-        error: defect instanceof Error ? defect.message : "Failed to list vaults",
+        error: "Failed to list vaults",
       }),
       onSuccess: ({ value }) => {
         const v = value.vaults;
@@ -138,8 +143,7 @@ function ConfigDialog(props: {
   const [error, setError] = useState<string | null>(null);
 
   const scopeId = useScope();
-  const doConfigure = useAtomSet(configureOnePassword, { mode: "promise" });
-  const refreshConfig = useAtomRefresh(onepasswordConfigAtom(scopeId));
+  const doConfigure = useAtomSet(configureOnePassword, { mode: "promiseExit" });
 
   const reset = () => {
     if (!isEdit) {
@@ -156,23 +160,25 @@ function ConfigDialog(props: {
     if (!accountName.trim() || !vaultId.trim()) return;
     setSaving(true);
     setError(null);
-    try {
-      const auth =
-        authKind === "desktop-app"
-          ? { kind: "desktop-app" as const, accountName: accountName.trim() }
-          : { kind: "service-account" as const, tokenSecretId: accountName.trim() };
 
-      await doConfigure({
-        path: { scopeId },
-        payload: { auth, vaultId: vaultId.trim(), name: vaultName.trim() || "1Password" },
-      });
-      props.onOpenChange(false);
-      refreshConfig();
-      reset();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save configuration");
+    const auth =
+      authKind === "desktop-app"
+        ? { kind: "desktop-app" as const, accountName: accountName.trim() }
+        : { kind: "service-account" as const, tokenSecretId: accountName.trim() };
+
+    const exit = await doConfigure({
+      params: { scopeId },
+      payload: { auth, vaultId: vaultId.trim(), name: vaultName.trim() || "1Password" },
+      reactivityKeys: [ReactivityKey.secrets],
+    });
+    if (Exit.isFailure(exit)) {
+      setError("Failed to save configuration");
       setSaving(false);
+      return;
     }
+
+    props.onOpenChange(false);
+    reset();
   };
 
   return (
@@ -295,32 +301,32 @@ export default function OnePasswordSettings() {
   const [configOpen, setConfigOpen] = useState(false);
   const scopeId = useScope();
   const configResult = useAtomValue(onepasswordConfigAtom(scopeId));
-  const doRemove = useAtomSet(removeOnePasswordConfig, { mode: "promise" });
-  const refreshConfig = useAtomRefresh(onepasswordConfigAtom(scopeId));
+  const doRemove = useAtomSet(removeOnePasswordConfig, { mode: "promiseExit" });
 
   const handleRemove = async () => {
-    try {
-      await doRemove({ path: { scopeId } });
-      refreshConfig();
-    } catch {
-      /* TODO: toast */
-    }
+    await doRemove({ params: { scopeId }, reactivityKeys: [ReactivityKey.secrets] });
   };
 
-  const config: OnePasswordConfig | null = Result.match(
-    configResult as Result.Result<OnePasswordConfig | null, unknown>,
+  const config: OnePasswordConfig | null = AsyncResult.match(
+    configResult as AsyncResult.AsyncResult<OnePasswordConfig | null, unknown>,
     { onInitial: () => null, onFailure: () => null, onSuccess: ({ value }) => value },
   );
-  const isLoading = Result.match(configResult as Result.Result<OnePasswordConfig | null, unknown>, {
-    onInitial: () => true,
-    onFailure: () => false,
-    onSuccess: () => false,
-  });
-  const isError = Result.match(configResult as Result.Result<OnePasswordConfig | null, unknown>, {
-    onInitial: () => false,
-    onFailure: () => true,
-    onSuccess: () => false,
-  });
+  const isLoading = AsyncResult.match(
+    configResult as AsyncResult.AsyncResult<OnePasswordConfig | null, unknown>,
+    {
+      onInitial: () => true,
+      onFailure: () => false,
+      onSuccess: () => false,
+    },
+  );
+  const isError = AsyncResult.match(
+    configResult as AsyncResult.AsyncResult<OnePasswordConfig | null, unknown>,
+    {
+      onInitial: () => false,
+      onFailure: () => true,
+      onSuccess: () => false,
+    },
+  );
 
   return (
     <>

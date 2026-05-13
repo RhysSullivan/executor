@@ -219,7 +219,7 @@ export const compileToolDefinitions = (
   operations: readonly ExtractedOperation[],
 ): ToolDefinition[] => {
   const raw = operations.map((op, index) => {
-    const operationId = op.operationId as string;
+    const operationId = op.operationId;
     const group = normalizeGroupSegment(op.tags[0]) ?? derivePathGroup(op.pathTemplate);
     const leaf = deriveLeaf(operationId, op.method, op.pathTemplate, group);
     const versionSegment = deriveVersionSegment(op.pathTemplate);

@@ -1,79 +1,154 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import {
+  ConfiguredCredentialValue,
+  CredentialBindingValue,
+  credentialSlotKey,
+  ScopedSecretCredentialInput,
+  SecretBackedValue,
+  ScopeId,
+} from "@executor-js/sdk/core";
 
 // ---------------------------------------------------------------------------
 // GraphQL operation kind
 // ---------------------------------------------------------------------------
 
-export const GraphqlOperationKind = Schema.Literal("query", "mutation");
+export const GraphqlOperationKind = Schema.Literals(["query", "mutation"]);
 export type GraphqlOperationKind = typeof GraphqlOperationKind.Type;
 
 // ---------------------------------------------------------------------------
 // Extracted field (becomes a tool)
 // ---------------------------------------------------------------------------
 
-export class GraphqlArgument extends Schema.Class<GraphqlArgument>("GraphqlArgument")({
+export const GraphqlArgument = Schema.Struct({
   name: Schema.String,
   typeName: Schema.String,
   required: Schema.Boolean,
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
-}) {}
+  description: Schema.OptionFromOptional(Schema.String),
+});
+export type GraphqlArgument = typeof GraphqlArgument.Type;
 
-export class ExtractedField extends Schema.Class<ExtractedField>("ExtractedField")({
+export const ExtractedField = Schema.Struct({
   /** e.g. "user", "createUser" */
   fieldName: Schema.String,
   /** "query" or "mutation" */
   kind: GraphqlOperationKind,
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  description: Schema.OptionFromOptional(Schema.String),
   arguments: Schema.Array(GraphqlArgument),
   /** JSON Schema for the input (built from arguments) */
-  inputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  inputSchema: Schema.OptionFromOptional(Schema.Unknown),
   /** The return type name for documentation */
   returnTypeName: Schema.String,
-}) {}
+});
+export type ExtractedField = typeof ExtractedField.Type;
 
-export class ExtractionResult extends Schema.Class<ExtractionResult>("ExtractionResult")({
+export const ExtractionResult = Schema.Struct({
   /** Schema name from introspection */
-  schemaName: Schema.optionalWith(Schema.String, { as: "Option" }),
+  schemaName: Schema.OptionFromOptional(Schema.String),
   fields: Schema.Array(ExtractedField),
-}) {}
+});
+export type ExtractionResult = typeof ExtractionResult.Type;
 
 // ---------------------------------------------------------------------------
 // Operation binding — minimal data needed to invoke
 // ---------------------------------------------------------------------------
 
-export class OperationBinding extends Schema.Class<OperationBinding>("OperationBinding")({
+export const OperationBinding = Schema.Struct({
   kind: GraphqlOperationKind,
   fieldName: Schema.String,
   /** The full GraphQL query/mutation string */
   operationString: Schema.String,
   /** Ordered variable names for mapping */
   variableNames: Schema.Array(Schema.String),
-}) {}
+});
+export type OperationBinding = typeof OperationBinding.Type;
 
 // ---------------------------------------------------------------------------
 // Invocation
 // ---------------------------------------------------------------------------
 
-export const HeaderValue = Schema.Union(
-  Schema.String,
-  Schema.Struct({
-    secretId: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-);
+export const HeaderValue = SecretBackedValue;
 export type HeaderValue = typeof HeaderValue.Type;
+export const QueryParamValue = HeaderValue;
+export type QueryParamValue = typeof QueryParamValue.Type;
 
-export class InvocationConfig extends Schema.Class<InvocationConfig>("InvocationConfig")({
+export const ConfiguredGraphqlCredentialValue = ConfiguredCredentialValue;
+export type ConfiguredGraphqlCredentialValue = typeof ConfiguredGraphqlCredentialValue.Type;
+export const GraphqlCredentialInput = Schema.Union([
+  ScopedSecretCredentialInput,
+  HeaderValue,
+  ConfiguredGraphqlCredentialValue,
+]);
+export type GraphqlCredentialInput = typeof GraphqlCredentialInput.Type;
+
+export const graphqlHeaderSlot = (name: string): string => credentialSlotKey("header", name);
+export const graphqlQueryParamSlot = (name: string): string =>
+  credentialSlotKey("query_param", name);
+export const GRAPHQL_OAUTH_CONNECTION_SLOT = "auth:oauth2:connection";
+
+// ---------------------------------------------------------------------------
+// Source auth
+// ---------------------------------------------------------------------------
+
+export const GraphqlSourceAuth = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("oauth2"),
+    connectionSlot: Schema.String,
+  }),
+]);
+export type GraphqlSourceAuth = typeof GraphqlSourceAuth.Type;
+
+export const GraphqlSourceAuthInput = Schema.Union([
+  GraphqlSourceAuth,
+  Schema.Struct({
+    kind: Schema.Literal("oauth2"),
+    connectionId: Schema.String,
+  }),
+]);
+export type GraphqlSourceAuthInput = typeof GraphqlSourceAuthInput.Type;
+
+export const GraphqlSourceBindingValue = CredentialBindingValue;
+export type GraphqlSourceBindingValue = typeof GraphqlSourceBindingValue.Type;
+
+export const GraphqlSourceBindingInput = Schema.Struct({
+  sourceId: Schema.String,
+  sourceScope: ScopeId,
+  scope: ScopeId,
+  slot: Schema.String,
+  value: GraphqlSourceBindingValue,
+});
+export type GraphqlSourceBindingInput = typeof GraphqlSourceBindingInput.Type;
+
+export const GraphqlSourceBindingRef = Schema.Struct({
+  sourceId: Schema.String,
+  sourceScopeId: ScopeId,
+  scopeId: ScopeId,
+  slot: Schema.String,
+  value: GraphqlSourceBindingValue,
+  createdAt: Schema.Date,
+  updatedAt: Schema.Date,
+});
+export type GraphqlSourceBindingRef = typeof GraphqlSourceBindingRef.Type;
+
+export const InvocationConfig = Schema.Struct({
   /** The GraphQL endpoint URL */
   endpoint: Schema.String,
   /** Headers applied to every request. Values can reference secrets. */
-  headers: Schema.optionalWith(Schema.Record({ key: Schema.String, value: HeaderValue }), {
-    default: () => ({}),
-  }),
-}) {}
+  headers: Schema.Record(Schema.String, ConfiguredGraphqlCredentialValue).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+    Schema.withConstructorDefault(Effect.succeed({})),
+  ),
+  /** Query parameters applied to every request. Values can reference secrets. */
+  queryParams: Schema.Record(Schema.String, ConfiguredGraphqlCredentialValue).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+    Schema.withConstructorDefault(Effect.succeed({})),
+  ),
+});
+export type InvocationConfig = typeof InvocationConfig.Type;
 
-export class InvocationResult extends Schema.Class<InvocationResult>("InvocationResult")({
+export const InvocationResult = Schema.Struct({
   status: Schema.Number,
   data: Schema.NullOr(Schema.Unknown),
   errors: Schema.NullOr(Schema.Unknown),
-}) {}
+});
+export type InvocationResult = typeof InvocationResult.Type;

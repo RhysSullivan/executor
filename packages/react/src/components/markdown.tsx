@@ -1,6 +1,20 @@
-import { isValidElement, Children, type ReactNode } from "react";
-import { Streamdown } from "streamdown";
+import { isValidElement, Children, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { Streamdown, type Components } from "streamdown";
 import { CodeBlock } from "./code-block";
+
+const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
+export function sanitizeMarkdownUrl(url: string | undefined): string | null {
+  const trimmed = url?.trim();
+  if (!trimmed || trimmed.startsWith("//")) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    return SAFE_LINK_PROTOCOLS.has(parsed.protocol) ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
 
 function extractText(node: ReactNode): string {
   if (typeof node === "string") return node;
@@ -12,7 +26,9 @@ function extractText(node: ReactNode): string {
   return "";
 }
 
-function PreBlock(props: { children?: ReactNode; node?: unknown }) {
+function PreBlock(
+  props: ComponentPropsWithoutRef<"pre"> & { children?: ReactNode; node?: unknown },
+) {
   const child = Children.toArray(props.children)[0];
   if (
     isValidElement(child) &&
@@ -24,6 +40,22 @@ function PreBlock(props: { children?: ReactNode; node?: unknown }) {
     return <CodeBlock code={code} lang={lang} className="my-2" />;
   }
   return <pre>{props.children}</pre>;
+}
+
+function Link(props: ComponentPropsWithoutRef<"a"> & { children?: ReactNode; node?: unknown }) {
+  const { children, href, node: _node, ...rest } = props;
+  const safeHref = sanitizeMarkdownUrl(href);
+  if (!safeHref) return <span>{children}</span>;
+  return (
+    <a {...rest} href={safeHref} rel="noopener noreferrer" target="_blank">
+      {children}
+    </a>
+  );
+}
+
+function Image(props: ComponentPropsWithoutRef<"img"> & { node?: unknown }) {
+  const { alt } = props;
+  return alt ? <span>{alt}</span> : null;
 }
 
 const PROSE_CLASSES = [
@@ -60,9 +92,15 @@ const PROSE_CLASSES = [
 ].join(" ");
 
 export function Markdown(props: { children: string; className?: string }) {
+  const components = { a: Link, img: Image, pre: PreBlock } satisfies Components;
   return (
     <div className={props.className ? `${PROSE_CLASSES} ${props.className}` : PROSE_CLASSES}>
-      <Streamdown linkSafety={{ enabled: false }} components={{ pre: PreBlock as never }}>
+      <Streamdown
+        components={components}
+        linkSafety={{ enabled: true }}
+        skipHtml
+        urlTransform={(url) => sanitizeMarkdownUrl(url)}
+      >
         {props.children}
       </Streamdown>
     </div>

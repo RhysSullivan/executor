@@ -195,6 +195,11 @@ const syncGitHubRelease = async (input: {
     return;
   }
 
+  // Single rolling release-notes file. Historical release bodies live on
+  // GitHub Releases — we don't archive per-version copies in the repo.
+  const notesPath = resolve(cliRoot, "release-notes", "next.md");
+  const notesFile = existsSync(notesPath) ? notesPath : null;
+
   const args = [
     "release",
     "create",
@@ -204,7 +209,7 @@ const syncGitHubRelease = async (input: {
     repository,
     "--title",
     input.tag,
-    "--generate-notes",
+    ...(notesFile ? ["--notes-file", notesFile] : ["--generate-notes"]),
     "--verify-tag",
   ];
 

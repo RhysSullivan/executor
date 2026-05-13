@@ -24,7 +24,5 @@ export const resolveOrganization = (organizationId: string) =>
 
     const workos = yield* WorkOSAuth;
     const fresh = yield* workos.getOrganization(organizationId);
-    return yield* users.use((s) =>
-      s.upsertOrganization({ id: fresh.id, name: fresh.name }),
-    );
+    return yield* users.use((s) => s.upsertOrganization({ id: fresh.id, name: fresh.name }));
   });

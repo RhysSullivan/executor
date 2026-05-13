@@ -1,4 +1,15 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["**/routeTree.gen.ts"]
+  "ignorePatterns": [
+    ".astro",
+    ".reference",
+    ".turbo",
+    "dist",
+    "integrationsdotsh",
+    "node_modules",
+    "bun.lock",
+    "*.tsbuildinfo",
+    "executor-*.tgz",
+    "**/routeTree.gen.ts"
+  ]
 }

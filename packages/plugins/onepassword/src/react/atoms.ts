@@ -1,5 +1,8 @@
-import type { ScopeId } from "@executor/sdk";
+import type { ScopeId } from "@executor-js/sdk/core";
+import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { OnePasswordClient } from "./client";
+
+export const onepasswordWriteKeys = [ReactivityKey.secrets] as const;
 
 // ---------------------------------------------------------------------------
 // Query atoms
@@ -7,14 +10,16 @@ import { OnePasswordClient } from "./client";
 
 export const onepasswordConfigAtom = (scopeId: ScopeId) =>
   OnePasswordClient.query("onepassword", "getConfig", {
-    path: { scopeId },
+    params: { scopeId },
     timeToLive: "30 seconds",
+    reactivityKeys: [ReactivityKey.secrets],
   });
 
 export const onepasswordStatusAtom = (scopeId: ScopeId) =>
   OnePasswordClient.query("onepassword", "status", {
-    path: { scopeId },
+    params: { scopeId },
     timeToLive: "15 seconds",
+    reactivityKeys: [ReactivityKey.secrets],
   });
 
 // ---------------------------------------------------------------------------
@@ -27,9 +32,10 @@ export const onepasswordVaultsAtom = (
   scopeId: ScopeId,
 ) =>
   OnePasswordClient.query("onepassword", "listVaults", {
-    path: { scopeId },
-    urlParams: { authKind, account },
+    params: { scopeId },
+    query: { authKind, account },
     timeToLive: "30 seconds",
+    reactivityKeys: [ReactivityKey.secrets],
   });
 
 // ---------------------------------------------------------------------------

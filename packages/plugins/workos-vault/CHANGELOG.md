@@ -1,1 +1,1 @@
-# @executor/plugin-workos-vault
+# @executor-js/plugin-workos-vault

@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
-import type { SandboxToolInvoker } from "@executor/codemode-core";
+import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import { makeQuickJsExecutor } from "./index";
 
 class UnknownToolError extends Data.TaggedError("UnknownToolError")<{
@@ -17,7 +17,10 @@ const makeTestInvoker = (
     if (!handler) {
       return Effect.fail(new UnknownToolError({ path }));
     }
-    return Effect.try(() => handler(args));
+    return Effect.try({
+      try: () => handler(args),
+      catch: (error) => error,
+    });
   },
 });
 
@@ -154,6 +157,22 @@ describe("quickjs executor", () => {
       expect(result.result).toBe("done");
       expect(result.logs).toContainEqual("[log] hello from sandbox");
       expect(result.logs).toContainEqual("[warn] a warning");
+    }),
+  );
+
+  it.effect("applies a memory limit by default", () =>
+    Effect.gen(function* () {
+      const defaultExecutor = makeQuickJsExecutor({ timeoutMs: 5_000 });
+
+      const result = yield* defaultExecutor.execute(
+        `
+        return new ArrayBuffer(128 * 1024 * 1024).byteLength;
+        `,
+        makeTestInvoker({}),
+      );
+
+      expect(result.result).toBeNull();
+      expect(result.error).toBeDefined();
     }),
   );
 

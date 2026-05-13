@@ -1,9 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 
-import {
-  normalizeNamespaceInput,
-  slugifyNamespace,
-} from "../packages/react/src/plugins/namespace";
+import { normalizeNamespaceInput, slugifyNamespace } from "../packages/react/src/plugins/namespace";
 
 describe("source identity namespace helpers", () => {
   it("preserves underscores while the user is typing", () => {

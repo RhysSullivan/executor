@@ -1,6 +1,6 @@
 {
-  "name": "@executor/plugin-keychain",
-  "version": "0.0.1",
+  "name": "@executor-js/plugin-keychain",
+  "version": "1.4.24",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/keychain",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"
@@ -44,7 +44,7 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@napi-rs/keyring": "^1.2.0",
     "effect": "catalog:"
   },

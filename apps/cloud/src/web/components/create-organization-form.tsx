@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { useAtomSet } from "@effect-atom/atom-react";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
+import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
 
 import { createOrganization } from "../auth";
 
@@ -31,9 +33,9 @@ export function useCreateOrganizationForm(options: {
     }
     setCreating(true);
     setError(null);
-    const exit = await doCreate({ payload: { name: trimmed } });
+    const exit = await doCreate({ payload: { name: trimmed }, reactivityKeys: authWriteKeys });
     setCreating(false);
-    if (exit._tag === "Success") {
+    if (Exit.isSuccess(exit)) {
       options.onSuccess(exit.value);
     } else {
       setError("Failed to create organization.");

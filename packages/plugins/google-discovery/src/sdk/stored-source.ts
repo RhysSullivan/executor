@@ -7,12 +7,11 @@ import { GoogleDiscoveryStoredSourceData } from "./types";
 // via the getSource HTTP endpoint.
 // ---------------------------------------------------------------------------
 
-export class GoogleDiscoveryStoredSourceSchema extends Schema.Class<GoogleDiscoveryStoredSourceSchema>(
-  "GoogleDiscoveryStoredSource",
-)({
+export const GoogleDiscoveryStoredSourceSchema = Schema.Struct({
   namespace: Schema.String,
   name: Schema.String,
   config: GoogleDiscoveryStoredSourceData,
-}) {}
+}).annotate({ identifier: "GoogleDiscoveryStoredSource" });
+export type GoogleDiscoveryStoredSourceSchema = typeof GoogleDiscoveryStoredSourceSchema.Type;
 
 export type GoogleDiscoveryStoredSourceSchemaType = typeof GoogleDiscoveryStoredSourceSchema.Type;

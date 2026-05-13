@@ -1,1 +1,1 @@
-# @executor/react
+# @executor-js/react

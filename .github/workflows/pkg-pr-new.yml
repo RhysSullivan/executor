@@ -3,12 +3,32 @@ name: Publish (pkg.pr.new)
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  publish:
-    name: Publish
-    runs-on: ubuntu-latest
+  # Per-platform matrix: build the executor binary, tar it, upload to R2.
+  # The wrapper npm package is built later by the `publish` job which just
+  # needs to know which platforms made it this far.
+  build-preview-binary:
+    name: Build preview binary (${{ matrix.target }})
+    # Fork PRs don't receive repo secrets, so the R2 upload step can't
+    # authenticate. Skip the whole preview pipeline (publish `needs:` this
+    # job and cascades to skipped) rather than failing the check.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: executor-linux-x64
+          - runner: macos-14
+            target: executor-darwin-arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -16,6 +36,83 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: bun run build:packages
+      - name: Build executor preview tarball
+        env:
+          EXECUTOR_PREVIEW_CDN_URL: ${{ vars.EXECUTOR_PREVIEW_CDN_URL }}
+          EXECUTOR_PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun run --filter=executor build:preview:tarball
 
-      - run: npx pkg-pr-new publish --compact './packages/core/sdk' './packages/plugins/*'
+      - name: Upload preview binary to R2
+        # curl --aws-sigv4 handles large uploads directly against R2's S3
+        # endpoint. Simpler than aws-cli (endpoint validation quirks) or
+        # Bun.s3 (ConnectionRefused on ubuntu-latest for reasons unclear).
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          tarball="apps/cli/dist/previews/${TARGET}.tar.gz"
+          echo "Uploading ${TARGET}.tar.gz → r2://executor-previews/$SHA/"
+          curl --fail-with-body --silent --show-error \
+            -X PUT "$R2_ENDPOINT/executor-previews/$SHA/${TARGET}.tar.gz" \
+            --upload-file "$tarball" \
+            --aws-sigv4 "aws:amz:auto:s3" \
+            --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY"
+
+  publish:
+    name: Publish
+    needs: build-preview-binary
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build executor preview wrapper
+        env:
+          EXECUTOR_PREVIEW_CDN_URL: ${{ vars.EXECUTOR_PREVIEW_CDN_URL }}
+          EXECUTOR_PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXECUTOR_PREVIEW_TARGETS: executor-linux-x64,executor-darwin-arm64
+        run: bun run --filter=executor build:preview:wrapper
+
+      # Apply the same `publishConfig.exports` promotion and `workspace:*`
+      # resolution the real npm release does. Runs `build:packages`
+      # internally. Without this, pkg-pr-new ships unresolved
+      # `workspace:*` references and the dev-time `src/index.ts` exports.
+      - run: bun run release:publish:packages:prepare
+
+      # Explicit list (not `plugins/*`) — must match PUBLIC_PACKAGE_DIRS
+      # in scripts/publish-packages.ts. Globbing would pick up unprepared
+      # private packages that would publish with broken refs.
+      #
+      # No --compact: it requires every package already exist on npm to
+      # generate short URLs. New packages aren't published yet, and
+      # --compact aborts the whole run when it can't resolve them.
+      - run: >
+          npx pkg-pr-new publish --bun
+          './apps/cli/dist/executor'
+          './packages/core/storage-core'
+          './packages/core/sdk'
+          './packages/core/config'
+          './packages/core/execution'
+          './packages/core/cli'
+          './packages/kernel/core'
+          './packages/kernel/runtime-quickjs'
+          './packages/plugins/file-secrets'
+          './packages/plugins/google-discovery'
+          './packages/plugins/graphql'
+          './packages/plugins/keychain'
+          './packages/plugins/mcp'
+          './packages/plugins/onepassword'
+          './packages/plugins/openapi'

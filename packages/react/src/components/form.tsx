@@ -120,6 +120,7 @@ function FormDescription({ className, ...props }: React.ComponentProps<"p">) {
 
 function FormMessage({ className, ...props }: React.ComponentProps<"p">) {
   const { error, formMessageId } = useFormField();
+  // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: react-hook-form field errors carry public validation text
   const body = error ? String(error?.message ?? "") : props.children;
 
   if (!body) {

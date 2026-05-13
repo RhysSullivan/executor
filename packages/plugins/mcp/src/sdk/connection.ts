@@ -1,9 +1,17 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
 import { Effect } from "effect";
+
+// NOTE: `StdioClientTransport` is NOT imported eagerly. The upstream module
+// (`@modelcontextprotocol/sdk/client/stdio.js`) touches `node:child_process`
+// at evaluation time, which crashes workerd (incl. vitest-pool-workers) at
+// SIGSEGV on module instantiation. Cloud callers set
+// `dangerouslyAllowStdioMCP: false` and never reach the stdio branch below;
+// prod bundles that DO use stdio load it via a dynamic import inside the
+// stdio branch of `createMcpConnector`.
 
 import type { McpRemoteSourceData, McpStdioSourceData } from "./types";
 import { McpConnectionError } from "./errors";
@@ -23,8 +31,13 @@ export type McpConnector = Effect.Effect<McpConnection, McpConnectionError>;
 // Connector input — extends stored source data with resolved auth
 // ---------------------------------------------------------------------------
 
-export type RemoteConnectorInput = Omit<McpRemoteSourceData, "auth" | "remoteTransport"> & {
+export type RemoteConnectorInput = Omit<
+  McpRemoteSourceData,
+  "auth" | "remoteTransport" | "headers" | "queryParams"
+> & {
   readonly remoteTransport?: McpRemoteSourceData["remoteTransport"];
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
   readonly authProvider?: OAuthClientProvider;
 };
 
@@ -44,10 +57,19 @@ const buildEndpointUrl = (endpoint: string, queryParams: Record<string, string>)
   return url;
 };
 
+// Use the cfworker JSON Schema validator instead of the SDK's default
+// (Ajv). Ajv compiles schemas via `new Function(...)`, which throws
+// `Code generation from strings disallowed for this context` when the
+// MCP plugin runs inside a Cloudflare Worker (executor.sh). The
+// cfworker validator does not use code generation and works in every
+// runtime we ship to.
 const createClient = (): Client =>
   new Client(
     { name: "executor-mcp", version: "0.1.0" },
-    { capabilities: { elicitation: { form: {}, url: {} } } },
+    {
+      capabilities: { elicitation: { form: {}, url: {} } },
+      jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
+    },
   );
 
 const connectionFromClient = (client: Client): McpConnection => ({
@@ -65,14 +87,16 @@ const connectClient = (input: {
 
     yield* Effect.tryPromise({
       try: () => client.connect(transportInstance),
-      catch: (cause) =>
+      catch: () =>
         new McpConnectionError({
           transport: input.transport,
-          message: `Failed connecting via ${input.transport}: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
+          message: `Failed connecting via ${input.transport}`,
         }),
-    });
+    }).pipe(
+      Effect.withSpan("plugin.mcp.connection.handshake", {
+        attributes: { "plugin.mcp.transport": input.transport },
+      }),
+    );
 
     return connectionFromClient(client);
   });
@@ -85,21 +109,36 @@ export const createMcpConnector = (input: ConnectorInput): McpConnector => {
   if (input.transport === "stdio") {
     const command = input.command.trim();
     if (!command) {
-      return new McpConnectionError({
-        transport: "stdio",
-        message: "MCP stdio transport requires a command",
-      });
+      return Effect.fail(
+        new McpConnectionError({
+          transport: "stdio",
+          message: "MCP stdio transport requires a command",
+        }),
+      );
     }
 
-    return connectClient({
-      transport: "stdio",
-      createTransport: () =>
-        new StdioClientTransport({
-          command,
-          args: input.args ? [...input.args] : undefined,
-          env: input.env ? ({ ...process.env, ...input.env } as Record<string, string>) : undefined,
-          cwd: input.cwd?.trim().length ? input.cwd.trim() : undefined,
-        }),
+    return Effect.gen(function* () {
+      // Dynamic import so the underlying module (which evaluates
+      // `node:child_process`) is only loaded when stdio is actually used.
+      const { createStdioTransport } = yield* Effect.tryPromise({
+        try: () => import("./stdio-connector"),
+        catch: () =>
+          new McpConnectionError({
+            transport: "stdio",
+            message: "Failed to load stdio transport module",
+          }),
+      });
+
+      return yield* connectClient({
+        transport: "stdio",
+        createTransport: () =>
+          createStdioTransport({
+            command,
+            args: input.args,
+            env: input.env,
+            cwd: input.cwd?.trim().length ? input.cwd.trim() : undefined,
+          }),
+      });
     });
   }
 
@@ -132,5 +171,5 @@ export const createMcpConnector = (input: ConnectorInput): McpConnector => {
   if (remoteTransport === "sse") return connectSse;
 
   // auto — try streamable-http first, fall back to SSE
-  return connectStreamableHttp.pipe(Effect.catchAll(() => connectSse));
+  return connectStreamableHttp.pipe(Effect.catch(() => connectSse));
 };

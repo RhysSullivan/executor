@@ -1,6 +1,6 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import { InternalError, ScopeId } from "@executor-js/sdk/core";
 
 import { OnePasswordError } from "../sdk/errors";
 import { OnePasswordConfig, Vault, ConnectionStatus } from "../sdk/types";
@@ -9,7 +9,7 @@ import { OnePasswordConfig, Vault, ConnectionStatus } from "../sdk/types";
 // Params
 // ---------------------------------------------------------------------------
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
+const ScopeParams = { scopeId: ScopeId };
 
 // ---------------------------------------------------------------------------
 // Payloads
@@ -18,7 +18,7 @@ const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 const ConfigurePayload = OnePasswordConfig;
 
 const ListVaultsParams = Schema.Struct({
-  authKind: Schema.Literal("desktop-app", "service-account"),
+  authKind: Schema.Literals(["desktop-app", "service-account"]),
   account: Schema.String,
 });
 
@@ -33,40 +33,54 @@ const ListVaultsResponse = Schema.Struct({
 const GetConfigResponse = Schema.NullOr(OnePasswordConfig);
 
 // ---------------------------------------------------------------------------
-// Errors with HTTP status
-// ---------------------------------------------------------------------------
-
-const OpError = OnePasswordError.annotations(HttpApiSchema.annotations({ status: 502 }));
-
-// ---------------------------------------------------------------------------
 // Group
+//
+// Plugin SDK errors (OnePasswordError) are declared once at the group level
+// via `.addError(...)` — every endpoint inherits. The error carries its own
+// 502 status via `HttpApiSchema.annotations` in errors.ts.
+//
+// `InternalError` is the shared opaque 500 schema translated at the HTTP
+// edge by `withCapture` (see observability.ts). Storage failures on
+// `ctx.storage`/`ctx.secrets` flow through as `StorageFailure` in the
+// typed channel and are captured + downgraded to `InternalError({ traceId })`
+// at Layer composition. No per-handler translation.
 // ---------------------------------------------------------------------------
 
-export class OnePasswordGroup extends HttpApiGroup.make("onepassword")
+export const OnePasswordGroup = HttpApiGroup.make("onepassword")
   .add(
-    HttpApiEndpoint.get("getConfig")`/scopes/${scopeIdParam}/onepassword/config`.addSuccess(
-      GetConfigResponse,
-    ),
+    HttpApiEndpoint.get("getConfig", "/scopes/:scopeId/onepassword/config", {
+      params: ScopeParams,
+      success: GetConfigResponse,
+      error: [InternalError, OnePasswordError],
+    }),
   )
   .add(
-    HttpApiEndpoint.put("configure")`/scopes/${scopeIdParam}/onepassword/config`
-      .setPayload(ConfigurePayload)
-      .addSuccess(Schema.Void)
-      .addError(OpError),
+    HttpApiEndpoint.put("configure", "/scopes/:scopeId/onepassword/config", {
+      params: ScopeParams,
+      payload: ConfigurePayload,
+      success: Schema.Void,
+      error: [InternalError, OnePasswordError],
+    }),
   )
   .add(
-    HttpApiEndpoint.del("removeConfig")`/scopes/${scopeIdParam}/onepassword/config`.addSuccess(
-      Schema.Void,
-    ),
+    HttpApiEndpoint.delete("removeConfig", "/scopes/:scopeId/onepassword/config", {
+      params: ScopeParams,
+      success: Schema.Void,
+      error: [InternalError, OnePasswordError],
+    }),
   )
   .add(
-    HttpApiEndpoint.get("status")`/scopes/${scopeIdParam}/onepassword/status`
-      .addSuccess(ConnectionStatus)
-      .addError(OpError),
+    HttpApiEndpoint.get("status", "/scopes/:scopeId/onepassword/status", {
+      params: ScopeParams,
+      success: ConnectionStatus,
+      error: [InternalError, OnePasswordError],
+    }),
   )
   .add(
-    HttpApiEndpoint.get("listVaults")`/scopes/${scopeIdParam}/onepassword/vaults`
-      .setUrlParams(ListVaultsParams)
-      .addSuccess(ListVaultsResponse)
-      .addError(OpError),
-  ) {}
+    HttpApiEndpoint.get("listVaults", "/scopes/:scopeId/onepassword/vaults", {
+      params: ScopeParams,
+      query: ListVaultsParams,
+      success: ListVaultsResponse,
+      error: [InternalError, OnePasswordError],
+    }),
+  );

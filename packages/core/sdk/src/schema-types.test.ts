@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "@effect/vitest";
+import { Schema } from "effect";
 
 import {
   buildToolTypeScriptPreview,
@@ -7,15 +8,19 @@ import {
   schemaToTypeScriptPreviewWithDefs,
 } from "./schema-types";
 
-const stripeBalanceTransactionsFixture = JSON.parse(
+const StripeBalanceTransactionsFixture = Schema.Struct({
+  schema: Schema.Unknown,
+  defs: Schema.Record(Schema.String, Schema.Unknown),
+});
+
+const stripeBalanceTransactionsFixture = Schema.decodeUnknownSync(
+  Schema.fromJsonString(StripeBalanceTransactionsFixture),
+)(
   readFileSync(
     new URL("./__fixtures__/stripe-get-balance-transactions-id.json", import.meta.url),
     "utf8",
   ),
-) as {
-  schema: unknown;
-  defs: Record<string, unknown>;
-};
+);
 
 describe("schema-types", () => {
   it("reuses referenced definitions instead of inlining them", () => {

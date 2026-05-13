@@ -4,153 +4,165 @@ import {
   HttpApiClient,
   HttpApiEndpoint,
   HttpApiGroup,
-  HttpApp,
+} from "effect/unstable/httpapi";
+import {
+  FetchHttpClient,
   HttpClient,
+  HttpRouter,
   HttpServer,
   HttpServerResponse,
-} from "@effect/platform";
-import { NodeHttpServer } from "@effect/platform-node";
+} from "effect/unstable/http";
 import { expect, layer } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
-
-import {
-  ApiRequestHandler,
-  AutumnRequestHandlerService,
-  NonProtectedRequestHandlerService,
-  ProtectedRequestHandlerService,
-  OrgRequestHandlerService,
-} from "./api/router";
+import { Cause, Effect, Layer, Schema } from "effect";
+import { toErrorServerResponse } from "./api/error-response";
 
 const SourceResponse = Schema.Struct({ source: Schema.String });
 
+// ---------------------------------------------------------------------------
+// Test APIs — mirror the prod paths but with stub handlers.
+// ---------------------------------------------------------------------------
+
 const OrgGroup = HttpApiGroup.make("org").add(
-  HttpApiEndpoint.get("ping", "/org/ping").addSuccess(SourceResponse),
+  HttpApiEndpoint.get("ping", "/org/ping", { success: SourceResponse }),
 );
 const OrgTestApi = HttpApi.make("orgApi").add(OrgGroup);
+
+const AuthGroup = HttpApiGroup.make("auth").add(
+  HttpApiEndpoint.get("me", "/auth/me", { success: SourceResponse }),
+);
+const AuthTestApi = HttpApi.make("authApi").add(AuthGroup);
+
+const ProtectedGroup = HttpApiGroup.make("protected")
+  .add(HttpApiEndpoint.get("scope", "/scope", { success: SourceResponse }))
+  .add(
+    HttpApiEndpoint.get("sources", "/scopes/:scopeId/sources", {
+      params: { scopeId: Schema.String },
+      success: SourceResponse,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("resume", "/executions/:executionId/resume", {
+      params: { executionId: Schema.String },
+      success: SourceResponse,
+    }),
+  );
+const ProtectedTestApi = HttpApi.make("protectedApi").add(ProtectedGroup);
+
+// ---------------------------------------------------------------------------
+// Stub handlers
+// ---------------------------------------------------------------------------
+
 const OrgTestHandlers = HttpApiBuilder.group(OrgTestApi, "org", (handlers) =>
   handlers.handle("ping", () => Effect.succeed({ source: "org" })),
 );
 
-const AuthGroup = HttpApiGroup.make("auth").add(
-  HttpApiEndpoint.get("me", "/auth/me").addSuccess(SourceResponse),
-);
-const AuthApi = HttpApi.make("authApi").add(AuthGroup);
-const AuthHandlers = HttpApiBuilder.group(AuthApi, "auth", (handlers) =>
+const AuthHandlers = HttpApiBuilder.group(AuthTestApi, "auth", (handlers) =>
   handlers.handle("me", () => Effect.succeed({ source: "auth" })),
 );
 
-const ProtectedGroup = HttpApiGroup.make("protected")
-  .add(HttpApiEndpoint.get("scope", "/scope").addSuccess(SourceResponse))
-  .add(
-    HttpApiEndpoint.post("resume", "/executions/:executionId/resume")
-      .setPath(Schema.Struct({ executionId: Schema.String }))
-      .addSuccess(SourceResponse),
-  );
-const ProtectedApi = HttpApi.make("protectedApi").add(ProtectedGroup);
-const ProtectedHandlers = HttpApiBuilder.group(ProtectedApi, "protected", (handlers) =>
+const ProtectedHandlers = HttpApiBuilder.group(ProtectedTestApi, "protected", (handlers) =>
   handlers
     .handle("scope", () => Effect.succeed({ source: "protected" }))
+    .handle("sources", ({ params }) => Effect.succeed({ source: params.scopeId }))
     .handle("resume", () => Effect.succeed({ source: "protected" })),
 );
 
-const OrgTestApp = Effect.flatMap(
-  HttpApiBuilder.httpApp.pipe(
-    Effect.provide(
-      HttpApiBuilder.api(OrgTestApi).pipe(
-        Layer.provide(OrgTestHandlers),
-        Layer.provideMerge(HttpServer.layerContext),
-        Layer.provideMerge(HttpApiBuilder.Router.Live),
-        Layer.provideMerge(HttpApiBuilder.Middleware.layer),
-      ),
-    ),
-  ),
-  (app) => app,
-).pipe(Effect.provide(HttpServer.layerContext));
+// ---------------------------------------------------------------------------
+// Per-test mode switch — controls a router-level gate that mirrors the prod
+// `ExecutionStackMiddleware`'s short-circuit branches without standing up
+// the full WorkOS / executor stack.
+// ---------------------------------------------------------------------------
 
-const AuthTestApp = Effect.flatMap(
-  HttpApiBuilder.httpApp.pipe(
-    Effect.provide(
-      HttpApiBuilder.api(AuthApi).pipe(
-        Layer.provide(AuthHandlers),
-        Layer.provideMerge(HttpServer.layerContext),
-        Layer.provideMerge(HttpApiBuilder.Router.Live),
-        Layer.provideMerge(HttpApiBuilder.Middleware.layer),
-      ),
-    ),
-  ),
-  (app) => app,
-).pipe(Effect.provide(HttpServer.layerContext));
-
-const ProtectedBaseTestApp = Effect.flatMap(
-  HttpApiBuilder.httpApp.pipe(
-    Effect.provide(
-      HttpApiBuilder.api(ProtectedApi).pipe(
-        Layer.provide(ProtectedHandlers),
-        Layer.provideMerge(HttpServer.layerContext),
-        Layer.provideMerge(HttpApiBuilder.Router.Live),
-        Layer.provideMerge(HttpApiBuilder.Middleware.layer),
-      ),
-    ),
-  ),
-  (app) => app,
-).pipe(Effect.provide(HttpServer.layerContext));
-
-type ProtectedMode = "ok" | "none" | "error" | "bad-status";
-
-const testState: {
-  mode: ProtectedMode;
-} = {
-  mode: "ok",
-};
-
+type ProtectedMode = "ok" | "none" | "error" | "bad-status" | "defect";
+const testState: { mode: ProtectedMode } = { mode: "ok" };
 const resetState = () => {
   testState.mode = "ok";
 };
 
-const ProtectedTestApp = Effect.gen(function* () {
-  if (testState.mode === "none") {
-    return HttpServerResponse.unsafeJson(
-      { error: "No organization in session", code: "no_organization" },
-      { status: 403 },
-    );
-  }
-  if (testState.mode === "error") {
-    return HttpServerResponse.unsafeJson({ error: "boom" }, { status: 500 });
-  }
-  if (testState.mode === "bad-status") {
-    return HttpServerResponse.unsafeJson({ source: "protected" }, { status: 400 });
-  }
-  return yield* ProtectedBaseTestApp;
-});
-
-const TestRequestHandlersLive = Layer.mergeAll(
-  Layer.succeed(OrgRequestHandlerService, { app: OrgTestApp }),
-  Layer.succeed(NonProtectedRequestHandlerService, { app: AuthTestApp }),
-  Layer.succeed(AutumnRequestHandlerService, {
-    app: Effect.succeed(HttpServerResponse.unsafeJson({ source: "autumn" })),
+// `Effect.suspend` so `testState.mode` is read per request — the
+// middleware function itself runs once at addAll time, wrapping each
+// route's handler. Without `suspend`, only the build-time mode ("ok")
+// would be observed.
+const TestProtectedGate = HttpRouter.middleware()((httpEffect) =>
+  Effect.suspend(() => {
+    if (testState.mode === "none") {
+      return Effect.succeed(
+        HttpServerResponse.jsonUnsafe(
+          { error: "No organization in session", code: "no_organization" },
+          { status: 403 },
+        ),
+      );
+    }
+    if (testState.mode === "error") {
+      return Effect.succeed(HttpServerResponse.jsonUnsafe({ error: "boom" }, { status: 500 }));
+    }
+    if (testState.mode === "bad-status") {
+      return Effect.succeed(
+        HttpServerResponse.jsonUnsafe({ source: "protected" }, { status: 400 }),
+      );
+    }
+    if (testState.mode === "defect") {
+      return Effect.succeed(toErrorServerResponse(Cause.die("secret-bearing failure detail")));
+    }
+    return httpEffect;
   }),
-  Layer.succeed(ProtectedRequestHandlerService, { app: ProtectedTestApp }),
+).layer;
+
+// ---------------------------------------------------------------------------
+// Wire test APIs as route layers + autumn route, mirroring prod's structure.
+// ---------------------------------------------------------------------------
+
+const RouterConfig = Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 });
+
+const OrgTestLive = HttpApiBuilder.layer(OrgTestApi).pipe(Layer.provide(OrgTestHandlers));
+const AuthTestLive = HttpApiBuilder.layer(AuthTestApi).pipe(Layer.provide(AuthHandlers));
+const ProtectedTestLive = HttpApiBuilder.layer(ProtectedTestApi).pipe(
+  Layer.provide(ProtectedHandlers),
+  Layer.provide(TestProtectedGate),
 );
 
-const requestHandler = Effect.runSync(Effect.provide(ApiRequestHandler, TestRequestHandlersLive));
+const AutumnTestRoutesLive = HttpRouter.add(
+  "*",
+  "/autumn/*",
+  Effect.succeed(HttpServerResponse.jsonUnsafe({ source: "autumn" })),
+);
+
+const TestApiLive = Layer.mergeAll(
+  OrgTestLive,
+  AuthTestLive,
+  ProtectedTestLive,
+  AutumnTestRoutesLive,
+).pipe(Layer.provideMerge(RouterConfig), Layer.provideMerge(HttpServer.layerServices));
+
+const requestHandler = HttpRouter.toWebHandler(TestApiLive, { disableLogger: true }).handler;
+
+// ---------------------------------------------------------------------------
+// Client setup — route HttpClient calls through the web handler in-process
+// so the suite runs in any runtime (workerd's `NodeHttpServer.layerTest`
+// crashes the isolate).
+// ---------------------------------------------------------------------------
 
 const TestApi = HttpApi.make("testApi")
   .add(OrgGroup)
   .add(AuthGroup)
   .add(
     HttpApiGroup.make("autumn").add(
-      HttpApiEndpoint.get("plans", "/autumn/plans").addSuccess(SourceResponse),
+      HttpApiEndpoint.get("plans", "/autumn/plans", { success: SourceResponse }),
     ),
   )
   .add(ProtectedGroup);
 
-const TestServerLayer = HttpServer.serve(HttpApp.fromWebHandler(requestHandler)).pipe(
-  Layer.provideMerge(NodeHttpServer.layerTest),
+const TEST_BASE_URL = "http://test.local";
+const fetchViaHandler: typeof globalThis.fetch = (input, init) =>
+  requestHandler(input instanceof Request ? input : new Request(input, init));
+
+const TestClientLayer = FetchHttpClient.layer.pipe(
+  Layer.provide(Layer.succeed(FetchHttpClient.Fetch)(fetchViaHandler)),
 );
 
-const getClient = () => HttpApiClient.make(TestApi);
+const getClient = () => HttpApiClient.make(TestApi, { baseUrl: TEST_BASE_URL });
 
-layer(TestServerLayer)("handleApiRequest", (it) => {
+layer(TestClientLayer)("handleApiRequest", (it) => {
   it.effect("routes /org/* to the org API handler", () =>
     Effect.gen(function* () {
       resetState();
@@ -187,12 +199,12 @@ layer(TestServerLayer)("handleApiRequest", (it) => {
     }),
   );
 
-  it.effect("returns 403 when protected handler returns no organization", () =>
+  it.effect("returns 403 when protected gate short-circuits with no organization", () =>
     Effect.gen(function* () {
       resetState();
       testState.mode = "none";
 
-      const response = yield* HttpClient.get("/scope");
+      const response = yield* HttpClient.get(`${TEST_BASE_URL}/scope`);
       expect(response.status).toBe(403);
       const body = yield* response.json;
       expect(body).toEqual({
@@ -206,8 +218,17 @@ layer(TestServerLayer)("handleApiRequest", (it) => {
     Effect.gen(function* () {
       resetState();
       const client = yield* getClient();
-      const result = yield* client.protected.resume({ path: { executionId: "exec_1" } });
+      const result = yield* client.protected.resume({ params: { executionId: "exec_1" } });
       expect(result).toEqual({ source: "protected" });
+    }),
+  );
+
+  it.effect("preserves protected path params", () =>
+    Effect.gen(function* () {
+      resetState();
+      const client = yield* getClient();
+      const result = yield* client.protected.sources({ params: { scopeId: "org_1" } });
+      expect(result).toEqual({ source: "org_1" });
     }),
   );
 
@@ -216,20 +237,35 @@ layer(TestServerLayer)("handleApiRequest", (it) => {
       resetState();
       testState.mode = "bad-status";
 
-      const response = yield* HttpClient.post("/executions/exec_1/resume");
+      const response = yield* HttpClient.post(`${TEST_BASE_URL}/executions/exec_1/resume`);
       expect(response.status).toBe(400);
     }),
   );
 
-  it.effect("returns 500 JSON when protected request handling throws", () =>
+  it.effect("returns 500 JSON when protected gate returns 500", () =>
     Effect.gen(function* () {
       resetState();
       testState.mode = "error";
 
-      const response = yield* HttpClient.get("/scope");
+      const response = yield* HttpClient.get(`${TEST_BASE_URL}/scope`);
       expect(response.status).toBe(500);
       const body = yield* response.json;
       expect(body).toEqual({ error: "boom" });
+    }),
+  );
+
+  it.effect("maps protected defects to the generic API error body", () =>
+    Effect.gen(function* () {
+      resetState();
+      testState.mode = "defect";
+
+      const response = yield* HttpClient.get(`${TEST_BASE_URL}/scope`);
+      expect(response.status).toBe(500);
+      const body = yield* response.json;
+      expect(body).toEqual({
+        error: "Internal server error",
+        code: "internal_server_error",
+      });
     }),
   );
 });

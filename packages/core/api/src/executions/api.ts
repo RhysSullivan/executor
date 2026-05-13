@@ -1,5 +1,7 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
+
+import { InternalError } from "../observability";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -22,10 +24,10 @@ const PausedResult = Schema.Struct({
   structured: Schema.Unknown,
 });
 
-const ExecuteResponse = Schema.Union(CompletedResult, PausedResult);
+const ExecuteResponse = Schema.Union([CompletedResult, PausedResult]);
 
 const ResumeRequest = Schema.Struct({
-  action: Schema.Literal("accept", "decline", "cancel"),
+  action: Schema.Literals(["accept", "decline", "cancel"]),
   content: Schema.optional(Schema.Unknown),
 });
 
@@ -37,27 +39,31 @@ const ResumeResponse = Schema.Struct({
 
 const ExecutionNotFoundError = Schema.TaggedStruct("ExecutionNotFoundError", {
   executionId: Schema.String,
-}).annotations(HttpApiSchema.annotations({ status: 404 }));
+}).annotate({ httpApiStatus: 404 });
 
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
-const executionIdParam = HttpApiSchema.param("executionId", Schema.String);
+const ExecutionParams = { executionId: Schema.String };
 
 // ---------------------------------------------------------------------------
 // Group
 // ---------------------------------------------------------------------------
 
-export class ExecutionsApi extends HttpApiGroup.make("executions")
+export const ExecutionsApi = HttpApiGroup.make("executions")
   .add(
-    HttpApiEndpoint.post("execute")`/executions`
-      .setPayload(ExecuteRequest)
-      .addSuccess(ExecuteResponse),
+    HttpApiEndpoint.post("execute", "/executions", {
+      payload: ExecuteRequest,
+      success: ExecuteResponse,
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("resume")`/executions/${executionIdParam}/resume`
-      .setPayload(ResumeRequest)
-      .addSuccess(ResumeResponse)
-      .addError(ExecutionNotFoundError),
-  ) {}
+    HttpApiEndpoint.post("resume", "/executions/:executionId/resume", {
+      params: ExecutionParams,
+      payload: ResumeRequest,
+      success: ResumeResponse,
+      error: [InternalError, ExecutionNotFoundError],
+    }),
+  );

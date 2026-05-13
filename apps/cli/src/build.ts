@@ -65,37 +65,96 @@ const ALL_TARGETS: Target[] = [
 
 const platformName = (t: Target) => (t.os === "win32" ? "windows" : t.os);
 
-const targetPackageName = (t: Target) =>
-  ["executor", platformName(t), t.arch, t.abi].filter(Boolean).join("-");
+/** Per-platform suffix used in dist directory names, npm dist-tags, and the
+ *  semver prerelease segment of variant package versions. e.g. "linux-x64",
+ *  "linux-x64-musl", "darwin-arm64". */
+const platformTag = (t: Target) => [platformName(t), t.arch, t.abi].filter(Boolean).join("-");
 
-const bunTarget = (t: Target) => ["bun", platformName(t), t.arch, t.abi].filter(Boolean).join("-");
+/** Dist directory name (e.g. dist/executor-linux-x64). Only used as a build
+ *  artifact convention; the actual npm package name inside is `executor`. */
+const targetPackageName = (t: Target) => `executor-${platformTag(t)}`;
+
+const bunTargetKeys = [
+  "linux-x64",
+  "linux-arm64",
+  "linux-x64-musl",
+  "linux-arm64-musl",
+  "darwin-x64",
+  "darwin-arm64",
+  "win32-x64",
+  "win32-arm64",
+] as const;
+type BunTargetKey = (typeof bunTargetKeys)[number];
+
+const bunTargets = {
+  "linux-x64": "bun-linux-x64",
+  "linux-arm64": "bun-linux-arm64",
+  "linux-x64-musl": "bun-linux-x64-musl",
+  "linux-arm64-musl": "bun-linux-arm64-musl",
+  "darwin-x64": "bun-darwin-x64",
+  "darwin-arm64": "bun-darwin-arm64",
+  "win32-x64": "bun-windows-x64",
+  "win32-arm64": "bun-windows-arm64",
+} satisfies Record<BunTargetKey, Bun.Build.CompileTarget>;
+
+const isBunTargetKey = (key: string): key is BunTargetKey =>
+  bunTargetKeys.includes(key as BunTargetKey);
+
+const bunTarget = (t: Target): Bun.Build.CompileTarget => {
+  const key = [t.os, t.arch, t.abi].filter(Boolean).join("-");
+  if (!isBunTargetKey(key)) throw new Error(`Unsupported Bun compile target: ${key}`);
+  const target = bunTargets[key];
+  return target;
+};
 
 const binaryName = (t: Target) => (t.os === "win32" ? "executor.exe" : "executor");
 
 const isCurrentPlatform = (t: Target) =>
   t.os === process.platform && t.arch === process.arch && !t.abi;
 
-/** Resolve the platform-specific secure-exec-v8 binary for a given target. */
-const resolveSecureExecV8 = (t: Target): string | null => {
-  const platformMap: Record<string, string> = {
-    "darwin-arm64": "@secure-exec/v8-darwin-arm64",
-    "darwin-x64": "@secure-exec/v8-darwin-x64",
-    "linux-arm64": "@secure-exec/v8-linux-arm64-gnu",
-    "linux-x64": "@secure-exec/v8-linux-x64-gnu",
+/**
+ * Resolve the platform-specific @napi-rs/keyring native binding for a target.
+ *
+ * `bun build --compile` doesn't include `.node` modules in bunfs, so the
+ * keyring loader's dynamic `require('@napi-rs/keyring-<plat>-<arch>')` fails
+ * at runtime. We copy the `.node` file next to the executor and main.ts sets
+ * `NAPI_RS_NATIVE_LIBRARY_PATH` so the loader's env-var escape hatch picks it
+ * up instead of trying to walk node_modules.
+ */
+const resolveKeyringNative = (t: Target): string | null => {
+  const platformMap: Record<string, { pkg: string; node: string }> = {
+    "darwin-arm64": { pkg: "@napi-rs/keyring-darwin-arm64", node: "keyring.darwin-arm64.node" },
+    "darwin-x64": { pkg: "@napi-rs/keyring-darwin-x64", node: "keyring.darwin-x64.node" },
+    "linux-arm64": {
+      pkg: "@napi-rs/keyring-linux-arm64-gnu",
+      node: "keyring.linux-arm64-gnu.node",
+    },
+    "linux-x64": { pkg: "@napi-rs/keyring-linux-x64-gnu", node: "keyring.linux-x64-gnu.node" },
+    "linux-arm64-musl": {
+      pkg: "@napi-rs/keyring-linux-arm64-musl",
+      node: "keyring.linux-arm64-musl.node",
+    },
+    "linux-x64-musl": {
+      pkg: "@napi-rs/keyring-linux-x64-musl",
+      node: "keyring.linux-x64-musl.node",
+    },
+    "win32-arm64": {
+      pkg: "@napi-rs/keyring-win32-arm64-msvc",
+      node: "keyring.win32-arm64-msvc.node",
+    },
+    "win32-x64": { pkg: "@napi-rs/keyring-win32-x64-msvc", node: "keyring.win32-x64-msvc.node" },
   };
-  const key = `${t.os}-${t.arch}`;
-  const pkg = platformMap[key];
-  if (!pkg) return null;
+  const key = [t.os, t.arch, t.abi].filter(Boolean).join("-");
+  const entry = platformMap[key];
+  if (!entry) return null;
   try {
-    // Resolve from @secure-exec/v8 which has these as optional deps
-    const req = createRequire(join(repoRoot, "node_modules", "secure-exec", "package.json"));
-    const pkgJson = req.resolve(`${pkg}/package.json`);
-    return join(dirname(pkgJson), "secure-exec-v8");
+    const req = createRequire(join(repoRoot, "node_modules", "@napi-rs/keyring", "package.json"));
+    const pkgJson = req.resolve(`${entry.pkg}/package.json`);
+    return join(dirname(pkgJson), entry.node);
   } catch {
-    // Try bun's flat node_modules layout
     const bunPath = join(
       repoRoot,
-      `node_modules/.bun/${pkg.replace("/", "+")}@0.2.1/node_modules/${pkg}/secure-exec-v8`,
+      `node_modules/.bun/${entry.pkg.replace("/", "+")}@1.2.0/node_modules/${entry.pkg}/${entry.node}`,
     );
     if (existsSync(bunPath)) return bunPath;
     return null;
@@ -154,99 +213,31 @@ const createEmbeddedWebUISource = async (mode: BuildMode) => {
 };
 
 // ---------------------------------------------------------------------------
-// Bun.build plugin for @secure-exec bundling issues
+// Embedded drizzle migrations — inlined as text imports so drizzle's
+// `migrate()` (which reads a folder from disk) can be given a tmpdir
+// populated from the inlined contents at runtime.
 // ---------------------------------------------------------------------------
 
-/**
- * Plugin that fixes two issues with @secure-exec in compiled binaries:
- *
- * 1. node-stdlib-browser / web-streams-polyfill eagerly call require.resolve()
- *    at import time, which fails in bunfs. We stub these out since our code
- *    never uses the polyfill functions.
- *
- * 2. bridge-loader.js reads bridge.js from disk via fs.readFileSync using
- *    __dirname. In a compiled binary __dirname points into bunfs where the
- *    file doesn't exist. We replace bridge-loader with a version that embeds
- *    bridge.js content directly.
- */
-const secureExecBundlePlugin = async (): Promise<import("bun").BunPlugin> => {
-  // Read files at build time so we can inline them into the compiled binary.
-  // bridge.js is loaded via fs.readFileSync at runtime, which fails in bunfs.
-  // bridgeAttach comes from @secure-exec/core's generated isolate-runtime.
-  const secureExecNodejs = join(
-    repoRoot,
-    "node_modules/.bun/@secure-exec+nodejs@0.2.1/node_modules/@secure-exec/nodejs",
-  );
-  const secureExecCore = join(
-    repoRoot,
-    "node_modules/.bun/@secure-exec+core@0.2.1/node_modules/@secure-exec/core",
-  );
-  const bridgeCode = await Bun.file(join(secureExecNodejs, "dist/bridge.js")).text();
-  const isolateRuntime = await import(join(secureExecCore, "dist/generated/isolate-runtime.js"));
-  const bridgeAttachCode = isolateRuntime.ISOLATE_RUNTIME_SOURCES.bridgeAttach;
-  const polyfillCodeMap = (await import(join(secureExecCore, "dist/generated/polyfills.js")))
-    .POLYFILL_CODE_MAP as Record<string, string>;
+const createEmbeddedMigrationsSource = async () => {
+  const migrationsDir = resolve(webRoot, "drizzle");
+  const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: migrationsDir })))
+    .map((f) => f.replaceAll("\\", "/"))
+    .sort();
 
-  return {
-    name: "secure-exec-bundle-fixes",
-    setup(build) {
-      // Stub polyfill modules that fail at import time in compiled binaries
-      const stubTargets = /node-stdlib-browser|web-streams-polyfill/;
-      build.onResolve({ filter: stubTargets }, (args) => ({
-        path: args.path,
-        namespace: "stub",
-      }));
-      // Replace @secure-exec/nodejs polyfills (which use node-stdlib-browser + esbuild
-      // at runtime) with a shim that serves from pre-bundled POLYFILL_CODE_MAP.
-      build.onResolve({ filter: /polyfills/ }, (args) => {
-        if (
-          args.importer.includes("@secure-exec/nodejs") ||
-          args.importer.includes("@secure-exec+nodejs")
-        ) {
-          return { path: args.path, namespace: "polyfills-shim" };
-        }
-      });
-      build.onLoad({ filter: /.*/, namespace: "polyfills-shim" }, () => ({
-        contents: `
-const POLYFILL_CODE_MAP = ${JSON.stringify(polyfillCodeMap)};
-const polyfillCache = new Map();
-export default {};
-export async function bundlePolyfill(moduleName) {
-  const cached = polyfillCache.get(moduleName);
-  if (cached) return cached;
-  const code = POLYFILL_CODE_MAP[moduleName];
-  if (!code) throw new Error("No polyfill available for module: " + moduleName);
-  polyfillCache.set(moduleName, code);
-  return code;
-}
-export function getAvailableStdlib() { return Object.keys(POLYFILL_CODE_MAP); }
-export function hasPolyfill(name) { return name.replace(/^node:/, "") in POLYFILL_CODE_MAP; }
-export async function prebundleAllPolyfills() { return { ...POLYFILL_CODE_MAP }; }
-        `,
-        loader: "js",
-      }));
-      build.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
-        contents: "export default {};",
-        loader: "js",
-      }));
+  const imports = files.map((file, i) => {
+    const spec = join(migrationsDir, file).replaceAll("\\", "/");
+    return `import file_${i} from ${JSON.stringify(spec)} with { type: "text" };`;
+  });
 
-      // Replace bridge-loader with pre-read content
-      build.onResolve({ filter: /bridge-loader/ }, (args) => {
-        if (args.importer.includes("secure-exec")) {
-          return { path: args.path, namespace: "bridge" };
-        }
-      });
-      build.onLoad({ filter: /.*/, namespace: "bridge" }, () => ({
-        contents: `
-const bridgeCode = ${JSON.stringify(bridgeCode)};
-const bridgeAttachCode = ${JSON.stringify(bridgeAttachCode)};
-export function getRawBridgeCode() { return bridgeCode; }
-export function getBridgeAttachCode() { return bridgeAttachCode; }
-        `,
-        loader: "js",
-      }));
-    },
-  };
+  const entries = files.map((file, i) => `  ${JSON.stringify(file)}: file_${i},`);
+
+  return [
+    "// Auto-generated — maps migration paths to inlined file contents",
+    ...imports,
+    "export default {",
+    ...entries,
+    "} as Record<string, string>;",
+  ].join("\n");
 };
 
 // ---------------------------------------------------------------------------
@@ -254,17 +245,40 @@ export function getBridgeAttachCode() { return bridgeAttachCode; }
 // ---------------------------------------------------------------------------
 
 const EMBEDDED_WEB_UI_STUB = `const files: Record<string, string> | null = null;\n\nexport default files;\n`;
+const EMBEDDED_MIGRATIONS_STUB = `const migrations: Record<string, string> | null = null;\n\nexport default migrations;\n`;
 
 const buildBinaries = async (targets: Target[], mode: BuildMode) => {
   const meta = await readMetadata();
   const binaries: Record<string, string> = {};
   const embeddedWebUIPath = join(cliRoot, "src/embedded-web-ui.gen.ts");
+  const embeddedMigrationsPath = join(webRoot, "src/server/embedded-migrations.gen.ts");
 
   await rm(distDir, { recursive: true, force: true });
+
+  // Cross-platform builds need every target's optional native packages
+  // (e.g. @napi-rs/keyring-darwin-arm64) so we can copy the right .node next
+  // to each target's executor. `bun install --frozen-lockfile --cpu=* --os=*`
+  // extracts them all without modifying the lockfile.
+  const needsCrossPlatform = targets.some((t) => !isCurrentPlatform(t));
+  if (needsCrossPlatform) {
+    console.log("Installing optional native deps for all platforms...");
+    const proc = Bun.spawn(["bun", "install", "--frozen-lockfile", "--cpu=*", "--os=*"], {
+      cwd: repoRoot,
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    if ((await proc.exited) !== 0) {
+      throw new Error("bun install --cpu=* --os=* failed");
+    }
+  }
 
   console.log(`Generating embedded web UI bundle (${mode})...`);
   const embeddedWebUI = await createEmbeddedWebUISource(mode);
   await writeFile(embeddedWebUIPath, `${embeddedWebUI}\n`);
+
+  console.log("Generating embedded drizzle migrations...");
+  const embeddedMigrations = await createEmbeddedMigrationsSource();
+  await writeFile(embeddedMigrationsPath, `${embeddedMigrations}\n`);
+
   const quickJsWasmPath = resolveQuickJsWasmPath();
 
   try {
@@ -280,22 +294,20 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
         entrypoints: [join(cliRoot, "src/main.ts")],
         minify: mode === "production",
         compile: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun compile target string is dynamically constructed
-          target: bunTarget(target) as any,
+          target: bunTarget(target),
           outfile: join(binDir, binaryName(target)),
         },
-        plugins: [await secureExecBundlePlugin()],
       });
 
       // Copy QuickJS WASM next to binary — loaded at runtime by the server
       await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
 
-      // Copy secure-exec-v8 binary next to executor — needed for code execution
-      const secureExecBin = resolveSecureExecV8(target);
-      if (secureExecBin && existsSync(secureExecBin)) {
-        const destName = target.os === "win32" ? "secure-exec-v8.exe" : "secure-exec-v8";
-        await cp(secureExecBin, join(binDir, destName));
-        await chmod(join(binDir, destName), 0o755);
+      // Copy @napi-rs/keyring native binding next to executor — bun --compile
+      // doesn't bundle .node files, so the loader needs to find it on disk
+      // via NAPI_RS_NATIVE_LIBRARY_PATH (set in main.ts).
+      const keyringNative = resolveKeyringNative(target);
+      if (keyringNative && existsSync(keyringNative)) {
+        await cp(keyringNative, join(binDir, "keyring.node"));
       }
 
       // Smoke test on current platform
@@ -306,28 +318,49 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
         console.log(`  OK: ${version.trim()}`);
       }
 
-      // Platform package.json
+      // Variant package.json. All variants publish to the SAME npm package
+      // name (`executor`) under platform-tagged versions (e.g.
+      // `1.4.14-linux-x64`). The wrapper references each variant via an
+      // `npm:` alias in its optionalDependencies. This mirrors codex's
+      // pattern and avoids ever having to claim a new npm package name when
+      // a new platform is added — a single trusted-publishing config on the
+      // `executor` package covers everything.
+      //
+      // No `bin` field on purpose — the wrapper's launcher resolves the
+      // platform binary via require.resolve on the alias name and execs it.
+      const tag = platformTag(target);
+      const variantVersion = `${meta.version}-${tag}`;
       await writeFile(
         join(outDir, "package.json"),
         JSON.stringify(
           {
-            name,
-            version: meta.version,
+            name: meta.name,
+            version: variantVersion,
+            description: `${meta.description} (${tag})`,
             os: [target.os],
             cpu: [target.arch],
-            bin: { executor: `bin/${binaryName(target)}` },
+            homepage: meta.homepage,
+            bugs: meta.bugs,
+            repository: meta.repository,
+            license: meta.license,
           },
           null,
           2,
         ) + "\n",
       );
 
-      binaries[name] = meta.version;
+      // The local alias name (`executor-linux-x64`, ...) is what the
+      // wrapper's launcher passes to require.resolve at runtime. It's
+      // bound at install time by npm's `npm:executor@<variant-version>`
+      // alias spec in optionalDependencies.
+      const aliasName = `${meta.name}-${tag}`;
+      binaries[aliasName] = `npm:${meta.name}@${variantVersion}`;
     }
 
     return binaries;
   } finally {
     await writeFile(embeddedWebUIPath, EMBEDDED_WEB_UI_STUB);
+    await writeFile(embeddedMigrationsPath, EMBEDDED_MIGRATIONS_STUB);
   }
 };
 
@@ -342,14 +375,14 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
 
   await mkdir(binDir, { recursive: true });
 
-  // Node.js shim that spawns the downloaded platform binary
+  // Node.js launcher — resolves the platform binary via require.resolve
+  // against optionalDependencies and execs it. No postinstall: the binary
+  // ships as an os/cpu-filtered optional dep, the launcher resolves it at
+  // runtime. This works whether or not the package manager runs postinstalls
+  // (bun blocks them by default).
   await writeFile(join(binDir, "executor"), NODE_SHIM);
   await chmod(join(binDir, "executor"), 0o755);
 
-  // Postinstall downloads the matching release asset from GitHub Releases
-  await writeFile(join(wrapperDir, "postinstall.cjs"), POSTINSTALL_SCRIPT);
-
-  // Package.json
   await writeFile(
     join(wrapperDir, "package.json"),
     JSON.stringify(
@@ -363,9 +396,15 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
         repository: meta.repository,
         license: meta.license,
         bin: { executor: "bin/executor" },
-        scripts: {
-          postinstall: "node ./postinstall.cjs",
-        },
+        // Per-platform compiled binaries published as platform-tagged
+        // versions of `executor` itself, referenced via npm:alias specs:
+        //   "executor-linux-x64": "npm:executor@1.4.14-linux-x64"
+        // npm/bun fetch only the variant matching the current os/cpu (set
+        // on each variant's package.json); everything else is a no-op.
+        // The local alias name on the left is what the launcher passes to
+        // require.resolve at runtime — npm puts the variant at
+        // `node_modules/executor-<plat>-<arch>/` so resolution just works.
+        optionalDependencies: binaries,
         engines: {
           node: ">=20",
         },
@@ -375,7 +414,6 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
     ) + "\n",
   );
 
-  // README
   const readmePath = join(repoRoot, "README.md");
   if (existsSync(readmePath)) {
     await cp(readmePath, join(wrapperDir, "README.md"));
@@ -383,7 +421,111 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
 
   console.log(`\nWrapper package: ${wrapperDir}`);
   console.log(`  ${meta.name}@${meta.version}`);
-  console.log(`  release assets: ${Object.keys(binaries).join(", ")}`);
+  console.log(`  optionalDependencies: ${Object.keys(binaries).join(", ")}`);
+};
+
+// ---------------------------------------------------------------------------
+// Preview wrapper — a slim npm package for pkg.pr.new previews that fetches
+// the platform binary from our R2 bucket at install time.
+//
+// The release wrapper points postinstall at GitHub Releases. For previews
+// there's no release, so we upload per-PR tarballs to R2 (keyed by commit
+// SHA) and have a dedicated postinstall download from there.
+//
+// CI splits this in two:
+//   1. A matrix job per platform runs `buildPreviewTarballs` to produce
+//      dist/previews/<platform>.tar.gz, which it uploads to R2.
+//   2. A single publish job runs `buildPreviewWrapperPackage` with an
+//      explicit list of platforms and hands the wrapper to pkg.pr.new.
+//
+// Both paths require EXECUTOR_PREVIEW_CDN_URL and EXECUTOR_PREVIEW_SHA so
+// the postinstall URL embeds the right commit.
+// ---------------------------------------------------------------------------
+
+const buildPreviewTarballs = async (binaries: Record<string, string>) => {
+  const previewDir = join(distDir, "previews");
+  await mkdir(previewDir, { recursive: true });
+  for (const platformPkg of Object.keys(binaries)) {
+    const srcBinDir = join(distDir, platformPkg, "bin");
+    const tarPath = join(previewDir, `${platformPkg}.tar.gz`);
+    await $`tar -czf ${tarPath} .`.cwd(srcBinDir).quiet();
+    console.log(`Preview tarball: ${tarPath}`);
+  }
+};
+
+const resolveTargetsFromEnv = (env: string | undefined): Target[] => {
+  if (!env) throw new Error("EXECUTOR_PREVIEW_TARGETS must be set (comma-separated package names)");
+  const names = env
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const resolved = names.map((name) => {
+    const match = ALL_TARGETS.find((t) => targetPackageName(t) === name);
+    if (!match) throw new Error(`Unknown preview target: ${name}`);
+    return match;
+  });
+  if (resolved.length === 0) throw new Error("EXECUTOR_PREVIEW_TARGETS resolved to an empty list");
+  return resolved;
+};
+
+const buildPreviewWrapperPackage = async (targets: Target[]) => {
+  const meta = await readMetadata();
+  const cdnUrl = process.env.EXECUTOR_PREVIEW_CDN_URL?.replace(/\/+$/, "");
+  const sha = process.env.EXECUTOR_PREVIEW_SHA;
+  if (!cdnUrl || !sha) {
+    throw new Error(
+      "preview build requires EXECUTOR_PREVIEW_CDN_URL and EXECUTOR_PREVIEW_SHA to be set",
+    );
+  }
+
+  const wrapperDir = join(distDir, meta.name);
+  const binDir = join(wrapperDir, "bin");
+  await mkdir(binDir, { recursive: true });
+
+  await writeFile(join(binDir, "executor"), NODE_SHIM);
+  await chmod(join(binDir, "executor"), 0o755);
+
+  const postinstall = PREVIEW_POSTINSTALL_SCRIPT.replaceAll("__CDN_BASE_URL__", `${cdnUrl}/${sha}`);
+  await writeFile(join(wrapperDir, "postinstall.cjs"), postinstall);
+
+  // Restrict os/cpu to platforms we actually built this run so npm refuses
+  // the install on anything else — a clear error beats a cryptic 404 from
+  // postinstall on an unbuilt platform.
+  const osList = Array.from(new Set(targets.map((t) => t.os)));
+  const cpuList = Array.from(new Set(targets.map((t) => t.arch)));
+
+  await writeFile(
+    join(wrapperDir, "package.json"),
+    JSON.stringify(
+      {
+        name: meta.name,
+        version: meta.version,
+        description: meta.description,
+        keywords: meta.keywords,
+        homepage: meta.homepage,
+        bugs: meta.bugs,
+        repository: meta.repository,
+        license: meta.license,
+        bin: { executor: "bin/executor" },
+        files: ["bin", "postinstall.cjs", "README.md"],
+        scripts: { postinstall: "node ./postinstall.cjs" },
+        os: osList,
+        cpu: cpuList,
+        engines: { node: ">=20" },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+
+  const readmePath = join(repoRoot, "README.md");
+  if (existsSync(readmePath)) {
+    await cp(readmePath, join(wrapperDir, "README.md"));
+  }
+
+  console.log(`\nPreview wrapper: ${wrapperDir}`);
+  console.log(`  ${meta.name}@${meta.version} — CDN ${cdnUrl}/${sha}`);
+  console.log(`  targets: ${targets.map(targetPackageName).join(", ")}`);
 };
 
 // ---------------------------------------------------------------------------
@@ -408,6 +550,12 @@ const packageAlreadyPublished = async (pkgDir: string) => {
   return (await proc.exited) === 0;
 };
 
+/** Recognize npm error output for "this version already exists." Used to
+ *  make publish retries idempotent — if a previous workflow run got partway
+ *  through and crashed, we should skip what's already on the registry and
+ *  push the rest. Mirrors codex's `rust-release.yml` skip pattern. */
+const ALREADY_PUBLISHED_RE = /previously published|cannot publish over|version already exists/i;
+
 const publishPackedPackage = async (pkgDir: string, channel: string) => {
   if (await packageAlreadyPublished(pkgDir)) {
     console.log(`Skipping ${pkgDir}; package version already exists on npm.`);
@@ -416,19 +564,74 @@ const publishPackedPackage = async (pkgDir: string, channel: string) => {
 
   await $`bun pm pack`.cwd(pkgDir);
 
-  if (process.env.GITHUB_ACTIONS === "true") {
-    await $`npm publish *.tgz --access public --tag ${channel} --provenance`.cwd(pkgDir);
-  } else {
-    await $`npm publish *.tgz --access public --tag ${channel}`.cwd(pkgDir);
+  const provenance = process.env.GITHUB_ACTIONS === "true" ? ["--provenance"] : [];
+  const result = await $`npm publish *.tgz --access public --tag ${channel} ${provenance}`
+    .cwd(pkgDir)
+    .nothrow()
+    .quiet();
+
+  const stdout = result.stdout.toString();
+  const stderr = result.stderr.toString();
+  process.stdout.write(stdout);
+  process.stderr.write(stderr);
+
+  if (result.exitCode === 0) return;
+
+  // The pre-check via `npm view` has a propagation race — even when an
+  // earlier publish in this same run committed, `npm view` may 404 for a few
+  // seconds. Treat "already published" errors as success on retry.
+  if (ALREADY_PUBLISHED_RE.test(stderr) || ALREADY_PUBLISHED_RE.test(stdout)) {
+    console.log(`Skipping ${pkgDir}; npm reported version already published.`);
+    return;
   }
+
+  throw new Error(`npm publish failed for ${pkgDir} (exit ${result.exitCode})`);
+};
+
+/** Extract the platform-tag suffix from a variant version string.
+ *  e.g. "1.4.14-linux-x64" -> "linux-x64".
+ *  Variants get a per-platform npm dist-tag (not `latest` or `beta`) so
+ *  publishing them doesn't move the channel pointer. The wrapper alone
+ *  drives `latest`/`beta`. */
+const variantTagFromVersion = (version: string): string => {
+  const idx = version.indexOf("-");
+  if (idx === -1) {
+    throw new Error(
+      `Variant version missing platform-tag suffix (expected '<base>-<tag>'): ${version}`,
+    );
+  }
+  return version.slice(idx + 1);
 };
 
 const publish = async (channel: string) => {
   const meta = await readMetadata();
 
-  // Publish only the wrapper npm package. Platform binaries are distributed via GitHub release assets.
+  // Variants publish first so the wrapper's optionalDependencies resolve.
+  // All variants and the wrapper publish to the same npm package
+  // (`executor`) — variants under platform-tagged versions, wrapper under
+  // the channel tag. Single trusted-publishing config covers everything.
+  const platformDirs: string[] = [];
+  for (const entry of new Bun.Glob("executor-*/package.json").scanSync({ cwd: distDir })) {
+    platformDirs.push(join(distDir, dirname(entry)));
+  }
+  platformDirs.sort();
+
+  // Publish variants sequentially. They all PUT to the same npm package
+  // (`executor`), and the registry rejects concurrent packument updates with
+  // 409 Conflict ("Failed to save packument. A common cause is if you try to
+  // publish a new package before the previous package has been fully
+  // processed.") — that's exactly what happened on v1.4.14's first attempt,
+  // where 3 of 8 raced through and the rest 409'd. Serial is plenty fast
+  // (~5s per variant × 8 ≈ 40s).
+  console.log(`Publishing ${platformDirs.length} platform variant(s)...`);
+  for (const dir of platformDirs) {
+    const pkg = (await Bun.file(join(dir, "package.json")).json()) as { version: string };
+    const tag = variantTagFromVersion(pkg.version);
+    await publishPackedPackage(dir, tag);
+  }
+
   const wrapperDir = join(distDir, meta.name);
-  console.log(`Publishing ${wrapperDir}...`);
+  console.log(`Publishing wrapper ${wrapperDir} under @${channel}...`);
   await publishPackedPackage(wrapperDir, channel);
 };
 
@@ -446,125 +649,159 @@ const ZIP_ASSET_SCRIPT = [
 ].join("\n");
 
 const createReleaseAssets = async () => {
+  // The dir name (e.g. "executor-linux-x64") still encodes the platform tag.
+  // Don't read `pkg.name` here — under the npm:alias pattern every variant's
+  // package.json has the same `name: "executor"`, so all assets would collide
+  // on the same filename.
   for (const entry of new Bun.Glob("executor-*/package.json").scanSync({ cwd: distDir })) {
-    const pkgDir = join(distDir, dirname(entry));
-    const pkg = await Bun.file(join(pkgDir, "package.json")).json();
-    const name = pkg.name as string;
+    const dirName = dirname(entry);
+    const pkgDir = join(distDir, dirName);
 
-    if (name.includes("linux")) {
-      await $`tar -czf ${join(distDir, `${name}.tar.gz`)} *`.cwd(join(pkgDir, "bin"));
+    if (dirName.includes("linux")) {
+      await $`tar -czf ${join(distDir, `${dirName}.tar.gz`)} *`.cwd(join(pkgDir, "bin"));
     } else {
-      await $`python3 -c ${ZIP_ASSET_SCRIPT} ${join(distDir, `${name}.zip`)}`.cwd(
+      await $`python3 -c ${ZIP_ASSET_SCRIPT} ${join(distDir, `${dirName}.zip`)}`.cwd(
         join(pkgDir, "bin"),
       );
     }
 
-    console.log(`Created release asset: ${name}`);
+    console.log(`Created release asset: ${dirName}`);
   }
 };
 
 // ---------------------------------------------------------------------------
-// Node.js shim — finds the right platform binary and spawns it
+// Node.js launcher — resolves the platform binary shipped as an
+// optionalDependency and execs it. Resolution order:
+//   1. EXECUTOR_BIN_PATH override
+//   2. require.resolve("executor-<platform>-<arch>/package.json")
+//   3. bin/runtime/<binary> (preview wrapper compat — pkg.pr.new previews
+//      download the binary here at install time instead of via
+//      optionalDependencies)
+//
+// Signals (SIGINT/SIGTERM/SIGHUP) are forwarded to the child so long-running
+// commands like `executor web` shut down cleanly under Ctrl-C.
 // ---------------------------------------------------------------------------
 
 const NODE_SHIM = `#!/usr/bin/env node
 const childProcess = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 
-function run(target) {
-  const result = childProcess.spawnSync(target, process.argv.slice(2), { stdio: "inherit" });
-  if (result.error) {
-    console.error(result.error.message);
-    process.exit(1);
-  }
-  process.exit(typeof result.status === "number" ? result.status : 0);
-}
-
-if (process.env.EXECUTOR_BIN_PATH) run(process.env.EXECUTOR_BIN_PATH);
-
-const scriptDir = path.dirname(fs.realpathSync(__filename));
-const binary = process.platform === "win32" ? "executor.exe" : "executor";
-const runtimeBinary = path.join(scriptDir, "runtime", binary);
-const legacyCached = path.join(scriptDir, process.platform === "win32" ? ".executor.exe" : ".executor");
-
-const resolveInstalledBinary = () => {
-  if (fs.existsSync(runtimeBinary)) {
-    return runtimeBinary;
-  }
-  if (fs.existsSync(legacyCached)) {
-    return legacyCached;
-  }
-  return null;
-};
-
-const installIfNeeded = () => {
-  const existing = resolveInstalledBinary();
-  if (existing) {
-    return existing;
-  }
-
-  const installer = path.resolve(scriptDir, "..", "postinstall.cjs");
-  if (!fs.existsSync(installer)) {
-    return null;
-  }
-
-  console.error("executor binary is missing; downloading release asset...");
-  const result = childProcess.spawnSync(process.execPath, [installer], {
-    stdio: "inherit",
-    env: process.env,
+function spawnAndExit(target) {
+  const child = childProcess.spawn(target, process.argv.slice(2), { stdio: "inherit" });
+  child.on("error", (err) => { console.error(err.message); process.exit(1); });
+  const forward = (signal) => { if (!child.killed) { try { child.kill(signal); } catch {} } };
+  ["SIGINT", "SIGTERM", "SIGHUP"].forEach((sig) => process.on(sig, () => forward(sig)));
+  child.on("exit", (code, signal) => {
+    if (signal) process.kill(process.pid, signal);
+    else process.exit(typeof code === "number" ? code : 0);
   });
-
-  if (result.error) {
-    console.error(result.error.message);
-    process.exit(1);
-  }
-
-  if (typeof result.status === "number" && result.status !== 0) {
-    process.exit(result.status);
-  }
-
-  return resolveInstalledBinary();
-};
-
-const installedBinary = installIfNeeded();
-if (!installedBinary) {
-  console.error("executor binary is missing. Reinstall the package or run 'npm rebuild executor'.");
-  process.exit(1);
 }
 
-run(installedBinary);
+if (process.env.EXECUTOR_BIN_PATH) {
+  spawnAndExit(process.env.EXECUTOR_BIN_PATH);
+  return;
+}
+
+const isWin = process.platform === "win32";
+const binary = isWin ? "executor.exe" : "executor";
+
+// Package names use "windows" (not "win32") to match what the build script emits.
+const platformMap = { darwin: "darwin", linux: "linux", win32: "windows" };
+const archMap = { x64: "x64", arm64: "arm64" };
+const platform = platformMap[os.platform()] || os.platform();
+const arch = archMap[os.arch()] || os.arch();
+
+const isMusl = (() => {
+  if (platform !== "linux") return false;
+  try { if (fs.existsSync("/etc/alpine-release")) return true; } catch {}
+  try {
+    const r = childProcess.spawnSync("ldd", ["--version"], { encoding: "utf8" });
+    if (((r.stdout || "") + (r.stderr || "")).toLowerCase().includes("musl")) return true;
+  } catch {}
+  return false;
+})();
+
+// Candidate package names in preference order. On linux a system might match
+// glibc or musl; try musl first if detected, glibc first otherwise.
+const candidates = (() => {
+  const base = "executor-" + platform + "-" + arch;
+  if (platform === "linux") {
+    return isMusl ? [base + "-musl", base] : [base, base + "-musl"];
+  }
+  return [base];
+})();
+
+function detectPackageManager() {
+  const ua = process.env.npm_config_user_agent || "";
+  if (/\\bbun\\//.test(ua)) return "bun";
+  const execPath = process.env.npm_execpath || "";
+  if (execPath.includes("bun")) return "bun";
+  if (__dirname.includes(".bun/install/global") || __dirname.includes(".bun\\\\install\\\\global")) {
+    return "bun";
+  }
+  return ua ? "npm" : null;
+}
+
+for (const name of candidates) {
+  try {
+    const pkgJson = require.resolve(name + "/package.json");
+    const candidate = path.join(path.dirname(pkgJson), "bin", binary);
+    if (fs.existsSync(candidate)) {
+      spawnAndExit(candidate);
+      return;
+    }
+  } catch {
+    // package not installed for this platform; try next candidate
+  }
+}
+
+// Preview wrapper compat: pkg.pr.new previews download the platform binary
+// to bin/runtime/ rather than via optionalDependencies.
+const scriptDir = path.dirname(fs.realpathSync(__filename));
+const previewBinary = path.join(scriptDir, "runtime", binary);
+if (fs.existsSync(previewBinary)) {
+  spawnAndExit(previewBinary);
+  return;
+}
+
+const pm = detectPackageManager();
+const reinstall = pm === "bun"
+  ? "bun install -g executor"
+  : pm === "npm"
+    ? "npm install -g executor"
+    : "reinstall executor";
+console.error(
+  "executor: could not locate a platform binary for " + os.platform() + "-" + os.arch() + ".\\n" +
+    "Tried optionalDependencies: " + candidates.map((n) => '"' + n + '"').join(", ") + "\\n" +
+    "To fix: " + reinstall
+);
+process.exit(1);
 `;
 
 // ---------------------------------------------------------------------------
-// Postinstall — hardlink/copy the platform binary for fast startup
+// Preview postinstall — download per-PR tarballs from our R2 CDN instead of
+// GitHub Releases. The __CDN_BASE_URL__ placeholder is replaced at build time
+// with `${cdnBase}/${sha}` so each preview fetches its own commit's binary.
 // ---------------------------------------------------------------------------
 
-const POSTINSTALL_SCRIPT = `#!/usr/bin/env node
+const PREVIEW_POSTINSTALL_SCRIPT = `#!/usr/bin/env node
 const childProcess = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
+const CDN_BASE = "__CDN_BASE_URL__";
 const packageDir = path.dirname(fs.realpathSync(__filename));
 const binDir = path.join(packageDir, "bin");
 const runtimeDir = path.join(binDir, "runtime");
-const packageJson = JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf8"));
-
-const repositoryUrl = typeof packageJson.repository === "string"
-  ? packageJson.repository
-  : packageJson.repository && packageJson.repository.url;
-const githubBase = String(packageJson.homepage || repositoryUrl || "https://github.com/RhysSullivan/executor")
-  .replace(/^git[+]/, "")
-  .replace(/.git$/, "");
-const version = packageJson.version;
 
 const platformMap = { darwin: "darwin", linux: "linux", win32: "windows" };
 const platform = platformMap[os.platform()] || os.platform();
 const arch = os.arch() === "arm64" ? "arm64" : "x64";
 const binary = platform === "windows" ? "executor.exe" : "executor";
 const cachedBinary = path.join(runtimeDir, binary);
-const legacyCachedBinary = path.join(binDir, platform === "windows" ? ".executor.exe" : ".executor");
 
 const isMusl = (() => {
   if (platform !== "linux") return false;
@@ -578,11 +815,10 @@ const isMusl = (() => {
 
 const assetBase = (() => {
   const base = "executor-" + platform + "-" + arch;
-  if (platform === "linux" && isMusl) return base + "-musl";
-  return base;
+  return platform === "linux" && isMusl ? base + "-musl" : base;
 })();
-const archiveName = platform === "linux" ? assetBase + ".tar.gz" : assetBase + ".zip";
-const downloadUrl = githubBase + "/releases/download/v" + version + "/" + archiveName;
+const archiveName = assetBase + ".tar.gz";
+const downloadUrl = CDN_BASE + "/" + archiveName;
 const archivePath = path.join(packageDir, archiveName);
 
 const run = (command, args) => {
@@ -596,56 +832,32 @@ const run = (command, args) => {
 const download = async () => {
   const response = await fetch(downloadUrl, { redirect: "follow" });
   if (!response.ok) {
-    throw new Error("Failed to download " + downloadUrl + " (status " + response.status + ")");
+    throw new Error(
+      "Failed to download " + downloadUrl + " (status " + response.status + "). " +
+      "This preview build may not cover your platform (" + assetBase + ")."
+    );
   }
   const arrayBuffer = await response.arrayBuffer();
   fs.writeFileSync(archivePath, Buffer.from(arrayBuffer));
 };
 
-const extract = () => {
-  fs.mkdirSync(binDir, { recursive: true });
-  fs.rmSync(runtimeDir, { recursive: true, force: true });
-  fs.mkdirSync(runtimeDir, { recursive: true });
-
-  if (platform === "linux") {
-    run("tar", ["-xzf", archivePath, "-C", runtimeDir]);
-    return;
-  }
-
-  if (platform === "darwin") {
-    run("unzip", ["-o", archivePath, "-d", runtimeDir]);
-    return;
-  }
-
-  const psCommand = [
-    "$ErrorActionPreference = 'Stop'",
-    "Expand-Archive -LiteralPath '" + archivePath.replace(/'/g, "''") + "' -DestinationPath '" + runtimeDir.replace(/'/g, "''") + "' -Force",
-  ].join("; ");
-  const psArgs = ["-NoLogo", "-NoProfile", "-Command", psCommand];
-  // Prefer pwsh (PowerShell 7+) which reliably has Expand-Archive; fall back to powershell.exe
-  const pwshResult = childProcess.spawnSync("pwsh", psArgs, { stdio: "inherit" });
-  if (pwshResult.error || (typeof pwshResult.status === "number" && pwshResult.status !== 0)) {
-    run("powershell.exe", psArgs);
-  }
-};
-
 (async () => {
   try {
     await download();
-    extract();
+
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.rmSync(runtimeDir, { recursive: true, force: true });
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    run("tar", ["-xzf", archivePath, "-C", runtimeDir]);
 
     if (!fs.existsSync(cachedBinary)) {
       throw new Error("Expected extracted binary at " + cachedBinary);
     }
-
-    if (fs.existsSync(legacyCachedBinary)) {
-      fs.unlinkSync(legacyCachedBinary);
-    }
     if (platform !== "windows") fs.chmodSync(cachedBinary, 0o755);
     fs.rmSync(archivePath, { force: true });
-    console.log("executor: installed " + assetBase + " from GitHub Releases");
+    console.log("executor: installed preview " + assetBase + " from " + CDN_BASE);
   } catch (error) {
-    console.error("executor postinstall failed:", error && error.message ? error.message : error);
+    console.error("executor preview postinstall failed:", error && error.message ? error.message : error);
     process.exit(1);
   }
 })();
@@ -675,6 +887,24 @@ if (command === "binary") {
   const targets = values.single ? ALL_TARGETS.filter(isCurrentPlatform) : ALL_TARGETS;
   const binaries = await buildBinaries(targets, mode);
   await buildWrapperPackage(binaries);
+} else if (command === "preview") {
+  // End-to-end preview build for local testing: binary for the current
+  // platform + tarball + wrapper, all in one step.
+  const targets = ALL_TARGETS.filter(isCurrentPlatform);
+  const binaries = await buildBinaries(targets, mode);
+  await buildPreviewTarballs(binaries);
+  await buildPreviewWrapperPackage(targets);
+} else if (command === "preview-tarball") {
+  // CI matrix job: build the current runner's binary + tarball only.
+  // The wrapper is built separately once all matrix entries have uploaded.
+  const targets = ALL_TARGETS.filter(isCurrentPlatform);
+  const binaries = await buildBinaries(targets, mode);
+  await buildPreviewTarballs(binaries);
+} else if (command === "preview-wrapper") {
+  // CI publish job: build just the npm wrapper, with os/cpu restricted to
+  // the platforms listed in EXECUTOR_PREVIEW_TARGETS (comma-separated).
+  const targets = resolveTargetsFromEnv(process.env.EXECUTOR_PREVIEW_TARGETS);
+  await buildPreviewWrapperPackage(targets);
 } else if (command === "release-assets") {
   await createReleaseAssets();
 } else if (command === "publish") {
@@ -683,6 +913,9 @@ if (command === "binary") {
 } else {
   console.log(`Usage:
   bun run build.ts binary [--single] [--mode production|development]
+  bun run build.ts preview [--mode production|development]
+  bun run build.ts preview-tarball [--mode production|development]
+  bun run build.ts preview-wrapper
   bun run build.ts release-assets
   bun run build.ts publish [channel]`);
   process.exit(1);

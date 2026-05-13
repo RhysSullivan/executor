@@ -1,0 +1,28 @@
+{
+  "name": "@executor-js/example-all-plugins",
+  "version": "0.0.10",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@executor-js/plugin-file-secrets": "workspace:*",
+    "@executor-js/plugin-google-discovery": "workspace:*",
+    "@executor-js/plugin-graphql": "workspace:*",
+    "@executor-js/plugin-keychain": "workspace:*",
+    "@executor-js/plugin-mcp": "workspace:*",
+    "@executor-js/plugin-onepassword": "workspace:*",
+    "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/plugin-workos-vault": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "latest"
+  }
+}

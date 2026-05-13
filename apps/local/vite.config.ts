@@ -1,13 +1,16 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import appPlugin from "@executor-js/app/vite";
 
+// oxlint-disable-next-line executor/no-json-parse -- boundary: Vite config reads package metadata from package.json
 const rootPackage = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
 ) as { version: string; homepage?: string; repository?: string | { url?: string } };
 
+// oxlint-disable-next-line executor/no-json-parse -- boundary: Vite config reads package metadata from package.json
 const cliPackage = JSON.parse(
   readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"),
 ) as { version?: string };
@@ -24,6 +27,8 @@ const EXECUTOR_GITHUB_URL = (
   .replace(/^git\+/, "")
   .replace(/\.git$/, "");
 
+const APP_ROOT = fileURLToPath(new URL("../../packages/app/", import.meta.url));
+
 /**
  * Vite plugin that forwards /api and /mcp requests to the Effect handlers
  * during development, so you don't need a separate server process.
@@ -34,6 +39,11 @@ function executorApiPlugin(): Plugin {
   return {
     name: "executor-api",
     configureServer(server) {
+      server.watcher.on("change", (path) => {
+        if (path.includes("/src/server/") || path.endsWith("/executor.config.ts")) {
+          handlers = null;
+        }
+      });
       server.middlewares.use(async (req, res, next) => {
         const rawUrl = req.url ?? "/";
         const isApi = rawUrl.startsWith("/api/") || rawUrl === "/api";
@@ -41,6 +51,7 @@ function executorApiPlugin(): Plugin {
 
         if (!isApi && !isMcp) return next();
 
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Vite middleware must convert handler failures into HTTP 500 responses
         try {
           if (!handlers) {
             const { getServerHandlers } = await import("./src/server/main");
@@ -60,7 +71,7 @@ function executorApiPlugin(): Plugin {
           const webRequest = new Request(new URL(url, origin), {
             method: req.method,
             headers,
-            body: hasBody ? (req as unknown as BodyInit) : undefined,
+            body: hasBody ? Readable.toWeb(req) : undefined,
             duplex: hasBody ? "half" : undefined,
           } as RequestInit);
 
@@ -93,27 +104,44 @@ function executorApiPlugin(): Plugin {
 }
 
 export default defineConfig({
+  root: APP_ROOT,
+  publicDir: resolve(APP_ROOT, "public"),
+  build: {
+    outDir: resolve(import.meta.dirname, "dist"),
+    emptyOutDir: true,
+  },
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(EXECUTOR_VERSION),
     "import.meta.env.VITE_GITHUB_URL": JSON.stringify(EXECUTOR_GITHUB_URL),
     "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV ?? "development"),
   },
   resolve: {
-    dedupe: ["react", "react-dom"],
     tsconfigPaths: true,
   },
   server: {
     port: parseInt(process.env.PORT ?? "5173", 10),
     host: "127.0.0.1",
     allowedHosts: true,
+    watch: {
+      // Workspace packages live under packages/ and are symlinked into
+      // node_modules. Without this, chokidar treats them as ordinary
+      // node_modules and skips watching, so edits to e.g.
+      // packages/react/src/pages/sources.tsx don't trigger HMR.
+      ignored: ["!**/node_modules/@executor-js/**"],
+      // WSL2 + symlinked workspace packages can drop inotify events;
+      // polling is slower but reliable.
+      usePolling: true,
+      interval: 200,
+    },
+    fs: {
+      allow: [resolve(import.meta.dirname, "../..")],
+    },
   },
   plugins: [
-    tailwindcss(),
-    tanstackRouter({
-      target: "react",
-      autoCodeSplitting: true,
+    appPlugin({
+      executorConfigPath: resolve(import.meta.dirname, "executor.config.ts"),
+      executorJsoncPath: resolve(import.meta.dirname, "executor.jsonc"),
     }),
-    ...react(),
     executorApiPlugin(),
   ],
 });

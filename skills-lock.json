@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "stack": {
+      "source": "kitlangton/stack",
+      "sourceType": "github",
+      "skillPath": "skills/stack/SKILL.md",
+      "computedHash": "a2e9d48c0d0aab5cb208464423a686877d46c5df9ed6740352c6d96feebefc30"
+    }
+  }
+}

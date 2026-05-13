@@ -1,0 +1,73 @@
+version = 1
+
+[defaults]
+failOn = "high"
+reportOn = "medium"
+ignorePaths = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/.tanstack/**",
+  "**/embedded-migrations.gen.ts",
+  "**/*.test.ts",
+  "**/*.spec.ts",
+  "**/*.e2e.ts",
+]
+
+[[skills]]
+name = "wrdn-authz"
+remote = "getsentry/warden-skills"
+paths = [
+  "apps/cloud/src/auth/**/*.ts",
+  "apps/cloud/src/api/**/*.ts",
+  "apps/cloud/src/routes/**/*.tsx",
+  "packages/core/api/src/**/*.ts",
+]
+
+[[skills]]
+name = "wrdn-code-execution"
+remote = "getsentry/warden-skills"
+paths = [
+  "apps/local/src/server/**/*.ts",
+  "apps/cli/src/**/*.ts",
+  "packages/core/execution/src/**/*.ts",
+  "packages/core/sdk/src/**/*.ts",
+  "packages/kernel/**/src/**/*.ts",
+  "packages/plugins/**/src/**/*.ts",
+]
+
+[[skills]]
+name = "wrdn-data-exfil"
+remote = "getsentry/warden-skills"
+paths = [
+  "apps/cloud/src/api/**/*.ts",
+  "apps/cloud/src/routes/**/*.tsx",
+  "apps/local/src/server/**/*.ts",
+  "packages/core/storage-*/src/**/*.ts",
+  "packages/plugins/**/src/**/*.ts",
+  "packages/react/src/api/**/*.tsx",
+]
+
+[[skills]]
+name = "wrdn-pii"
+remote = "getsentry/warden-skills"
+paths = [
+  "apps/cloud/src/**/*.ts",
+  "apps/cloud/src/**/*.tsx",
+  "apps/local/src/**/*.ts",
+  "apps/local/src/**/*.tsx",
+  "packages/core/storage-*/src/**/*.ts",
+]
+
+[[skills]]
+name = "wrdn-gha-workflows"
+remote = "getsentry/warden-skills"
+paths = [".github/workflows/**/*.yml", ".github/workflows/**/*.yaml"]
+
+# Local skill — no `remote =`, resolved from `.agents/skills/<name>/SKILL.md`.
+[[skills]]
+name = "wrdn-effect-atom-optimistic"
+paths = [
+  "packages/react/src/api/atoms.tsx",
+  "packages/react/src/pages/**/*.tsx",
+  "packages/react/src/components/**/*.tsx",
+]

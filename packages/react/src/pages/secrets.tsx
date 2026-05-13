@@ -1,9 +1,17 @@
-import { useState, Suspense } from "react";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
-import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
-import { SecretId } from "@executor/sdk";
+import { useMemo, useState, Suspense } from "react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { toast } from "sonner";
+import { removeSecretOptimistic, secretsOptimisticAtom, secretUsagesAtom } from "../api/atoms";
+import { secretWriteKeys } from "../api/reactivity-keys";
+import { useSecretProviderPlugins } from "@executor-js/sdk/client";
+import { SecretId, SecretInUseError, type ScopeId } from "@executor-js/sdk";
+import { SecretForm } from "../plugins/secret-form";
 import { useScope } from "../hooks/use-scope";
+import { useScopeStack } from "../api/scope-context";
 import {
   Dialog,
   DialogContent,
@@ -14,21 +22,12 @@ import {
   DialogClose,
 } from "../components/dialog";
 import { Button } from "../components/button";
-import { Input } from "../components/input";
-import { Label } from "../components/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../components/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../components/select";
 import {
   CardStack,
   CardStackContent,
@@ -52,8 +51,15 @@ const defaultStorageOptions: readonly SecretStorageOption[] = [
   { value: "file", label: "File" },
 ];
 
+const isSecretInUseError = Schema.is(SecretInUseError);
+
 // ---------------------------------------------------------------------------
 // Add secret dialog
+//
+// Form state, derived id, dup detection, and submit lifecycle live in
+// `<SecretForm.Provider>` and are shared with the inline create flow in
+// secret-header-auth.tsx. Dialog content remounts on each open via `key` so
+// state always starts fresh — no manual reset.
 // ---------------------------------------------------------------------------
 
 function AddSecretDialog(props: {
@@ -61,61 +67,40 @@ function AddSecretDialog(props: {
   onOpenChange: (v: boolean) => void;
   description: string;
   storageOptions: readonly SecretStorageOption[];
+  existingSecretIds: readonly string[];
+  scopeId: ScopeId;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      {props.open && (
+        <AddSecretDialogContent
+          key="open"
+          description={props.description}
+          storageOptions={props.storageOptions}
+          existingSecretIds={props.existingSecretIds}
+          scopeId={props.scopeId}
+          onClose={() => props.onOpenChange(false)}
+        />
+      )}
+    </Dialog>
+  );
+}
+
+function AddSecretDialogContent(props: {
+  description: string;
+  storageOptions: readonly SecretStorageOption[];
+  existingSecretIds: readonly string[];
+  scopeId: ScopeId;
+  onClose: () => void;
 }) {
   const initialProvider = props.storageOptions[0]?.value ?? "auto";
-  const [id, setId] = useState("");
-  const [name, setName] = useState("");
-  const [value, setValue] = useState("");
-  const [purpose, setPurpose] = useState("");
-  const [provider, setProvider] = useState(initialProvider);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const scopeId = useScope();
-  const doSet = useAtomSet(setSecret, { mode: "promise" });
-  const refresh = useAtomRefresh(secretsAtom(scopeId));
-
-  const reset = () => {
-    setId("");
-    setName("");
-    setValue("");
-    setPurpose("");
-    setProvider(initialProvider);
-    setError(null);
-    setSaving(false);
-  };
-
-  const handleSave = async () => {
-    if (!id.trim() || !name.trim() || !value.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await doSet({
-        path: { scopeId },
-        payload: {
-          id: SecretId.make(id.trim()),
-          name: name.trim(),
-          value: value.trim(),
-          purpose: purpose.trim() || undefined,
-          provider: provider === "auto" ? undefined : provider,
-        },
-      });
-      reset();
-      props.onOpenChange(false);
-      refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save secret");
-      setSaving(false);
-    }
-  };
 
   return (
-    <Dialog
-      open={props.open}
-      onOpenChange={(v) => {
-        if (!v) reset();
-        props.onOpenChange(v);
-      }}
+    <SecretForm.Provider
+      existingSecretIds={props.existingSecretIds}
+      initialProvider={initialProvider}
+      scopeId={props.scopeId}
+      onCreated={props.onClose}
     >
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
@@ -127,105 +112,12 @@ function AddSecretDialog(props: {
 
         <div className="grid gap-5 py-3">
           <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label
-                htmlFor="secret-id"
-                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-              >
-                ID
-              </Label>
-              <Input
-                id="secret-id"
-                placeholder="github-token"
-                value={id}
-                onChange={(e) => setId((e.target as HTMLInputElement).value)}
-                className="font-mono text-xs h-9"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label
-                htmlFor="secret-name"
-                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-              >
-                Name
-              </Label>
-              <Input
-                id="secret-name"
-                placeholder="GitHub PAT"
-                value={name}
-                onChange={(e) => setName((e.target as HTMLInputElement).value)}
-                className="text-sm h-9"
-              />
-            </div>
+            <SecretForm.NameField />
+            <SecretForm.IdField />
           </div>
-
-          <div className="grid gap-1.5">
-            <Label
-              htmlFor="secret-value"
-              className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-            >
-              Value
-            </Label>
-            <Input
-              id="secret-value"
-              type="password"
-              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-              value={value}
-              onChange={(e) => setValue((e.target as HTMLInputElement).value)}
-              className="font-mono text-xs h-9"
-            />
-          </div>
-
-          <div
-            className={props.storageOptions.length > 1 ? "grid grid-cols-2 gap-3" : "grid gap-3"}
-          >
-            <div className="grid gap-1.5">
-              <Label
-                htmlFor="secret-purpose"
-                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-              >
-                Purpose{" "}
-                <span className="normal-case tracking-normal font-normal text-muted-foreground">
-                  (opt.)
-                </span>
-              </Label>
-              <Input
-                id="secret-purpose"
-                placeholder="GitHub API auth"
-                value={purpose}
-                onChange={(e) => setPurpose((e.target as HTMLInputElement).value)}
-                className="text-sm h-9"
-              />
-            </div>
-            {props.storageOptions.length > 1 && (
-              <div className="grid gap-1.5">
-                <Label
-                  htmlFor="secret-provider"
-                  className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-                >
-                  Storage
-                </Label>
-                <Select value={provider} onValueChange={setProvider}>
-                  <SelectTrigger id="secret-provider" className="h-9 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {props.storageOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-
-          {error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-sm text-destructive">{error}</p>
-            </div>
-          )}
+          <SecretForm.ValueField />
+          <SecretForm.ProviderField options={props.storageOptions} />
+          <SecretForm.ErrorBanner />
         </div>
 
         <DialogFooter>
@@ -234,17 +126,40 @@ function AddSecretDialog(props: {
               Cancel
             </Button>
           </DialogClose>
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={!id.trim() || !name.trim() || !value.trim() || saving}
-          >
-            {saving ? "Saving…" : "Save secret"}
-          </Button>
+          <SecretForm.SubmitButton size="sm">Save secret</SecretForm.SubmitButton>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+    </SecretForm.Provider>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Used-by footer — fetched per-secret. Keeps the list compact: shows the
+// count plus the first few owner names, with a "+N more" tail. Empty
+// state collapses to nothing so secrets that aren't referenced anywhere
+// don't get a noisy "Used by 0" line.
+// ---------------------------------------------------------------------------
+
+function SecretUsageFooter(props: { scopeId: ScopeId; secretId: SecretId }) {
+  const usages = useAtomValue(secretUsagesAtom(props.scopeId, props.secretId));
+  return AsyncResult.match(usages, {
+    onInitial: () => null,
+    onFailure: () => null,
+    onSuccess: ({ value }) => {
+      if (value.length === 0) return null;
+      const labels = value
+        .map((u) => u.ownerName ?? u.ownerId)
+        .filter((s, i, a) => a.indexOf(s) === i);
+      const visible = labels.slice(0, 3);
+      const hidden = labels.length - visible.length;
+      return (
+        <CardStackEntryDescription className="mt-1 text-xs text-muted-foreground">
+          Used by {visible.join(", ")}
+          {hidden > 0 ? ` +${hidden} more` : ""}
+        </CardStackEntryDescription>
+      );
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -252,8 +167,10 @@ function AddSecretDialog(props: {
 // ---------------------------------------------------------------------------
 
 function SecretRow(props: {
+  usageScopeId: ScopeId;
   showProvider: boolean;
-  secret: { id: string; name: string; purpose?: string; provider?: string };
+  secret: { id: string; scopeId: ScopeId; name: string; provider?: string };
+  scopeLabel: string;
   onRemove: () => void;
 }) {
   const { secret, showProvider } = props;
@@ -261,16 +178,23 @@ function SecretRow(props: {
   return (
     <CardStackEntry>
       <CardStackEntryContent>
-        <CardStackEntryTitle className="flex items-center gap-2">
-          <span className="truncate">{secret.name}</span>
+        <CardStackEntryTitle className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 shrink truncate" title={secret.name}>
+            {secret.name}
+          </span>
+          <span
+            className="max-w-40 shrink truncate font-mono text-xs text-muted-foreground"
+            title={secret.id}
+          >
+            {secret.id}
+          </span>
         </CardStackEntryTitle>
-        {secret.purpose && (
-          <CardStackEntryDescription>
-            <div className="flex gap-2 flex-col text-xs">{secret.purpose}</div>
-          </CardStackEntryDescription>
-        )}
+        <Suspense fallback={null}>
+          <SecretUsageFooter scopeId={props.usageScopeId} secretId={SecretId.make(secret.id)} />
+        </Suspense>
       </CardStackEntryContent>
       <CardStackEntryActions>
+        <Badge variant="secondary">{props.scopeLabel}</Badge>
         {showProvider && secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -307,7 +231,6 @@ function SecretRow(props: {
 export function SecretsPage(props: {
   addSecretDescription?: string;
   showProviderInfo?: boolean;
-  secretProviderPlugins: readonly SecretProviderPlugin[];
   storageOptions?: readonly SecretStorageOption[];
 }) {
   const storageOptions = props.storageOptions ?? defaultStorageOptions;
@@ -315,24 +238,48 @@ export function SecretsPage(props: {
   const addSecretDescription =
     props.addSecretDescription ??
     "Store a credential or API key. Values are kept in your system keychain when available, with a local encrypted file fallback.";
-  const { secretProviderPlugins } = props;
+  const secretProviderPlugins = useSecretProviderPlugins();
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
-  const secrets = useAtomValue(secretsAtom(scopeId));
-  const doRemove = useAtomSet(removeSecret, { mode: "promise" });
-  const refresh = useAtomRefresh(secretsAtom(scopeId));
+  const scopeStack = useScopeStack();
+  const secrets = useAtomValue(secretsOptimisticAtom(scopeId));
+  const scopeLabel = (secretScopeId: ScopeId): string => {
+    const index = scopeStack.findIndex((entry) => entry.id === secretScopeId);
+    if (index === 0) return "Personal";
+    if (index > 0) return scopeStack[index]?.name || "Organization";
+    return "Scoped";
+  };
+  const existingSecretIds = useMemo(
+    () =>
+      AsyncResult.match(secrets, {
+        onInitial: () => [] as string[],
+        onFailure: () => [] as string[],
+        onSuccess: ({ value }) => value.map((secret) => secret.id),
+      }),
+    [secrets],
+  );
+  const doRemove = useAtomSet(removeSecretOptimistic(scopeId), {
+    mode: "promiseExit",
+  });
 
-  const handleRemove = async (secretId: string) => {
-    try {
-      await doRemove({
-        path: {
-          scopeId,
-          secretId: SecretId.make(secretId),
-        },
-      });
-      refresh();
-    } catch {
-      // TODO: toast
+  const handleRemove = async (secret: { readonly id: string; readonly scopeId: ScopeId }) => {
+    const exit = await doRemove({
+      params: {
+        scopeId: secret.scopeId,
+        secretId: SecretId.make(secret.id),
+      },
+      reactivityKeys: secretWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      if (Option.isSome(error) && isSecretInUseError(error.value)) {
+        const count = error.value.usageCount;
+        toast.error(
+          `Secret is used by ${count} ${count === 1 ? "source" : "sources"}. Detach it before removing it.`,
+        );
+      } else {
+        toast.error("Failed to remove secret");
+      }
     }
   };
 
@@ -378,7 +325,7 @@ export function SecretsPage(props: {
         )}
 
         {/* Secrets list */}
-        {Result.match(secrets, {
+        {AsyncResult.match(secrets, {
           onInitial: () => (
             <div className="flex items-center gap-2 py-8">
               <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
@@ -413,19 +360,28 @@ export function SecretsPage(props: {
                     </CardStackEntryActions>
                   </CardStackEntry>
                 ) : (
-                  value.map((s) => (
-                    <SecretRow
-                      key={s.id}
-                      showProvider={showProviderInfo}
-                      secret={{
-                        id: s.id,
-                        name: s.name,
-                        purpose: s.purpose,
-                        provider: s.provider ? String(s.provider) : undefined,
-                      }}
-                      onRemove={() => handleRemove(s.id)}
-                    />
-                  ))
+                  value.map(
+                    (s: {
+                      readonly id: string;
+                      readonly scopeId: ScopeId;
+                      readonly name: string;
+                      readonly provider: string;
+                    }) => (
+                      <SecretRow
+                        key={`${s.scopeId}:${s.id}`}
+                        usageScopeId={scopeId}
+                        showProvider={showProviderInfo}
+                        secret={{
+                          id: s.id,
+                          scopeId: s.scopeId,
+                          name: s.name,
+                          provider: s.provider ? String(s.provider) : undefined,
+                        }}
+                        scopeLabel={scopeLabel(s.scopeId)}
+                        onRemove={() => handleRemove(s)}
+                      />
+                    ),
+                  )
                 )}
               </CardStackContent>
             </CardStack>
@@ -437,6 +393,8 @@ export function SecretsPage(props: {
           onOpenChange={setAddOpen}
           description={addSecretDescription}
           storageOptions={storageOptions}
+          existingSecretIds={existingSecretIds}
+          scopeId={scopeId}
         />
       </div>
     </div>

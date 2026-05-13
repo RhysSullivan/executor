@@ -1,48 +1,112 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
-
 import {
-  OpenApiParseError,
-  OpenApiExtractionError,
-  OpenApiOAuthError,
-} from "../sdk/errors";
+  InternalError,
+  ScopeId,
+  ScopedSecretCredentialInput,
+  SecretBackedValue,
+} from "@executor-js/sdk/core";
+
+import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
-import { StoredSourceSchema } from "../sdk/stored-source";
-import { OAuth2Auth } from "../sdk/types";
+import { StoredSourceSchema } from "../sdk/store";
+import {
+  OAuth2SourceConfig,
+  OpenApiSourceBindingInput,
+  OpenApiSourceBindingRef,
+} from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
-const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
+const DomainErrors = [
+  InternalError,
+  OpenApiParseError,
+  OpenApiExtractionError,
+  OpenApiOAuthError,
+] as const;
+
+const ScopeIdParam = {
+  scopeId: ScopeId,
+};
+
+const SourceParams = {
+  scopeId: ScopeId,
+  namespace: Schema.String,
+};
+
+const SourceBindingParams = {
+  scopeId: ScopeId,
+  namespace: Schema.String,
+  sourceScopeId: ScopeId,
+};
+
+const SpecFetchCredentialsPayload = Schema.Struct({
+  headers: Schema.optional(Schema.Record(Schema.String, SecretBackedValue)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, SecretBackedValue)),
+});
+
+const ConfiguredCredentialBindingPayload = Schema.Struct({
+  kind: Schema.Literal("binding"),
+  slot: Schema.String,
+  prefix: Schema.optional(Schema.String),
+});
+
+const ConfiguredCredentialValuePayload = Schema.Union([
+  Schema.String,
+  ConfiguredCredentialBindingPayload,
+]);
+
+const OpenApiCredentialInputPayload = Schema.Union([
+  ScopedSecretCredentialInput,
+  SecretBackedValue,
+  ConfiguredCredentialValuePayload,
+]);
 
 // ---------------------------------------------------------------------------
 // Payloads
 // ---------------------------------------------------------------------------
 
 const AddSpecPayload = Schema.Struct({
+  targetScope: ScopeId,
+  credentialTargetScope: Schema.optional(ScopeId),
   spec: Schema.String,
+  specFetchCredentials: Schema.optional(SpecFetchCredentialsPayload),
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-  oauth2: Schema.optional(OAuth2Auth),
+  headers: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
+  oauth2: Schema.optional(OAuth2SourceConfig),
 });
 
 const PreviewSpecPayload = Schema.Struct({
   spec: Schema.String,
+  specFetchCredentials: Schema.optional(SpecFetchCredentialsPayload),
 });
 
 const UpdateSourcePayload = Schema.Struct({
+  sourceScope: ScopeId,
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  headers: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
+  credentialTargetScope: Schema.optional(ScopeId),
+  // Set after a successful re-authenticate to refresh the source's
+  // stored OAuth2 metadata.
+  oauth2: Schema.optional(OAuth2SourceConfig),
 });
 
 const UpdateSourceResponse = Schema.Struct({
   updated: Schema.Boolean,
+});
+
+const RemoveBindingPayload = Schema.Struct({
+  sourceId: Schema.String,
+  sourceScope: ScopeId,
+  slot: Schema.String,
+  scope: ScopeId,
 });
 
 // ---------------------------------------------------------------------------
@@ -54,101 +118,82 @@ const AddSpecResponse = Schema.Struct({
   namespace: Schema.String,
 });
 
-// ---------------------------------------------------------------------------
-// OAuth payloads / responses
-// ---------------------------------------------------------------------------
-
-const StartOAuthPayload = Schema.Struct({
-  displayName: Schema.String,
-  securitySchemeName: Schema.String,
-  flow: Schema.Literal("authorizationCode"),
-  authorizationUrl: Schema.String,
-  tokenUrl: Schema.String,
-  redirectUrl: Schema.String,
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
-  scopes: Schema.Array(Schema.String),
-});
-
-const StartOAuthResponse = Schema.Struct({
-  sessionId: Schema.String,
-  authorizationUrl: Schema.String,
-  scopes: Schema.Array(Schema.String),
-});
-
-const CompleteOAuthPayload = Schema.Struct({
-  state: Schema.String,
-  code: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-});
-
-const OAuthCallbackUrlParams = Schema.Struct({
-  state: Schema.String,
-  code: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-  error_description: Schema.optional(Schema.String),
-});
-
-// ---------------------------------------------------------------------------
-// Errors with HTTP status
-// ---------------------------------------------------------------------------
-
-const ParseError = OpenApiParseError.annotations(HttpApiSchema.annotations({ status: 400 }));
-const ExtractionError = OpenApiExtractionError.annotations(
-  HttpApiSchema.annotations({ status: 400 }),
-);
-const OAuthError = OpenApiOAuthError.annotations(HttpApiSchema.annotations({ status: 400 }));
+// HTTP status on the three domain errors lives on their class
+// declarations in `../sdk/errors.ts` — see the comment there.
 
 // ---------------------------------------------------------------------------
 // Group
+//
+// Plugin SDK errors (OpenApiParseError, OpenApiExtractionError,
+// OpenApiOAuthError) are declared once at the group level via
+// `.addError(...)` — every endpoint inherits them. The errors themselves
+// carry their HTTP status via `HttpApiSchema.annotations` above, so
+// handlers just `return yield* ext.foo(...)` and the schema encodes
+// whatever comes out.
+//
+// 5xx is handled at the API level: `.addError(InternalError)` adds the
+// shared opaque 500 surface. Defects are captured + downgraded to it by
+// an HttpApiBuilder middleware (see apps/cloud/src/observability.ts).
+// StorageError → InternalError translation happens at service wiring
+// time via `withCapture(executor)`.
 // ---------------------------------------------------------------------------
 
-export class OpenApiGroup extends HttpApiGroup.make("openapi")
+export const OpenApiGroup = HttpApiGroup.make("openapi")
   .add(
-    HttpApiEndpoint.post("previewSpec")`/scopes/${scopeIdParam}/openapi/preview`
-      .setPayload(PreviewSpecPayload)
-      .addSuccess(SpecPreview)
-      .addError(ParseError)
-      .addError(ExtractionError),
+    HttpApiEndpoint.post("previewSpec", "/scopes/:scopeId/openapi/preview", {
+      params: ScopeIdParam,
+      payload: PreviewSpecPayload,
+      success: SpecPreview,
+      error: DomainErrors,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("addSpec")`/scopes/${scopeIdParam}/openapi/specs`
-      .setPayload(AddSpecPayload)
-      .addSuccess(AddSpecResponse)
-      .addError(ParseError)
-      .addError(ExtractionError),
+    HttpApiEndpoint.post("addSpec", "/scopes/:scopeId/openapi/specs", {
+      params: ScopeIdParam,
+      payload: AddSpecPayload,
+      success: AddSpecResponse,
+      error: DomainErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("getSource", "/scopes/:scopeId/openapi/sources/:namespace", {
+      params: SourceParams,
+      success: Schema.NullOr(StoredSourceSchema),
+      error: DomainErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.patch("updateSource", "/scopes/:scopeId/openapi/sources/:namespace", {
+      params: SourceParams,
+      payload: UpdateSourcePayload,
+      success: UpdateSourceResponse,
+      error: DomainErrors,
+    }),
   )
   .add(
     HttpApiEndpoint.get(
-      "getSource",
-    )`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`.addSuccess(
-      Schema.NullOr(StoredSourceSchema),
+      "listSourceBindings",
+      "/scopes/:scopeId/openapi/sources/:namespace/base/:sourceScopeId/bindings",
+      {
+        params: SourceBindingParams,
+        success: Schema.Array(OpenApiSourceBindingRef),
+        error: DomainErrors,
+      },
     ),
   )
   .add(
-    HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
-      .setPayload(UpdateSourcePayload)
-      .addSuccess(UpdateSourceResponse),
+    HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/openapi/source-bindings", {
+      params: ScopeIdParam,
+      payload: OpenApiSourceBindingInput,
+      success: OpenApiSourceBindingRef,
+      error: DomainErrors,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/openapi/oauth/start`
-      .setPayload(StartOAuthPayload)
-      .addSuccess(StartOAuthResponse)
-      .addError(OAuthError),
-  )
-  .add(
-    HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/openapi/oauth/complete`
-      .setPayload(CompleteOAuthPayload)
-      .addSuccess(OAuth2Auth)
-      .addError(OAuthError),
-  )
-  .add(
-    HttpApiEndpoint.get("oauthCallback", "/openapi/oauth/callback")
-      .setUrlParams(OAuthCallbackUrlParams)
-      .addSuccess(
-        Schema.Unknown.annotations(
-          HttpApiSchema.annotations({ contentType: "text/html" }),
-        ),
-      )
-      .addError(OAuthError),
-  ) {}
+    HttpApiEndpoint.post("removeSourceBinding", "/scopes/:scopeId/openapi/source-bindings/remove", {
+      params: ScopeIdParam,
+      payload: RemoveBindingPayload,
+      success: Schema.Struct({ removed: Schema.Boolean }),
+      error: DomainErrors,
+    }),
+  );

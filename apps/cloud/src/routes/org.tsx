@@ -1,9 +1,16 @@
 import { useReducer, useState } from "react";
-import { Exit } from "effect";
+import { Cause, Exit, Match, Result } from "effect";
+import { Forbidden } from "../org/api";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { useCustomer } from "autumn-js/react";
 import { toast } from "sonner";
+import {
+  orgMemberWriteKeys,
+  orgDomainWriteKeys,
+  orgInfoWriteKeys,
+} from "@executor-js/react/api/reactivity-keys";
 import {
   Dialog,
   DialogContent,
@@ -12,19 +19,19 @@ import {
   DialogDescription,
   DialogFooter,
   DialogClose,
-} from "@executor/react/components/dialog";
-import { Button } from "@executor/react/components/button";
-import { Badge } from "@executor/react/components/badge";
-import { CopyButton } from "@executor/react/components/copy-button";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
+} from "@executor-js/react/components/dialog";
+import { Button } from "@executor-js/react/components/button";
+import { Badge } from "@executor-js/react/components/badge";
+import { CopyButton } from "@executor-js/react/components/copy-button";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@executor/react/components/select";
+} from "@executor-js/react/components/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +41,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-} from "@executor/react/components/dropdown-menu";
+} from "@executor-js/react/components/dropdown-menu";
 import {
   orgMembersAtom,
   orgRolesAtom,
@@ -46,7 +53,7 @@ import {
   deleteDomain,
   updateOrgName,
 } from "../web/org-atoms";
-import { authAtom, useAuth } from "../web/auth";
+import { useAuth } from "../web/auth";
 
 export const Route = createFileRoute("/org")({
   component: OrgPage,
@@ -56,36 +63,40 @@ type InviteState = {
   email: string;
   roleSlug: string;
   status: "idle" | "sending" | "error";
-  error: string | null;
+  failure: Cause.Cause<unknown> | null;
 };
 
 const initialInviteState: InviteState = {
   email: "",
   roleSlug: "member",
   status: "idle",
-  error: null,
+  failure: null,
 };
 
 type InviteAction =
   | { type: "setEmail"; email: string }
   | { type: "setRole"; roleSlug: string }
   | { type: "send" }
-  | { type: "error"; message: string }
+  | { type: "error"; cause: Cause.Cause<unknown> }
   | { type: "reset" };
 
 function inviteReducer(state: InviteState, action: InviteAction): InviteState {
-  switch (action.type) {
-    case "setEmail":
-      return { ...state, email: action.email };
-    case "setRole":
-      return { ...state, roleSlug: action.roleSlug };
-    case "send":
-      return { ...state, status: "sending", error: null };
-    case "error":
-      return { ...state, status: "error", error: action.message };
-    case "reset":
-      return initialInviteState;
-  }
+  return Match.value(action).pipe(
+    Match.discriminator("type")("setEmail", (a) => ({ ...state, email: a.email })),
+    Match.discriminator("type")("setRole", (a) => ({ ...state, roleSlug: a.roleSlug })),
+    Match.discriminator("type")("send", () => ({
+      ...state,
+      status: "sending" as const,
+      failure: null,
+    })),
+    Match.discriminator("type")("error", (a) => ({
+      ...state,
+      status: "error" as const,
+      failure: a.cause,
+    })),
+    Match.discriminator("type")("reset", () => initialInviteState),
+    Match.exhaustive,
+  );
 }
 
 function formatLastActive(lastActiveAt: string | null): string {
@@ -109,47 +120,53 @@ function OrgPage() {
   const membersResult = useAtomValue(orgMembersAtom);
   const rolesResult = useAtomValue(orgRolesAtom);
   const domainsResult = useAtomValue(orgDomainsAtom);
-  const refreshMembers = useAtomRefresh(orgMembersAtom);
-  const refreshDomains = useAtomRefresh(orgDomainsAtom);
   const doRemove = useAtomSet(removeMember, { mode: "promiseExit" });
   const doUpdateRole = useAtomSet(updateMemberRole, { mode: "promiseExit" });
   const doDeleteDomain = useAtomSet(deleteDomain, { mode: "promiseExit" });
   const doGetVerificationLink = useAtomSet(getDomainVerificationLink, { mode: "promiseExit" });
   const doUpdateOrgName = useAtomSet(updateOrgName, { mode: "promiseExit" });
   const { check, isLoading: customerLoading } = useCustomer();
-  const canUseDomains = customerLoading ? false : check({ featureId: "domain-verification" }).allowed;
+  const canUseDomains = customerLoading
+    ? false
+    : check({ featureId: "domain-verification" }).allowed;
+  const seats = AsyncResult.match(membersResult, {
+    onInitial: () => null,
+    onFailure: () => null,
+    onSuccess: ({ value }) => value.seats ?? null,
+  });
+  const canInviteMember = !seats ? false : seats.unlimited || seats.used < seats.granted;
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editName, setEditName] = useState(orgName);
   const [savingName, setSavingName] = useState(false);
   const [search, setSearch] = useState("");
 
-  const roles = Result.match(rolesResult, {
+  const roles = AsyncResult.match(rolesResult, {
     onInitial: () => [] as readonly { slug: string; name: string }[],
     onFailure: () => [] as readonly { slug: string; name: string }[],
     onSuccess: ({ value }) => value.roles,
   });
 
   const handleRemove = async (membershipId: string, name: string) => {
-    const exit = await doRemove({ path: { membershipId } });
+    const exit = await doRemove({ params: { membershipId }, reactivityKeys: orgMemberWriteKeys });
     if (Exit.isSuccess(exit)) {
       toast.success(`Removed ${name}`);
-      refreshMembers();
     } else {
       toast.error("Failed to remove member");
     }
   };
 
   const handleChangeRole = async (membershipId: string, roleSlug: string, roleName: string) => {
-    const exit = await doUpdateRole({ path: { membershipId }, payload: { roleSlug } });
+    const exit = await doUpdateRole({
+      params: { membershipId },
+      payload: { roleSlug },
+      reactivityKeys: orgMemberWriteKeys,
+    });
     if (Exit.isSuccess(exit)) {
       toast.success(`Role changed to ${roleName}`);
-      refreshMembers();
     } else {
       toast.error("Failed to change role");
     }
   };
-
-  const refreshAuth = useAtomRefresh(authAtom);
 
   const handleSaveName = async () => {
     const trimmed = editName.trim();
@@ -158,10 +175,12 @@ function OrgPage() {
       return;
     }
     setSavingName(true);
-    const exit = await doUpdateOrgName({ payload: { name: trimmed } });
+    const exit = await doUpdateOrgName({
+      payload: { name: trimmed },
+      reactivityKeys: orgInfoWriteKeys,
+    });
     if (Exit.isSuccess(exit)) {
       toast.success("Organization name updated");
-      refreshAuth();
     } else {
       toast.error("Failed to update organization name");
       setEditName(orgName);
@@ -170,17 +189,19 @@ function OrgPage() {
   };
 
   const handleDeleteDomain = async (domainId: string, domain: string) => {
-    const exit = await doDeleteDomain({ path: { domainId } });
+    const exit = await doDeleteDomain({
+      params: { domainId },
+      reactivityKeys: orgDomainWriteKeys,
+    });
     if (Exit.isSuccess(exit)) {
       toast.success(`Removed ${domain}`);
-      refreshDomains();
     } else {
       toast.error("Failed to remove domain");
     }
   };
 
   const handleAddDomain = async () => {
-    const exit = await doGetVerificationLink({});
+    const exit = await doGetVerificationLink({ reactivityKeys: orgDomainWriteKeys });
     if (Exit.isSuccess(exit)) {
       window.open(exit.value.link, "_blank");
     } else {
@@ -193,19 +214,14 @@ function OrgPage() {
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="font-display text-[2rem] tracking-tight text-foreground">
-            Organization
-          </h1>
+          <h1 className="font-display text-[2rem] tracking-tight text-foreground">Organization</h1>
         </div>
 
         {/* Settings */}
         <section className="mb-10">
           <div className="flex items-end gap-3">
             <div className="min-w-0 flex-1">
-              <Label
-                htmlFor="org-name"
-                className="text-sm font-medium text-foreground"
-              >
+              <Label htmlFor="org-name" className="text-sm font-medium text-foreground">
                 Organization name
               </Label>
               <Input
@@ -248,7 +264,7 @@ function OrgPage() {
           {!canUseDomains && (
             <div className="mb-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <p className="text-sm text-muted-foreground">
-                Domain verification is available on the Professional plan.
+                Join by domain is available on the Team plan.
               </p>
               <Link to="/billing/plans">
                 <Button size="sm" variant="outline">
@@ -258,7 +274,7 @@ function OrgPage() {
             </div>
           )}
 
-          {Result.match(domainsResult, {
+          {AsyncResult.match(domainsResult, {
             onInitial: () => (
               <div className="space-y-3">
                 {[1, 2].map((i) => (
@@ -273,6 +289,7 @@ function OrgPage() {
             ),
             onSuccess: ({ value }) => {
               if (value.domains.length === 0) {
+                if (!canUseDomains) return null;
                 return (
                   <p className="py-6 text-center text-sm text-muted-foreground">
                     No domains yet. Add your company domain so members can join without an invite.
@@ -282,7 +299,7 @@ function OrgPage() {
 
               return (
                 <div className="space-y-2">
-                  {value.domains.map((d) => (
+                  {value.domains.map((d: DomainData) => (
                     <DomainCard
                       key={d.id}
                       domain={d}
@@ -298,10 +315,23 @@ function OrgPage() {
         {/* Members */}
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-medium text-foreground">Members</h2>
-            <Button size="sm" className="min-w-32" onClick={() => setInviteOpen(true)}>
-              Invite member
-            </Button>
+            <div>
+              <h2 className="text-sm font-medium text-foreground">Members</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Free organizations can include up to 3 members.
+              </p>
+            </div>
+            {canInviteMember ? (
+              <Button size="sm" className="min-w-32" onClick={() => setInviteOpen(true)}>
+                Invite member
+              </Button>
+            ) : (
+              <Link to="/billing/plans">
+                <Button size="sm" className="min-w-32">
+                  Upgrade
+                </Button>
+              </Link>
+            )}
           </div>
           <Input
             type="text"
@@ -311,171 +341,166 @@ function OrgPage() {
             className="mb-3 h-9 text-sm"
           />
 
-        {Result.match(membersResult, {
-          onInitial: () => (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
-              ))}
-            </div>
-          ),
-          onFailure: () => (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load members</p>
-            </div>
-          ),
-          onSuccess: ({ value }) => {
-            const members = value.members;
-            const filtered = search
-              ? members.filter(
-                  (m) =>
-                    m.email.toLowerCase().includes(search.toLowerCase()) ||
-                    (m.name?.toLowerCase().includes(search.toLowerCase()) ?? false),
-                )
-              : members;
-
-            if (filtered.length === 0) {
-              return (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  {search ? "No matching members" : "No members yet"}
-                </p>
-              );
-            }
-
-            return (
-              <div className="space-y-px">
-                {filtered.map((member) => (
-                  <div
-                    key={member.id}
-                    className="group relative grid grid-cols-[2rem_1fr_6rem_5rem_2rem] items-center gap-3 rounded-lg border border-transparent px-4 py-3 transition-all hover:bg-muted/30"
-                  >
-                    {/* Avatar */}
-                    {member.avatarUrl ? (
-                      <img src={member.avatarUrl} alt="" className="size-8 rounded-full" />
-                    ) : (
-                      <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                        {member.name
-                          ? member.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase()
-                          : member.email[0]!.toUpperCase()}
-                      </div>
-                    )}
-
-                    {/* Name + email */}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-medium text-foreground leading-none">
-                          {member.name ?? member.email}
-                        </p>
-                        {member.isCurrentUser && (
-                          <Badge className="bg-muted text-muted-foreground">You</Badge>
-                        )}
-                        {member.status === "pending" && (
-                          <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                            Invited
-                          </Badge>
-                        )}
-                      </div>
-                      {member.name && (
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground leading-none">
-                          {member.email}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Role */}
-                    <p className="text-sm text-muted-foreground capitalize leading-none">
-                      {member.role}
-                    </p>
-
-                    {/* Last active */}
-                    <p className="text-xs text-muted-foreground leading-none">
-                      {formatLastActive(member.lastActiveAt)}
-                    </p>
-
-                    {/* Actions */}
-                    {!member.isCurrentUser ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <svg viewBox="0 0 16 16" className="size-3">
-                              <circle cx="8" cy="3" r="1.2" fill="currentColor" />
-                              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
-                              <circle cx="8" cy="13" r="1.2" fill="currentColor" />
-                            </svg>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44">
-                          {roles.length > 0 && (
-                            <>
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger className="text-xs">
-                                  Change role
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent>
-                                  {roles.map((role) => (
-                                    <DropdownMenuItem
-                                      key={role.slug}
-                                      className="text-xs"
-                                      disabled={role.slug === member.role}
-                                      onClick={() =>
-                                        handleChangeRole(member.id, role.slug, role.name)
-                                      }
-                                    >
-                                      {role.name}
-                                      {role.slug === member.role && (
-                                        <span className="ml-auto text-muted-foreground">
-                                          <svg viewBox="0 0 16 16" fill="none" className="size-3">
-                                            <path
-                                              d="M3.5 8.5L6.5 11.5L12.5 5"
-                                              stroke="currentColor"
-                                              strokeWidth="1.5"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-                                          </svg>
-                                        </span>
-                                      )}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
-                              <DropdownMenuSeparator />
-                            </>
-                          )}
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive text-sm"
-                            onClick={() => handleRemove(member.id, member.name ?? member.email)}
-                          >
-                            Remove member
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : (
-                      <div />
-                    )}
-                  </div>
+          {AsyncResult.match(membersResult, {
+            onInitial: () => (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
                 ))}
               </div>
-            );
-          },
-        })}
+            ),
+            onFailure: () => (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+                <p className="text-sm text-destructive">Failed to load members</p>
+              </div>
+            ),
+            onSuccess: ({ value }) => {
+              const members = value.members;
+              const filtered = search
+                ? members.filter(
+                    (m: MemberData) =>
+                      m.email.toLowerCase().includes(search.toLowerCase()) ||
+                      (m.name?.toLowerCase().includes(search.toLowerCase()) ?? false),
+                  )
+                : members;
+
+              if (filtered.length === 0) {
+                return (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    {search ? "No matching members" : "No members yet"}
+                  </p>
+                );
+              }
+
+              return (
+                <div className="space-y-px">
+                  {filtered.map((member: MemberData) => (
+                    <div
+                      key={member.id}
+                      className="group relative grid grid-cols-[2rem_1fr_6rem_5rem_2rem] items-center gap-3 rounded-lg border border-transparent px-4 py-3 transition-all hover:bg-muted/30"
+                    >
+                      {/* Avatar */}
+                      {member.avatarUrl ? (
+                        <img src={member.avatarUrl} alt="" className="size-8 rounded-full" />
+                      ) : (
+                        <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                          {member.name
+                            ? member.name
+                                .split(" ")
+                                .map((n: string) => n[0])
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()
+                            : member.email[0]!.toUpperCase()}
+                        </div>
+                      )}
+
+                      {/* Name + email */}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium text-foreground leading-none">
+                            {member.name ?? member.email}
+                          </p>
+                          {member.isCurrentUser && (
+                            <Badge className="bg-muted text-muted-foreground">You</Badge>
+                          )}
+                          {member.status === "pending" && (
+                            <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                              Invited
+                            </Badge>
+                          )}
+                        </div>
+                        {member.name && (
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground leading-none">
+                            {member.email}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Role */}
+                      <p className="text-sm text-muted-foreground capitalize leading-none">
+                        {member.role}
+                      </p>
+
+                      {/* Last active */}
+                      <p className="text-xs text-muted-foreground leading-none">
+                        {formatLastActive(member.lastActiveAt)}
+                      </p>
+
+                      {/* Actions */}
+                      {!member.isCurrentUser ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <svg viewBox="0 0 16 16" className="size-3">
+                                <circle cx="8" cy="3" r="1.2" fill="currentColor" />
+                                <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+                                <circle cx="8" cy="13" r="1.2" fill="currentColor" />
+                              </svg>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            {roles.length > 0 && (
+                              <>
+                                <DropdownMenuSub>
+                                  <DropdownMenuSubTrigger className="text-xs">
+                                    Change role
+                                  </DropdownMenuSubTrigger>
+                                  <DropdownMenuSubContent>
+                                    {roles.map((role: RoleData) => (
+                                      <DropdownMenuItem
+                                        key={role.slug}
+                                        className="text-xs"
+                                        disabled={role.slug === member.role}
+                                        onClick={() =>
+                                          handleChangeRole(member.id, role.slug, role.name)
+                                        }
+                                      >
+                                        {role.name}
+                                        {role.slug === member.role && (
+                                          <span className="ml-auto text-muted-foreground">
+                                            <svg viewBox="0 0 16 16" fill="none" className="size-3">
+                                              <path
+                                                d="M3.5 8.5L6.5 11.5L12.5 5"
+                                                stroke="currentColor"
+                                                strokeWidth="1.5"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              />
+                                            </svg>
+                                          </span>
+                                        )}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive text-sm"
+                              onClick={() => handleRemove(member.id, member.name ?? member.email)}
+                            >
+                              Remove member
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            },
+          })}
         </section>
 
-        <InviteDialog
-          open={inviteOpen}
-          onOpenChange={setInviteOpen}
-          onInvited={refreshMembers}
-          roles={roles}
-        />
+        <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={roles} />
       </div>
     </div>
   );
@@ -489,19 +514,29 @@ type DomainData = {
   verificationPrefix?: string;
 };
 
-function DomainCard({
-  domain: d,
-  onDelete,
-}: {
-  domain: DomainData;
-  onDelete: () => void;
-}) {
+type MemberData = {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: string;
+  status: string;
+  lastActiveAt: string | null;
+  isCurrentUser: boolean;
+};
+
+type RoleData = {
+  slug: string;
+  name: string;
+};
+
+function DomainCard({ domain: d, onDelete }: { domain: DomainData; onDelete: () => void }) {
   const isVerified = d.state === "verified";
   const isPending = d.state === "pending";
 
   const recordValue = d.verificationPrefix
     ? `${d.verificationPrefix}=${d.verificationToken}`
-    : d.verificationToken ?? "";
+    : (d.verificationToken ?? "");
 
   const copyPromptValue = `Add a DNS TXT record for domain verification:\n\nDomain: ${d.domain}\nRecord name: @\nRecord value: ${recordValue}\n\nPlease add this TXT record to my DNS configuration.`;
 
@@ -510,9 +545,7 @@ function DomainCard({
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-medium text-foreground">
-              {d.domain}
-            </p>
+            <p className="truncate text-sm font-medium text-foreground">{d.domain}</p>
             <Badge
               className={
                 isVerified
@@ -569,7 +602,8 @@ function DomainCard({
             </span>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
-            DNS changes can take up to 72 hours to propagate, but usually complete within a few minutes.
+            DNS changes can take up to 72 hours to propagate, but usually complete within a few
+            minutes.
           </p>
         </div>
       )}
@@ -577,10 +611,35 @@ function DomainCard({
   );
 }
 
+function InviteErrorAlert({ cause }: { cause: Cause.Cause<unknown> }) {
+  const failure = Cause.findError(cause);
+  const error = Result.isSuccess(failure) ? failure.success : null;
+
+  if (error instanceof Forbidden) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+        <p className="text-sm text-destructive">
+          You've reached your member limit. Upgrade to Team to invite more.
+        </p>
+        <Link to="/billing/plans">
+          <Button size="sm" variant="outline">
+            Upgrade
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+      <p className="text-sm text-destructive">Failed to send invitation. Please try again.</p>
+    </div>
+  );
+}
+
 function InviteDialog(props: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onInvited: () => void;
   roles: readonly { slug: string; name: string }[];
 }) {
   const [state, dispatch] = useReducer(inviteReducer, initialInviteState);
@@ -595,16 +654,16 @@ function InviteDialog(props: {
         email: state.email.trim(),
         ...(state.roleSlug ? { roleSlug: state.roleSlug } : {}),
       },
+      reactivityKeys: orgMemberWriteKeys,
     });
 
     if (Exit.isSuccess(exit)) {
       toast.success(`Invitation sent to ${state.email.trim()}`);
       dispatch({ type: "reset" });
       props.onOpenChange(false);
-      props.onInvited();
-    } else {
-      dispatch({ type: "error", message: "Failed to send invitation" });
+      return;
     }
+    dispatch({ type: "error", cause: exit.cause });
   };
 
   return (
@@ -672,11 +731,7 @@ function InviteDialog(props: {
             </div>
           )}
 
-          {state.status === "error" && state.error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-sm text-destructive">{state.error}</p>
-            </div>
-          )}
+          {state.status === "error" && state.failure && <InviteErrorAlert cause={state.failure} />}
         </div>
 
         <DialogFooter>
@@ -697,4 +752,3 @@ function InviteDialog(props: {
     </Dialog>
   );
 }
-

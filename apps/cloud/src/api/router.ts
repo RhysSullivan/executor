@@ -1,39 +1,37 @@
-import { HttpApp, HttpRouter } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Layer } from "effect";
 
-type RequestAppService = {
-  readonly app: HttpApp.Default;
-};
+import { UserStoreService } from "../auth/context";
+import { DbService } from "../services/db";
 
-export class OrgRequestHandlerService extends Context.Tag(
-  "@executor/cloud/OrgRequestHandlerService",
-)<OrgRequestHandlerService, RequestAppService>() {}
+import { AutumnRoutesLive } from "./autumn";
+import { ApiErrorLoggingLive } from "./error-logging";
+import {
+  BootSharedServices,
+  RequestScopedServicesLive,
+  RouterConfig,
+  makeNonProtectedApiLive,
+  makeOrgApiLive,
+} from "./layers";
+import { makeProtectedApiLive } from "./protected";
 
-export class NonProtectedRequestHandlerService extends Context.Tag(
-  "@executor/cloud/NonProtectedRequestHandlerService",
-)<NonProtectedRequestHandlerService, RequestAppService>() {}
+// One router. Each sub-API contributes its routes via `HttpApiBuilder.layer`,
+// which calls `HttpRouter.use(...)` under the hood. Autumn's catch-all proxy
+// is added as a plain `HttpRouter.add` route. They all merge into the same
+// routing table; there is no outer-then-inner router stacking.
+//
+// The per-request `DbService` + `UserStoreService` wiring is threaded
+// through each sub-API's factory. Boot-scoped services come in here via
+// `Layer.provideMerge`. `requestScopedLive` is exposed as a parameter
+// so tests can substitute a counting fake for `DbService.Live` and
+// assert per-request semantics — see
+// `apps/cloud/src/api.request-scope.node.test.ts`.
+export const makeApiLive = (requestScopedLive: Layer.Layer<DbService | UserStoreService>) =>
+  Layer.mergeAll(
+    makeNonProtectedApiLive(requestScopedLive),
+    makeOrgApiLive(requestScopedLive),
+    makeProtectedApiLive(requestScopedLive),
+    AutumnRoutesLive,
+    ApiErrorLoggingLive,
+  ).pipe(Layer.provideMerge(RouterConfig), Layer.provideMerge(BootSharedServices));
 
-export class AutumnRequestHandlerService extends Context.Tag(
-  "@executor/cloud/AutumnRequestHandlerService",
-)<AutumnRequestHandlerService, RequestAppService>() {}
-
-export class ProtectedRequestHandlerService extends Context.Tag(
-  "@executor/cloud/ProtectedRequestHandlerService",
-)<ProtectedRequestHandlerService, RequestAppService>() {}
-
-export const ApiRouterApp = Effect.gen(function* () {
-  const org = yield* OrgRequestHandlerService;
-  const nonProtected = yield* NonProtectedRequestHandlerService;
-  const autumn = yield* AutumnRequestHandlerService;
-  const protectedHandler = yield* ProtectedRequestHandlerService;
-
-  return yield* HttpRouter.empty.pipe(
-    HttpRouter.mountApp("/org", org.app, { includePrefix: true }),
-    HttpRouter.mountApp("/auth", nonProtected.app, { includePrefix: true }),
-    HttpRouter.mountApp("/autumn", autumn.app, { includePrefix: true }),
-    HttpRouter.mountApp("/", protectedHandler.app),
-    HttpRouter.toHttpApp,
-  );
-});
-
-export const ApiRequestHandler = Effect.map(ApiRouterApp, HttpApp.toWebHandler);
+export const ApiLive = makeApiLive(RequestScopedServicesLive);

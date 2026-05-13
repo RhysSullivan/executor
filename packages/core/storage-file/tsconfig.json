@@ -11,10 +11,12 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "types": ["node"],
+    "types": ["node", "bun-types"],
     "plugins": [
       {
         "name": "@effect/language-service",
+        "ignoreEffectSuggestionsInTscExitCode": true,
+        "ignoreEffectWarningsInTscExitCode": true,
         "diagnosticSeverity": {}
       }
     ]

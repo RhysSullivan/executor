@@ -53,6 +53,7 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     name: "OpenAI",
     summary: "Models, files, responses, and fine-tuning.",
     url: "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml",
+    icon: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg",
     featured: true,
   },
   {
@@ -60,7 +61,7 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     name: "Sentry",
     summary: "Error tracking, performance monitoring, and releases.",
     url: "https://raw.githubusercontent.com/getsentry/sentry-api-schema/main/openapi-derefed.json",
-    icon: "https://sentry.io/favicon.ico",
+    icon: "https://sentry-brand.storage.googleapis.com/sentry-glyph-black.png",
     featured: true,
   },
   {
@@ -127,5 +128,12 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     summary: "Transactional email sending and domain management.",
     url: "https://raw.githubusercontent.com/resend/resend-openapi/main/resend.yaml",
     icon: "https://resend.com/static/favicons/favicon.ico",
+  },
+  {
+    id: "spotify",
+    name: "Spotify",
+    summary: "Tracks, albums, playlists, library, and playback.",
+    url: "https://raw.githubusercontent.com/sonallux/spotify-web-api/refs/heads/main/official-spotify-open-api.yml",
+    icon: "https://spotify.com/favicon.ico",
   },
 ];

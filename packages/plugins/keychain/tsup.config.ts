@@ -9,5 +9,5 @@ export default defineConfig({
   dts: false,
   sourcemap: true,
   clean: true,
-  external: [/^@executor\//, /^effect/, /^@effect\//],
+  external: [/^@executor-js\//, /^effect/, /^@effect\//],
 });

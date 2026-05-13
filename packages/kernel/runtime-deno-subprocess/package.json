@@ -1,6 +1,6 @@
 {
-  "name": "@executor/runtime-deno-subprocess",
-  "version": "0.0.4",
+  "name": "@executor-js/runtime-deno-subprocess",
+  "version": "0.0.5",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,7 +13,7 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/codemode-core": "workspace:*",
+    "@executor-js/codemode-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

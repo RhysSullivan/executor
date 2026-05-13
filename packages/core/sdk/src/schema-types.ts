@@ -1,3 +1,5 @@
+import { Match, Option } from "effect";
+
 type JsonSchemaRecord = Record<string, unknown>;
 
 export type TypeScriptRenderOptions = {
@@ -49,23 +51,15 @@ const summarizeLargeComposite = (
   return null;
 };
 
-const primitiveTypeName = (value: string): string => {
-  switch (value) {
-    case "integer":
-    case "number":
-      return "number";
-    case "string":
-    case "boolean":
-    case "null":
-      return value;
-    case "array":
-      return "unknown[]";
-    case "object":
-      return "Record<string, unknown>";
-    default:
-      return "unknown";
-  }
-};
+const primitiveTypeName = (value: string): string =>
+  Match.value(value).pipe(
+    Match.whenOr("integer", "number", () => "number"),
+    Match.whenOr("string", "boolean", "null", (v) => v),
+    Match.when("array", () => "unknown[]"),
+    Match.when("object", () => "Record<string, unknown>"),
+    Match.option,
+    Option.getOrElse(() => "unknown"),
+  );
 
 const renderComposite = (input: {
   key: "oneOf" | "anyOf" | "allOf";
@@ -364,16 +358,18 @@ export const schemaToTypeScriptPreviewWithDefs = (
   };
 };
 
+export type ToolTypeScriptPreview = {
+  inputTypeScript?: string;
+  outputTypeScript?: string;
+  typeScriptDefinitions?: Record<string, string>;
+};
+
 export const buildToolTypeScriptPreview = (input: {
   inputSchema?: unknown;
   outputSchema?: unknown;
   defs: ReadonlyMap<string, unknown>;
   options?: TypeScriptRenderOptions;
-}): {
-  inputTypeScript?: string;
-  outputTypeScript?: string;
-  typeScriptDefinitions?: Record<string, string>;
-} => {
+}): ToolTypeScriptPreview => {
   const inputPreview =
     input.inputSchema !== undefined
       ? schemaToTypeScriptPreviewWithDefs(input.inputSchema, input.defs, input.options)

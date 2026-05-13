@@ -2,24 +2,45 @@
 // WorkOS AuthKit — Effect-native sealed session management
 // ---------------------------------------------------------------------------
 
-import { Context, Effect, Layer } from "effect";
-import { WorkOS } from "@workos-inc/node/worker";
+import { env } from "cloudflare:workers";
+import { Context, Data, Effect, Layer } from "effect";
+import { GeneratePortalLinkIntent, WorkOS } from "@workos-inc/node/worker";
 import { WorkOSError, tryPromiseService, withServiceLogging } from "./errors";
-import { server } from "../env";
 
 const COOKIE_NAME = "wos-session";
+const INVALID_COOKIE_PASSWORD_MESSAGE = "WORKOS_COOKIE_PASSWORD must be at least 32 characters";
+
+type RawWorkOS = WorkOS & {
+  readonly get: (
+    path: string,
+    options?: { readonly query?: Record<string, unknown> },
+  ) => Promise<{
+    readonly data: unknown;
+  }>;
+  readonly post: (
+    path: string,
+    entity: unknown,
+    options?: { readonly idempotencyKey?: string },
+  ) => Promise<{ readonly data: unknown }>;
+};
+
+class WorkOSAuthConfigurationError extends Data.TaggedError("WorkOSAuthConfigurationError")<{
+  readonly message: string;
+}> {}
 
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
 const make = Effect.gen(function* () {
-  const apiKey = server.WORKOS_API_KEY;
-  const clientId = server.WORKOS_CLIENT_ID;
-  const cookiePassword = server.WORKOS_COOKIE_PASSWORD;
+  const apiKey = env.WORKOS_API_KEY;
+  const clientId = env.WORKOS_CLIENT_ID;
+  const cookiePassword = env.WORKOS_COOKIE_PASSWORD;
 
   if (!cookiePassword || cookiePassword.length < 32) {
-    return yield* Effect.die(new Error("WORKOS_COOKIE_PASSWORD must be at least 32 characters"));
+    return yield* new WorkOSAuthConfigurationError({
+      message: INVALID_COOKIE_PASSWORD_MESSAGE,
+    });
   }
 
   const workos = new WorkOS({ apiKey, clientId });
@@ -78,11 +99,12 @@ const make = Effect.gen(function* () {
     });
 
   return {
-    getAuthorizationUrl: (redirectUri: string) =>
+    getAuthorizationUrl: (redirectUri: string, state?: string) =>
       workos.userManagement.getAuthorizationUrl({
         provider: "authkit",
         redirectUri,
         clientId,
+        ...(state ? { state } : {}),
       }),
 
     authenticateWithCode: (code: string) =>
@@ -149,6 +171,36 @@ const make = Effect.gen(function* () {
         return yield* authenticateSealedSession(sessionData);
       }),
 
+    /**
+     * Validate an AuthKit API key. The SDK version installed here exposes
+     * organization-owned key types, while WorkOS's API also returns user-owned
+     * keys. Keep this boundary unknown and decode the precise app shape in
+     * auth/api-keys.ts.
+     */
+    validateApiKey: (value: string) =>
+      use((wos) => wos.apiKeys.validateApiKey({ value }) as Promise<unknown>),
+
+    listUserApiKeys: (userId: string, organizationId: string) =>
+      use(async (wos) => {
+        const raw = wos as RawWorkOS;
+        const response = await raw.get(`/user_management/users/${userId}/api_keys`, {
+          query: { organization_id: organizationId },
+        });
+        return response.data;
+      }),
+
+    createUserApiKey: (params: { userId: string; organizationId: string; name: string }) =>
+      use(async (wos) => {
+        const raw = wos as RawWorkOS;
+        const response = await raw.post(`/user_management/users/${params.userId}/api_keys`, {
+          name: params.name,
+          organization_id: params.organizationId,
+        });
+        return response.data;
+      }),
+
+    deleteApiKey: (id: string) => use((wos) => wos.apiKeys.deleteApiKey(id)),
+
     /** List organization memberships with user details. */
     listOrgMembers: (organizationId: string) =>
       use((wos) =>
@@ -170,6 +222,27 @@ const make = Effect.gen(function* () {
           roleSlug: params.roleSlug,
         }),
       ),
+
+    /**
+     * Pending invitations for an organization (i.e. not yet accepted, revoked,
+     * or expired). The SDK's `state` filter doesn't reliably narrow at the
+     * API level, so we filter after.
+     */
+    listPendingInvitations: (organizationId: string) =>
+      use((wos) => wos.userManagement.listInvitations({ organizationId })).pipe(
+        Effect.map((response) => ({
+          ...response,
+          data: response.data.filter((i) => i.state === "pending"),
+        })),
+      ),
+
+    /** List invitations for an email address (across all orgs). */
+    listInvitationsByEmail: (email: string) =>
+      use((wos) => wos.userManagement.listInvitations({ email })),
+
+    /** Accept an invitation; returns the (now accepted) invitation. */
+    acceptInvitation: (invitationId: string) =>
+      use((wos) => wos.userManagement.acceptInvitation(invitationId)),
 
     /** Remove an organization membership. */
     deleteOrgMembership: (membershipId: string) =>
@@ -200,8 +273,7 @@ const make = Effect.gen(function* () {
       use((wos) =>
         wos.portal.generateLink({
           organization: organizationId,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          intent: "domain_verification" as any,
+          intent: GeneratePortalLinkIntent.DomainVerification,
           returnUrl,
         }),
       ),
@@ -216,13 +288,14 @@ const make = Effect.gen(function* () {
   };
 });
 
-export type WorkOSAuthService = Effect.Effect.Success<typeof make>;
+export type WorkOSAuthService = Effect.Success<typeof make>;
 
-export class WorkOSAuth extends Context.Tag("@executor/cloud/WorkOSAuth")<
-  WorkOSAuth,
-  WorkOSAuthService
->() {
-  static Default = Layer.effect(this, make).pipe(Layer.annotateSpans({ module: "WorkOSAuth" }));
+export class WorkOSAuth extends Context.Service<WorkOSAuth, WorkOSAuthService>()(
+  "@executor-js/cloud/WorkOSAuth",
+) {
+  static Default = Layer.effect(this)(make).pipe(
+    Layer.withSpan("WorkOSAuth", { attributes: { module: "WorkOSAuth" } }),
+  );
 }
 
 const parseCookie = (cookieHeader: string | null, name: string): string | null => {

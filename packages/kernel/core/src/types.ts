@@ -1,5 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type * as Cause from "effect/Cause";
 import type * as Effect from "effect/Effect";
+
+import type { CodeExecutionError } from "./effect-errors";
 
 /** Branded tool path */
 export type ToolPath = string & { readonly __toolPath: unique symbol };
@@ -20,7 +23,7 @@ export interface Tool {
 
 /** Invoke a tool by path from inside a sandbox */
 export interface SandboxToolInvoker {
-  invoke(input: { path: string; args: unknown }): Effect.Effect<unknown, unknown>;
+  invoke(input: { path: string; args: unknown }): Effect.Effect<unknown, unknown, never>;
 }
 
 /** Result of executing code in a sandbox */
@@ -30,16 +33,24 @@ export type ExecuteResult = {
   logs?: string[];
 };
 
-/** Executes code in a sandboxed runtime with tool access */
-export interface CodeExecutor {
-  execute(code: string, toolInvoker: SandboxToolInvoker): Effect.Effect<ExecuteResult, unknown>;
+/**
+ * Executes code in a sandboxed runtime with tool access.
+ *
+ * Error channel is constrained to Effect's `YieldableError` (the base
+ * shape `Data.TaggedError(...)` produces) so callers always get a
+ * structurally tagged error, never untyped `unknown`. Defaults to
+ * `CodeExecutionError`; runtimes can parameterize with their own
+ * `Data.TaggedError` subclass — e.g. `CodeExecutor<WorkerLoaderError>`.
+ */
+export interface CodeExecutor<E extends Cause.YieldableError = CodeExecutionError> {
+  execute(code: string, toolInvoker: SandboxToolInvoker): Effect.Effect<ExecuteResult, E>;
 }
 
 /** Accept-anything schema for tools with no input validation */
 export const unknownInputSchema: StandardSchema = {
   "~standard": {
     version: 1,
-    vendor: "@executor/codemode-core",
+    vendor: "@executor-js/codemode-core",
     validate: (value: unknown) => ({
       value,
     }),

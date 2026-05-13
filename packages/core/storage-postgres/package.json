@@ -1,33 +1,29 @@
 {
-  "name": "@executor/storage-postgres",
-  "version": "1.4.1",
+  "name": "@executor-js/storage-postgres",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./schema": "./src/schema.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsgo --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/sql": "catalog:",
-    "@effect/sql-pg": "^0.28.0",
-    "@executor/sdk": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
+    "@executor-js/storage-drizzle": "workspace:*",
     "drizzle-orm": "catalog:",
-    "effect": "catalog:",
-    "pg": "^8.16.0"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@electric-sql/pglite": "^0.4.3",
+    "@electric-sql/pglite": "^0.4.4",
+    "@electric-sql/pglite-socket": "^0.1.4",
     "@types/node": "^25.6.0",
-    "@types/pg": "^8.15.4",
-    "drizzle-kit": "^0.31.0",
+    "postgres": "^3.4.9",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

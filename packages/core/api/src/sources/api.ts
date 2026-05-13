@@ -1,13 +1,15 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId, ToolId } from "@executor/sdk";
+import { ScopeId, SourceRemovalNotAllowedError, ToolId } from "@executor-js/sdk";
+
+import { InternalError } from "../observability";
 
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
-const sourceIdParam = HttpApiSchema.param("sourceId", Schema.String);
+const ScopeParams = { scopeId: ScopeId };
+const SourceParams = { scopeId: ScopeId, sourceId: Schema.String };
 
 // ---------------------------------------------------------------------------
 // Response schemas
@@ -15,6 +17,7 @@ const sourceIdParam = HttpApiSchema.param("sourceId", Schema.String);
 
 const SourceResponse = Schema.Struct({
   id: Schema.String,
+  scopeId: Schema.optional(ScopeId),
   name: Schema.String,
   kind: Schema.String,
   url: Schema.optional(Schema.String),
@@ -34,52 +37,73 @@ const SourceRefreshResponse = Schema.Struct({
 
 const ToolMetadataResponse = Schema.Struct({
   id: ToolId,
-  pluginKey: Schema.String,
+  pluginId: Schema.String,
   sourceId: Schema.String,
   name: Schema.String,
   description: Schema.optional(Schema.String),
   mayElicit: Schema.optional(Schema.Boolean),
+  /** Plugin-derived default approval annotation. Surfaces in the UI as
+   *  the "default" policy when no user `tool_policy` rule matches. */
+  requiresApproval: Schema.optional(Schema.Boolean),
+  approvalDescription: Schema.optional(Schema.String),
 });
 
 const DetectRequest = Schema.Struct({
-  url: Schema.String,
+  url: Schema.String.check(Schema.isMaxLength(2_048)),
 });
 
 const DetectResultResponse = Schema.Struct({
   kind: Schema.String,
-  confidence: Schema.Literal("high", "medium", "low"),
+  confidence: Schema.Literals(["high", "medium", "low"]),
   endpoint: Schema.String,
   name: Schema.String,
   namespace: Schema.String,
 });
 
 // ---------------------------------------------------------------------------
+// Error schemas with HTTP status annotations
+// ---------------------------------------------------------------------------
+
+const SourceRemovalNotAllowed = SourceRemovalNotAllowedError.annotate({ httpApiStatus: 409 });
+
+// ---------------------------------------------------------------------------
 // Group
 // ---------------------------------------------------------------------------
 
-export class SourcesApi extends HttpApiGroup.make("sources")
+export const SourcesApi = HttpApiGroup.make("sources")
   .add(
-    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/sources`.addSuccess(
-      Schema.Array(SourceResponse),
-    ),
+    HttpApiEndpoint.get("list", "/scopes/:scopeId/sources", {
+      params: ScopeParams,
+      success: Schema.Array(SourceResponse),
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/sources/${sourceIdParam}`.addSuccess(
-      SourceRemoveResponse,
-    ),
+    HttpApiEndpoint.delete("remove", "/scopes/:scopeId/sources/:sourceId", {
+      params: SourceParams,
+      success: SourceRemoveResponse,
+      error: [InternalError, SourceRemovalNotAllowed],
+    }),
   )
   .add(
-    HttpApiEndpoint.post(
-      "refresh",
-    )`/scopes/${scopeIdParam}/sources/${sourceIdParam}/refresh`.addSuccess(SourceRefreshResponse),
+    HttpApiEndpoint.post("refresh", "/scopes/:scopeId/sources/:sourceId/refresh", {
+      params: SourceParams,
+      success: SourceRefreshResponse,
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.get("tools")`/scopes/${scopeIdParam}/sources/${sourceIdParam}/tools`.addSuccess(
-      Schema.Array(ToolMetadataResponse),
-    ),
+    HttpApiEndpoint.get("tools", "/scopes/:scopeId/sources/:sourceId/tools", {
+      params: SourceParams,
+      success: Schema.Array(ToolMetadataResponse),
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("detect")`/scopes/${scopeIdParam}/sources/detect`
-      .setPayload(DetectRequest)
-      .addSuccess(Schema.Array(DetectResultResponse)),
-  ) {}
+    HttpApiEndpoint.post("detect", "/scopes/:scopeId/sources/detect", {
+      params: ScopeParams,
+      payload: DetectRequest,
+      success: Schema.Array(DetectResultResponse),
+      error: InternalError,
+    }),
+  );

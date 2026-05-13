@@ -1,4 +1,4 @@
-import { Badge } from "@executor/react/components/badge";
+import { Badge } from "@executor-js/react/components/badge";
 
 export default function GoogleDiscoverySourceSummary({ sourceId }: { readonly sourceId: string }) {
   return (

@@ -23,12 +23,10 @@ const makeService = (store: RawStore) => ({
 
 type UserStoreServiceType = ReturnType<typeof makeService>;
 
-export class UserStoreService extends Context.Tag("@executor/cloud/UserStoreService")<
-  UserStoreService,
-  UserStoreServiceType
->() {
-  static Live = Layer.effect(
-    this,
-    Effect.map(DbService, (db) => makeService(makeUserStore(db))),
+export class UserStoreService extends Context.Service<UserStoreService, UserStoreServiceType>()(
+  "@executor-js/cloud/UserStoreService",
+) {
+  static Live = Layer.effect(this)(
+    Effect.map(DbService.asEffect(), ({ db }) => makeService(makeUserStore(db))),
   );
 }

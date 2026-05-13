@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Effect, Match, Option } from "effect";
 
 import { GraphqlExtractionError } from "./errors";
 import type {
@@ -83,53 +83,51 @@ const typeRefToJsonSchema = (
   ref: IntrospectionTypeRef,
   // oxlint-disable-next-line only-used-in-recursion
   types: ReadonlyMap<string, IntrospectionType>,
-): Record<string, unknown> => {
-  switch (ref.kind) {
-    case "NON_NULL":
-      return ref.ofType ? typeRefToJsonSchema(ref.ofType, types) : {};
-
-    case "LIST":
-      return {
+): Record<string, unknown> =>
+  Match.value(ref.kind).pipe(
+    Match.when(
+      "NON_NULL",
+      (): Record<string, unknown> => (ref.ofType ? typeRefToJsonSchema(ref.ofType, types) : {}),
+    ),
+    Match.when(
+      "LIST",
+      (): Record<string, unknown> => ({
         type: "array",
         items: ref.ofType ? typeRefToJsonSchema(ref.ofType, types) : {},
-      };
+      }),
+    ),
+    Match.when("SCALAR", (): Record<string, unknown> => scalarToJsonSchema(ref.name ?? "String")),
+    Match.when(
+      "ENUM",
+      (): Record<string, unknown> =>
+        ref.name ? { $ref: `#/$defs/${ref.name}` } : { type: "string" },
+    ),
+    Match.when(
+      "INPUT_OBJECT",
+      (): Record<string, unknown> =>
+        ref.name ? { $ref: `#/$defs/${ref.name}` } : { type: "object" },
+    ),
+    Match.whenOr(
+      "OBJECT",
+      "INTERFACE",
+      "UNION",
+      (): Record<string, unknown> => ({ type: "object" }),
+    ),
+    Match.option,
+    Option.getOrElse((): Record<string, unknown> => ({})),
+  );
 
-    case "SCALAR":
-      return scalarToJsonSchema(ref.name ?? "String");
-
-    case "ENUM":
-      // Reference the shared definition
-      return ref.name ? { $ref: `#/$defs/${ref.name}` } : { type: "string" };
-
-    case "INPUT_OBJECT":
-      // Reference the shared definition — no recursive expansion needed
-      return ref.name ? { $ref: `#/$defs/${ref.name}` } : { type: "object" };
-
-    case "OBJECT":
-    case "INTERFACE":
-    case "UNION":
-      return { type: "object" };
-
-    default:
-      return {};
-  }
-};
-
-const scalarToJsonSchema = (name: string): Record<string, unknown> => {
-  switch (name) {
-    case "String":
-    case "ID":
-      return { type: "string" };
-    case "Int":
-      return { type: "integer" };
-    case "Float":
-      return { type: "number" };
-    case "Boolean":
-      return { type: "boolean" };
-    default:
-      return { type: "string", description: `Custom scalar: ${name}` };
-  }
-};
+const scalarToJsonSchema = (name: string): Record<string, unknown> =>
+  Match.value(name).pipe(
+    Match.whenOr("String", "ID", (): Record<string, unknown> => ({ type: "string" })),
+    Match.when("Int", (): Record<string, unknown> => ({ type: "integer" })),
+    Match.when("Float", (): Record<string, unknown> => ({ type: "number" })),
+    Match.when("Boolean", (): Record<string, unknown> => ({ type: "boolean" })),
+    Match.option,
+    Option.getOrElse(
+      (): Record<string, unknown> => ({ type: "string", description: `Custom scalar: ${name}` }),
+    ),
+  );
 
 // ---------------------------------------------------------------------------
 // Build input JSON Schema from field arguments
@@ -164,16 +162,13 @@ const buildInputSchema = (
 };
 
 /** Format a type ref back to GraphQL type notation (e.g. "[String!]!") */
-const formatTypeRef = (ref: IntrospectionTypeRef): string => {
-  switch (ref.kind) {
-    case "NON_NULL":
-      return ref.ofType ? `${formatTypeRef(ref.ofType)}!` : "Unknown!";
-    case "LIST":
-      return ref.ofType ? `[${formatTypeRef(ref.ofType)}]` : "[Unknown]";
-    default:
-      return ref.name ?? "Unknown";
-  }
-};
+const formatTypeRef = (ref: IntrospectionTypeRef): string =>
+  Match.value(ref.kind).pipe(
+    Match.when("NON_NULL", () => (ref.ofType ? `${formatTypeRef(ref.ofType)}!` : "Unknown!")),
+    Match.when("LIST", () => (ref.ofType ? `[${formatTypeRef(ref.ofType)}]` : "[Unknown]")),
+    Match.option,
+    Option.getOrElse(() => ref.name ?? "Unknown"),
+  );
 
 // ---------------------------------------------------------------------------
 // Extract fields from schema
@@ -193,19 +188,18 @@ const extractFields = (
   return type.fields
     .filter((f) => !f.name.startsWith("__"))
     .map((field) => {
-      const args = field.args.map(
-        (arg) =>
-          new GraphqlArgument({
-            name: arg.name,
-            typeName: formatTypeRef(arg.type),
-            required: isNonNull(arg.type),
-            description: arg.description ? Option.some(arg.description) : Option.none(),
-          }),
+      const args = field.args.map((arg) =>
+        GraphqlArgument.make({
+          name: arg.name,
+          typeName: formatTypeRef(arg.type),
+          required: isNonNull(arg.type),
+          description: arg.description ? Option.some(arg.description) : Option.none(),
+        }),
       );
 
       const inputSchema = buildInputSchema(field.args, types);
 
-      return new ExtractedField({
+      return ExtractedField.make({
         fieldName: field.name,
         kind,
         description: field.description ? Option.some(field.description) : Option.none(),
@@ -244,15 +238,15 @@ export const extract = (
       const mutationFields = extractFields(schema, "mutation", schema.mutationType?.name, typeMap);
 
       return {
-        result: new ExtractionResult({
+        result: ExtractionResult.make({
           schemaName: Option.none(),
           fields: [...queryFields, ...mutationFields],
         }),
         definitions,
       };
     },
-    catch: (err) =>
+    catch: () =>
       new GraphqlExtractionError({
-        message: `Failed to extract GraphQL schema: ${err instanceof Error ? err.message : String(err)}`,
+        message: "Failed to extract GraphQL schema",
       }),
   });

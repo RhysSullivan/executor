@@ -4,6 +4,12 @@ import * as React from "react";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Select as SelectPrimitive } from "radix-ui";
 
+// Re-export the unstyled Trigger so callers can wrap it around their own
+// trigger element via `asChild`. The styled `SelectTrigger` below is
+// opinionated (border, chevron, height); use this when you need a custom
+// trigger like a Badge.
+const SelectPrimitiveTrigger = SelectPrimitive.Trigger;
+
 import { cn } from "../lib/utils";
 
 function Select({ ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) {
@@ -167,6 +173,7 @@ export {
   SelectGroup,
   SelectItem,
   SelectLabel,
+  SelectPrimitiveTrigger,
   SelectScrollDownButton,
   SelectScrollUpButton,
   SelectSeparator,

@@ -1,13 +1,8 @@
 import { Schema } from "effect";
 import { createFileRoute } from "@tanstack/react-router";
-import { SourcesAddPage } from "@executor/react/pages/sources-add";
-import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
-import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
+import { SourcesAddPage } from "@executor-js/react/pages/sources-add";
 
-const sourcePlugins = [openApiSourcePlugin, mcpSourcePlugin, graphqlSourcePlugin];
-
-const SearchParams = Schema.standardSchemaV1(
+const SearchParams = Schema.toStandardSchemaV1(
   Schema.Struct({
     url: Schema.optional(Schema.String),
     preset: Schema.optional(Schema.String),
@@ -20,14 +15,6 @@ export const Route = createFileRoute("/sources/add/$pluginKey")({
   component: () => {
     const { pluginKey } = Route.useParams();
     const { url, preset, namespace } = Route.useSearch();
-    return (
-      <SourcesAddPage
-        pluginKey={pluginKey}
-        url={url}
-        preset={preset}
-        namespace={namespace}
-        sourcePlugins={sourcePlugins}
-      />
-    );
+    return <SourcesAddPage pluginKey={pluginKey} url={url} preset={preset} namespace={namespace} />;
   },
 });

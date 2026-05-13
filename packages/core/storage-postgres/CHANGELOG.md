@@ -1,1 +1,1 @@
-# @executor/storage-postgres
+# @executor-js/storage-postgres

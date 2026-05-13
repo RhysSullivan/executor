@@ -7,6 +7,7 @@
 import { Option } from "effect";
 import type { OpenAPIV3, OpenAPIV3_1 } from "openapi-types";
 import type { ParsedDocument } from "./parse";
+import type { ServerVariable } from "./types";
 
 // ---------------------------------------------------------------------------
 // Type aliases — collapse V3 / V3_1 unions into single names
@@ -55,10 +56,7 @@ const isRef = (value: unknown): value is { $ref: string } =>
 // ---------------------------------------------------------------------------
 
 /** Substitute `{var}` placeholders in a templated URL using a plain map. */
-export const substituteUrlVariables = (
-  url: string,
-  values: Record<string, string>,
-): string => {
+export const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
   let out = url;
   for (const [name, value] of Object.entries(values)) {
     out = out.replaceAll(`{${name}}`, value);
@@ -66,11 +64,36 @@ export const substituteUrlVariables = (
   return out;
 };
 
+export const OPENAPI_MAX_SERVER_VARIABLE_OPTIONS = 64;
+
 type ServerLike = {
   url: string;
-  variables: import("effect/Option").Option<
-    Record<string, { default: string } | string>
-  >;
+  variables: import("effect/Option").Option<Record<string, ServerVariable | string>>;
+};
+
+export const expandServerUrlOptions = (
+  server: ServerLike,
+  limit = OPENAPI_MAX_SERVER_VARIABLE_OPTIONS,
+): readonly string[] => {
+  if (!Option.isSome(server.variables)) return [server.url];
+  let urls: readonly string[] = [server.url];
+  for (const [name, variable] of Object.entries(server.variables.value)) {
+    const enumValues =
+      typeof variable === "string" ? [] : Option.getOrElse(variable.enum, () => []);
+    const values =
+      enumValues.length > 0
+        ? enumValues
+        : [typeof variable === "string" ? variable : variable.default];
+    const next: string[] = [];
+    for (const url of urls) {
+      for (const value of values) {
+        next.push(url.replaceAll(`{${name}}`, value));
+        if (next.length >= limit) return next;
+      }
+    }
+    urls = next;
+  }
+  return urls;
 };
 
 export const resolveBaseUrl = (servers: readonly ServerLike[]): string => {
@@ -90,8 +113,39 @@ export const resolveBaseUrl = (servers: readonly ServerLike[]): string => {
 // Content negotiation
 // ---------------------------------------------------------------------------
 
-/** Pick the preferred media type entry (prefer application/json) */
+/**
+ * Return all declared media entries in spec order. `Object.entries` on a
+ * plain object preserves insertion order in modern engines, which matches
+ * spec declaration order as the parser produced it.
+ */
+export const declaredContents = (
+  content: Record<string, MediaTypeObject> | undefined,
+): ReadonlyArray<{ mediaType: string; media: MediaTypeObject }> => {
+  if (!content) return [];
+  return Object.entries(content).map(([mediaType, media]) => ({ mediaType, media }));
+};
+
+/**
+ * Pick the default media type for a requestBody or response. Matches
+ * swagger-client behaviour: **first declared wins** (not JSON-first). Spec
+ * authors order content entries to signal intent (upload-heavy endpoints
+ * declare multipart first, JSON second); respecting that order avoids
+ * silently downgrading a multipart endpoint to JSON.
+ *
+ * For response bodies we still want a JSON preference because the server
+ * picks the response content type, not the client — the old `application/
+ * json` preference is preserved via `preferredResponseContent` below.
+ */
 export const preferredContent = (
+  content: Record<string, MediaTypeObject> | undefined,
+): { mediaType: string; media: MediaTypeObject } | undefined => {
+  const first = declaredContents(content)[0];
+  return first ? first : undefined;
+};
+
+/** Response-side content picker — still JSON-first because the server
+ *  picks the response media type, so we want to advertise a preference. */
+export const preferredResponseContent = (
   content: Record<string, MediaTypeObject> | undefined,
 ): { mediaType: string; media: MediaTypeObject } | undefined => {
   if (!content) return undefined;

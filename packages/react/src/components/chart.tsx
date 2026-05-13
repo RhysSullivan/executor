@@ -25,6 +25,18 @@ type ChartContextProps = {
   config: ChartConfig;
 };
 
+const cssIdentifierPattern = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+const cssColorPattern =
+  /^(?:#[0-9A-Fa-f]{3,8}|(?:rgb|hsl)a?\(\s*[-+0-9.%]+\s*(?:,\s*[-+0-9.%]+\s*){2}(?:,\s*[-+0-9.]+\s*)?\)|(?:rgb|hsl)a?\(\s*[-+0-9.%]+\s+[-+0-9.%]+\s+[-+0-9.%]+(?:\s*\/\s*[-+0-9.%]+)?\s*\)|[A-Za-z]+|var\(--[A-Za-z0-9_-]+\))$/;
+
+export const chartCssVariableName = (key: string): string | null =>
+  cssIdentifierPattern.test(key) ? `--color-${key}` : null;
+
+export const chartCssColorValue = (color: string): string | null => {
+  const trimmed = color.trim();
+  return cssColorPattern.test(trimmed) ? trimmed : null;
+};
+
 const ChartContext = React.createContext<ChartContextProps | null>(null);
 
 function useChart() {
@@ -92,8 +104,11 @@ ${prefix} [data-chart=${id}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
     const color = itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ?? itemConfig.color;
-    return color ? `  --color-${key}: ${color};` : null;
+    const variableName = chartCssVariableName(key);
+    const colorValue = color ? chartCssColorValue(color) : null;
+    return variableName && colorValue ? `  ${variableName}: ${colorValue};` : null;
   })
+  .filter((line): line is string => line !== null)
   .join("\n")}
 }
 `,
@@ -303,26 +318,22 @@ function ChartLegendContent({
 }
 
 // Helper to extract item config from a payload.
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key: string) {
-  if (typeof payload !== "object" || payload === null) {
+  if (!isRecord(payload)) {
     return undefined;
   }
 
-  const payloadPayload =
-    "payload" in payload && typeof payload.payload === "object" && payload.payload !== null
-      ? payload.payload
-      : undefined;
+  const payloadPayload = isRecord(payload.payload) ? payload.payload : undefined;
 
   let configLabelKey: string = key;
 
-  if (key in payload && typeof payload[key as keyof typeof payload] === "string") {
-    configLabelKey = payload[key as keyof typeof payload] as string;
-  } else if (
-    payloadPayload &&
-    key in payloadPayload &&
-    typeof payloadPayload[key as keyof typeof payloadPayload] === "string"
-  ) {
-    configLabelKey = payloadPayload[key as keyof typeof payloadPayload] as string;
+  if (typeof payload[key] === "string") {
+    configLabelKey = payload[key];
+  } else if (payloadPayload && typeof payloadPayload[key] === "string") {
+    configLabelKey = payloadPayload[key];
   }
 
   return configLabelKey in config ? config[configLabelKey] : config[key];

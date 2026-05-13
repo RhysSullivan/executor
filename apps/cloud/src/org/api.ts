@@ -1,11 +1,11 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { UserStoreError, WorkOSError } from "../auth/errors";
 
-export class Forbidden extends Schema.TaggedError<Forbidden>()(
+export class Forbidden extends Schema.TaggedErrorClass<Forbidden>()(
   "Forbidden",
   {},
-  HttpApiSchema.annotations({ status: 403 }),
+  { httpApiStatus: 403 },
 ) {}
 
 const OrgMember = Schema.Struct({
@@ -20,8 +20,15 @@ const OrgMember = Schema.Struct({
   isCurrentUser: Schema.Boolean,
 });
 
+const OrgMemberSeats = Schema.Struct({
+  used: Schema.Number,
+  granted: Schema.Number,
+  unlimited: Schema.Boolean,
+});
+
 const OrgMembersResponse = Schema.Struct({
   members: Schema.Array(OrgMember),
+  seats: OrgMemberSeats,
 });
 
 const OrgRole = Schema.Struct({
@@ -43,7 +50,7 @@ const InviteResponse = Schema.Struct({
   email: Schema.String,
 });
 
-const membershipIdParam = HttpApiSchema.param("membershipId", Schema.String);
+const MembershipParams = { membershipId: Schema.String };
 
 const RemoveResponse = Schema.Struct({
   success: Schema.Boolean,
@@ -81,63 +88,68 @@ const DomainVerificationLinkResponse = Schema.Struct({
   link: Schema.String,
 });
 
-const domainIdParam = HttpApiSchema.param("domainId", Schema.String);
+const DomainParams = { domainId: Schema.String };
 
 export { OrgMember, OrgMembersResponse };
 
 export class OrgApi extends HttpApiGroup.make("org")
   .add(
-    HttpApiEndpoint.get("listMembers")`/org/members`
-      .addSuccess(OrgMembersResponse)
-      .addError(WorkOSError),
+    HttpApiEndpoint.get("listMembers", "/org/members", {
+      success: OrgMembersResponse,
+      error: WorkOSError,
+    }),
   )
   .add(
-    HttpApiEndpoint.get("listRoles")`/org/roles`
-      .addSuccess(OrgRolesResponse)
-      .addError(WorkOSError),
+    HttpApiEndpoint.get("listRoles", "/org/roles", {
+      success: OrgRolesResponse,
+      error: WorkOSError,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("invite")`/org/invite`
-      .setPayload(InviteBody)
-      .addSuccess(InviteResponse)
-      .addError(WorkOSError)
-      .addError(Forbidden),
+    HttpApiEndpoint.post("invite", "/org/invite", {
+      payload: InviteBody,
+      success: InviteResponse,
+      error: [WorkOSError, Forbidden],
+    }),
   )
   .add(
-    HttpApiEndpoint.del("removeMember")`/org/members/${membershipIdParam}`
-      .addSuccess(RemoveResponse)
-      .addError(WorkOSError)
-      .addError(Forbidden),
+    HttpApiEndpoint.delete("removeMember", "/org/members/:membershipId", {
+      params: MembershipParams,
+      success: RemoveResponse,
+      error: [WorkOSError, Forbidden],
+    }),
   )
   .add(
-    HttpApiEndpoint.patch("updateMemberRole")`/org/members/${membershipIdParam}/role`
-      .setPayload(UpdateRoleBody)
-      .addSuccess(UpdateRoleResponse)
-      .addError(WorkOSError)
-      .addError(Forbidden),
+    HttpApiEndpoint.patch("updateMemberRole", "/org/members/:membershipId/role", {
+      params: MembershipParams,
+      payload: UpdateRoleBody,
+      success: UpdateRoleResponse,
+      error: [WorkOSError, Forbidden],
+    }),
   )
   .add(
-    HttpApiEndpoint.get("listDomains")`/org/domains`
-      .addSuccess(DomainsResponse)
-      .addError(WorkOSError),
+    HttpApiEndpoint.get("listDomains", "/org/domains", {
+      success: DomainsResponse,
+      error: WorkOSError,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("getDomainVerificationLink")`/org/domains/verify-link`
-      .addSuccess(DomainVerificationLinkResponse)
-      .addError(WorkOSError)
-      .addError(Forbidden),
+    HttpApiEndpoint.post("getDomainVerificationLink", "/org/domains/verify-link", {
+      success: DomainVerificationLinkResponse,
+      error: [WorkOSError, Forbidden],
+    }),
   )
   .add(
-    HttpApiEndpoint.del("deleteDomain")`/org/domains/${domainIdParam}`
-      .addSuccess(RemoveResponse)
-      .addError(WorkOSError)
-      .addError(Forbidden),
+    HttpApiEndpoint.delete("deleteDomain", "/org/domains/:domainId", {
+      params: DomainParams,
+      success: RemoveResponse,
+      error: [WorkOSError, Forbidden],
+    }),
   )
   .add(
-    HttpApiEndpoint.patch("updateOrgName")`/org/name`
-      .setPayload(UpdateOrgNameBody)
-      .addSuccess(UpdateOrgNameResponse)
-      .addError(WorkOSError)
-      .addError(UserStoreError)
-      .addError(Forbidden),
+    HttpApiEndpoint.patch("updateOrgName", "/org/name", {
+      payload: UpdateOrgNameBody,
+      success: UpdateOrgNameResponse,
+      error: [WorkOSError, UserStoreError, Forbidden],
+    }),
   ) {}

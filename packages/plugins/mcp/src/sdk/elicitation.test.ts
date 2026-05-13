@@ -1,8 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import * as http from "node:http";
+import { Effect, Schema } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
 import {
@@ -11,9 +9,12 @@ import {
   FormElicitation,
   ElicitationResponse,
   type InvokeOptions,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import { mcpPlugin } from "./plugin";
+import { serveMcpServer } from "../testing";
+
+const isFormElicitation = Schema.is(FormElicitation);
 
 // ---------------------------------------------------------------------------
 // Test MCP server on a real HTTP port
@@ -70,64 +71,7 @@ function createTestMcpServer() {
   return server;
 }
 
-type TestServer = {
-  readonly url: string;
-  readonly httpServer: http.Server;
-  /** Number of MCP sessions created (each connect = 1 session) */
-  readonly sessionCount: () => number;
-};
-
-const serveMcpServer = Effect.acquireRelease(
-  Effect.async<TestServer, Error>((resume) => {
-    const transports = new Map<string, StreamableHTTPServerTransport>();
-    let sessions = 0;
-
-    const httpServer = http.createServer(async (req, res) => {
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-
-      if (sessionId) {
-        const transport = transports.get(sessionId);
-        if (!transport) {
-          res.writeHead(404);
-          res.end("Session not found");
-          return;
-        }
-        await transport.handleRequest(req, res);
-        return;
-      }
-
-      // New session — create a fresh McpServer per connection
-      const mcpServer = createTestMcpServer();
-      sessions++;
-
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => crypto.randomUUID(),
-        onsessioninitialized: (sid) => {
-          transports.set(sid, transport);
-        },
-      });
-
-      await mcpServer.connect(transport);
-      await transport.handleRequest(req, res);
-    });
-
-    httpServer.listen(0, () => {
-      const addr = httpServer.address();
-      const port = typeof addr === "object" && addr ? addr.port : 0;
-      resume(
-        Effect.succeed({
-          url: `http://127.0.0.1:${port}`,
-          httpServer,
-          sessionCount: () => sessions,
-        }),
-      );
-    });
-  }),
-  ({ httpServer }) =>
-    Effect.sync(() => {
-      httpServer.close();
-    }),
-);
+const serveElicitationTestServer = serveMcpServer(createTestMcpServer);
 
 // ---------------------------------------------------------------------------
 // Helper — create executor with MCP plugin pointed at test server
@@ -142,6 +86,7 @@ const makeTestExecutor = (serverUrl: string) =>
     Effect.tap((executor) =>
       executor.mcp.addSource({
         transport: "remote",
+        scope: "test-scope",
         name: "test-mcp",
         endpoint: serverUrl,
       }),
@@ -153,9 +98,9 @@ const makeTestExecutor = (serverUrl: string) =>
 // ---------------------------------------------------------------------------
 
 describe("MCP elicitation (end-to-end)", () => {
-  it.scoped("form elicitation accepted → tool returns approved result", () =>
+  it.effect("form elicitation accepted → tool returns approved result", () =>
     Effect.gen(function* () {
-      const server = yield* serveMcpServer;
+      const server = yield* serveElicitationTestServer;
       const executor = yield* makeTestExecutor(server.url);
 
       const tools = yield* executor.tools.list();
@@ -166,11 +111,11 @@ describe("MCP elicitation (end-to-end)", () => {
 
       const options: InvokeOptions = {
         onElicitation: (ctx) => {
-          if (ctx.request instanceof FormElicitation) {
+          if (isFormElicitation(ctx.request)) {
             elicitationMessages.push(ctx.request.message);
           }
           return Effect.succeed(
-            new ElicitationResponse({
+            ElicitationResponse.make({
               action: "accept",
               content: { approved: true },
             }),
@@ -180,8 +125,7 @@ describe("MCP elicitation (end-to-end)", () => {
 
       const result = yield* executor.tools.invoke(gatedEcho!.id, { value: "hello" }, options);
 
-      expect(result.error).toBeNull();
-      expect(result.data).toEqual({
+      expect(result).toMatchObject({
         content: [{ type: "text", text: "approved:hello" }],
       });
       // At least one elicitation should be the MCP server's form
@@ -190,43 +134,32 @@ describe("MCP elicitation (end-to-end)", () => {
     }),
   );
 
-  it.scoped("form elicitation declined → tool returns denied result", () =>
+  it.effect("form elicitation declined → tool returns denied result", () =>
     Effect.gen(function* () {
-      const server = yield* serveMcpServer;
+      const server = yield* serveElicitationTestServer;
       const executor = yield* makeTestExecutor(server.url);
       const tools = yield* executor.tools.list();
       const gatedEcho = tools.find((t) => t.name === "gated_echo")!;
 
-      // The executor first elicits for tool approval (requiresApproval),
-      // then the MCP server elicits during tool execution.
-      // We accept the first (approval) and decline the second (MCP form).
-      let callCount = 0;
+      // MCP tools have requiresApproval: false — only the MCP server's
+      // mid-invocation elicitation reaches the handler, and we decline it.
       const result = yield* executor.tools.invoke(
         gatedEcho.id,
         { value: "nope" },
         {
-          onElicitation: () => {
-            callCount++;
-            if (callCount === 1) {
-              // Accept executor's tool approval prompt
-              return Effect.succeed(new ElicitationResponse({ action: "accept" }));
-            }
-            // Decline the MCP server's form elicitation
-            return Effect.succeed(new ElicitationResponse({ action: "decline" }));
-          },
+          onElicitation: () => Effect.succeed(ElicitationResponse.make({ action: "decline" })),
         },
       );
 
-      expect(result.error).toBeNull();
-      expect(result.data).toEqual({
+      expect(result).toMatchObject({
         content: [{ type: "text", text: "denied:nope" }],
       });
     }),
   );
 
-  it.scoped("tool without elicitation works normally", () =>
+  it.effect("tool without elicitation works normally", () =>
     Effect.gen(function* () {
-      const server = yield* serveMcpServer;
+      const server = yield* serveElicitationTestServer;
       const executor = yield* makeTestExecutor(server.url);
       const tools = yield* executor.tools.list();
       const simpleEcho = tools.find((t) => t.name === "simple_echo")!;
@@ -237,16 +170,39 @@ describe("MCP elicitation (end-to-end)", () => {
         { onElicitation: "accept-all" },
       );
 
-      expect(result.error).toBeNull();
-      expect(result.data).toEqual({
+      expect(result).toMatchObject({
         content: [{ type: "text", text: "plain" }],
       });
     }),
   );
 
-  it.scoped("handler receives correct toolId, args, and FormElicitation schema", () =>
+  it.effect("addSource preserves the configured display name over server metadata", () =>
     Effect.gen(function* () {
-      const server = yield* serveMcpServer;
+      const server = yield* serveElicitationTestServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [mcpPlugin()] as const,
+        }),
+      );
+
+      yield* executor.mcp.addSource({
+        transport: "remote",
+        scope: "test-scope",
+        name: "Gmail",
+        endpoint: server.url,
+        namespace: "gmail",
+      });
+
+      const sources = yield* executor.sources.list();
+      const source = sources.find((s) => s.id === "gmail");
+
+      expect(source?.name).toBe("Gmail");
+    }),
+  );
+
+  it.effect("handler receives correct toolId, args, and FormElicitation schema", () =>
+    Effect.gen(function* () {
+      const server = yield* serveElicitationTestServer;
       const executor = yield* makeTestExecutor(server.url);
       const tools = yield* executor.tools.list();
       const gatedEcho = tools.find((t) => t.name === "gated_echo")!;
@@ -264,7 +220,7 @@ describe("MCP elicitation (end-to-end)", () => {
             capturedArgs = ctx.args;
             capturedRequest = ctx.request;
             return Effect.succeed(
-              new ElicitationResponse({
+              ElicitationResponse.make({
                 action: "accept",
                 content: { approved: true },
               }),
@@ -275,7 +231,7 @@ describe("MCP elicitation (end-to-end)", () => {
 
       expect(capturedToolId).toBe(gatedEcho.id);
       expect(capturedArgs).toEqual({ value: "ctx-test" });
-      expect(capturedRequest).toBeInstanceOf(FormElicitation);
+      expect(isFormElicitation(capturedRequest)).toBe(true);
 
       const form = capturedRequest as FormElicitation;
       expect(form.message).toContain('Approve echo for "ctx-test"?');
@@ -289,9 +245,9 @@ describe("MCP elicitation (end-to-end)", () => {
     }),
   );
 
-  it.scoped("connection is reused across multiple tool calls to the same source", () =>
+  it.effect("connection is reused across multiple tool calls to the same source", () =>
     Effect.gen(function* () {
-      const server = yield* serveMcpServer;
+      const server = yield* serveElicitationTestServer;
       const executor = yield* makeTestExecutor(server.url);
       const tools = yield* executor.tools.list();
       const simpleEcho = tools.find((t) => t.name === "simple_echo")!;
@@ -324,7 +280,7 @@ describe("MCP elicitation (end-to-end)", () => {
         {
           onElicitation: () =>
             Effect.succeed(
-              new ElicitationResponse({
+              ElicitationResponse.make({
                 action: "accept",
                 content: { approved: true },
               }),

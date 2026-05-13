@@ -1,5 +1,6 @@
 export {
   ExecutorFileConfig,
+  PluginConfig,
   SourceConfig,
   OpenApiSourceConfig,
   GraphqlSourceConfig,
@@ -12,6 +13,8 @@ export {
 } from "./schema";
 
 export { loadConfig, ConfigParseError } from "./load";
+export { loadPluginsFromJsonc } from "./load-plugins";
+export type { LoadPluginsFromJsoncOptions } from "./load-plugins";
 
 export {
   addSourceToConfig,
@@ -20,3 +23,6 @@ export {
   addSecretToConfig,
   removeSecretFromConfig,
 } from "./write";
+
+export type { ConfigFileSink, ConfigFileSinkOptions } from "./sink";
+export { makeFileConfigSink, headerToConfigValue, headersToConfigValues } from "./sink";

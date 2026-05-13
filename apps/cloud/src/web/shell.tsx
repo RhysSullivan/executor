@@ -1,10 +1,12 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
-import { sourcesAtom } from "@executor/react/api/atoms";
-import { useScope } from "@executor/react/api/scope-context";
-import { Button } from "@executor/react/components/button";
-import { Skeleton } from "@executor/react/components/skeleton";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
+import { sourcesOptimisticAtom } from "@executor-js/react/api/atoms";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { Button } from "@executor-js/react/components/button";
+import { Skeleton } from "@executor-js/react/components/skeleton";
 import {
   Dialog,
   DialogClose,
@@ -13,7 +15,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@executor/react/components/dialog";
+} from "@executor-js/react/components/dialog";
+import { SupportOptions } from "./components/support-options";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,12 +27,10 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@executor/react/components/dropdown-menu";
-import { SourceFavicon } from "@executor/react/components/source-favicon";
-import { CommandPalette } from "@executor/react/components/command-palette";
-import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
-import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
+} from "@executor-js/react/components/dropdown-menu";
+import { SourceFavicon } from "@executor-js/react/components/source-favicon";
+import { CommandPalette } from "@executor-js/react/components/command-palette";
+import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { AUTH_PATHS } from "../auth/api";
 import { organizationsAtom, switchOrganization, useAuth } from "./auth";
 import {
@@ -37,11 +38,18 @@ import {
   useCreateOrganizationForm,
 } from "./components/create-organization-form";
 
-const sourcePlugins = [
-  openApiSourcePlugin,
-  mcpSourcePlugin,
-  graphqlSourcePlugin,
-];
+// ── Brand ────────────────────────────────────────────────────────────────
+
+function Brand(props: { onNavigate?: () => void }) {
+  return (
+    <Link to="/" onClick={props.onNavigate} className="flex items-center gap-1.5">
+      <span className="font-display text-base tracking-tight text-foreground">executor</span>
+      <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+        Beta
+      </span>
+    </Link>
+  );
+}
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
@@ -66,9 +74,9 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
-  const sources = useAtomValue(sourcesAtom(scopeId));
+  const sources = useAtomValue(sourcesOptimisticAtom(scopeId));
 
-  return Result.match(sources, {
+  return AsyncResult.match(sources, {
     onInitial: () => (
       <div className="flex flex-col gap-1 px-2.5 py-1">
         {[80, 65, 72, 58, 68].map((w, i) => (
@@ -133,7 +141,12 @@ function initialsFor(name: string | null, email: string) {
   return email[0]!.toUpperCase();
 }
 
-function Avatar(props: { url: string | null; name: string | null; email: string; size?: "sm" | "md" }) {
+function Avatar(props: {
+  url: string | null;
+  name: string | null;
+  email: string;
+  size?: "sm" | "md";
+}) {
   const size = props.size === "md" ? "size-8" : "size-7";
   const text = props.size === "md" ? "text-sm" : "text-xs";
   if (props.url) {
@@ -154,11 +167,14 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
 
   const handleSwitch = async (organizationId: string) => {
     if (organizationId === props.activeOrganizationId) return;
-    const exit = await doSwitchOrganization({ payload: { organizationId } });
-    if (exit._tag === "Success") window.location.reload();
+    const exit = await doSwitchOrganization({
+      payload: { organizationId },
+      reactivityKeys: authWriteKeys,
+    });
+    if (Exit.isSuccess(exit)) window.location.reload();
   };
 
-  return Result.match(organizations, {
+  return AsyncResult.match(organizations, {
     onInitial: () => <DropdownMenuItem disabled>Loading…</DropdownMenuItem>,
     onFailure: () => <DropdownMenuItem disabled>Failed to load organizations</DropdownMenuItem>,
     onSuccess: ({ value }) =>
@@ -166,7 +182,7 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
         <DropdownMenuItem disabled>No organizations</DropdownMenuItem>
       ) : (
         <>
-          {value.organizations.map((organization) => {
+          {value.organizations.map((organization: { id: string; name: string }) => {
             const isActive = organization.id === props.activeOrganizationId;
             return (
               <DropdownMenuItem
@@ -204,9 +220,7 @@ function UserFooter() {
   const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false);
 
   const suggestedOrganizationName =
-    auth.status === "authenticated" &&
-    auth.user.name?.trim() !== "" &&
-    auth.user.name != null
+    auth.status === "authenticated" && auth.user.name?.trim() !== "" && auth.user.name != null
       ? `${auth.user.name}'s Organization`
       : "New Organization";
 
@@ -238,11 +252,7 @@ function UserFooter() {
               variant="ghost"
               className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-1 py-1 text-left hover:bg-sidebar-active/60"
             >
-              <Avatar
-                url={auth.user.avatarUrl}
-                name={auth.user.name}
-                email={auth.user.email}
-              />
+              <Avatar url={auth.user.avatarUrl} name={auth.user.name} email={auth.user.email} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium text-foreground">
                   {auth.user.name ?? auth.user.email}
@@ -290,6 +300,10 @@ function UserFooter() {
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild className="text-xs">
+              <Link to="/api-keys">API keys</Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
               Signed in as
@@ -355,11 +369,57 @@ function UserFooter() {
   );
 }
 
+// ── SupportButton ────────────────────────────────────────────────────────
+
+function HelpIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden>
+      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M6.25 6.25c.25-1 1-1.5 1.85-1.5 1 0 1.9.7 1.9 1.7 0 .8-.5 1.2-1.1 1.6-.55.4-.9.7-.9 1.45M8 11.25v.05"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SupportButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => setOpen(true)}
+        className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-normal text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground"
+      >
+        <HelpIcon className="size-3.5 text-muted-foreground" />
+        Get support
+      </Button>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-xl">Get support</DialogTitle>
+          <DialogDescription className="text-sm leading-relaxed">
+            Reach out through any of the channels below.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-2">
+          <SupportOptions />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── SidebarContent ───────────────────────────────────────────────────────
 
 function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
+  const isConnections = props.pathname === "/connections";
+  const isPolicies = props.pathname === "/policies";
   const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
   const isOrg = props.pathname === "/org";
 
@@ -367,15 +427,25 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
     <>
       {props.showBrand !== false && (
         <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
-          <Link to="/" className="flex items-center gap-1.5">
-            <span className="font-display text-base tracking-tight text-foreground">executor</span>
-          </Link>
+          <Brand onNavigate={props.onNavigate} />
         </div>
       )}
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+        <NavItem
+          to="/connections"
+          label="Connections"
+          active={isConnections}
+          onNavigate={props.onNavigate}
+        />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
+        <NavItem
+          to="/policies"
+          label="Policies"
+          active={isPolicies}
+          onNavigate={props.onNavigate}
+        />
         <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 
@@ -385,6 +455,10 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 
         <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
       </nav>
+
+      <div className="shrink-0 px-2 pb-2">
+        <SupportButton />
+      </div>
 
       <UserFooter />
     </>
@@ -415,7 +489,7 @@ export function Shell() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <CommandPalette sourcePlugins={sourcePlugins} />
+      <CommandPalette />
       {/* Desktop sidebar */}
       <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
         <SidebarContent pathname={pathname} />
@@ -433,11 +507,7 @@ export function Shell() {
           />
           <div className="relative flex h-full w-[84vw] max-w-xs flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
-              <Link to="/" className="flex items-center gap-1.5">
-                <span className="font-display text-base tracking-tight text-foreground">
-                  executor
-                </span>
-              </Link>
+              <Brand onNavigate={() => setMobileSidebarOpen(false)} />
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -486,9 +556,7 @@ export function Shell() {
               />
             </svg>
           </Button>
-          <Link to="/" className="flex items-center gap-1.5">
-            <span className="font-display text-base tracking-tight text-foreground">executor</span>
-          </Link>
+          <Brand />
           <div className="w-8 shrink-0" />
         </div>
 

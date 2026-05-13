@@ -1,15 +1,24 @@
+// Parse / extract / preview coverage against a big real-world spec.
+// DB-touching behaviour (addSpec, removeSpec, tool registration) moved
+// to apps/cloud/src/services/sources-api.node.test.ts — those run
+// through the real postgres + drizzle adapter so adapter regressions
+// (e.g. a per-row createMany fallback) surface automatically instead
+// of needing a dedicated budget assertion.
+
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { ParsedDocument } from "./parse";
 import { parse } from "./parse";
 import { extract } from "./extract";
-import { previewSpec } from "./preview";
+import { previewSpec as previewSpecRaw } from "./preview";
 import type { ExtractionResult } from "./types";
-import { createExecutor, makeTestConfig } from "@executor/sdk";
-import { openApiPlugin } from "./plugin";
+
+const previewSpec = (input: string) =>
+  previewSpecRaw(input).pipe(Effect.provide(FetchHttpClient.layer));
 
 // ---------------------------------------------------------------------------
 // Load + parse once, share across tests
@@ -97,69 +106,6 @@ describe("Real specs: Cloudflare API", { timeout: 60_000 }, () => {
     }),
   );
 
-  it.effect("registers all operations as tools via the plugin", () =>
-    Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin()] as const,
-        }),
-      );
-
-      const result = yield* executor.openapi.addSpec({
-        spec: specText,
-        namespace: "cloudflare",
-      });
-
-      expect(result.toolCount).toBeGreaterThan(1000);
-
-      const tools = yield* executor.tools.list();
-      expect(tools.length).toBe(result.toolCount + 2);
-
-      const cloudflareTools = tools.filter((tool) => tool.sourceId === "cloudflare");
-      expect(cloudflareTools.length).toBe(result.toolCount);
-
-      for (const tool of cloudflareTools) {
-        expect(tool.pluginKey).toBe("openapi");
-        expect(tool.sourceId).toBe("cloudflare");
-      }
-
-      const zoneTools = yield* executor.tools.list({ query: "zone" });
-      expect(zoneTools.length).toBeGreaterThan(0);
-    }),
-  );
-
-  it.effect("schema deduplication: definitions stored once, tools reference via $ref", () =>
-    Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [openApiPlugin()] as const }),
-      );
-
-      yield* executor.openapi.addSpec({
-        spec: specText,
-        namespace: "cloudflare",
-      });
-
-      const definitions = yield* executor.tools.definitions();
-      expect(Object.keys(definitions).length).toBeGreaterThan(5000);
-      expect(definitions["dns-records_dns_response_single"]).toBeDefined();
-
-      const tools = yield* executor.tools.list({ query: "dns" });
-      expect(tools.length).toBeGreaterThan(0);
-
-      const schema = yield* executor.tools.schema(tools[0]!.id);
-
-      // outputTypeScript should reference a named type from definitions
-      expect(schema.outputTypeScript).toBeDefined();
-      expect(schema.outputTypeScript!.length).toBeGreaterThan(0);
-
-      // typeScriptDefinitions should carry the relevant subset
-      expect(schema.typeScriptDefinitions).toBeDefined();
-      const defs = schema.typeScriptDefinitions!;
-      expect(Object.keys(defs).length).toBeGreaterThan(0);
-      expect(Object.keys(defs).length).toBeLessThan(100);
-    }),
-  );
-
   it.effect("previewSpec returns security schemes and header presets", () =>
     Effect.gen(function* () {
       const preview = yield* previewSpec(specText);
@@ -168,52 +114,23 @@ describe("Real specs: Cloudflare API", { timeout: 60_000 }, () => {
       expect(Option.isSome(preview.title)).toBe(true);
       expect(preview.servers.length).toBeGreaterThan(0);
 
-      // Cloudflare has 4 security schemes
       expect(preview.securitySchemes.length).toBe(4);
       const schemeNames = preview.securitySchemes.map((s) => s.name);
       expect(schemeNames).toContain("api_token");
       expect(schemeNames).toContain("api_key");
       expect(schemeNames).toContain("api_email");
 
-      // Should have header presets derived from security strategies
       expect(preview.headerPresets.length).toBeGreaterThan(0);
 
-      // Bearer token preset should include Authorization header
       const bearerPreset = preview.headerPresets.find((p) => p.label.includes("Bearer"));
       expect(bearerPreset).toBeDefined();
-      expect(bearerPreset!.headers["Authorization"]).toBeNull(); // user must provide
+      expect(bearerPreset!.headers["Authorization"]).toBeNull();
       expect(bearerPreset!.secretHeaders).toContain("Authorization");
 
-      // API key + email preset
       const keyEmailPreset = preview.headerPresets.find((p) => p.label.includes("api_email"));
       expect(keyEmailPreset).toBeDefined();
       expect(keyEmailPreset!.headers["X-Auth-Email"]).toBeNull();
       expect(keyEmailPreset!.headers["X-Auth-Key"]).toBeNull();
-    }),
-  );
-
-  it.effect("removeSpec cleans up all Cloudflare tools", () =>
-    Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin()] as const,
-        }),
-      );
-
-      yield* executor.openapi.addSpec({
-        spec: specText,
-        namespace: "cloudflare",
-      });
-
-      expect((yield* executor.tools.list()).length).toBeGreaterThan(0);
-
-      yield* executor.openapi.removeSpec("cloudflare");
-
-      const remaining = yield* executor.tools.list();
-      expect(remaining.map((tool) => tool.id)).toEqual([
-        "openapi.previewSpec",
-        "openapi.addSource",
-      ]);
     }),
   );
 });

@@ -1,263 +1,108 @@
-import { describe, it } from "@effect/vitest";
-import { expect } from "vitest";
 import { Effect } from "effect";
-import { SqliteClient } from "@effect/sql-sqlite-node";
-import * as SqlClient from "@effect/sql/SqlClient";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { relations, sql } from "drizzle-orm";
+import { sqliteTable, text, real, integer, getTableConfig } from "drizzle-orm/sqlite-core";
 
-import { ScopeId, ToolId, SecretId, makeInMemorySecretProvider, scopeKv } from "@executor/sdk";
-import type { Kv } from "@executor/sdk";
-import { migrate } from "./schema";
-import { makeSqliteKv } from "./plugin-kv";
-import { makeKvToolRegistry } from "./tool-registry";
-import { makeKvSecretStore } from "./secret-store";
-import { makeKvPolicyEngine } from "./policy-engine";
+import type { DBAdapter } from "@executor-js/storage-core";
+import { conformanceSchema, runAdapterConformance } from "@executor-js/storage-core/testing";
+
+import { makeSqliteAdapter } from "./index";
 
 // ---------------------------------------------------------------------------
-// Test layer: in-memory SQLite + migrated KV
+// Drizzle table definitions matching `conformanceSchema`. These are the
+// test-only equivalent of the CLI-generated `executor-schema.ts` — needed
+// because the conformance schema is a test fixture, not a real plugin.
 // ---------------------------------------------------------------------------
 
-const TestSqlLayer = SqliteClient.layer({ filename: ":memory:" });
+const source = sqliteTable("source", {
+  id: text("id").primaryKey().notNull(),
+  name: text("name"),
+  priority: real("priority"),
+  enabled: integer("enabled", { mode: "boolean" }),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" }),
+  metadata: text("metadata", { mode: "json" }),
+});
 
-const withKv = <A, E>(fn: (kv: Kv) => Effect.Effect<A, E>) =>
+const tag = sqliteTable("tag", {
+  id: text("id").primaryKey().notNull(),
+  label: text("label"),
+});
+
+const source_tag = sqliteTable("source_tag", {
+  id: text("id").primaryKey().notNull(),
+  sourceId: text("sourceId"),
+  note: text("note"),
+});
+
+const with_defaults = sqliteTable("with_defaults", {
+  id: text("id").primaryKey().notNull(),
+  name: text("name"),
+  nickname: text("nickname"),
+  touchedAt: integer("touchedAt", { mode: "timestamp_ms" }),
+});
+
+const sourceRelations = relations(source, ({ many }) => ({
+  source_tag: many(source_tag),
+}));
+
+const sourceTagRelations = relations(source_tag, ({ one }) => ({
+  source: one(source, {
+    fields: [source_tag.sourceId],
+    references: [source.id],
+  }),
+}));
+
+const conformanceTables = {
+  source,
+  tag,
+  source_tag,
+  with_defaults,
+  sourceRelations,
+  sourceTagRelations,
+};
+
+/**
+ * Bootstrap tables in an in-memory database from drizzle table definitions.
+ */
+const bootstrapTables = (
+  db: ReturnType<typeof drizzle>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tables: Record<string, any>,
+): void => {
+  for (const table of Object.values(tables)) {
+    // Skip relations — they aren't tables
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: drizzle getTableConfig throws for relation helpers in this test bootstrap
+    try {
+      const config = getTableConfig(table);
+      const cols = config.columns.map((col) => {
+        const parts = [`"${col.name}" ${col.getSQLType()}`];
+        if (col.primary) parts.push("PRIMARY KEY");
+        if (col.notNull) parts.push("NOT NULL");
+        if (col.isUnique) parts.push("UNIQUE");
+        return parts.join(" ");
+      });
+      db.run(sql.raw(`CREATE TABLE IF NOT EXISTS "${config.name}" (${cols.join(", ")})`));
+    } catch {
+      // Not a table (e.g. relations) — skip
+    }
+  }
+};
+
+const withAdapter = <A, E>(
+  fn: (adapter: DBAdapter) => Effect.Effect<A, E>,
+): Effect.Effect<A, E | Error> =>
   Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
-    const kv = makeSqliteKv(sql);
-    return yield* fn(kv);
-  }).pipe(Effect.provide(TestSqlLayer));
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite, { schema: conformanceTables });
 
-// ---------------------------------------------------------------------------
-// Tool registry
-// ---------------------------------------------------------------------------
+    bootstrapTables(db, conformanceTables);
 
-describe("KvToolRegistry", () => {
-  it.effect("register and list tools", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg.register([
-          {
-            id: ToolId.make("t1"),
-            pluginKey: "test",
-            sourceId: "src-a",
-            name: "tool-one",
-            description: "First tool",
-          },
-          {
-            id: ToolId.make("t2"),
-            pluginKey: "test",
-            sourceId: "src-b",
-            name: "tool-two",
-          },
-        ]);
+    const adapter = makeSqliteAdapter({
+      db,
+      schema: conformanceSchema,
+    });
+    return yield* fn(adapter);
+  }) as Effect.Effect<A, E | Error>;
 
-        const all = yield* reg.list();
-        expect(all).toHaveLength(2);
-
-        const filtered = yield* reg.list({ sourceId: "src-a" });
-        expect(filtered).toHaveLength(1);
-        expect(filtered[0]!.name).toBe("tool-one");
-      }),
-    ),
-  );
-
-  it.effect("shared definitions are reused in TypeScript previews", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg.registerDefinitions({
-          Address: { type: "object", properties: { city: { type: "string" } } },
-        });
-
-        yield* reg.register([
-          {
-            id: ToolId.make("with-ref"),
-            pluginKey: "test",
-            sourceId: "test-src",
-            name: "with-ref",
-            inputSchema: {
-              type: "object",
-              properties: { addr: { $ref: "#/$defs/Address" } },
-            },
-          },
-        ]);
-
-        const schema = yield* reg.schema(ToolId.make("with-ref"));
-        expect(schema.inputTypeScript).toBe("{ addr?: Address }");
-        expect(schema.typeScriptDefinitions).toEqual({
-          Address: "{ city?: string }",
-        });
-      }),
-    ),
-  );
-
-  it.effect("unregister tools", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg.register([
-          { id: ToolId.make("del-me"), pluginKey: "test", sourceId: "test-src", name: "delete-me" },
-        ]);
-        expect(yield* reg.list()).toHaveLength(1);
-
-        yield* reg.unregister([ToolId.make("del-me")]);
-        expect(yield* reg.list()).toHaveLength(0);
-      }),
-    ),
-  );
-
-  it.effect("query filter", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg.register([
-          {
-            id: ToolId.make("a"),
-            pluginKey: "test",
-            sourceId: "test-src",
-            name: "create-user",
-            description: "Creates a user",
-          },
-          { id: ToolId.make("b"), pluginKey: "test", sourceId: "test-src", name: "delete-user" },
-        ]);
-
-        const results = yield* reg.list({ query: "creates" });
-        expect(results).toHaveLength(1);
-        expect(results[0]!.name).toBe("create-user");
-      }),
-    ),
-  );
-
-  it.effect("runtime tools are listed but not persisted", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const reg1 = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg1.registerRuntime([
-          {
-            id: ToolId.make("executor.test.runtime"),
-            pluginKey: "test",
-            sourceId: "executor.test",
-            name: "runtime",
-            description: "Runtime-only tool",
-          },
-        ]);
-
-        const listed = yield* reg1.list();
-        expect(listed.map((tool) => tool.id)).toContain("executor.test.runtime");
-
-        const reg2 = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        const relisted = yield* reg2.list();
-        expect(relisted.map((tool) => tool.id)).not.toContain("executor.test.runtime");
-      }),
-    ),
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Secret store
-// ---------------------------------------------------------------------------
-
-describe("KvSecretStore", () => {
-  it.effect("set and resolve secrets", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const store = makeKvSecretStore(scopeKv(kv, "secrets"));
-        yield* store.addProvider(makeInMemorySecretProvider());
-        yield* store.set({
-          scopeId: ScopeId.make("s1"),
-          id: SecretId.make("api-key"),
-          name: "API Key",
-          value: "sk-12345",
-          purpose: "auth",
-        });
-
-        const resolved = yield* store.resolve(SecretId.make("api-key"), ScopeId.make("s1"));
-        expect(resolved).toBe("sk-12345");
-      }),
-    ),
-  );
-
-  it.effect("list and remove", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const store = makeKvSecretStore(scopeKv(kv, "secrets"));
-        yield* store.addProvider(makeInMemorySecretProvider());
-        yield* store.set({
-          scopeId: ScopeId.make("s1"),
-          id: SecretId.make("rm-me"),
-          name: "Removable",
-          value: "val",
-        });
-
-        const listed = yield* store.list(ScopeId.make("s1"));
-        expect(listed).toHaveLength(1);
-
-        yield* store.remove(SecretId.make("rm-me"));
-        expect(yield* store.list(ScopeId.make("s1"))).toHaveLength(0);
-      }),
-    ),
-  );
-
-  it.effect("status check", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const store = makeKvSecretStore(scopeKv(kv, "secrets"));
-        yield* store.addProvider(makeInMemorySecretProvider());
-        const missing = yield* store.status(SecretId.make("no-exist"), ScopeId.make("s1"));
-        expect(missing).toBe("missing");
-
-        yield* store.set({
-          scopeId: ScopeId.make("s1"),
-          id: SecretId.make("exists"),
-          name: "Exists",
-          value: "v",
-        });
-        const resolved = yield* store.status(SecretId.make("exists"), ScopeId.make("s1"));
-        expect(resolved).toBe("resolved");
-      }),
-    ),
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Policy engine
-// ---------------------------------------------------------------------------
-
-describe("KvPolicyEngine", () => {
-  it.effect("add and list policies", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const engine = makeKvPolicyEngine(scopeKv(kv, "policies"), scopeKv(kv, "meta"));
-        const policy = yield* engine.add({
-          scopeId: ScopeId.make("s1"),
-          name: "allow-t1",
-          action: "allow" as const,
-          match: { toolPattern: "t1" },
-          priority: 0,
-        });
-
-        expect(policy.id).toBeDefined();
-        const listed = yield* engine.list(ScopeId.make("s1"));
-        expect(listed).toHaveLength(1);
-      }),
-    ),
-  );
-
-  it.effect("remove policies", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const engine = makeKvPolicyEngine(scopeKv(kv, "policies"), scopeKv(kv, "meta"));
-        const policy = yield* engine.add({
-          scopeId: ScopeId.make("s1"),
-          name: "allow-t1",
-          action: "allow" as const,
-          match: { toolPattern: "t1" },
-          priority: 0,
-        });
-
-        expect(yield* engine.remove(policy.id)).toBe(true);
-        expect(yield* engine.list(ScopeId.make("s1"))).toHaveLength(0);
-      }),
-    ),
-  );
-});
+runAdapterConformance("sqlite (better-sqlite3 via drizzle)", withAdapter);

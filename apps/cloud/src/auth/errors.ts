@@ -1,16 +1,15 @@
-import { HttpApiSchema } from "@effect/platform";
 import { Data, Effect, Schema } from "effect";
 
-export class UserStoreError extends Schema.TaggedError<UserStoreError>()(
+export class UserStoreError extends Schema.TaggedErrorClass<UserStoreError>()(
   "UserStoreError",
   {},
-  HttpApiSchema.annotations({ status: 500 }),
+  { httpApiStatus: 500 },
 ) {}
 
-export class WorkOSError extends Schema.TaggedError<WorkOSError>()(
+export class WorkOSError extends Schema.TaggedErrorClass<WorkOSError>()(
   "WorkOSError",
   {},
-  HttpApiSchema.annotations({ status: 500 }),
+  { httpApiStatus: 500 },
 ) {}
 
 /**
@@ -46,7 +45,7 @@ export const withServiceLogging = <A, E, R>(
   effect: Effect.Effect<A, unknown, R>,
 ): Effect.Effect<A, E, R> =>
   effect.pipe(
-    Effect.tapErrorCause((cause) => Effect.logError(`${name} failed`, cause)),
+    Effect.tapCause((cause) => Effect.logError(`${name} failed`, cause)),
     Effect.mapError(publicError),
     Effect.withSpan(name),
-  );
+  ) as Effect.Effect<A, E, R>;

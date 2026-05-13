@@ -11,19 +11,16 @@ import { Schema } from "effect";
 
 export const SECRET_REF_PREFIX = "secret-public-ref:";
 
-export const ConfigHeaderValue = Schema.Union(
+export const ConfigHeaderValue = Schema.Union([
   Schema.String,
   Schema.Struct({
     value: Schema.String,
     prefix: Schema.optional(Schema.String),
   }),
-);
+]);
 export type ConfigHeaderValue = typeof ConfigHeaderValue.Type;
 
-const ConfigHeaders = Schema.Record({
-  key: Schema.String,
-  value: ConfigHeaderValue,
-});
+const ConfigHeaders = Schema.Record(Schema.String, ConfigHeaderValue);
 
 // ---------------------------------------------------------------------------
 // Source configs — discriminated union on "kind"
@@ -47,9 +44,9 @@ export const GraphqlSourceConfig = Schema.Struct({
 });
 export type GraphqlSourceConfig = typeof GraphqlSourceConfig.Type;
 
-const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
+const StringMap = Schema.Record(Schema.String, Schema.String);
 
-export const McpAuthConfig = Schema.Union(
+export const McpAuthConfig = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("header"),
@@ -59,11 +56,12 @@ export const McpAuthConfig = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
-    accessTokenSecret: Schema.String,
-    refreshTokenSecret: Schema.optional(Schema.NullOr(Schema.String)),
-    tokenType: Schema.optional(Schema.String),
+    /** Stable id of the SDK Connection holding access + refresh token
+     *  material. Scope shadowing means the same id resolves per-user
+     *  via the executor's innermost-wins lookup. */
+    connectionId: Schema.String,
   }),
-);
+]);
 export type McpAuthConfig = typeof McpAuthConfig.Type;
 
 export const McpRemoteSourceConfig = Schema.Struct({
@@ -71,7 +69,7 @@ export const McpRemoteSourceConfig = Schema.Struct({
   transport: Schema.Literal("remote"),
   name: Schema.String,
   endpoint: Schema.String,
-  remoteTransport: Schema.optional(Schema.Literal("streamable-http", "sse", "auto")),
+  remoteTransport: Schema.optional(Schema.Literals(["streamable-http", "sse", "auto"])),
   namespace: Schema.optional(Schema.String),
   queryParams: Schema.optional(StringMap),
   headers: Schema.optional(StringMap),
@@ -91,12 +89,12 @@ export const McpStdioSourceConfig = Schema.Struct({
 });
 export type McpStdioSourceConfig = typeof McpStdioSourceConfig.Type;
 
-export const SourceConfig = Schema.Union(
+export const SourceConfig = Schema.Union([
   OpenApiSourceConfig,
   GraphqlSourceConfig,
   McpRemoteSourceConfig,
   McpStdioSourceConfig,
-);
+]);
 export type SourceConfig = typeof SourceConfig.Type;
 
 // ---------------------------------------------------------------------------
@@ -111,13 +109,32 @@ export const SecretMetadata = Schema.Struct({
 export type SecretMetadata = typeof SecretMetadata.Type;
 
 // ---------------------------------------------------------------------------
+// Plugin manifest
+//
+// `plugins` is the install list. Each entry is a published npm package
+// that exports a `definePlugin(...)` factory under `./server`. The host
+// loads each at boot via jiti and calls the factory with merged
+// `options` plus host-injected deps (`configFile`, etc.). This is the
+// dynamic sibling of the static `executor.config.ts` plugin tuple — when
+// `plugins` is set, the host uses it; otherwise it falls back to the
+// statically-typed config.
+// ---------------------------------------------------------------------------
+
+export const PluginConfig = Schema.Struct({
+  package: Schema.String,
+  options: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+});
+export type PluginConfig = typeof PluginConfig.Type;
+
+// ---------------------------------------------------------------------------
 // Top-level config
 // ---------------------------------------------------------------------------
 
 export const ExecutorFileConfig = Schema.Struct({
   $schema: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
+  plugins: Schema.optional(Schema.Array(PluginConfig)),
   sources: Schema.optional(Schema.Array(SourceConfig)),
-  secrets: Schema.optional(Schema.Record({ key: Schema.String, value: SecretMetadata })),
+  secrets: Schema.optional(Schema.Record(Schema.String, SecretMetadata)),
 });
 export type ExecutorFileConfig = typeof ExecutorFileConfig.Type;

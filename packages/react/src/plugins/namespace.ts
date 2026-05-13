@@ -16,7 +16,5 @@ export function slugifyNamespace(input: string): string {
  * underscores that are still in-progress at the field boundaries.
  */
 export function normalizeNamespaceInput(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "_");
+  return input.toLowerCase().replace(/[^a-z0-9_]+/g, "_");
 }

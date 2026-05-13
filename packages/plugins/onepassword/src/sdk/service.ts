@@ -1,4 +1,4 @@
-import { Context, Duration, Effect } from "effect";
+import { Context, Duration, Effect, Semaphore } from "effect";
 import * as op from "@1password/op-js";
 
 import { OnePasswordError } from "./errors";
@@ -30,9 +30,10 @@ export interface OnePasswordService {
   ) => Effect.Effect<ReadonlyArray<OnePasswordItem>, OnePasswordError>;
 }
 
-export class OnePasswordServiceTag extends Context.Tag(
-  "@executor/plugin-onepassword/OnePasswordService",
-)<OnePasswordServiceTag, OnePasswordService>() {}
+export class OnePasswordServiceTag extends Context.Service<
+  OnePasswordServiceTag,
+  OnePasswordService
+>()("@executor-js/plugin-onepassword/OnePasswordService") {}
 
 // ---------------------------------------------------------------------------
 // Resolved auth — raw credentials ready for any backend
@@ -52,10 +53,10 @@ type OnePasswordSdkModule = typeof import("@1password/sdk");
 const loadOnePasswordSdk = (): Effect.Effect<OnePasswordSdkModule, OnePasswordError> =>
   Effect.tryPromise({
     try: () => import("@1password/sdk"),
-    catch: (cause) =>
+    catch: () =>
       new OnePasswordError({
         operation: "sdk module load",
-        message: cause instanceof Error ? cause.message : String(cause),
+        message: "Failed to load 1Password SDK",
       }),
   });
 
@@ -70,21 +71,25 @@ const makeTimeoutMessage = (operation: string, timeoutMs: number): string =>
     "5. Try quitting 1Password completely and reopening it, then retry",
   ].join("\n");
 
+const timeoutWithOnePasswordError = (operation: string, timeoutMs: number) =>
+  Effect.timeoutOrElse({
+    duration: Duration.millis(timeoutMs),
+    orElse: () =>
+      Effect.fail(
+        new OnePasswordError({
+          operation,
+          message: makeTimeoutMessage(operation, timeoutMs),
+        }),
+      ),
+  });
+
 export const makeNativeSdkService = (
   auth: ResolvedAuth,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Effect.Effect<OnePasswordService, OnePasswordError> =>
   Effect.gen(function* () {
-    const timeout = Duration.millis(timeoutMs);
     const sdk = yield* loadOnePasswordSdk().pipe(
-      Effect.timeoutFail({
-        duration: timeout,
-        onTimeout: () =>
-          new OnePasswordError({
-            operation: "sdk module load",
-            message: makeTimeoutMessage("sdk module load", timeoutMs),
-          }),
-      }),
+      timeoutWithOnePasswordError("sdk module load", timeoutMs),
     );
 
     const client = yield* Effect.tryPromise({
@@ -94,39 +99,23 @@ export const makeNativeSdkService = (
           integrationName: "Executor",
           integrationVersion: "0.0.0",
         }),
-      catch: (cause) =>
+      catch: () =>
         new OnePasswordError({
           operation: "client setup",
-          message: cause instanceof Error ? cause.message : String(cause),
+          message: "Failed to set up 1Password client",
         }),
-    }).pipe(
-      Effect.timeoutFail({
-        duration: timeout,
-        onTimeout: () =>
-          new OnePasswordError({
-            operation: "client setup",
-            message: makeTimeoutMessage("client setup", timeoutMs),
-          }),
-      }),
-    );
+    }).pipe(timeoutWithOnePasswordError("client setup", timeoutMs));
 
     const wrap = <A>(fn: () => Promise<A>, operation: string): Effect.Effect<A, OnePasswordError> =>
       Effect.tryPromise({
         try: fn,
-        catch: (cause) =>
+        catch: () =>
           new OnePasswordError({
             operation,
-            message: cause instanceof Error ? cause.message : String(cause),
+            message: `1Password SDK ${operation} failed`,
           }),
       }).pipe(
-        Effect.timeoutFail({
-          duration: timeout,
-          onTimeout: () =>
-            new OnePasswordError({
-              operation,
-              message: makeTimeoutMessage(operation, timeoutMs),
-            }),
-        }),
+        timeoutWithOnePasswordError(operation, timeoutMs),
         Effect.withSpan(`onepassword.sdk.${operation}`),
       );
 
@@ -149,26 +138,34 @@ export const makeNativeSdkService = (
 // CLI backend — uses @1password/op-js (shells out to `op` CLI)
 // ---------------------------------------------------------------------------
 
+const cliAuthLock = Semaphore.makeUnsafe(1);
+
 export const makeCliService = (
   auth: ResolvedAuth,
 ): Effect.Effect<OnePasswordService, OnePasswordError> =>
   Effect.sync(() => {
-    // Configure auth
-    if (auth.kind === "service-account") {
-      op.setServiceAccount(auth.token);
-    } else {
-      op.setGlobalFlags({ account: auth.accountName });
-    }
-
     const wrapSync = <A>(fn: () => A, operation: string): Effect.Effect<A, OnePasswordError> =>
-      Effect.try({
-        try: fn,
-        catch: (cause) =>
-          new OnePasswordError({
-            operation,
-            message: cause instanceof Error ? cause.message : String(cause),
+      cliAuthLock
+        .withPermits(1)(
+          Effect.try({
+            try: () => {
+              if (auth.kind === "service-account") {
+                op.setGlobalFlags({});
+                op.setServiceAccount(auth.token);
+              } else {
+                op.setServiceAccount("");
+                op.setGlobalFlags({ account: auth.accountName });
+              }
+              return fn();
+            },
+            catch: () =>
+              new OnePasswordError({
+                operation,
+                message: `1Password CLI ${operation} failed`,
+              }),
           }),
-      }).pipe(Effect.withSpan(`onepassword.cli.${operation}`));
+        )
+        .pipe(Effect.withSpan(`onepassword.cli.${operation}`));
 
     return OnePasswordServiceTag.of({
       resolveSecret: (uri) => wrapSync(() => op.read.parse(uri), "secret resolution"),
@@ -201,7 +198,7 @@ export const makeOnePasswordService = (
 
   // Default: prefer CLI to avoid the IPC hang bug
   return makeCliService(auth).pipe(
-    Effect.catchAll((cliError) =>
+    Effect.catch((cliError: OnePasswordError) =>
       // CLI unavailable (e.g. `op` not installed) — fall back to SDK
       makeNativeSdkService(auth, timeoutMs).pipe(Effect.mapError(() => cliError)),
     ),

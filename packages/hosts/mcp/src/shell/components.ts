@@ -1,6 +1,6 @@
 /**
  * Barrel export of all UI components available to model-generated React code.
- * These are re-exports of the existing shadcn components from @executor/react,
+ * These are re-exports of the existing shadcn components from @executor-js/react,
  * plus Recharts primitives and Lucide icons.
  */
 
@@ -17,24 +17,16 @@ export {
   CardAction,
   CardContent,
   CardFooter,
-} from "../../../../react/src/components/card";
-export { Separator } from "../../../../react/src/components/separator";
-export {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "../../../../react/src/components/tabs";
+} from "@executor-js/react/components/card";
+export { Separator } from "@executor-js/react/components/separator";
+export { Tabs, TabsList, TabsTrigger, TabsContent } from "@executor-js/react/components/tabs";
 export {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from "../../../../react/src/components/accordion";
-export {
-  ScrollArea,
-  ScrollBar,
-} from "../../../../react/src/components/scroll-area";
+} from "@executor-js/react/components/accordion";
+export { ScrollArea, ScrollBar } from "@executor-js/react/components/scroll-area";
 
 // Overlay
 export {
@@ -46,7 +38,7 @@ export {
   DialogTitle,
   DialogDescription,
   DialogClose,
-} from "../../../../react/src/components/dialog";
+} from "@executor-js/react/components/dialog";
 export {
   Sheet,
   SheetTrigger,
@@ -56,19 +48,19 @@ export {
   SheetTitle,
   SheetDescription,
   SheetClose,
-} from "../../../../react/src/components/sheet";
+} from "@executor-js/react/components/sheet";
 export {
   Popover,
   PopoverTrigger,
   PopoverContent,
   PopoverAnchor,
-} from "../../../../react/src/components/popover";
+} from "@executor-js/react/components/popover";
 export {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
   TooltipProvider,
-} from "../../../../react/src/components/tooltip";
+} from "@executor-js/react/components/tooltip";
 export {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -83,13 +75,13 @@ export {
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
-} from "../../../../react/src/components/dropdown-menu";
+} from "@executor-js/react/components/dropdown-menu";
 
 // Input
-export { Button } from "../../../../react/src/components/button";
-export { Input } from "../../../../react/src/components/input";
-export { Textarea } from "../../../../react/src/components/textarea";
-export { Label } from "../../../../react/src/components/label";
+export { Button } from "@executor-js/react/components/button";
+export { Input } from "@executor-js/react/components/input";
+export { Textarea } from "@executor-js/react/components/textarea";
+export { Label } from "@executor-js/react/components/label";
 export {
   Select,
   SelectTrigger,
@@ -98,13 +90,13 @@ export {
   SelectGroup,
   SelectItem,
   SelectLabel,
-} from "../../../../react/src/components/select";
-export { Checkbox } from "../../../../react/src/components/checkbox";
-export { RadioGroup, RadioGroupItem } from "../../../../react/src/components/radio-group";
-export { Switch } from "../../../../react/src/components/switch";
-export { Slider } from "../../../../react/src/components/slider";
-export { Toggle } from "../../../../react/src/components/toggle";
-export { ToggleGroup, ToggleGroupItem } from "../../../../react/src/components/toggle-group";
+} from "@executor-js/react/components/select";
+export { Checkbox } from "@executor-js/react/components/checkbox";
+export { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
+export { Switch } from "@executor-js/react/components/switch";
+export { Slider } from "@executor-js/react/components/slider";
+export { Toggle } from "@executor-js/react/components/toggle";
+export { ToggleGroup, ToggleGroupItem } from "@executor-js/react/components/toggle-group";
 
 // Data display
 export {
@@ -116,22 +108,14 @@ export {
   TableHead,
   TableCell,
   TableCaption,
-} from "../../../../react/src/components/table";
-export { Badge } from "../../../../react/src/components/badge";
-export {
-  Avatar,
-  AvatarImage,
-  AvatarFallback,
-} from "../../../../react/src/components/avatar";
-export { Progress } from "../../../../react/src/components/progress";
-export { Skeleton } from "../../../../react/src/components/skeleton";
+} from "@executor-js/react/components/table";
+export { Badge } from "@executor-js/react/components/badge";
+export { Avatar, AvatarImage, AvatarFallback } from "@executor-js/react/components/avatar";
+export { Progress } from "@executor-js/react/components/progress";
+export { Skeleton } from "@executor-js/react/components/skeleton";
 
 // Feedback
-export {
-  Alert,
-  AlertTitle,
-  AlertDescription,
-} from "../../../../react/src/components/alert";
+export { Alert, AlertTitle, AlertDescription } from "@executor-js/react/components/alert";
 
 // Charts (shadcn wrappers around Recharts)
 export {
@@ -141,7 +125,7 @@ export {
   ChartLegend,
   ChartLegendContent,
   ChartStyle,
-} from "../../../../react/src/components/chart";
+} from "@executor-js/react/components/chart";
 
 // ---------------------------------------------------------------------------
 // Recharts primitives (exposed directly for model use)
@@ -290,4 +274,4 @@ export {
 // Utility
 // ---------------------------------------------------------------------------
 
-export { cn } from "../../../../react/src/lib/utils";
+export { cn } from "@executor-js/react/lib/utils";

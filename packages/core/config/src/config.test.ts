@@ -1,11 +1,11 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { NodeFileSystem } from "@effect/platform-node";
-import { FileSystem } from "@effect/platform";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import { FileSystem } from "effect";
 import { join } from "node:path";
 
 import { ExecutorFileConfig } from "./schema";
-import { loadConfig } from "./load";
+import { ConfigParseError, loadConfig } from "./load";
 import {
   addSourceToConfig,
   removeSourceFromConfig,
@@ -13,6 +13,8 @@ import {
   addSecretToConfig,
   removeSecretFromConfig,
 } from "./write";
+
+const decodeExecutorFileConfig = Schema.decodeUnknownSync(ExecutorFileConfig);
 
 const withTmpDir = <A, E>(fn: (dir: string) => Effect.Effect<A, E, FileSystem.FileSystem>) =>
   Effect.gen(function* () {
@@ -26,7 +28,7 @@ const withTmpDir = <A, E>(fn: (dir: string) => Effect.Effect<A, E, FileSystem.Fi
 describe("ExecutorFileConfig schema", () => {
   it("decodes a minimal config", () => {
     const raw = { sources: [] };
-    const result = Schema.decodeUnknownSync(ExecutorFileConfig)(raw);
+    const result = decodeExecutorFileConfig(raw);
     expect(result.sources).toEqual([]);
   });
 
@@ -70,7 +72,7 @@ describe("ExecutorFileConfig schema", () => {
       },
     };
 
-    const result = Schema.decodeUnknownSync(ExecutorFileConfig)(raw);
+    const result = decodeExecutorFileConfig(raw);
     expect(result.sources).toHaveLength(4);
     expect(result.name).toBe("test");
     expect(result.secrets!["my-token"]!.name).toBe("My Token");
@@ -80,7 +82,7 @@ describe("ExecutorFileConfig schema", () => {
     const raw = {
       sources: [{ kind: "invalid", endpoint: "http://example.com" }],
     };
-    expect(() => Schema.decodeUnknownSync(ExecutorFileConfig)(raw)).toThrow();
+    expect(() => decodeExecutorFileConfig(raw)).toThrow();
   });
 });
 
@@ -128,8 +130,10 @@ describe("loadConfig", () => {
         const path = join(dir, "executor.jsonc");
         yield* fs.writeFileString(path, "{ invalid json }");
 
-        const result = yield* loadConfig(path).pipe(Effect.flip);
-        expect(result._tag).toBe("ConfigParseError");
+        const result = yield* loadConfig(path).pipe(
+          Effect.catchTag("ConfigParseError", (error) => Effect.succeed(error)),
+        );
+        expect(result).toBeInstanceOf(ConfigParseError);
       }),
     ),
   );

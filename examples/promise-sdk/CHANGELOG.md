@@ -1,1 +1,1 @@
-# @executor/example-promise-sdk
+# @executor-js/example-promise-sdk

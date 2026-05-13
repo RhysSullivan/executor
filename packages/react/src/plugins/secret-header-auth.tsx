@@ -1,14 +1,33 @@
-import { useId, useState } from "react";
-import { useAtomRefresh, useAtomSet } from "@effect-atom/atom-react";
+import { useId, useState, type ReactNode } from "react";
 
-import { secretsAtom, setSecret, resolveSecret } from "../api/atoms";
-import { useScope } from "../api/scope-context";
+import { ScopeId } from "@executor-js/sdk";
 import { Button } from "../components/button";
-import { Field, FieldError, FieldGroup, FieldLabel } from "../components/field";
+import { Field, FieldGroup, FieldLabel } from "../components/field";
+import { HelpTooltip } from "../components/help-tooltip";
 import { Input } from "../components/input";
-import { Spinner } from "../components/spinner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../components/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/select";
+import { SecretForm } from "./secret-form";
 import { SecretPicker, type SecretPickerSecret } from "./secret-picker";
-import { SecretId } from "@executor/sdk";
+import {
+  CredentialTargetScopeSelector,
+  type CredentialTargetScopeOption,
+} from "./credential-target-scope";
+import { secretsForCredentialTarget } from "./secret-credential-scope";
+
+export { secretsForCredentialTarget };
 
 export interface HeaderAuthPreset {
   readonly key: string;
@@ -18,8 +37,18 @@ export interface HeaderAuthPreset {
 }
 
 export const defaultHeaderAuthPresets: readonly HeaderAuthPreset[] = [
-  { key: "bearer", label: "Bearer Token", name: "Authorization", prefix: "Bearer " },
-  { key: "basic", label: "Basic Auth", name: "Authorization", prefix: "Basic " },
+  {
+    key: "bearer",
+    label: "Bearer Token",
+    name: "Authorization",
+    prefix: "Bearer ",
+  },
+  {
+    key: "basic",
+    label: "Basic Auth",
+    name: "Authorization",
+    prefix: "Basic ",
+  },
   { key: "api-key", label: "API Key", name: "X-API-Key" },
   { key: "auth-token", label: "Auth Token", name: "X-Auth-Token" },
   { key: "access-token", label: "Access Token", name: "X-Access-Token" },
@@ -27,205 +56,142 @@ export const defaultHeaderAuthPresets: readonly HeaderAuthPreset[] = [
   { key: "custom", label: "Custom", name: "" },
 ];
 
-function SecretVisibilityIcon(props: { revealed: boolean }) {
-  return props.revealed ? (
-    <svg
-      viewBox="0 0 16 16"
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+function CreateSecretContent(props: {
+  suggestedName: string;
+  existingSecretIds: readonly string[];
+  onCreated: (secretId: string, scopeId: ScopeId) => void;
+  onCancel?: () => void;
+  fallbackId?: string;
+  targetScope: ScopeId;
+  credentialScopeOptions?: readonly CredentialTargetScopeOption[];
+}) {
+  const [scopeId, setScopeId] = useState(props.targetScope);
+  const activeScope = props.credentialScopeOptions?.find((option) => option.scopeId === scopeId);
+
+  return (
+    <SecretForm.Provider
+      existingSecretIds={props.existingSecretIds}
+      suggestedName={props.suggestedName}
+      fallbackId={props.fallbackId ?? "custom-header"}
+      scopeId={scopeId}
+      onCreated={(secretId) => props.onCreated(secretId, scopeId)}
     >
-      <path d="M2 2l12 12" />
-      <path d="M6.5 6.5a2 2 0 0 0 3 3" />
-      <path d="M3.5 5.5C2.3 6.7 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1 0 1.9-.3 2.7-.7" />
-      <path d="M10.7 10.7c2-1.4 3.3-3.2 3.8-3.7 0 0-2.5-5-6.5-5-.7 0-1.4.1-2 .4" />
-    </svg>
-  ) : (
-    <svg
-      viewBox="0 0 16 16"
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z" />
-      <circle cx="8" cy="8" r="2" />
-    </svg>
+      <div className="space-y-3">
+        {props.credentialScopeOptions && props.credentialScopeOptions.length > 1 && (
+          <CredentialTargetScopeSelector
+            value={scopeId}
+            options={props.credentialScopeOptions}
+            onChange={setScopeId}
+            title="Save secret to"
+            description={activeScope?.description ?? "Choose where this secret is saved."}
+          />
+        )}
+        <FieldGroup className="gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <SecretForm.NameField label="Label" placeholder="API Token" />
+            <SecretForm.IdField placeholder="my-api-token" />
+          </div>
+          <SecretForm.ValueField revealable autoFocus placeholder="paste your token or key…" />
+        </FieldGroup>
+        <div className="flex justify-end gap-2 pt-0.5">
+          {props.onCancel && (
+            <Button type="button" variant="outline" size="sm" onClick={props.onCancel}>
+              Cancel
+            </Button>
+          )}
+          <SecretForm.SubmitButton size="sm">Create and use</SecretForm.SubmitButton>
+        </div>
+      </div>
+    </SecretForm.Provider>
   );
 }
 
-function InlineCreateSecret(props: {
-  headerName: string;
-  suggestedId: string;
-  onCreated: (secretId: string) => void;
+export function InlineCreateSecret(props: {
+  suggestedName: string;
+  existingSecretIds: readonly string[];
+  onCreated: (secretId: string, scopeId: ScopeId) => void;
   onCancel: () => void;
+  fallbackId?: string;
+  targetScope: ScopeId;
+  credentialScopeOptions?: readonly CredentialTargetScopeOption[];
 }) {
-  const [secretId, setSecretId] = useState(props.suggestedId);
-  const [secretName, setSecretName] = useState(props.headerName);
-  const [secretValue, setSecretValue] = useState("");
-  const [secretRevealed, setSecretRevealed] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const scopeId = useScope();
-  const doSet = useAtomSet(setSecret, { mode: "promise" });
-  const refreshSecrets = useAtomRefresh(secretsAtom(scopeId));
-  const secretIdInputId = useId();
-  const secretNameInputId = useId();
-  const secretValueInputId = useId();
-
-  const handleSave = async () => {
-    if (!secretId.trim() || !secretValue.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await doSet({
-        path: { scopeId },
-        payload: {
-          id: SecretId.make(secretId.trim()),
-          name: secretName.trim() || secretId.trim(),
-          value: secretValue.trim(),
-          purpose: `Auth header: ${props.headerName}`,
-        },
-      });
-      refreshSecrets();
-      props.onCreated(secretId.trim());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save secret");
-      setSaving(false);
-    }
-  };
-
   return (
-    <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-3">
-      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
-      <FieldGroup className="gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Field>
-            <FieldLabel htmlFor={secretIdInputId}>ID</FieldLabel>
-            <Input
-              id={secretIdInputId}
-              value={secretId}
-              onChange={(e) => setSecretId((e.target as HTMLInputElement).value)}
-              placeholder="my-api-token"
-              className="font-mono"
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={secretNameInputId}>Label</FieldLabel>
-            <Input
-              id={secretNameInputId}
-              value={secretName}
-              onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
-              placeholder="API Token"
-            />
-          </Field>
-        </div>
-        <Field>
-          <FieldLabel htmlFor={secretValueInputId}>Value</FieldLabel>
-          <div className="relative">
-            <Input
-              id={secretValueInputId}
-              type={secretRevealed ? "text" : "password"}
-              value={secretValue}
-              onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
-              placeholder="paste your token or key…"
-              className="pr-9 font-mono"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="absolute right-1 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              onClick={() => setSecretRevealed((revealed) => !revealed)}
-              aria-label={secretRevealed ? "Hide secret value" : "Reveal secret value"}
-            >
-              <SecretVisibilityIcon revealed={secretRevealed} />
-            </Button>
-          </div>
-          {error && <FieldError>{error}</FieldError>}
-        </Field>
-      </FieldGroup>
-      <div className="flex justify-end gap-1.5 pt-0.5">
-        <Button variant="outline" size="xs" onClick={props.onCancel}>
-          Cancel
-        </Button>
-        <Button
-          size="xs"
-          onClick={handleSave}
-          disabled={!secretId.trim() || !secretValue.trim() || saving}
-        >
-          {saving ? "Saving…" : "Create and use"}
-        </Button>
-      </div>
+    <div className="bg-primary/[0.03] px-4 py-3">
+      <p className="mb-3 text-[11px] font-semibold tracking-wide text-primary uppercase">
+        New secret
+      </p>
+      <CreateSecretContent {...props} />
     </div>
   );
 }
 
-type ResolveState =
-  | { status: "hidden" }
-  | { status: "loading" }
-  | { status: "revealed"; value: string }
-  | { status: "error" };
+function CreateSecretDialog(props: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly suggestedName: string;
+  readonly existingSecretIds: readonly string[];
+  readonly onCreated: (secretId: string, scopeId: ScopeId) => void;
+  readonly fallbackId?: string;
+  readonly targetScope: ScopeId;
+  readonly credentialScopeOptions?: readonly CredentialTargetScopeOption[];
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New secret</DialogTitle>
+          <DialogDescription>
+            Create a reusable secret, then use it for this credential.
+          </DialogDescription>
+        </DialogHeader>
+        <CreateSecretContent
+          suggestedName={props.suggestedName}
+          existingSecretIds={props.existingSecretIds}
+          fallbackId={props.fallbackId}
+          onCreated={props.onCreated}
+          onCancel={() => props.onOpenChange(false)}
+          targetScope={props.targetScope}
+          credentialScopeOptions={props.credentialScopeOptions}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-function HeaderValuePreview(props: { headerName: string; secretId: string; prefix?: string }) {
-  const { headerName, secretId, prefix } = props;
-  const scopeId = useScope();
-  const [state, setState] = useState<ResolveState>({ status: "hidden" });
-  const doResolve = useAtomSet(resolveSecret, { mode: "promise" });
+export type SecretCredentialPreviewProps = {
+  readonly name: string;
+  readonly secretId: string;
+  readonly prefix?: string;
+};
 
-  const handleToggle = async () => {
-    if (state.status === "revealed") {
-      setState({ status: "hidden" });
-      return;
-    }
-    setState({ status: "loading" });
-    try {
-      const result = await doResolve({
-        path: {
-          scopeId,
-          secretId: SecretId.make(secretId),
-        },
-      });
-      setState({ status: "revealed", value: result.value });
-    } catch {
-      setState({ status: "error" });
-    }
-  };
+export type SecretCredentialPreviewComponent = (props: SecretCredentialPreviewProps) => ReactNode;
 
-  const displayValue =
-    state.status === "revealed"
-      ? state.value
-      : state.status === "error"
-        ? "failed to resolve"
-        : "•".repeat(12);
-  const isLoading = state.status === "loading";
-  const isRevealed = state.status === "revealed";
+export function HeaderCredentialValuePreview(props: SecretCredentialPreviewProps) {
+  const { name, prefix } = props;
+  const maskedValue = "•".repeat(12);
 
   return (
     <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-xs">
-      <span className="text-muted-foreground shrink-0">{headerName}:</span>
+      <span className="text-muted-foreground shrink-0">{name}:</span>
       <span className="text-foreground truncate">
         {prefix && <span className="text-muted-foreground">{prefix}</span>}
-        {displayValue}
+        {maskedValue}
       </span>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="ml-auto shrink-0"
-        onClick={handleToggle}
-        disabled={isLoading}
-      >
-        {isLoading ? (
-          <Spinner className="size-3" />
-        ) : (
-          <SecretVisibilityIcon revealed={isRevealed} />
-        )}
-      </Button>
+    </div>
+  );
+}
+
+export function QueryParamCredentialValuePreview(props: SecretCredentialPreviewProps) {
+  const { name, prefix } = props;
+  const maskedValue = "•".repeat(12);
+
+  return (
+    <div className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-xs">
+      <span className="text-muted-foreground">?{name}=</span>
+      <span className="text-foreground">
+        {prefix && <span className="text-muted-foreground">{prefix}</span>}
+        {maskedValue}
+      </span>
     </div>
   );
 }
@@ -240,6 +206,10 @@ export type HeaderState = {
   prefix?: string;
   presetKey?: string;
   fromPreset?: boolean;
+  /** Scope where this source credential value is used. */
+  targetScope?: ScopeId;
+  /** Scope that owns the selected reusable secret. */
+  secretScope?: ScopeId;
 };
 
 export function matchPresetKey(name: string, prefix?: string): string {
@@ -248,6 +218,39 @@ export function matchPresetKey(name: string, prefix?: string): string {
     defaultHeaderAuthPresets.find((p) => p.name === name && p.prefix === undefined);
   return preset?.key ?? "custom";
 }
+
+function InfoLabel(props: { readonly children: string; readonly tooltip: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <FieldLabel>{props.children}</FieldLabel>
+      <HelpTooltip label={props.children}>{props.tooltip}</HelpTooltip>
+    </div>
+  );
+}
+
+export type SecretCredentialRowCopy = {
+  readonly rowLabel: string;
+  readonly nameLabel: string;
+  readonly namePlaceholder: string;
+  readonly prefixLabel: string;
+  readonly prefixPlaceholder: string;
+  readonly secretLabel: string;
+  readonly secretHelp: string;
+  readonly usedByLabel: string;
+  readonly usedByHelp: string;
+};
+
+const defaultSecretCredentialRowCopy: SecretCredentialRowCopy = {
+  rowLabel: "Header",
+  nameLabel: "Name",
+  namePlaceholder: "Authorization",
+  prefixLabel: "Prefix",
+  prefixPlaceholder: "Bearer ",
+  secretLabel: "Secret",
+  secretHelp: "Select or create a reusable secret.",
+  usedByLabel: "Used by",
+  usedByHelp: "Choose who uses this credential value.",
+};
 
 export function headerValueToState(
   name: string,
@@ -288,12 +291,31 @@ export function SecretHeaderAuthRow(props: {
   prefix?: string;
   presetKey?: string;
   secretId: string | null;
-  onChange: (update: { name: string; prefix?: string; presetKey?: string }) => void;
-  onSelectSecret: (secretId: string) => void;
+  secretScope?: ScopeId;
+  onChange: (update: {
+    name: string;
+    secretId?: string | null;
+    prefix?: string;
+    presetKey?: string;
+    targetScope?: ScopeId;
+    secretScope?: ScopeId;
+  }) => void;
+  onSelectSecret: (secretId: string, scopeId?: ScopeId) => void;
   existingSecrets: readonly SecretPickerSecret[];
   onRemove?: () => void;
   removeLabel?: string;
-  label?: string;
+  copy?: Partial<SecretCredentialRowCopy>;
+  previewComponent?: SecretCredentialPreviewComponent;
+  /**
+   * Display name of the source this header belongs to (e.g. "Axiom"). Used
+   * to prefix the suggested secret label and ID so tokens from different
+   * sources don't collide on ids like `authorization`.
+   */
+  sourceName?: string;
+  targetScope: ScopeId;
+  credentialScopeOptions?: readonly CredentialTargetScopeOption[];
+  bindingScopeOptions?: readonly CredentialTargetScopeOption[];
+  restrictSecretsToTargetScope?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
   const nameInputId = useId();
@@ -303,39 +325,49 @@ export function SecretHeaderAuthRow(props: {
     prefix,
     presetKey,
     secretId,
+    secretScope,
     onChange,
     onSelectSecret,
     existingSecrets,
     onRemove,
     removeLabel = "Remove",
-    label = "Header",
+    copy: copyOverride,
+    previewComponent: PreviewComponent = HeaderCredentialValuePreview,
+    sourceName,
+    targetScope,
+    credentialScopeOptions,
+    bindingScopeOptions,
+    restrictSecretsToTargetScope = false,
   } = props;
 
   const isCustom = presetKey === "custom" || presetKey === undefined;
-  const suggestedId = name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "custom-header";
-
-  if (creating) {
-    return (
-      <div className="px-4 py-3">
-        <InlineCreateSecret
-          headerName={name || "Custom Header"}
-          suggestedId={suggestedId}
-          onCreated={(id) => {
-            onSelectSecret(id);
-            setCreating(false);
-          }}
-          onCancel={() => setCreating(false)}
-        />
-      </div>
-    );
-  }
+  const copy = { ...defaultSecretCredentialRowCopy, ...copyOverride };
+  const headerLabel = name.trim() || "Custom Header";
+  const suggestedName = [sourceName?.trim(), headerLabel].filter(Boolean).join(" ");
+  const scopedSecrets = secretsForCredentialTarget(existingSecrets, targetScope);
+  const selectableSecrets = restrictSecretsToTargetScope ? scopedSecrets : existingSecrets;
 
   return (
     <div className="space-y-2.5 px-4 py-3">
+      <CreateSecretDialog
+        open={creating}
+        onOpenChange={setCreating}
+        suggestedName={suggestedName}
+        existingSecretIds={scopedSecrets.map((secret) => secret.id)}
+        onCreated={(id, scopeId) => {
+          onSelectSecret(id, scopeId);
+          setCreating(false);
+        }}
+        targetScope={targetScope}
+        credentialScopeOptions={credentialScopeOptions}
+      />
       <div className="flex w-full items-center justify-between gap-4">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          {copy.rowLabel}
+        </span>
         {onRemove && (
           <Button
+            type="button"
             variant="ghost"
             size="xs"
             className="text-muted-foreground hover:text-destructive"
@@ -348,7 +380,7 @@ export function SecretHeaderAuthRow(props: {
 
       <FieldGroup className="grid grid-cols-2 gap-3">
         <Field>
-          <FieldLabel htmlFor={nameInputId}>Name</FieldLabel>
+          <FieldLabel htmlFor={nameInputId}>{copy.nameLabel}</FieldLabel>
           <Input
             id={nameInputId}
             value={name}
@@ -359,13 +391,14 @@ export function SecretHeaderAuthRow(props: {
                 presetKey: isCustom ? "custom" : presetKey,
               })
             }
-            placeholder="Authorization"
+            placeholder={copy.namePlaceholder}
             className="font-mono"
           />
         </Field>
         <Field>
           <FieldLabel htmlFor={prefixInputId}>
-            Prefix <span className="font-normal text-muted-foreground/60">(optional)</span>
+            {copy.prefixLabel}{" "}
+            <span className="font-normal text-muted-foreground/60">(optional)</span>
           </FieldLabel>
           <Input
             id={prefixInputId}
@@ -377,29 +410,132 @@ export function SecretHeaderAuthRow(props: {
                 presetKey: isCustom ? "custom" : presetKey,
               })
             }
-            placeholder="Bearer "
+            placeholder={copy.prefixPlaceholder}
             className="font-mono"
           />
         </Field>
       </FieldGroup>
 
-      <div className="flex items-center gap-1.5">
-        <div className="flex-1 min-w-0">
-          <SecretPicker value={secretId} onSelect={onSelectSecret} secrets={existingSecrets} />
+      <div
+        className={
+          bindingScopeOptions && bindingScopeOptions.length > 1
+            ? "grid gap-2 md:grid-cols-2"
+            : undefined
+        }
+      >
+        <div className="space-y-1.5">
+          <InfoLabel tooltip={copy.secretHelp}>{copy.secretLabel}</InfoLabel>
+          <SecretPicker
+            value={secretId}
+            valueScopeId={secretScope ? String(secretScope) : undefined}
+            onSelect={(id, scopeId) => onSelectSecret(id, ScopeId.make(scopeId))}
+            secrets={selectableSecrets}
+            onCreateNew={() => setCreating(true)}
+          />
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={() => setCreating(true)}
-        >
-          + New
-        </Button>
+        {bindingScopeOptions && bindingScopeOptions.length > 1 && (
+          <div className="space-y-1.5">
+            <InfoLabel tooltip={copy.usedByHelp}>{copy.usedByLabel}</InfoLabel>
+            <Select
+              value={String(targetScope)}
+              onValueChange={(nextScope) =>
+                onChange({
+                  name,
+                  secretId: null,
+                  secretScope: undefined,
+                  prefix,
+                  presetKey,
+                  targetScope: ScopeId.make(nextScope),
+                })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Used by" />
+              </SelectTrigger>
+              <SelectContent>
+                {bindingScopeOptions.map((option) => (
+                  <SelectItem key={option.scopeId} value={option.scopeId}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {secretId && name.trim() && (
-        <HeaderValuePreview headerName={name.trim()} secretId={secretId} prefix={prefix} />
+        <PreviewComponent name={name.trim()} secretId={secretId} prefix={prefix} />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CreatableSecretPicker — SecretPicker + inline "+ New secret" create flow
+// ---------------------------------------------------------------------------
+
+export function CreatableSecretPicker(props: {
+  readonly value: string | null;
+  readonly onSelect: (secretId: string, scopeId?: ScopeId) => void;
+  readonly secrets: readonly SecretPickerSecret[];
+  readonly placeholder?: string;
+  readonly targetScope: ScopeId;
+  readonly credentialScopeOptions?: readonly CredentialTargetScopeOption[];
+  readonly onCreatedScope?: (scopeId: ScopeId) => void;
+  readonly suggestedId?: string;
+  /**
+   * Display name of the source the secret belongs to (e.g. "Stripe").
+   * Combined with `secretLabel` to produce a suggested name/ID.
+   */
+  readonly sourceName?: string;
+  /** Role of this secret (e.g. "Client ID", "API Token"). */
+  readonly secretLabel: string;
+}) {
+  const {
+    value,
+    onSelect,
+    secrets,
+    placeholder,
+    sourceName,
+    secretLabel,
+    targetScope,
+    credentialScopeOptions,
+    onCreatedScope,
+    suggestedId: suggestedIdProp,
+  } = props;
+  const [creating, setCreating] = useState(false);
+
+  const suggestedName = [sourceName?.trim(), secretLabel].filter(Boolean).join(" ");
+  const scopedSecrets = secretsForCredentialTarget(secrets, targetScope);
+
+  if (creating) {
+    return (
+      <CreateSecretDialog
+        open={creating}
+        onOpenChange={setCreating}
+        suggestedName={suggestedName}
+        existingSecretIds={scopedSecrets.map((secret) => secret.id)}
+        fallbackId={suggestedIdProp?.trim() || "secret"}
+        onCreated={(id, scopeId) => {
+          onCreatedScope?.(scopeId);
+          onSelect(id, scopeId);
+          setCreating(false);
+        }}
+        targetScope={targetScope}
+        credentialScopeOptions={credentialScopeOptions}
+      />
+    );
+  }
+
+  return (
+    <SecretPicker
+      value={value}
+      valueScopeId={String(targetScope)}
+      onSelect={(id, scopeId) => onSelect(id, ScopeId.make(scopeId))}
+      secrets={secrets}
+      placeholder={placeholder}
+      onCreateNew={() => setCreating(true)}
+    />
   );
 }

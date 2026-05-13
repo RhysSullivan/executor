@@ -3,8 +3,9 @@ import { Effect, Option } from "effect";
 import { OpenApiExtractionError } from "./errors";
 import type { ParsedDocument } from "./parse";
 import {
+  declaredContents,
   DocResolver,
-  preferredContent,
+  preferredResponseContent,
   type OperationObject,
   type ParameterObject,
   type PathItemObject,
@@ -12,9 +13,11 @@ import {
   type ResponseObject,
 } from "./openapi-utils";
 import {
+  EncodingObject,
   ExtractedOperation,
   ExtractionResult,
   type HttpMethod,
+  MediaBinding,
   OperationId,
   OperationParameter,
   OperationRequestBody,
@@ -64,24 +67,46 @@ const extractParameters = (
 
   return [...merged.values()]
     .filter((p) => VALID_PARAM_LOCATIONS.has(p.in))
-    .map(
-      (p) =>
-        new OperationParameter({
-          name: p.name,
-          location: p.in as ParameterLocation,
-          required: p.in === "path" ? true : p.required === true,
-          schema: Option.fromNullable(p.schema),
-          style: Option.fromNullable(p.style),
-          explode: Option.fromNullable(p.explode),
-          allowReserved: Option.fromNullable("allowReserved" in p ? p.allowReserved : undefined),
-          description: Option.fromNullable(p.description),
-        }),
+    .map((p) =>
+      OperationParameter.make({
+        name: p.name,
+        location: p.in as ParameterLocation,
+        required: p.in === "path" ? true : p.required === true,
+        schema: Option.fromNullishOr(p.schema),
+        style: Option.fromNullishOr(p.style),
+        explode: Option.fromNullishOr(p.explode),
+        allowReserved: Option.fromNullishOr("allowReserved" in p ? p.allowReserved : undefined),
+        description: Option.fromNullishOr(p.description),
+      }),
     );
 };
 
 // ---------------------------------------------------------------------------
 // Request body extraction
 // ---------------------------------------------------------------------------
+
+const buildEncodingRecord = (
+  encoding: Record<string, unknown> | undefined,
+): Record<string, EncodingObject> | undefined => {
+  if (!encoding) return undefined;
+  const out: Record<string, EncodingObject> = {};
+  for (const [prop, raw] of Object.entries(encoding)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const e = raw as {
+      contentType?: string;
+      style?: string;
+      explode?: boolean;
+      allowReserved?: boolean;
+    };
+    out[prop] = EncodingObject.make({
+      contentType: Option.fromNullishOr(e.contentType),
+      style: Option.fromNullishOr(e.style),
+      explode: Option.fromNullishOr(e.explode),
+      allowReserved: Option.fromNullishOr(e.allowReserved),
+    });
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+};
 
 const extractRequestBody = (
   operation: OperationObject,
@@ -92,13 +117,26 @@ const extractRequestBody = (
   const body = r.resolve<RequestBodyObject>(operation.requestBody);
   if (!body) return undefined;
 
-  const content = preferredContent(body.content);
-  if (!content) return undefined;
+  const contents = declaredContents(body.content).map(({ mediaType, media }) =>
+    MediaBinding.make({
+      contentType: mediaType,
+      schema: Option.fromNullishOr(media.schema),
+      encoding: Option.fromNullishOr(
+        buildEncodingRecord((media as { encoding?: Record<string, unknown> }).encoding),
+      ),
+    }),
+  );
+  if (contents.length === 0) return undefined;
 
-  return new OperationRequestBody({
+  // Default = first declared (spec author's preferred order). Callers can
+  // override at invoke time with a `contentType` arg.
+  const defaultContent = contents[0]!;
+
+  return OperationRequestBody.make({
     required: body.required === true,
-    contentType: content.mediaType,
-    schema: Option.fromNullable(content.media.schema),
+    contentType: defaultContent.contentType,
+    schema: defaultContent.schema,
+    contents: Option.some(contents),
   });
 };
 
@@ -118,7 +156,7 @@ const extractOutputSchema = (operation: OperationObject, r: DocResolver): unknow
   for (const [, ref] of preferred) {
     const resp = r.resolve<ResponseObject>(ref);
     if (!resp) continue;
-    const content = preferredContent(resp.content);
+    const content = preferredResponseContent(resp.content);
     if (content?.media.schema) return content.media.schema;
   }
 
@@ -144,6 +182,21 @@ const buildInputSchema = (
   if (requestBody) {
     properties.body = Option.getOrElse(requestBody.schema, () => ({ type: "object" }));
     if (requestBody.required) required.push("body");
+
+    // When the spec declares multiple media types for this requestBody,
+    // expose `contentType` so the model can pick. Default = first declared.
+    // `body` schema tracks the default; the model is responsible for
+    // supplying a body shape that matches whichever contentType it picks.
+    const contents = Option.getOrUndefined(requestBody.contents);
+    if (contents && contents.length > 1) {
+      properties.contentType = {
+        type: "string",
+        enum: contents.map((c) => c.contentType),
+        default: requestBody.contentType,
+        description:
+          "Content-Type for the request body. Declared media types for this operation, in spec order.",
+      };
+    }
   }
 
   if (Object.keys(properties).length === 0) return undefined;
@@ -186,13 +239,11 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
             return [
               [
                 name,
-                new ServerVariable({
+                ServerVariable.make({
                   default: String(v.default),
                   enum:
-                    enumValues && enumValues.length > 0
-                      ? Option.some(enumValues)
-                      : Option.none(),
-                  description: Option.fromNullable(v.description),
+                    enumValues && enumValues.length > 0 ? Option.some(enumValues) : Option.none(),
+                  description: Option.fromNullishOr(v.description),
                 }),
               ],
             ];
@@ -200,9 +251,9 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
         )
       : undefined;
     return [
-      new ServerInfo({
+      ServerInfo.make({
         url: server.url,
-        description: Option.fromNullable(server.description),
+        description: Option.fromNullishOr(server.description),
         variables: vars && Object.keys(vars).length > 0 ? Option.some(vars) : Option.none(),
       }),
     ];
@@ -240,26 +291,26 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
       const tags = (operation.tags ?? []).filter((t) => t.trim().length > 0);
 
       operations.push(
-        new ExtractedOperation({
+        ExtractedOperation.make({
           operationId: OperationId.make(deriveOperationId(method, pathTemplate, operation)),
           method,
           pathTemplate,
-          summary: Option.fromNullable(operation.summary),
-          description: Option.fromNullable(operation.description),
+          summary: Option.fromNullishOr(operation.summary),
+          description: Option.fromNullishOr(operation.description),
           tags,
           parameters,
-          requestBody: Option.fromNullable(requestBody),
-          inputSchema: Option.fromNullable(inputSchema),
-          outputSchema: Option.fromNullable(outputSchema),
+          requestBody: Option.fromNullishOr(requestBody),
+          inputSchema: Option.fromNullishOr(inputSchema),
+          outputSchema: Option.fromNullishOr(outputSchema),
           deprecated: operation.deprecated === true,
         }),
       );
     }
   }
 
-  return new ExtractionResult({
-    title: Option.fromNullable(doc.info?.title),
-    version: Option.fromNullable(doc.info?.version),
+  return ExtractionResult.make({
+    title: Option.fromNullishOr(doc.info?.title),
+    version: Option.fromNullishOr(doc.info?.version),
     servers: extractServers(doc),
     operations,
   });

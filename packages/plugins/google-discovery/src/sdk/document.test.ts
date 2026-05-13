@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
-import { describe, expect, it } from "vitest";
 
 import { extractGoogleDiscoveryManifest } from "./document";
 

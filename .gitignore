@@ -1,6 +1,11 @@
 # dependencies (bun install)
 node_modules
 
+# Hand-managed fixture node_modules used by the @executor-js/config
+# loader tests (require.resolve walks up to find these).
+!packages/core/config/__test-fixtures__/node_modules/
+!packages/core/config/__test-fixtures__/node_modules/**
+
 # output
 out
 dist
@@ -62,5 +67,20 @@ executor.jsonc
 
 # reference repos (pulled via `bun run pull:references`)
 .reference/
+.worktrees/
 
 .mcp.json
+.codex/
+
+# Warden local scan outputs
+.warden/
+.warden-runs/
+
+# Agent local notes
+MISTAKES.md
+DESIRES.md
+LEARNINGS.md
+.alchemy/
+
+# Pi coding agent
+.pi/

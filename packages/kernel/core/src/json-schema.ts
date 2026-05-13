@@ -1,5 +1,5 @@
 import type { ErrorObject } from "ajv";
-import Ajv2020 from "ajv/dist/2020";
+import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import type { StandardSchema } from "./types";
@@ -33,6 +33,7 @@ const pointerToPath = (pointer: string | undefined): ReadonlyArray<PropertyKey> 
 
 const toIssueMessage = (error: ErrorObject): string => {
   const keyword = error.keyword.trim();
+  // oxlint-disable-next-line executor/no-unknown-error-message -- typed AJV ErrorObject exposes optional validation message copy
   const message = (error.message ?? "Invalid value").trim();
   return keyword.length > 0 ? `${keyword}: ${message}` : message;
 };
@@ -44,6 +45,7 @@ export const standardSchemaFromJsonSchema = (
     fallback?: StandardSchema;
   },
 ): StandardSchema => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: AJV compile throws for invalid schemas and this adapter preserves fallback behavior
   try {
     const validate = ajv.compile(schema as Record<string, unknown>);
 

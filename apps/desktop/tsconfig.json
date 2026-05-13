@@ -1,15 +1,15 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "nodenext",
-    "esModuleInterop": true,
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "strict": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    "esModuleInterop": true,
     "skipLibCheck": true,
-    "declaration": false,
-    "sourceMap": true
+    "outDir": "out",
+    "rootDir": ".",
+    "jsx": "react-jsx",
+    "types": ["node", "bun-types"]
   },
-  "include": ["src"]
+  "include": ["src", "scripts", "electron.vite.config.ts", "electron-builder.config.ts"]
 }

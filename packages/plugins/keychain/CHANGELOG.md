@@ -1,4 +1,4 @@
-# @executor/plugin-keychain changelog
+# @executor-js/plugin-keychain changelog
 
 This file exists for Changesets release workflow compatibility.
 Canonical user-facing release notes are published on GitHub Releases.

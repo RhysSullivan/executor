@@ -1,6 +1,6 @@
 {
-  "name": "@executor/plugin-file-secrets",
-  "version": "0.0.1",
+  "name": "@executor-js/plugin-file-secrets",
+  "version": "1.4.24",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/file-secrets",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"
@@ -44,7 +44,7 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

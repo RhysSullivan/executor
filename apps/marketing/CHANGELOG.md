@@ -1,1 +1,1 @@
-# @executor/marketing
+# @executor-js/marketing

@@ -11,7 +11,7 @@ export function createToolsProxy(app: App): Record<string, unknown> {
   function nest(path: string[]): unknown {
     return new Proxy(function () {}, {
       get(_target, key: string) {
-        if (key === "then" || key === "toJSON" || key === Symbol.toPrimitive as unknown) {
+        if (key === "then" || key === "toJSON" || key === (Symbol.toPrimitive as unknown)) {
           return undefined;
         }
         return nest([...path, key]);
@@ -29,17 +29,20 @@ export function createToolsProxy(app: App): Record<string, unknown> {
             arguments: { code },
           })
           .then((r) => {
-            console.log("[executor-proxy] raw result:", JSON.stringify({
-              isError: r.isError,
-              structuredContent: r.structuredContent,
-              text: r.content?.find((c) => c.type === "text")?.text,
-            }));
+            console.log(
+              "[executor-proxy] raw result:",
+              JSON.stringify({
+                isError: r.isError,
+                structuredContent: r.structuredContent,
+                text: r.content?.find((c) => c.type === "text")?.text,
+              }),
+            );
             if (r.isError) {
-              const msg =
-                r.content?.find((c) => c.type === "text")?.text ?? "Tool call failed";
+              const msg = r.content?.find((c) => c.type === "text")?.text ?? "Tool call failed";
               throw new Error(msg);
             }
-            const unwrapped = unwrapResult(r.structuredContent as Record<string, unknown>) ?? parseTextContent(r);
+            const unwrapped =
+              unwrapResult(r.structuredContent as Record<string, unknown>) ?? parseTextContent(r);
             console.log("[executor-proxy] unwrapped:", JSON.stringify(unwrapped));
             return unwrapped;
           });
@@ -67,8 +70,7 @@ export function createRunFn(app: App): (code: string) => Promise<unknown> {
       })
       .then((r) => {
         if (r.isError) {
-          const msg =
-            r.content?.find((c) => c.type === "text")?.text ?? "Execution failed";
+          const msg = r.content?.find((c) => c.type === "text")?.text ?? "Execution failed";
           throw new Error(msg);
         }
         return unwrapResult(r.structuredContent as Record<string, unknown>) ?? parseTextContent(r);

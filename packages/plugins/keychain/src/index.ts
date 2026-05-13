@@ -1,10 +1,26 @@
 import { Effect } from "effect";
 
-import { definePlugin, type SecretId, type ExecutorPlugin } from "@executor/sdk";
+import { definePlugin, type PluginCtx, type SecretProvider } from "@executor-js/sdk/core";
 
-import { displayName, isSupportedPlatform, resolveServiceName } from "./keyring";
-import { getPassword } from "./keyring";
-import { makeKeychainProvider } from "./provider";
+import {
+  deletePassword,
+  displayName,
+  getPassword,
+  isSupportedPlatform,
+  resolveServiceName,
+  setPassword,
+} from "./keyring";
+import { makeKeychainProvider, scopedKeychainServiceName } from "./provider";
+
+// Probe the keychain by writing and then deleting a sentinel entry. A
+// read-only probe isn't enough — on some Linux environments (WSL2,
+// headless CI) `getPassword` for a missing key returns null without
+// error, but `setPassword` fails because the secret-service backend
+// isn't actually reachable. Writing is the capability the executor
+// cares about, so test it directly.
+const PROBE_VALUE = "probe";
+const probeAccount = (): string =>
+  `__executor_keychain_probe__:${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
 // ---------------------------------------------------------------------------
 // Re-exports
@@ -27,47 +43,64 @@ export interface KeychainPluginConfig {
 // Plugin extension — public API on executor.keychain
 // ---------------------------------------------------------------------------
 
-export interface KeychainExtension {
-  /** Human-readable name for the keychain on this platform */
-  readonly displayName: string;
-
-  /** Whether the current platform supports system keychain */
-  readonly isSupported: boolean;
-
-  /** Check if a secret exists in the system keychain */
-  readonly has: (secretId: SecretId) => Effect.Effect<boolean>;
-}
+export type KeychainExtension = ReturnType<typeof makeKeychainExtension>;
 
 // ---------------------------------------------------------------------------
 // Plugin definition
 // ---------------------------------------------------------------------------
 
-const PLUGIN_KEY = "keychain";
+const makeKeychainExtension = (
+  ctx: PluginCtx<unknown>,
+  options: KeychainPluginConfig | undefined,
+) => {
+  const baseServiceName = resolveServiceName(options?.serviceName);
+  return {
+    /** Human-readable name for the keychain on this platform */
+    displayName: displayName(),
 
-export const keychainPlugin = (
-  config?: KeychainPluginConfig,
-): ExecutorPlugin<typeof PLUGIN_KEY, KeychainExtension> =>
-  definePlugin({
-    key: PLUGIN_KEY,
-    init: (ctx) =>
+    /** Whether the current platform supports system keychain */
+    isSupported: isSupportedPlatform(),
+
+    /** Check if a secret exists in the system keychain */
+    has: (id: string) =>
       Effect.gen(function* () {
-        // Scope the service name to the current scope so each folder gets its own keychain entries
-        const baseServiceName = resolveServiceName(config?.serviceName);
-        const serviceName = `${baseServiceName}/${ctx.scope.id}`;
-
-        yield* ctx.secrets.addProvider(makeKeychainProvider(serviceName));
-
-        const extension: KeychainExtension = {
-          displayName: displayName(),
-          isSupported: isSupportedPlatform(),
-
-          has: (secretId) =>
-            getPassword(serviceName, secretId).pipe(
-              Effect.map((v) => v !== null),
-              Effect.orElseSucceed(() => false),
-            ),
-        };
-
-        return { extension };
+        for (const scope of ctx.scopes) {
+          const exists = yield* getPassword(
+            scopedKeychainServiceName(baseServiceName, scope.id),
+            id,
+          ).pipe(
+            Effect.map((v) => v !== null),
+            Effect.orElseSucceed(() => false),
+          );
+          if (exists) return true;
+        }
+        return false;
       }),
-  });
+  };
+};
+
+export const keychainPlugin = definePlugin((options?: KeychainPluginConfig) => ({
+  id: "keychain" as const,
+  storage: () => ({}),
+
+  extension: (ctx): KeychainExtension => makeKeychainExtension(ctx, options),
+
+  secretProviders: (ctx): Effect.Effect<readonly SecretProvider[]> =>
+    Effect.gen(function* () {
+      const baseServiceName = resolveServiceName(options?.serviceName);
+      const probeServiceName = scopedKeychainServiceName(baseServiceName, ctx.scopes[0]!.id);
+      const account = probeAccount();
+      const reachable = yield* setPassword(probeServiceName, account, PROBE_VALUE).pipe(
+        Effect.andThen(
+          deletePassword(probeServiceName, account).pipe(Effect.catch(() => Effect.void)),
+        ),
+        Effect.as(true),
+        Effect.catch(() =>
+          Effect.logWarning("keychain unavailable, skipping provider registration").pipe(
+            Effect.as(false),
+          ),
+        ),
+      );
+      return reachable ? [makeKeychainProvider(baseServiceName)] : [];
+    }),
+}));

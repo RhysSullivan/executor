@@ -1,6 +1,6 @@
 {
-  "name": "@executor/runtime-dynamic-worker",
-  "version": "1.4.3",
+  "name": "@executor-js/runtime-dynamic-worker",
+  "version": "1.4.4",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,13 +13,16 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/codemode-core": "workspace:*",
+    "@executor-js/codemode-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.14.2",
     "@cloudflare/workers-types": "^4.20250620.0",
     "@effect/vitest": "catalog:",
+    "@executor-js/execution": "workspace:*",
+    "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@types/node": "catalog:",
     "vitest": "catalog:",
     "wrangler": "^4.81.0"

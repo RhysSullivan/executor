@@ -1,7 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import * as Effect from "effect/Effect";
 
-import { kernelCoreEffectError } from "./effect-errors";
+import { KernelCoreEffectError } from "./effect-errors";
 
 const getSchemaValidator = (
   schema: unknown,
@@ -55,25 +55,29 @@ export const validateInput = (input: {
   const validate = getSchemaValidator(input.schema);
   if (!validate) {
     return Effect.fail(
-      kernelCoreEffectError(
-        "validation",
-        `Tool ${input.path} has no Standard Schema validator on inputSchema`,
-      ),
+      new KernelCoreEffectError({
+        module: "validation",
+        message: `Tool ${input.path} has no Standard Schema validator on inputSchema`,
+      }),
     );
   }
 
   return Effect.tryPromise({
     try: () => Promise.resolve(validate(input.value)),
     catch: (cause) =>
-      kernelCoreEffectError("validation", `Validation error for ${input.path}: ${String(cause)}`),
+      new KernelCoreEffectError({
+        module: "validation",
+        message: `Validation error for ${input.path}`,
+        cause,
+      }),
   }).pipe(
     Effect.flatMap((result) => {
       if ("issues" in result && result.issues) {
         return Effect.fail(
-          kernelCoreEffectError(
-            "validation",
-            `Input validation failed for ${input.path}: ${formatIssues(result.issues)}`,
-          ),
+          new KernelCoreEffectError({
+            module: "validation",
+            message: `Input validation failed for ${input.path}: ${formatIssues(result.issues)}`,
+          }),
         );
       }
       return Effect.succeed(result.value);

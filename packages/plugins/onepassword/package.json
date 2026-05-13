@@ -1,6 +1,6 @@
 {
-  "name": "@executor/plugin-onepassword",
-  "version": "0.0.1",
+  "name": "@executor-js/plugin-onepassword",
+  "version": "1.4.24",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/onepassword",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"
@@ -19,7 +19,8 @@
     ".": "./src/sdk/index.ts",
     "./promise": "./src/promise.ts",
     "./api": "./src/api/index.ts",
-    "./react": "./src/react/index.ts"
+    "./react": "./src/react/index.ts",
+    "./client": "./src/react/plugin-client.tsx"
   },
   "publishConfig": {
     "access": "public",
@@ -35,6 +36,12 @@
           "types": "./dist/sdk/index.d.ts",
           "default": "./dist/core.js"
         }
+      },
+      "./client": {
+        "import": {
+          "types": "./dist/react/plugin-client.d.ts",
+          "default": "./dist/client.js"
+        }
       }
     }
   },
@@ -48,13 +55,13 @@
   "dependencies": {
     "@1password/op-js": "^0.1.13",
     "@1password/sdk": "^0.4.1-beta.1",
-    "@effect-atom/atom-react": "^0.5.0",
-    "@effect/platform": "catalog:",
-    "@executor/api": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@effect/atom-react": "catalog:",
+    "@executor-js/sdk": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@executor-js/api": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "bun-types": "catalog:",
@@ -63,18 +70,22 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@effect-atom/atom-react": "^0.5.0",
-    "@executor/react": "workspace:*",
+    "@effect/atom-react": "catalog:",
+    "@executor-js/api": "workspace:*",
+    "@executor-js/react": "workspace:*",
     "react": ">=18"
   },
   "peerDependenciesMeta": {
     "react": {
       "optional": true
     },
-    "@effect-atom/atom-react": {
+    "@effect/atom-react": {
       "optional": true
     },
-    "@executor/react": {
+    "@executor-js/api": {
+      "optional": true
+    },
+    "@executor-js/react": {
       "optional": true
     }
   }

@@ -138,13 +138,15 @@ export function CodeBlock(props: {
         )}
 
         <div
-          className="overflow-auto text-sm leading-relaxed [&_pre]:!bg-transparent [&_pre]:p-3 [&_code]:font-mono"
+          className={cn(
+            "text-sm leading-relaxed [&_pre]:!bg-transparent [&_pre]:p-3 [&_code]:font-mono",
+            "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            maxH ? "overflow-auto" : "overflow-x-auto overflow-y-hidden",
+          )}
           style={maxH ? { maxHeight: maxH } : undefined}
         >
           {highlighted ?? (
-            <pre className="p-3 font-mono text-sm leading-relaxed text-foreground/60">
-              {code}
-            </pre>
+            <pre className="p-3 font-mono text-sm leading-relaxed text-foreground/60">{code}</pre>
           )}
         </div>
 

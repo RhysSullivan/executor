@@ -5,7 +5,11 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
     "lib": ["ES2022"],
     "types": ["bun-types", "node"],
     "noUnusedLocals": true,
@@ -13,6 +17,8 @@
     "plugins": [
       {
         "name": "@effect/language-service",
+        "ignoreEffectSuggestionsInTscExitCode": true,
+        "ignoreEffectWarningsInTscExitCode": true,
         "diagnosticSeverity": {
           "globalErrorInEffectCatch": "off"
         }

@@ -1,6 +1,6 @@
 {
-  "name": "@executor/plugin-google-discovery",
-  "version": "0.0.1",
+  "name": "@executor-js/plugin-google-discovery",
+  "version": "1.4.24",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/google-discovery",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"
@@ -20,7 +20,8 @@
     "./promise": "./src/promise.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
-    "./presets": "./src/sdk/presets.ts"
+    "./presets": "./src/sdk/presets.ts",
+    "./client": "./src/react/plugin-client.tsx"
   },
   "publishConfig": {
     "access": "public",
@@ -36,6 +37,12 @@
           "types": "./dist/sdk/index.d.ts",
           "default": "./dist/core.js"
         }
+      },
+      "./client": {
+        "import": {
+          "types": "./dist/react/plugin-client.d.ts",
+          "default": "./dist/client.js"
+        }
       }
     }
   },
@@ -47,15 +54,15 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@effect/platform": "catalog:",
-    "@executor/api": "workspace:*",
-    "@executor/plugin-oauth2": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect-atom/atom-react": "^0.5.0",
-    "@executor/react": "workspace:*",
+    "@effect/atom-react": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@executor-js/api": "workspace:*",
+    "@executor-js/react": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "bun-types": "catalog:",
@@ -64,8 +71,9 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@effect-atom/atom-react": "^0.5.0",
-    "@executor/react": "workspace:*",
+    "@effect/atom-react": "catalog:",
+    "@executor-js/api": "workspace:*",
+    "@executor-js/react": "workspace:*",
     "@tanstack/react-router": "catalog:",
     "react": "catalog:"
   },
@@ -73,13 +81,16 @@
     "react": {
       "optional": true
     },
-    "@effect-atom/atom-react": {
+    "@effect/atom-react": {
       "optional": true
     },
     "@tanstack/react-router": {
       "optional": true
     },
-    "@executor/react": {
+    "@executor-js/api": {
+      "optional": true
+    },
+    "@executor-js/react": {
       "optional": true
     }
   }

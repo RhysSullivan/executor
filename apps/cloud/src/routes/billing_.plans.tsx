@@ -1,8 +1,18 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCustomer, useListPlans } from "autumn-js/react";
-import { Button } from "@executor/react/components/button";
-import { Badge } from "@executor/react/components/badge";
+import { Button } from "@executor-js/react/components/button";
+import { Badge } from "@executor-js/react/components/badge";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@executor-js/react/components/dialog";
 
 type Plan = NonNullable<ReturnType<typeof useListPlans>["data"]>[number];
 
@@ -10,28 +20,24 @@ export const Route = createFileRoute("/billing_/plans")({
   component: PlansPage,
 });
 
-const PLAN_META: Record<
-  string,
-  { tagline: string; inherits?: string; features: string[] }
-> = {
-  hobby: {
-    tagline: "For individuals and small teams",
+const PLAN_META: Record<string, { tagline: string; inherits?: string; features: string[] }> = {
+  free: {
+    tagline: "For small teams getting started",
     features: [
-      "50,000 included executions per seat",
-      "Up to 5 seats",
-      "60s execution timeout",
+      "Up to 3 members",
+      "10,000 included executions per month",
+      "$0.20 per 1,000 additional executions",
       "Unlimited sources",
-      "$0.30 per 1,000 extra executions",
     ],
   },
-  professional: {
-    tagline: "For teams that need more",
-    inherits: "Hobby",
+  team: {
+    tagline: "For growing organizations",
     features: [
-      "100,000 included executions per seat",
-      "Unlimited seats",
+      "Unlimited members",
+      "250,000 included executions per month",
       "5 minute execution timeout",
       "Join by team domain",
+      "$0.20 per 1,000 additional executions",
     ],
   },
 };
@@ -45,7 +51,7 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 const ENTERPRISE_FEATURES = [
-  "Self-hosted or dedicated cloud deployment",
+  "Self-hosted or dedicated cloud deployment support",
   "SSO / SAML & SCIM provisioning",
   "Audit logs for every tool call",
   "Dedicated support & onboarding",
@@ -74,8 +80,8 @@ function PlansPage() {
 
   const isLoading = customerLoading || plansLoading;
 
-  const paidPlans = (plans ?? ([] as Plan[])).filter(
-    (p: Plan) => p.id === "hobby" || p.id === "professional",
+  const selfServePlans = (plans ?? ([] as Plan[])).filter(
+    (p: Plan) => p.id === "free" || p.id === "team",
   );
 
   return (
@@ -118,7 +124,7 @@ function PlansPage() {
               isFetching ? "opacity-50 pointer-events-none" : "",
             ].join(" ")}
           >
-            {paidPlans.map((plan: Plan) => {
+            {selfServePlans.map((plan: Plan) => {
               const meta = PLAN_META[plan.id];
               if (!meta) return null;
 
@@ -143,7 +149,7 @@ function PlansPage() {
                         : "border-border",
                   ].join(" ")}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex h-6 items-center justify-between">
                     <p className="text-base font-semibold text-foreground leading-none">
                       {plan.name}
                     </p>
@@ -171,8 +177,11 @@ function PlansPage() {
                     </span>
                     {plan.price?.interval && (
                       <span className="text-sm text-muted-foreground">
-                        USD / seat / {plan.price.interval}
+                        USD / org / {plan.price.interval}
                       </span>
+                    )}
+                    {!plan.price?.interval && (
+                      <span className="text-sm text-muted-foreground">USD</span>
                     )}
                   </div>
 
@@ -218,16 +227,10 @@ function PlansPage() {
                   )}
                   <ul
                     role="list"
-                    className={[
-                      "space-y-2",
-                      meta.inherits ? "mt-2" : "mt-5",
-                    ].join(" ")}
+                    className={["space-y-2", meta.inherits ? "mt-2" : "mt-5"].join(" ")}
                   >
                     {meta.features.map((f) => (
-                      <li
-                        key={f}
-                        className="flex items-start gap-2 text-xs text-muted-foreground"
-                      >
+                      <li key={f} className="flex items-start gap-2 text-xs text-muted-foreground">
                         <svg
                           viewBox="0 0 16 16"
                           fill="none"
@@ -250,19 +253,13 @@ function PlansPage() {
             })}
 
             <div className="flex flex-col rounded-xl border border-border p-5">
-              <div className="flex items-center justify-between">
-                <p className="text-base font-semibold text-foreground leading-none">
-                  Enterprise
-                </p>
+              <div className="flex h-6 items-center justify-between">
+                <p className="text-base font-semibold text-foreground leading-none">Enterprise</p>
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                For orgs with custom needs
-              </p>
+              <p className="mt-1 text-sm text-muted-foreground">For orgs with custom needs</p>
 
               <div className="mt-4 flex items-baseline gap-1.5">
-                <span className="text-2xl font-semibold text-foreground tabular-nums">
-                  Custom
-                </span>
+                <span className="text-2xl font-semibold text-foreground tabular-nums">Custom</span>
               </div>
 
               <div className="mt-4">
@@ -274,15 +271,10 @@ function PlansPage() {
                 </a>
               </div>
 
-              <p className="mt-5 text-xs font-medium text-foreground">
-                Everything in Professional, plus
-              </p>
+              <p className="mt-5 text-xs font-medium text-foreground">Everything in Team, plus</p>
               <ul role="list" className="mt-2 space-y-2">
                 {ENTERPRISE_FEATURES.map((f) => (
-                  <li
-                    key={f}
-                    className="flex items-start gap-2 text-xs text-muted-foreground"
-                  >
+                  <li key={f} className="flex items-start gap-2 text-xs text-muted-foreground">
                     <svg
                       viewBox="0 0 16 16"
                       fill="none"
@@ -303,7 +295,112 @@ function PlansPage() {
             </div>
           </div>
         )}
+
+        <SlackContactCta />
       </div>
     </div>
+  );
+}
+
+function SlackContactCta() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-10 flex flex-col items-center gap-3 border-t border-border pt-8 text-center">
+      <p className="text-sm text-muted-foreground">Got questions?</p>
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium">
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-foreground hover:text-primary"
+            >
+              <SlackMark className="size-4" />
+              Get in touch on Slack
+              <span aria-hidden>→</span>
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Get in touch on Slack</DialogTitle>
+              <DialogDescription>
+                Add{" "}
+                <a className="font-medium text-foreground underline" href="mailto:rhys@executor.sh">
+                  rhys@executor.sh
+                </a>{" "}
+                on Slack Connect to get in touch.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">
+                  Done
+                </Button>
+              </DialogClose>
+              <Button asChild>
+                <a href="mailto:rhys@executor.sh?subject=Executor%20Slack%20invite">
+                  Email for invite
+                </a>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <span className="text-muted-foreground/60" aria-hidden>
+          ·
+        </span>
+        <a
+          href="mailto:rhys@executor.sh?subject=Executor%20question"
+          className="inline-flex items-center gap-1.5 text-foreground hover:text-primary transition-colors"
+        >
+          <MailIcon className="size-4" />
+          Email us
+          <span aria-hidden>→</span>
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function MailIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className={className}
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 7l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+      />
+    </svg>
+  );
+}
+
+function SlackMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path
+        d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313z"
+        fill="#E01E5A"
+      />
+      <path
+        d="M8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.527 2.527 0 0 1 2.521 2.521 2.527 2.527 0 0 1-2.521 2.521H2.522A2.527 2.527 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z"
+        fill="#36C5F0"
+      />
+      <path
+        d="M18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.272 0a2.528 2.528 0 0 1-2.521 2.521 2.527 2.527 0 0 1-2.521-2.521V2.522A2.527 2.527 0 0 1 15.163 0a2.528 2.528 0 0 1 2.521 2.522v6.312z"
+        fill="#2EB67D"
+      />
+      <path
+        d="M15.163 18.956a2.528 2.528 0 0 1 2.521 2.522A2.528 2.528 0 0 1 15.163 24a2.527 2.527 0 0 1-2.521-2.522v-2.522h2.521zm0-1.272a2.527 2.527 0 0 1-2.521-2.521 2.527 2.527 0 0 1 2.521-2.521h6.315A2.527 2.527 0 0 1 24 15.163a2.528 2.528 0 0 1-2.522 2.521h-6.315z"
+        fill="#ECB22E"
+      />
+    </svg>
   );
 }

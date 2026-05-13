@@ -1,14 +1,55 @@
 import { useMemo, useState } from "react";
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { toolSchemaAtom } from "../api/atoms";
-import { ScopeId, ToolId } from "@executor/sdk";
+import { ScopeId, ToolId, type EffectivePolicy, type ToolPolicyAction } from "@executor-js/sdk";
+import { Badge } from "./badge";
 import { Button } from "./button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./dropdown-menu";
 import { Markdown } from "./markdown";
 import { SchemaExplorer } from "./schema-explorer";
 import { ExpandableCodeBlock } from "./expandable-code-block";
 import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
 import { CopyButton } from "./copy-button";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ChevronDownIcon } from "lucide-react";
+import { cn } from "../lib/utils";
+import {
+  POLICY_ACTION_LABEL,
+  POLICY_ACTIONS_IN_ORDER,
+  POLICY_BADGE_VARIANT,
+  POLICY_STATE_LABEL,
+} from "../lib/policy-display";
+
+// Render the effective policy as a badge. User policies show the
+// matched pattern; plugin defaults read "Default: <action>". Silent for
+// the always-run plugin default — that's the safe state and the
+// header would just be noise.
+const policyBadgeFor = (policy: EffectivePolicy) => {
+  if (policy.source === "plugin-default" && policy.action === "approve") {
+    return null;
+  }
+  if (policy.source === "user") {
+    return {
+      variant: POLICY_BADGE_VARIANT[policy.action],
+      title: `Matched policy: ${policy.pattern}`,
+      text: `${POLICY_STATE_LABEL[policy.action]} · ${policy.pattern}`,
+      className: "font-mono text-[10px]",
+    };
+  }
+  return {
+    variant: "outline" as const,
+    title: "No matching policy — plugin default applies",
+    text: `Default: ${POLICY_STATE_LABEL[policy.action]}`,
+    className: "text-[10px] text-muted-foreground",
+  };
+};
 
 function EmptySection(props: { title: string; message: string }) {
   return (
@@ -50,16 +91,23 @@ export function ToolDetail(props: {
   toolName: string;
   toolDescription?: string;
   scopeId: ScopeId;
+  /** Resolved effective policy — user-authored or plugin-default,
+   *  unified into one shape. Surfaces in the header. */
+  policy?: EffectivePolicy;
+  /** When provided, the policy badge becomes a dropdown trigger that
+   *  applies a user rule to this tool's exact id. */
+  onSetPolicy?: (pattern: string, action: ToolPolicyAction) => void;
+  onClearPolicy?: (pattern: string) => void;
 }) {
   const toolContract = useAtomValue(toolSchemaAtom(props.scopeId, props.toolId as ToolId));
   const [tab, setTab] = useState<"schema" | "typescript">("schema");
 
   const data = useMemo(() => {
-    if (!Result.isSuccess(toolContract)) return null;
+    if (!AsyncResult.isSuccess(toolContract)) return null;
     const v = toolContract.value;
     const definitions = Object.entries(v.typeScriptDefinitions ?? {}).map(([name, body]) => ({
       name,
-      code: body,
+      code: String(body),
     }));
 
     return {
@@ -92,6 +140,12 @@ export function ToolDetail(props: {
           <div className="mt-1 flex items-center gap-2">
             <h3 className="text-base font-semibold text-foreground truncate">{displayName}</h3>
             <CopyButton value={props.toolId} label="Copy tool ID" />
+            <PolicyBadgeMenu
+              toolName={props.toolName}
+              policy={props.policy}
+              onSetPolicy={props.onSetPolicy}
+              onClearPolicy={props.onClearPolicy}
+            />
           </div>
           {props.toolDescription && (
             <div className="mt-1.5 max-w-lg text-sm text-muted-foreground line-clamp-2">
@@ -135,7 +189,7 @@ export function ToolDetail(props: {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {Result.match(toolContract, {
+        {AsyncResult.match(toolContract, {
           onInitial: () => <div className="p-5 text-sm text-muted-foreground">Loading…</div>,
           onFailure: () => <div className="p-5 text-sm text-destructive">Something went wrong</div>,
           onSuccess: () =>
@@ -187,6 +241,99 @@ export function ToolDetail(props: {
         })}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PolicyBadgeMenu — clickable header badge that opens the same
+// Always run / Require approval / Block / Clear menu the tree row uses.
+// Falls back to a plain Badge when no actions are provided.
+// ---------------------------------------------------------------------------
+
+function PolicyBadgeMenu(props: {
+  toolName: string;
+  policy?: EffectivePolicy;
+  onSetPolicy?: (pattern: string, action: ToolPolicyAction) => void;
+  onClearPolicy?: (pattern: string) => void;
+}) {
+  const interactive = !!props.onSetPolicy;
+  // The "Clear" affordance only makes sense when there's a user rule
+  // pinned to this exact tool id — clearing a wildcard rule from a
+  // single tool's detail header would silently affect siblings.
+  const hasExactUserRule =
+    props.policy?.source === "user" && props.policy.pattern === props.toolName;
+  const currentAction = hasExactUserRule ? props.policy?.action : undefined;
+
+  if (!interactive) {
+    if (!props.policy) return null;
+    const badge = policyBadgeFor(props.policy);
+    if (!badge) return null;
+    return (
+      <Badge variant={badge.variant} title={badge.title} className={badge.className}>
+        {badge.text}
+      </Badge>
+    );
+  }
+
+  // Interactive trigger always renders, even when the effective policy
+  // would otherwise be "silent" (auto-approve plugin-default), so the
+  // user can click it to override.
+  const badge = props.policy ? policyBadgeFor(props.policy) : null;
+  const triggerLabel = badge?.text ?? "Set policy";
+  const triggerVariant = badge?.variant ?? "outline";
+  const triggerTitle = badge?.title ?? "Set policy";
+  const triggerClassName = badge?.className ?? "text-[10px] text-muted-foreground";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          aria-label={triggerTitle}
+          className="h-auto rounded-none p-0 hover:bg-transparent"
+        >
+          <Badge
+            variant={triggerVariant}
+            title={triggerTitle}
+            className={cn(
+              triggerClassName,
+              "cursor-pointer gap-1 pr-1.5 transition-opacity hover:opacity-80",
+            )}
+          >
+            {triggerLabel}
+            <ChevronDownIcon aria-hidden className="size-3 opacity-70" />
+          </Badge>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuLabel className="font-mono text-xs">{props.toolName}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {POLICY_ACTIONS_IN_ORDER.map((action) => (
+          <DropdownMenuItem
+            key={action}
+            onSelect={() => props.onSetPolicy?.(props.toolName, action)}
+          >
+            <span className="flex-1">{POLICY_ACTION_LABEL[action]}</span>
+            {currentAction === action && (
+              <span aria-hidden className="text-muted-foreground">
+                ✓
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
+        {hasExactUserRule && props.onClearPolicy && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => props.onClearPolicy?.(props.toolName)}
+              className="text-muted-foreground"
+            >
+              Clear
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

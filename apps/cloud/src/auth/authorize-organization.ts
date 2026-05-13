@@ -28,7 +28,8 @@ export const authorizeOrganization = (userId: string, organizationId: string) =>
     const workos = yield* WorkOSAuth;
     const memberships = yield* workos.listUserMemberships(userId);
     const active = memberships.data.find(
-      (m) => m.organizationId === organizationId && m.status === "active",
+      (m: { readonly organizationId: string; readonly status: string }) =>
+        m.organizationId === organizationId && m.status === "active",
     );
     if (!active) return null;
 

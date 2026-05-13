@@ -1,9 +1,6 @@
 import { Suspense } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { SourcePlugin } from "../plugins/source-plugin";
-import { useAtomRefresh } from "@effect-atom/atom-react";
-import { sourcesAtom } from "../api/atoms";
-import { useScope } from "../hooks/use-scope";
+import { useSourcePlugins } from "@executor-js/sdk/client";
 
 // ---------------------------------------------------------------------------
 // Page
@@ -14,12 +11,10 @@ export function SourcesAddPage(props: {
   url?: string;
   preset?: string;
   namespace?: string;
-  sourcePlugins: readonly SourcePlugin[];
 }) {
-  const { pluginKey, url, preset, namespace, sourcePlugins } = props;
-  const scopeId = useScope();
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
+  const { pluginKey, url, preset, namespace } = props;
   const navigate = useNavigate();
+  const sourcePlugins = useSourcePlugins();
 
   const plugin = sourcePlugins.find((p) => p.key === pluginKey);
 
@@ -51,13 +46,12 @@ export function SourcesAddPage(props: {
   return (
     <div className="relative min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex min-h-full max-w-4xl flex-col px-6 py-10 lg:px-10 lg:py-14">
-        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+        <Suspense fallback={null}>
           <AddComponent
             initialUrl={url}
             initialPreset={preset}
             initialNamespace={namespace}
             onComplete={() => {
-              refreshSources();
               void navigate({ to: "/" });
             }}
             onCancel={() => {

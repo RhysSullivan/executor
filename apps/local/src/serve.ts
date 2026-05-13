@@ -1,28 +1,27 @@
 /**
- * Production server for @executor/local.
+ * Production server for @executor-js/local.
  *
  * Serves the Vite-built SPA + Effect API + MCP server.
  *
  * Run directly:   bun run apps/local/src/serve.ts
- * Or import:      import { startServer } from "@executor/local/serve"
+ * Or import:      import { startServer } from "@executor-js/local/serve"
  */
 
 import { resolve, join } from "node:path";
 import { readdirSync } from "node:fs";
+import { setOAuthCompletionListener } from "@executor-js/api";
+import { consumeOAuthResult, publishOAuthResult } from "./oauth-result-store";
+import { startIntegrationsRefresh } from "./server/integrations";
 import { getServerHandlers } from "./server/main";
-
-// ---------------------------------------------------------------------------
-// Host allowlist
-// ---------------------------------------------------------------------------
-
-const ALLOWED_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
-
-const isAllowedHost = (request: Request): boolean => {
-  const host = request.headers.get("host");
-  if (!host) return true;
-  const hostname = host.replace(/:\d+$/, "");
-  return ALLOWED_HOSTS.has(hostname);
-};
+import {
+  DEFAULT_ALLOWED_HOSTS,
+  hasFileExtension,
+  isLoopbackBindHost,
+  isUnauthenticatedOAuthCallbackPath,
+  makeIsAllowedHost,
+  makeIsAuthorized,
+  normalizeCredential,
+} from "./serve-shared";
 
 // ---------------------------------------------------------------------------
 // Static files
@@ -32,6 +31,7 @@ type StaticHandler = () => Response | Promise<Response>;
 
 function collectStaticRoutes(dir: string, prefix = ""): Record<string, StaticHandler> {
   const routes: Record<string, StaticHandler> = {};
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: filesystem route discovery is best-effort for optional built assets
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const fullPath = join(dir, entry.name);
@@ -76,6 +76,16 @@ export interface StartServerOptions {
   clientDir?: string;
   /** Embedded web UI map from compiled binary (path → bunfs path). Overrides clientDir. */
   embeddedWebUI?: Record<string, string> | null;
+  /** Bind address. Defaults to 127.0.0.1. Use 0.0.0.0 to listen on all interfaces. */
+  hostname?: string;
+  /** Extra hostnames permitted in the Host header, on top of localhost/127.0.0.1. */
+  allowedHosts?: ReadonlyArray<string>;
+  /** Bearer token required for requests. Required for non-loopback bind addresses. */
+  authToken?: string;
+  /** Basic auth password required for requests. Required for non-loopback bind addresses. */
+  authPassword?: string;
+  /** Test hook for supplying API/MCP handlers without loading the local server graph. */
+  handlers?: ServerHandlers;
 }
 
 export interface ServerInstance {
@@ -83,11 +93,36 @@ export interface ServerInstance {
   stop: () => Promise<void>;
 }
 
+type ServerHandlers = Awaited<ReturnType<typeof getServerHandlers>>;
+
 export async function startServer(opts: StartServerOptions = {}): Promise<ServerInstance> {
   const port = opts.port ?? parseInt(process.env.PORT ?? "4788", 10);
+  const hostname = opts.hostname ?? "127.0.0.1";
+  const auth = {
+    token: normalizeCredential(opts.authToken),
+    password: normalizeCredential(opts.authPassword),
+  };
+  const isNetworkBind = !isLoopbackBindHost(hostname);
+  const requiresAuth = auth.token !== null || auth.password !== null;
+  if (isNetworkBind && !requiresAuth) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: startServer is a Promise API and rejects invalid bind options
+    throw new Error("Refusing to listen on a non-loopback host without an auth token or password.");
+  }
+  const isAuthorized = makeIsAuthorized(auth);
+  const allowedHostSet = new Set<string>([...DEFAULT_ALLOWED_HOSTS, ...(opts.allowedHosts ?? [])]);
+  const isAllowedHost = makeIsAllowedHost(allowedHostSet);
   const clientDir = opts.clientDir ?? resolve(import.meta.dirname, "../dist");
 
-  const handlers = await getServerHandlers();
+  startIntegrationsRefresh();
+
+  const handlers = opts.handlers ?? (await getServerHandlers());
+
+  // Mirror every OAuth callback completion into the local in-memory result
+  // store. The Electron desktop renderer polls /api/oauth/await/:sessionId
+  // for these when the user runs the flow in their system browser (no
+  // shared origin → no postMessage). Cloud doesn't register a listener;
+  // its same-origin web SPA receives results via postMessage directly.
+  setOAuthCompletionListener((result) => publishOAuthResult(result));
 
   // Build static routes from either embedded assets or disk
   let staticRoutes: Record<string, StaticHandler>;
@@ -105,7 +140,7 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
 
   const server = Bun.serve({
     port,
-    hostname: "127.0.0.1",
+    hostname,
     // Disable Bun's default 10s idle timeout. MCP elicitation and pause/resume
     // can idle longer during human approval; `0` disables the socket timeout.
     idleTimeout: 0,
@@ -117,13 +152,43 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
 
       const url = new URL(req.url);
 
+      // OAuth provider callbacks are hit by the user's external browser
+      // and can't carry our Basic auth header. The OAuth `state`
+      // parameter is the security gate — see isUnauthenticatedOAuthCallbackPath.
+      const skipAuth = isUnauthenticatedOAuthCallbackPath(url.pathname);
+
+      if (requiresAuth && !skipAuth && !isAuthorized(req)) {
+        return new Response("Unauthorized", {
+          status: 401,
+          headers: { "www-authenticate": 'Bearer realm="executor", Basic realm="executor"' },
+        });
+      }
+
       if (url.pathname.startsWith("/mcp")) {
         return handlers.mcp.handleRequest(req);
+      }
+
+      // OAuth result polling — local-only, served outside the typed API
+      // because cloud (Cloudflare Workers, stateless) can't back the
+      // in-memory store. See setOAuthCompletionListener above.
+      const awaitMatch = /^\/api\/oauth\/await\/([^/?#]+)$/.exec(url.pathname);
+      if (awaitMatch && req.method === "GET") {
+        const result = consumeOAuthResult(awaitMatch[1]);
+        return new Response(JSON.stringify(result), {
+          headers: { "content-type": "application/json" },
+        });
       }
 
       if (url.pathname.startsWith("/api/") || url.pathname === "/api") {
         url.pathname = url.pathname.slice("/api".length) || "/";
         return handlers.api.handler(new Request(url, req));
+      }
+
+      // If a path looks like a static asset (has a file extension), do not
+      // fall back to SPA HTML. Returning index.html here causes browser module
+      // MIME errors when hashed chunks are stale/missing.
+      if (hasFileExtension(url.pathname)) {
+        return new Response("Not Found", { status: 404 });
       }
 
       // SPA fallback
@@ -138,6 +203,7 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
   return {
     port: server.port!,
     async stop() {
+      setOAuthCompletionListener(null);
       server.stop(true);
       await handlers.mcp.close();
       await handlers.api.dispose();

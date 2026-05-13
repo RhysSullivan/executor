@@ -1,6 +1,6 @@
 {
-  "name": "@executor/ir",
-  "version": "1.4.3",
+  "name": "@executor-js/ir",
+  "version": "1.4.4",
   "private": true,
   "type": "module",
   "exports": {

@@ -1,6 +1,17 @@
-import { keychainPlugin as keychainPluginEffect } from "./index";
+import { type Plugin } from "@executor-js/sdk/core";
+
+import {
+  keychainPlugin as keychainPluginEffect,
+  type KeychainExtension,
+  type KeychainPluginConfig,
+} from "./index";
 
 export type { KeychainPluginConfig } from "./index";
 
-export const keychainPlugin = (config?: { readonly serviceName?: string }) =>
+// Explicit return type so the emitted dist/promise.d.ts references
+// `import("@executor-js/sdk/core").Plugin` rather than the Promise-surface
+// root specifier (which doesn't re-export Plugin).
+export const keychainPlugin = (
+  config?: KeychainPluginConfig,
+): Plugin<"keychain", KeychainExtension, Record<string, never>, undefined> =>
   keychainPluginEffect(config);

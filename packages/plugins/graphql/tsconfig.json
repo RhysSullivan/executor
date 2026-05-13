@@ -13,11 +13,20 @@
     "plugins": [
       {
         "name": "@effect/language-service",
+        "ignoreEffectSuggestionsInTscExitCode": true,
+        "ignoreEffectWarningsInTscExitCode": true,
         "diagnosticSeverity": {
           "globalErrorInEffectFailure": "off"
         }
       }
     ]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/promise.ts",
+    "src/sdk/presets.ts",
+    "src/sdk/config-file-store.ts"
+  ]
 }
