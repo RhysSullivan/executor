@@ -220,8 +220,8 @@ describe("MCP host server — client with elicitation", () => {
       "## Generative UI",
       "",
       "When it would be helpful to show an interactive UI, write a React component named `App` with JSX in the `code` parameter.",
-      "- Fetch live data inside the generated component with `useQuery(() => tools.<namespace>.<tool>(args))`.",
-      "- For user-triggered writes or actions, use `useMutation((input) => tools.<namespace>.<tool>(input))`.",
+      "- Fetch live data inside the generated component with `useQuery(tools.<namespace>.<tool>.queryOptions(args))`.",
+      "- For user-triggered writes or actions, use `useMutation(tools.<namespace>.<tool>.mutationOptions({ onSuccess }))`.",
       "",
       "## Available namespaces",
       "",
@@ -242,7 +242,9 @@ describe("MCP host server — client with elicitation", () => {
         expect(renderUi?.description).toContain("Render an interactive React UI component");
         expect(renderUi?.description).toContain("## Available UI Components");
         expect(renderUi?.description).toContain("shadcn/ui components available by name: Card");
-        expect(renderUi?.description).toContain("useQuery(() => tools.<namespace>.<tool>(args))");
+        expect(renderUi?.description).toContain(
+          "useQuery(tools.<namespace>.<tool>.queryOptions(args))",
+        );
         expect(renderUi?.description).toContain("Do not call API tools first");
         expect(renderUi?.description).toContain("server rejects obvious hardcoded live-data");
         expect(renderUi?.description).toContain("- `axiom_mcp`");

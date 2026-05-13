@@ -162,6 +162,46 @@ function App() {
 }
 `;
 
+const generatedTanstackQueryCode = `
+function App() {
+  const queryClient = useQueryClient();
+  const domainArgs = { domain: "openexecutor.com" };
+  const domainQuery = useQuery(tools.inventory.domains.getDomain.queryOptions(domainArgs));
+  const updateAutoRenew = useMutation(
+    tools.inventory.domains.updateDomainAutoRenew.mutationOptions({
+      onSuccess: () =>
+        queryClient.invalidateQueries({
+          queryKey: tools.inventory.domains.getDomain.queryKey(domainArgs),
+        }),
+    })
+  );
+
+  const autoRenew = domainQuery.data?.renew ?? false;
+
+  return (
+    <Card>
+      <CardContent>
+        <div id="auto-renew-state">
+          {domainQuery.isLoading ? "loading" : String(autoRenew)}
+        </div>
+        <Button
+          id="auto-renew-toggle"
+          disabled={domainQuery.isLoading || updateAutoRenew.isPending}
+          onClick={() =>
+            updateAutoRenew.mutate({
+              domain: "openexecutor.com",
+              body: { autoRenew: !autoRenew },
+            })
+          }
+        >
+          Toggle
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+`;
+
 const createHostHtml = (shellUrl: string) => `<!doctype html>
 <html>
   <head>
@@ -296,6 +336,7 @@ const readBody = (request: IncomingMessage): Promise<string> =>
 const startOpenApiServer = (): Promise<OpenApiServer> =>
   new Promise((resolveServer, rejectServer) => {
     let baseUrl = "";
+    let domainAutoRenew = false;
     const postRequests: string[] = [];
 
     const server: Server = createServer(async (request, response) => {
@@ -347,9 +388,78 @@ const startOpenApiServer = (): Promise<OpenApiServer> =>
                   },
                 },
               },
+              "/domains/{domain}": {
+                get: {
+                  operationId: "getDomain",
+                  parameters: [
+                    {
+                      name: "domain",
+                      in: "path",
+                      required: true,
+                      schema: { type: "string" },
+                    },
+                  ],
+                  responses: {
+                    "200": {
+                      description: "Domain",
+                      content: {
+                        "application/json": {
+                          schema: { $ref: "#/components/schemas/Domain" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              "/domains/{domain}/auto-renew": {
+                post: {
+                  operationId: "updateDomainAutoRenew",
+                  parameters: [
+                    {
+                      name: "domain",
+                      in: "path",
+                      required: true,
+                      schema: { type: "string" },
+                    },
+                  ],
+                  requestBody: {
+                    required: true,
+                    content: {
+                      "application/json": {
+                        schema: { $ref: "#/components/schemas/AutoRenewInput" },
+                      },
+                    },
+                  },
+                  responses: {
+                    "200": {
+                      description: "Updated domain",
+                      content: {
+                        "application/json": {
+                          schema: { $ref: "#/components/schemas/Domain" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
             components: {
               schemas: {
+                AutoRenewInput: {
+                  type: "object",
+                  required: ["autoRenew"],
+                  properties: {
+                    autoRenew: { type: "boolean" },
+                  },
+                },
+                Domain: {
+                  type: "object",
+                  required: ["domain", "renew"],
+                  properties: {
+                    domain: { type: "string" },
+                    renew: { type: "boolean" },
+                  },
+                },
                 Item: {
                   type: "object",
                   required: ["id", "name"],
@@ -388,6 +498,16 @@ const startOpenApiServer = (): Promise<OpenApiServer> =>
         return;
       }
 
+      if (request.method === "GET" && request.url?.startsWith("/domains/")) {
+        const domain = decodeURIComponent(request.url.slice("/domains/".length));
+        if (!domain.includes("/")) {
+          response.statusCode = 200;
+          response.setHeader("content-type", "application/json");
+          response.end(JSON.stringify({ domain, renew: domainAutoRenew }));
+          return;
+        }
+      }
+
       if (request.method === "POST" && request.url === "/items") {
         const body = await readBody(request);
         postRequests.push(body);
@@ -399,6 +519,30 @@ const startOpenApiServer = (): Promise<OpenApiServer> =>
             id: 2,
             name: typeof parsed.name === "string" ? parsed.name : "Unnamed",
             created: true,
+          }),
+        );
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        request.url?.startsWith("/domains/") &&
+        request.url.endsWith("/auto-renew")
+      ) {
+        const body = await readBody(request);
+        postRequests.push(body);
+        const parsed = JSON.parse(body) as { autoRenew?: unknown };
+        domainAutoRenew = parsed.autoRenew === true;
+        const domainPath = request.url.slice(
+          "/domains/".length,
+          request.url.length - "/auto-renew".length,
+        );
+        response.statusCode = 200;
+        response.setHeader("content-type", "application/json");
+        response.end(
+          JSON.stringify({
+            domain: decodeURIComponent(domainPath),
+            renew: domainAutoRenew,
           }),
         );
         return;
@@ -861,6 +1005,57 @@ describe("MCP app generated UI browser isolation", () => {
           },
         }),
       ]);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
+  it("updates live query state after an approved TanStack Query mutation", async () => {
+    if (!browser || !hostServer || !openApiServer) {
+      throw new Error("Browser harness did not start.");
+    }
+    const { page, shellFrame } = await openHarness(browser, hostServer.url);
+
+    try {
+      const initialPostCount = openApiServer.postRequests.length;
+      const innerFrame = await renderGeneratedUi(page, shellFrame, generatedTanstackQueryCode);
+      await innerFrame.waitForFunction(
+        () => document.querySelector("#auto-renew-state")?.textContent === "false",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      await innerFrame.locator("#auto-renew-toggle").click({ timeout: 10_000 });
+      await shellFrame.locator("text=Approve action").waitFor({ timeout: 10_000 });
+      expect(openApiServer.postRequests).toHaveLength(initialPostCount);
+
+      await shellFrame.getByRole("button", { name: "Approve" }).click({ timeout: 10_000 });
+      await innerFrame.waitForFunction(
+        () => document.querySelector("#auto-renew-state")?.textContent === "true",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      expect(openApiServer.postRequests).toHaveLength(initialPostCount + 1);
+      expect(openApiServer.postRequests.at(-1)).toBe(JSON.stringify({ autoRenew: true }));
+
+      const hostState = await getHostState(page);
+      expect(hostState.toolCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "execute-action",
+            arguments: {
+              code: 'return await tools.inventory.domains.getDomain({"domain":"openexecutor.com"})',
+            },
+          }),
+          expect.objectContaining({
+            name: "execute-action",
+            arguments: {
+              code: 'return await tools.inventory.domains.updateDomainAutoRenew({"domain":"openexecutor.com","body":{"autoRenew":true}})',
+            },
+          }),
+        ]),
+      );
     } finally {
       await page.close();
     }

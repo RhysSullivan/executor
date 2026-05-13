@@ -10,8 +10,16 @@ import React, {
 } from "react";
 import { transform } from "sucrase";
 
-import { useQuery, useMutation } from "./hooks";
+import {
+  mutationOptions,
+  queryOptions,
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "./hooks";
 import * as Components from "./components";
+import * as QueryHooks from "./hooks";
 
 export type EvaluatedComponent =
   | { component: React.ComponentType; config: Record<string, unknown> }
@@ -21,6 +29,7 @@ const createGeneratedCodeRequire =
   () =>
   (specifier: string): unknown => {
     if (specifier === "react") return React;
+    if (specifier === "@tanstack/react-query") return QueryHooks;
     if (specifier === "recharts" || specifier === "lucide-react" || specifier === "./components") {
       return Components;
     }
@@ -85,6 +94,10 @@ export function evaluateComponent(
     // Data fetching
     useQuery,
     useMutation,
+    useQueryClient,
+    queryOptions,
+    mutationOptions,
+    skipToken,
 
     // Tools proxy + escape hatch
     tools,

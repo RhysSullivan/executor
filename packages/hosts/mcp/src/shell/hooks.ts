@@ -1,98 +1,136 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useRef } from "react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  mutationOptions,
+  queryOptions,
+  skipToken,
+  useMutation as useTanStackMutation,
+  useQuery as useTanStackQuery,
+  useQueryClient,
+  type MutationKey,
+  type QueryClient as QueryClientType,
+  type QueryKey,
+  type UseMutationOptions,
+  type UseMutationResult,
+  type UseQueryOptions,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
-// ---------------------------------------------------------------------------
-// useQuery — data fetching with loading/error/data states
-// ---------------------------------------------------------------------------
-
-export type UseQueryResult<T> = {
-  data: T | undefined;
-  error: Error | undefined;
-  isLoading: boolean;
-  refetch: () => Promise<void>;
+export {
+  QueryClient,
+  QueryClientProvider,
+  mutationOptions,
+  queryOptions,
+  skipToken,
+  useQueryClient,
 };
 
-export function useQuery<T>(fn: () => Promise<T>): UseQueryResult<T> {
-  const [data, setData] = useState<T | undefined>(undefined);
-  const [error, setError] = useState<Error | undefined>(undefined);
-  const [isLoading, setIsLoading] = useState(true);
-  const fnRef = useRef(fn);
-  fnRef.current = fn;
+let legacyQueryId = 0;
+let legacyMutationId = 0;
 
-  const refetch = useCallback(async () => {
-    setIsLoading(true);
-    setError(undefined);
-    try {
-      const result = await fnRef.current();
-      setData(result);
-    } catch (e) {
-      setError(e instanceof Error ? e : new Error(String(e)));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+type RefetchableQuery = {
+  refetch: () => unknown;
+};
 
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
+type LegacyMutationOptions<TData, TError, TVariables, TContext> = UseMutationOptions<
+  TData,
+  TError,
+  TVariables,
+  TContext
+> & {
+  invalidates?: readonly RefetchableQuery[];
+};
 
-  return { data, error, isLoading, refetch };
+const nextLegacyQueryKey = (): QueryKey => ["executor", "legacy-query", ++legacyQueryId];
+const nextLegacyMutationKey = (): MutationKey => [
+  "executor",
+  "legacy-mutation",
+  ++legacyMutationId,
+];
+
+/**
+ * TanStack Query's `useQuery`, plus compatibility for the original generated
+ * UI shorthand: `useQuery(() => tools.namespace.tool(args))`.
+ */
+export function useQuery<TData>(fn: () => Promise<TData>): UseQueryResult<TData, Error>;
+export function useQuery<
+  TQueryFnData,
+  TError = Error,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+>(
+  options: UseQueryOptions<TQueryFnData, TError, TData, TQueryKey>,
+  queryClient?: QueryClientType,
+): UseQueryResult<TData, TError>;
+export function useQuery(
+  optionsOrFn: unknown,
+  queryClient?: QueryClientType,
+): UseQueryResult<unknown, Error> {
+  const legacyFnRef = useRef<(() => Promise<unknown>) | null>(null);
+  const legacyQueryKeyRef = useRef<QueryKey | null>(null);
+
+  if (typeof optionsOrFn === "function") {
+    legacyFnRef.current = optionsOrFn as () => Promise<unknown>;
+    legacyQueryKeyRef.current ??= nextLegacyQueryKey();
+    return useTanStackQuery(
+      {
+        queryKey: legacyQueryKeyRef.current,
+        queryFn: () => {
+          const current = legacyFnRef.current;
+          if (!current) throw new Error("Missing legacy query function.");
+          return current();
+        },
+      },
+      queryClient,
+    );
+  }
+
+  return useTanStackQuery(
+    optionsOrFn as UseQueryOptions<unknown, Error, unknown, QueryKey>,
+    queryClient,
+  );
 }
 
-// ---------------------------------------------------------------------------
-// useMutation — mutations with pending/error/data states + invalidation
-// ---------------------------------------------------------------------------
+/**
+ * TanStack Query's `useMutation`, plus compatibility for the original generated
+ * UI shorthand: `useMutation((input) => tools.namespace.tool(input), opts)`.
+ */
+export function useMutation<TVariables, TData = unknown, TContext = unknown>(
+  fn: (input: TVariables) => Promise<TData>,
+  options?: LegacyMutationOptions<TData, Error, TVariables, TContext>,
+): UseMutationResult<TData, Error, TVariables, TContext>;
+export function useMutation<TData = unknown, TError = Error, TVariables = void, TContext = unknown>(
+  options: UseMutationOptions<TData, TError, TVariables, TContext>,
+  queryClient?: QueryClientType,
+): UseMutationResult<TData, TError, TVariables, TContext>;
+export function useMutation(
+  optionsOrFn: unknown,
+  optionsOrQueryClient?: unknown,
+): UseMutationResult<unknown, Error, unknown, unknown> {
+  const legacyMutationKeyRef = useRef<MutationKey | null>(null);
+  legacyMutationKeyRef.current ??= nextLegacyMutationKey();
 
-export type UseMutationOptions<_TInput, _TData> = {
-  invalidates?: Array<{ refetch: () => void }>;
-  onSuccess?: (data: _TData) => void;
-  onError?: (error: Error) => void;
-};
+  if (typeof optionsOrFn === "function") {
+    const legacyOptions =
+      (optionsOrQueryClient as
+        | LegacyMutationOptions<unknown, Error, unknown, unknown>
+        | undefined) ?? {};
+    const { invalidates, onSuccess, ...tanstackOptions } = legacyOptions;
 
-export type UseMutationResult<TInput, TData> = {
-  mutate: (input: TInput) => Promise<TData | undefined>;
-  data: TData | undefined;
-  error: Error | undefined;
-  isPending: boolean;
-  reset: () => void;
-};
+    return useTanStackMutation({
+      mutationKey: legacyOptions.mutationKey ?? legacyMutationKeyRef.current,
+      ...tanstackOptions,
+      mutationFn: optionsOrFn as (input: unknown) => Promise<unknown>,
+      onSuccess: async (data, variables, context, mutationContext) => {
+        await onSuccess?.(data, variables, context, mutationContext);
+        await Promise.all(invalidates?.map((query) => query.refetch()) ?? []);
+      },
+    });
+  }
 
-export function useMutation<TInput, TData = unknown>(
-  fn: (input: TInput) => Promise<TData>,
-  opts?: UseMutationOptions<TInput, TData>,
-): UseMutationResult<TInput, TData> {
-  const [data, setData] = useState<TData | undefined>(undefined);
-  const [error, setError] = useState<Error | undefined>(undefined);
-  const [isPending, setIsPending] = useState(false);
-  const fnRef = useRef(fn);
-  fnRef.current = fn;
-  const optsRef = useRef(opts);
-  optsRef.current = opts;
-
-  const mutate = useCallback(async (input: TInput): Promise<TData | undefined> => {
-    setIsPending(true);
-    setError(undefined);
-    try {
-      const result = await fnRef.current(input);
-      setData(result);
-      optsRef.current?.onSuccess?.(result);
-      // Invalidate dependent queries
-      optsRef.current?.invalidates?.forEach((q) => q.refetch());
-      return result;
-    } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      setError(err);
-      optsRef.current?.onError?.(err);
-      return undefined;
-    } finally {
-      setIsPending(false);
-    }
-  }, []);
-
-  const reset = useCallback(() => {
-    setData(undefined);
-    setError(undefined);
-    setIsPending(false);
-  }, []);
-
-  return { mutate, data, error, isPending, reset };
+  return useTanStackMutation(
+    optionsOrFn as UseMutationOptions<unknown, Error, unknown, unknown>,
+    optionsOrQueryClient as QueryClientType | undefined,
+  );
 }

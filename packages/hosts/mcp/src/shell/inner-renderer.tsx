@@ -1,5 +1,17 @@
 import React, { type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  QueryClient,
+  QueryClientProvider,
+  mutationOptions,
+  queryOptions,
+  skipToken,
+  type MutationKey,
+  type QueryFilters,
+  type QueryKey,
+  type UseMutationOptions,
+  type UseQueryOptions,
+} from "@tanstack/react-query";
 
 import { compileJsx, evaluateComponent } from "./component-runtime";
 import * as Components from "./components";
@@ -76,12 +88,95 @@ const requestParent = (message: ParentRequestPayload): Promise<unknown> => {
   });
 };
 
+function makeQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        refetchOnWindowFocus: false,
+      },
+      mutations: {
+        retry: false,
+      },
+    },
+  });
+}
+
+let queryClient: QueryClient = makeQueryClient();
+
+const toolQueryKey = (path: readonly string[], input?: unknown): QueryKey => [
+  "executor-tool",
+  path,
+  { input, type: "query" },
+];
+
+const toolPathKey = (path: readonly string[]): QueryKey => ["executor-tool", path];
+
+const toolMutationKey = (path: readonly string[]): MutationKey => [
+  "executor-tool",
+  path,
+  { type: "mutation" },
+];
+
+const queryFilter = (
+  path: readonly string[],
+  input?: unknown,
+  filters?: Omit<QueryFilters, "queryKey">,
+): QueryFilters => ({
+  ...filters,
+  queryKey: toolQueryKey(path, input),
+});
+
+const pathFilter = (
+  path: readonly string[],
+  filters?: Omit<QueryFilters, "queryKey">,
+): QueryFilters => ({
+  ...filters,
+  queryKey: toolPathKey(path),
+});
+
 const createToolsProxy = (): Record<string, unknown> => {
   const nest = (path: string[]): unknown =>
     new Proxy(function () {}, {
       get(_target, key: string | symbol) {
         if (key === "then" || key === "toJSON" || key === Symbol.toPrimitive) return undefined;
         if (typeof key !== "string") return undefined;
+        if (key === "queryOptions") {
+          return (input?: unknown, options?: Omit<UseQueryOptions, "queryKey" | "queryFn">) =>
+            queryOptions({
+              ...options,
+              queryKey: toolQueryKey(path, input === skipToken ? undefined : input),
+              queryFn:
+                input === skipToken
+                  ? skipToken
+                  : () => requestParent({ type: "executor.toolCall", path, args: [input ?? {}] }),
+            });
+        }
+        if (key === "queryKey") {
+          return (input?: unknown) => toolQueryKey(path, input);
+        }
+        if (key === "queryFilter") {
+          return (input?: unknown, filters?: Omit<QueryFilters, "queryKey">) =>
+            queryFilter(path, input, filters);
+        }
+        if (key === "pathKey") {
+          return () => toolPathKey(path);
+        }
+        if (key === "pathFilter") {
+          return (filters?: Omit<QueryFilters, "queryKey">) => pathFilter(path, filters);
+        }
+        if (key === "mutationOptions") {
+          return (options?: Omit<UseMutationOptions, "mutationKey" | "mutationFn">) =>
+            mutationOptions({
+              ...options,
+              mutationKey: toolMutationKey(path),
+              mutationFn: (input?: unknown) =>
+                requestParent({ type: "executor.toolCall", path, args: [input ?? {}] }),
+            });
+        }
+        if (key === "mutationKey") {
+          return () => toolMutationKey(path);
+        }
         return nest([...path, key]);
       },
       apply(_target, _thisArg, args: unknown[]) {
@@ -163,10 +258,13 @@ const renderGeneratedCode = (code: string) => {
 
     sendParent({ type: "executor.renderer.config", config: evalResult.config });
     const Component = evalResult.component;
+    queryClient = makeQueryClient();
     renderNode(
-      <ErrorBoundary>
-        <Component />
-      </ErrorBoundary>,
+      <QueryClientProvider client={queryClient}>
+        <ErrorBoundary>
+          <Component />
+        </ErrorBoundary>
+      </QueryClientProvider>,
     );
   } catch (err) {
     renderError("Compilation Error", err instanceof Error ? err.message : String(err));
