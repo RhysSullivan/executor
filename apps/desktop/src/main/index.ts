@@ -30,7 +30,7 @@ import { SERVER_SETTINGS_USERNAME, type DesktopServerSettings } from "../shared/
 // Electron-side consumer (electron-store, electron-log, window-state) lands
 // at a predictable spot. User-mutable executor state (executor.jsonc,
 // data.db) is pinned separately to ~/.executor in main/sidecar.ts — that
-// path matches the CLI's default.
+// path matches the CLI/agent global scope.
 app.setName("Executor");
 app.setPath("userData", join(app.getPath("appData"), "Executor"));
 
@@ -217,7 +217,9 @@ const startWithCurrentSettings = async (): Promise<SidecarConnection | null> => 
 
 const restartSidecarAndReload = async (): Promise<{ port: number; baseUrl: string }> => {
   if (connection) {
-    await stopSidecar(connection.child);
+    if (connection.managed) {
+      await stopSidecar(connection.child);
+    }
     connection = null;
   }
   const next = await startWithCurrentSettings();
@@ -227,7 +229,9 @@ const restartSidecarAndReload = async (): Promise<{ port: number; baseUrl: strin
   }
   connection = next;
   installBasicAuthHeader(next.baseUrl, next.authPassword);
-  if (mainWindow) await mainWindow.loadURL(next.baseUrl);
+  if (mainWindow && mainWindow.webContents.getURL() !== next.baseUrl) {
+    await mainWindow.loadURL(next.baseUrl);
+  }
   return { port: next.port, baseUrl: next.baseUrl };
 };
 
@@ -292,7 +296,9 @@ const promptInstallUpdate = async (version: string) => {
     if (response.response === 0) {
       // Stop the sidecar cleanly before Squirrel.Mac swaps the bundle.
       if (connection) {
-        await stopSidecar(connection.child);
+        if (connection.managed) {
+          await stopSidecar(connection.child);
+        }
         connection = null;
       }
       autoUpdater.quitAndInstall(false, true);
@@ -426,7 +432,9 @@ if (ensureSingleInstance()) {
   app.on("before-quit", async (event) => {
     if (!connection) return;
     event.preventDefault();
-    await stopSidecar(connection.child);
+    if (connection.managed) {
+      await stopSidecar(connection.child);
+    }
     connection = null;
     app.exit(0);
   });

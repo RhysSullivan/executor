@@ -93,6 +93,16 @@ executor call gmail send '{"to":"alice@example.com","subject":"Hi"}'
 `executor call`, `executor resume`, and `executor tools ...` commands auto-start a local daemon if needed.
 If the default port is busy, the CLI will pick an available local port and track it automatically.
 
+To point CLI commands at an existing authenticated local runtime, pass `--base-url` or set `EXECUTOR_BASE_URL`:
+
+```bash
+EXECUTOR_BASE_URL='http://executor:<password>@127.0.0.1:4789' executor tools sources
+```
+
+When using Executor Desktop, copy the password from **Settings → Desktop server**.
+If a local runtime responds with `401 Unauthorized`, the CLI reports the auth requirement instead of starting a duplicate daemon on another port.
+Executor Desktop also checks for an existing unauthenticated CLI daemon on `4788` using the shared `~/.executor-global` scope before it starts its own sidecar.
+
 If an execution pauses for auth or approval, resume it:
 
 ```bash

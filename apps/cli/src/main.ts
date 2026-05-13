@@ -52,7 +52,7 @@ import { Argument as Args, Command, Flag as Options } from "effect/unstable/cli"
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import { FetchHttpClient } from "effect/unstable/http";
-import { FileSystem, Path as PlatformPath } from "effect";
+import { FileSystem, Layer, Path as PlatformPath } from "effect";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
@@ -62,9 +62,12 @@ import { startServer, runMcpStdioServer, getExecutor } from "@executor-js/local"
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { fetchIntegrations } from "./integrations";
 import {
+  baseUrlAuthorizationHeader,
+  baseUrlWithoutCredentials,
   buildDaemonSpawnSpec,
   chooseDaemonPort,
   canAutoStartLocalDaemonForHost,
+  daemonBaseUrlFromRequest,
   isDevCliEntrypoint,
   parseDaemonBaseUrl,
   spawnDetached,
@@ -112,7 +115,8 @@ import embeddedWebUI from "./embedded-web-ui.gen";
 
 const { version: CLI_VERSION } = await import("../package.json");
 const DEFAULT_PORT = 4788;
-const DEFAULT_BASE_URL = `http://localhost:${DEFAULT_PORT}`;
+const DEFAULT_BASE_URL =
+  process.env.EXECUTOR_BASE_URL?.trim() || `http://localhost:${DEFAULT_PORT}`;
 const DAEMON_BOOT_TIMEOUT_MS = 15_000;
 const DAEMON_BOOT_POLL_MS = 150;
 const DAEMON_STOP_TIMEOUT_MS = 10_000;
@@ -139,26 +143,59 @@ const waitForShutdownSignal = () =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isServerReachable = (baseUrl: string): Effect.Effect<boolean> =>
+type ServerProbeResult = "reachable" | "unauthorized" | "unreachable";
+
+const withBaseUrlCredentials = (baseUrl: string, init: RequestInit = {}): RequestInit => {
+  const authorization = baseUrlAuthorizationHeader(baseUrl);
+  if (!authorization) return init;
+
+  const headers = new Headers(init.headers);
+  if (!headers.has("authorization")) {
+    headers.set("authorization", authorization);
+  }
+  return { ...init, headers };
+};
+
+const fetchWithBaseUrlCredentials = (baseUrl: string): typeof globalThis.fetch =>
+  ((input: RequestInfo | URL, init?: RequestInit) => {
+    const authorization = baseUrlAuthorizationHeader(baseUrl);
+    if (!authorization) return fetch(input, init);
+
+    const request = new Request(input, init);
+    const headers = new Headers(request.headers);
+    if (!headers.has("authorization")) {
+      headers.set("authorization", authorization);
+    }
+    return fetch(new Request(request, { headers }));
+  }) as typeof globalThis.fetch;
+
+const probeServer = (baseUrl: string): Effect.Effect<ServerProbeResult> =>
   Effect.tryPromise(() =>
-    fetch(`${baseUrl}/api/scope`, { signal: AbortSignal.timeout(2000) }),
+    fetch(
+      `${baseUrlWithoutCredentials(baseUrl)}/api/scope`,
+      withBaseUrlCredentials(baseUrl, { signal: AbortSignal.timeout(2000) }),
+    ),
   ).pipe(
     Effect.flatMap((res) => {
-      if (!res.ok) return Effect.succeed(false);
+      if (res.status === 401) return Effect.succeed("unauthorized" as const);
+      if (!res.ok) return Effect.succeed("unreachable" as const);
       return Effect.tryPromise(() => res.json()).pipe(
         Effect.map((payload) => {
-          if (!isRecord(payload)) return false;
-          return (
-            typeof payload.id === "string" &&
+          if (!isRecord(payload)) return "unreachable" as const;
+          return typeof payload.id === "string" &&
             typeof payload.name === "string" &&
             typeof payload.dir === "string"
-          );
+            ? ("reachable" as const)
+            : ("unreachable" as const);
         }),
-        Effect.catchCause(() => Effect.succeed(false)),
+        Effect.catchCause(() => Effect.succeed("unreachable" as const)),
       );
     }),
-    Effect.catchCause(() => Effect.succeed(false)),
+    Effect.catchCause(() => Effect.succeed("unreachable" as const)),
   );
+
+const isServerReachable = (baseUrl: string): Effect.Effect<boolean> =>
+  probeServer(baseUrl).pipe(Effect.map((result) => result === "reachable"));
 
 const script = process.argv[1];
 const isDevMode = isDevCliEntrypoint(script);
@@ -177,6 +214,17 @@ const parseDaemonUrl = (baseUrl: string) =>
 const daemonBaseUrl = (hostname: string, port: number): string =>
   `http://${canonicalDaemonHost(hostname)}:${port}`;
 
+const requestedDaemonBaseUrl = (input: {
+  requestedBaseUrl: string;
+  hostname: string;
+  port: number;
+}): string =>
+  daemonBaseUrlFromRequest({
+    requestedBaseUrl: input.requestedBaseUrl,
+    hostname: canonicalDaemonHost(input.hostname),
+    port: input.port,
+  });
+
 const cleanupPointer = (input: { hostname: string; scopeId: string; port: number }) =>
   Effect.gen(function* () {
     yield* removeDaemonPointer({ hostname: input.hostname, scopeId: input.scopeId }).pipe(
@@ -191,10 +239,16 @@ const resolveDaemonTarget = (baseUrl: string) =>
     const host = canonicalDaemonHost(parsed.hostname);
     const scopeId = currentDaemonScopeId();
     const pointer = yield* readDaemonPointer({ hostname: host, scopeId });
+    const requestedHasCredentials = baseUrlAuthorizationHeader(baseUrl) !== undefined;
 
-    if (pointer) {
-      const pointerUrl = daemonBaseUrl(pointer.hostname, pointer.port);
-      if (isPidAlive(pointer.pid) && (yield* isServerReachable(pointerUrl))) {
+    if (pointer && !requestedHasCredentials && parsed.port === DEFAULT_PORT) {
+      const pointerUrl = requestedDaemonBaseUrl({
+        requestedBaseUrl: baseUrl,
+        hostname: pointer.hostname,
+        port: pointer.port,
+      });
+      const probe = yield* probeServer(pointerUrl);
+      if (isPidAlive(pointer.pid) && (probe === "reachable" || probe === "unauthorized")) {
         return {
           baseUrl: pointerUrl,
           hostname: pointer.hostname,
@@ -203,11 +257,17 @@ const resolveDaemonTarget = (baseUrl: string) =>
         };
       }
 
-      yield* cleanupPointer({ hostname: pointer.hostname, scopeId, port: pointer.port });
+      if (!isPidAlive(pointer.pid) && probe === "unreachable") {
+        yield* cleanupPointer({ hostname: pointer.hostname, scopeId, port: pointer.port });
+      }
     }
 
     return {
-      baseUrl: daemonBaseUrl(host, parsed.port),
+      baseUrl: requestedDaemonBaseUrl({
+        requestedBaseUrl: baseUrl,
+        hostname: host,
+        port: parsed.port,
+      }),
       hostname: host,
       port: parsed.port,
       scopeId,
@@ -302,8 +362,20 @@ const ensureDaemon = (
 ): Effect.Effect<string, Error, FileSystem.FileSystem | PlatformPath.Path> =>
   Effect.gen(function* () {
     const resolvedTarget = yield* resolveDaemonTarget(baseUrl);
-    if (yield* isServerReachable(resolvedTarget.baseUrl)) {
+    const probe = yield* probeServer(resolvedTarget.baseUrl);
+    if (probe === "reachable") {
       return resolvedTarget.baseUrl;
+    }
+    if (probe === "unauthorized") {
+      return yield* Effect.fail(
+        new Error(
+          [
+            `Executor is reachable at ${baseUrlWithoutCredentials(resolvedTarget.baseUrl)} but requires authentication.`,
+            "Pass credentials with --base-url http://executor:<password>@host:port, or set EXECUTOR_BASE_URL to that URL.",
+            "For Executor Desktop, copy the password from Settings → Desktop server.",
+          ].join("\n"),
+        ),
+      );
     }
 
     const parsed = yield* parseDaemonUrl(baseUrl);
@@ -313,7 +385,7 @@ const ensureDaemon = (
       return yield* Effect.fail(
         new Error(
           [
-            `Executor daemon is not reachable at ${baseUrl}.`,
+            `Executor daemon is not reachable at ${baseUrlWithoutCredentials(baseUrl)}.`,
             "Auto-start is only supported for local hosts.",
             `Start it manually: ${cliPrefix} daemon run --port ${parsed.port} --hostname ${host}`,
           ].join("\n"),
@@ -338,20 +410,21 @@ const stopDaemon = (
     const scopeId = target.scopeId;
     const record = yield* readDaemonRecord({ hostname: host, port: target.port });
     const reachable = yield* isServerReachable(target.baseUrl);
+    const displayUrl = baseUrlWithoutCredentials(target.baseUrl);
 
     if (!record) {
       if (reachable) {
         return yield* Effect.fail(
           new Error(
             [
-              `Executor is reachable at ${target.baseUrl} but no daemon record exists.`,
+              `Executor is reachable at ${displayUrl} but no daemon record exists.`,
               "It may not be managed by this CLI process.",
               "Stop it from the terminal/session where it was started.",
             ].join("\n"),
           ),
         );
       }
-      console.log(`No daemon running at ${target.baseUrl}.`);
+      console.log(`No daemon running at ${displayUrl}.`);
       return;
     }
 
@@ -362,19 +435,19 @@ const stopDaemon = (
         return yield* Effect.fail(
           new Error(
             [
-              `Daemon record for ${target.baseUrl} points to dead pid ${record.pid}, but endpoint is still reachable.`,
+              `Daemon record for ${displayUrl} points to dead pid ${record.pid}, but endpoint is still reachable.`,
               "Refusing to stop an unknown process without ownership metadata.",
             ].join("\n"),
           ),
         );
       }
       console.log(
-        `No daemon running at ${target.baseUrl} (removed stale record for pid ${record.pid}).`,
+        `No daemon running at ${displayUrl} (removed stale record for pid ${record.pid}).`,
       );
       return;
     }
 
-    console.log(`Stopping daemon at ${target.baseUrl} (pid ${record.pid})...`);
+    console.log(`Stopping daemon at ${displayUrl} (pid ${record.pid})...`);
 
     yield* terminatePid(record.pid);
 
@@ -388,7 +461,7 @@ const stopDaemon = (
       return yield* Effect.fail(
         new Error(
           [
-            `Daemon at ${target.baseUrl} did not stop within ${DAEMON_STOP_TIMEOUT_MS}ms.`,
+            `Daemon at ${displayUrl} did not stop within ${DAEMON_STOP_TIMEOUT_MS}ms.`,
             "Try terminating the process manually.",
           ].join("\n"),
         ),
@@ -397,7 +470,7 @@ const stopDaemon = (
 
     yield* removeDaemonRecord({ hostname: host, port: target.port });
     yield* removeDaemonPointer({ hostname: host, scopeId }).pipe(Effect.ignore);
-    console.log(`Daemon stopped at ${target.baseUrl}.`);
+    console.log(`Daemon stopped at ${displayUrl}.`);
   }).pipe(Effect.mapError(toError));
 
 type ExecuteCodeOutcome =
@@ -456,7 +529,7 @@ const printExecutionOutcome = (input: { baseUrl: string; outcome: ExecuteCodeOut
     if (input.outcome.status === "paused") {
       console.log(input.outcome.text);
       if (input.outcome.executionId) {
-        const commandPrefix = `${cliPrefix} resume --execution-id ${input.outcome.executionId} --base-url ${input.baseUrl}`;
+        const commandPrefix = `${cliPrefix} resume --execution-id ${input.outcome.executionId} --base-url ${baseUrlWithoutCredentials(input.baseUrl)}`;
         if (input.outcome.interaction?.kind === "form") {
           const requestedSchema = input.outcome.interaction.requestedSchema;
           if (requestedSchema && Object.keys(requestedSchema).length > 0) {
@@ -465,11 +538,17 @@ const printExecutionOutcome = (input: { baseUrl: string; outcome: ExecuteCodeOut
           const template = buildResumeContentTemplate(requestedSchema);
           const contentArg = shellQuoteArg(JSON.stringify(template));
           console.log("\nResume commands:");
+          if (baseUrlAuthorizationHeader(input.baseUrl)) {
+            console.log("  Keep EXECUTOR_BASE_URL set with credentials before running resume.");
+          }
           console.log(`  ${commandPrefix} --action accept --content ${contentArg}`);
           console.log(`  ${commandPrefix} --action decline`);
           console.log(`  ${commandPrefix} --action cancel`);
         } else {
           console.log("\nResume command:");
+          if (baseUrlAuthorizationHeader(input.baseUrl)) {
+            console.log("  Keep EXECUTOR_BASE_URL set with credentials before running resume.");
+          }
           console.log(`  ${commandPrefix} --action accept`);
         }
       }
@@ -488,10 +567,14 @@ const printExecutionOutcome = (input: { baseUrl: string; outcome: ExecuteCodeOut
 // Typed API client
 // ---------------------------------------------------------------------------
 
-const makeApiClient = (baseUrl: string) =>
-  HttpApiClient.make(ExecutorApi, { baseUrl: `${baseUrl}/api` }).pipe(
-    Effect.provide(FetchHttpClient.layer),
+const makeApiClient = (baseUrl: string) => {
+  const clientLayer = FetchHttpClient.layer.pipe(
+    Layer.provide(Layer.succeed(FetchHttpClient.Fetch)(fetchWithBaseUrlCredentials(baseUrl))),
   );
+  return HttpApiClient.make(ExecutorApi, {
+    baseUrl: `${baseUrlWithoutCredentials(baseUrl)}/api`,
+  }).pipe(Effect.provide(clientLayer));
+};
 
 // ---------------------------------------------------------------------------
 // Foreground session
@@ -1381,16 +1464,20 @@ const daemonStatusCommand = Command.make(
       const target = yield* resolveDaemonTarget(baseUrl);
       const host = canonicalDaemonHost(target.hostname);
 
-      const [record, reachable] = yield* Effect.all([
+      const [record, probe] = yield* Effect.all([
         readDaemonRecord({ hostname: host, port: target.port }),
-        isServerReachable(target.baseUrl),
+        probeServer(target.baseUrl),
       ]);
+      const reachable = probe === "reachable";
+      const displayUrl = baseUrlWithoutCredentials(target.baseUrl);
 
       if (!record) {
         if (reachable) {
-          console.log(`Daemon reachable at ${target.baseUrl} (no local ownership record).`);
+          console.log(`Daemon reachable at ${displayUrl} (no local ownership record).`);
+        } else if (probe === "unauthorized") {
+          console.log(`Daemon reachable at ${displayUrl}, but authentication is required.`);
         } else {
-          console.log(`Daemon not running at ${target.baseUrl}.`);
+          console.log(`Daemon not running at ${displayUrl}.`);
         }
         return;
       }
@@ -1402,20 +1489,26 @@ const daemonStatusCommand = Command.make(
             Effect.ignore,
           );
           console.log(
-            `Daemon not running at ${target.baseUrl} (removed stale record for pid ${record.pid}).`,
+            `Daemon not running at ${displayUrl} (removed stale record for pid ${record.pid}).`,
           );
           return;
         }
         console.log(
-          `Daemon reachable at ${target.baseUrl}, but recorded pid ${record.pid} is not alive (ownership mismatch).`,
+          `Daemon reachable at ${displayUrl}, but recorded pid ${record.pid} is not alive (ownership mismatch).`,
         );
         return;
       }
 
-      const state = reachable ? "running" : "unreachable";
-      console.log(`Daemon ${state} at ${target.baseUrl} (pid ${record.pid}).`);
+      if (probe === "unauthorized") {
+        console.log(
+          `Daemon reachable at ${displayUrl}, but authentication is required (pid ${record.pid}).`,
+        );
+      } else {
+        const state = reachable ? "running" : "unreachable";
+        console.log(`Daemon ${state} at ${displayUrl} (pid ${record.pid}).`);
+      }
       if (target.baseUrl !== baseUrl) {
-        console.log(`Requested: ${baseUrl}`);
+        console.log(`Requested: ${baseUrlWithoutCredentials(baseUrl)}`);
       }
       if (record.scopeDir) {
         console.log(`Scope: ${record.scopeDir}`);
@@ -1442,7 +1535,7 @@ const daemonRestartCommand = Command.make(
       applyScope(scope);
       yield* stopDaemon(baseUrl);
       const daemonUrl = yield* ensureDaemon(baseUrl);
-      console.log(`Daemon restarted at ${daemonUrl}.`);
+      console.log(`Daemon restarted at ${baseUrlWithoutCredentials(daemonUrl)}.`);
     }),
 ).pipe(Command.withDescription("Restart the local daemon"));
 

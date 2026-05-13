@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import * as Clock from "effect/Clock";
@@ -42,6 +43,41 @@ export const parseDaemonBaseUrl = (baseUrl: string, defaultPort: number): Parsed
     hostname: parsed.hostname || "localhost",
     port,
   };
+};
+
+export const baseUrlWithoutCredentials = (baseUrl: string): string => {
+  const parsed = new URL(baseUrl);
+  parsed.username = "";
+  parsed.password = "";
+  parsed.pathname = "";
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString().replace(/\/$/, "");
+};
+
+export const baseUrlAuthorizationHeader = (baseUrl: string): string | undefined => {
+  const parsed = new URL(baseUrl);
+  if (!parsed.username && !parsed.password) return undefined;
+
+  const username = decodeURIComponent(parsed.username);
+  const password = decodeURIComponent(parsed.password);
+  const credentials = Buffer.from(`${username}:${password}`).toString("base64");
+  return `Basic ${credentials}`;
+};
+
+export const daemonBaseUrlFromRequest = (input: {
+  readonly requestedBaseUrl: string;
+  readonly hostname: string;
+  readonly port: number;
+}): string => {
+  const parsed = new URL(input.requestedBaseUrl);
+  parsed.protocol = "http:";
+  parsed.hostname = input.hostname;
+  parsed.port = String(input.port);
+  parsed.pathname = "";
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString().replace(/\/$/, "");
 };
 
 // ---------------------------------------------------------------------------

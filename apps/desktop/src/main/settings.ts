@@ -6,6 +6,8 @@ interface PersistedShape {
   readonly server: DesktopServerSettings;
 }
 
+type SettingsStore = Store<PersistedShape>;
+
 const generatePassword = (): string => randomBytes(24).toString("base64url");
 
 const seedDefaults = (): DesktopServerSettings => ({
@@ -13,17 +15,30 @@ const seedDefaults = (): DesktopServerSettings => ({
   password: generatePassword(),
 });
 
-const store = new Store<PersistedShape>({
-  name: "settings",
-  defaults: { server: seedDefaults() },
-});
+let store: SettingsStore | null = null;
 
-// Backfill if an older settings.json predates the server section.
-if (!store.has("server")) {
-  store.set("server", seedDefaults());
-}
+const getStore = (): SettingsStore => {
+  if (store) return store;
 
-export const getServerSettings = (): DesktopServerSettings => store.get("server");
+  // Create the store lazily so index.ts can set Electron's userData path
+  // before electron-store resolves settings.json. Constructing this at module
+  // import time can read/write settings under Electron's default app name and
+  // make Desktop spawn with stale server settings such as the CLI port 4788.
+  const next = new Store<PersistedShape>({
+    name: "settings",
+    defaults: { server: seedDefaults() },
+  });
+
+  // Backfill if an older settings.json predates the server section.
+  if (!next.has("server")) {
+    next.set("server", seedDefaults());
+  }
+
+  store = next;
+  return next;
+};
+
+export const getServerSettings = (): DesktopServerSettings => getStore().get("server");
 
 export const updateServerSettings = (
   patch: Partial<DesktopServerSettings>,
@@ -34,12 +49,12 @@ export const updateServerSettings = (
     requireAuth: patch.requireAuth ?? current.requireAuth,
     password: patch.password ?? current.password,
   };
-  store.set("server", next);
+  getStore().set("server", next);
   return next;
 };
 
 export const regeneratePassword = (): DesktopServerSettings => {
   const next = { ...getServerSettings(), password: generatePassword() };
-  store.set("server", next);
+  getStore().set("server", next);
   return next;
 };
