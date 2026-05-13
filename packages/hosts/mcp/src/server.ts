@@ -288,19 +288,6 @@ const makeMcpElicitationHandler =
     });
   };
 
-const cancelElicitationHandler =
-  (debugLog?: (event: string, data: Record<string, unknown>) => void): ElicitationHandler =>
-  (ctx: ElicitationContext): Effect.Effect<typeof ElicitationResponse.Type> =>
-    Effect.sync(() => {
-      debugLog?.("elicitation.cancel_unmanaged_app_action", {
-        requestTag: elicitationRequestTag(ctx.request),
-        message: ctx.request.message,
-        hasRequestedSchema: requestedSchemaIsNonEmpty(ctx.request),
-        url: elicitationRequestUrl(ctx.request),
-      });
-      return { action: "cancel" as const };
-    });
-
 const formatBoundaryError = (err: unknown): { name?: string; message: string; stack?: string } => {
   // oxlint-disable-next-line executor/no-instanceof-error, executor/no-unknown-error-message -- boundary: SDK Promise rejection supplies unknown JS errors for logging only
   if (err instanceof Error) return { name: err.name, message: err.message, stack: err.stack };
@@ -499,12 +486,25 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           codeLength: code.length,
         });
 
-        const result = yield* engine.execute(code, {
-          onElicitation: supportsManagedElicitation(server)
-            ? makeMcpElicitationHandler(server, debugLog)
-            : cancelElicitationHandler(debugLog),
+        if (supportsManagedElicitation(server)) {
+          const result = yield* engine.execute(code, {
+            onElicitation: makeMcpElicitationHandler(server, debugLog),
+          });
+          return toMcpResult(formatExecuteResult(result));
+        }
+
+        const outcome = yield* engine.executeWithPause(code);
+        debugLog("execute_action.paused_flow_result", {
+          status: outcome.status,
+          executionId: outcome.status === "paused" ? outcome.execution.id : undefined,
+          interactionKind:
+            outcome.status === "paused"
+              ? pausedInteractionKind(outcome.execution.elicitationContext.request)
+              : undefined,
         });
-        return toMcpResult(formatExecuteResult(result));
+        return outcome.status === "completed"
+          ? toMcpResult(formatExecuteResult(outcome.result))
+          : toMcpPausedResult(formatPausedExecution(outcome.execution));
       }).pipe(
         Effect.withSpan("mcp.host.tool.execute_action", {
           attributes: {
@@ -592,6 +592,38 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
       }),
     );
 
+    const executeActionResumeTool = yield* Effect.sync(() =>
+      registerAppTool(
+        server,
+        "execute-action-resume",
+        {
+          description: "Resume an interactive UI action after shell-owned user approval.",
+          inputSchema: {
+            executionId: z.string().describe("The execution ID from the paused UI action"),
+            action: z
+              .enum(["accept", "decline", "cancel"])
+              .describe("How to respond to the interaction"),
+            content: z
+              .string()
+              .describe("Optional JSON-encoded response content for form elicitations")
+              .default("{}"),
+          },
+          _meta: {
+            ui: {
+              resourceUri: SHELL_RESOURCE_URI,
+              visibility: ["app"],
+            },
+          },
+        },
+        ({ executionId, action, content: rawContent }) =>
+          runToolEffect(resumeExecution(executionId, action, parseJsonContent(rawContent))),
+      ),
+    ).pipe(
+      Effect.withSpan("mcp.host.register_tool", {
+        attributes: { "mcp.tool.name": "execute-action-resume" },
+      }),
+    );
+
     yield* Effect.sync(() =>
       registerAppResource(
         server,
@@ -627,8 +659,10 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
       const executeActionEnabled = Boolean(uiCap?.mimeTypes?.includes(RESOURCE_MIME_TYPE));
       if (executeActionEnabled) {
         executeActionTool.enable();
+        executeActionResumeTool.enable();
       } else {
         executeActionTool.disable();
+        executeActionResumeTool.disable();
       }
       console.error(
         "[executor] MCP capability snapshot",

@@ -18,13 +18,22 @@ import type { App, McpUiHostContext } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { transform } from "sucrase";
 
-import { createToolsProxy, createRunFn } from "./proxy";
+import {
+  createToolsProxy,
+  createRunFn,
+  type TrustedInteraction,
+  type TrustedInteractionResponse,
+} from "./proxy";
 import { useQuery, useMutation } from "./hooks";
 import * as Components from "./components";
 
 type EvaluatedComponent =
   | { component: React.ComponentType; config: Record<string, unknown> }
   | { error: string };
+
+type PendingInteraction = TrustedInteraction & {
+  resolve: (response: TrustedInteractionResponse) => void;
+};
 
 // ---------------------------------------------------------------------------
 // Theme application from MCP Apps host context
@@ -128,16 +137,40 @@ function ShellApp() {
   const [componentConfig, setComponentConfig] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [hostContext, setHostContext] = useState<McpUiHostContext | undefined>();
+  const [pendingInteraction, setPendingInteraction] = useState<PendingInteraction | null>(null);
   const toolsRef = useRef<Record<string, unknown>>({});
   const runRef = useRef<(code: string) => Promise<unknown>>(() => Promise.resolve(null));
+  const pendingInteractionRef = useRef<PendingInteraction | null>(null);
+
+  const requestTrustedInteraction = useCallback(
+    (interaction: TrustedInteraction): Promise<TrustedInteractionResponse> =>
+      new Promise((resolve) => {
+        if (pendingInteractionRef.current) {
+          resolve({ action: "cancel" });
+          return;
+        }
+
+        const pending = { ...interaction, resolve };
+        pendingInteractionRef.current = pending;
+        setPendingInteraction(pending);
+      }),
+    [],
+  );
+
+  const completeTrustedInteraction = useCallback((response: TrustedInteractionResponse) => {
+    const pending = pendingInteractionRef.current;
+    pendingInteractionRef.current = null;
+    setPendingInteraction(null);
+    pending?.resolve(response);
+  }, []);
 
   const { app, error: connectionError } = useApp({
     appInfo: { name: "Executor Shell", version: "1.0.0" },
     capabilities: {},
     onAppCreated: (app: App) => {
       // Create the tools proxy and run function
-      toolsRef.current = createToolsProxy(app);
-      runRef.current = createRunFn(app);
+      toolsRef.current = createToolsProxy(app, requestTrustedInteraction);
+      runRef.current = createRunFn(app, requestTrustedInteraction);
 
       /** Compile and render a JSX code string as a React component */
       const renderCode = (code: string) => {
@@ -291,8 +324,125 @@ function ShellApp() {
         <ErrorBoundary>
           <Component />
         </ErrorBoundary>
+        {pendingInteraction && (
+          <TrustedInteractionModal
+            key={pendingInteraction.executionId}
+            app={app}
+            pending={pendingInteraction}
+            onComplete={completeTrustedInteraction}
+          />
+        )}
       </div>
     </Components.TooltipProvider>
+  );
+}
+
+function TrustedInteractionModal({
+  app,
+  pending,
+  onComplete,
+}: {
+  app: App;
+  pending: PendingInteraction;
+  onComplete: (response: TrustedInteractionResponse) => void;
+}) {
+  const [content, setContent] = useState("{}");
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const interaction = pending.interaction;
+  const message =
+    typeof interaction.message === "string" && interaction.message.length > 0
+      ? interaction.message
+      : "Approve this action?";
+  const url = typeof interaction.url === "string" ? interaction.url : null;
+  const requestedSchema =
+    typeof interaction.requestedSchema === "object" &&
+    interaction.requestedSchema !== null &&
+    Object.keys(interaction.requestedSchema).length > 0
+      ? interaction.requestedSchema
+      : null;
+
+  const approve = () => {
+    try {
+      const parsed = content.trim().length > 0 ? JSON.parse(content) : {};
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        setJsonError("Response content must be a JSON object.");
+        return;
+      }
+      onComplete({ action: "accept", content: parsed as Record<string, unknown> });
+    } catch (err) {
+      setJsonError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const openUrl = () => {
+    if (!url) return;
+    app.openLink({ url }).catch((err: unknown) => {
+      console.error("[executor-shell] Failed to open elicitation URL:", err);
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-lg border border-border bg-card text-card-foreground shadow-xl">
+        <div className="border-b border-border px-4 py-3">
+          <div className="text-sm font-semibold">Approve action</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            This approval is handled by the Executor shell.
+          </div>
+        </div>
+        <div className="space-y-3 px-4 py-4">
+          <div className="text-sm">{message}</div>
+          {url && (
+            <button
+              type="button"
+              onClick={openUrl}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground hover:bg-muted"
+            >
+              <Components.ExternalLink className="h-3.5 w-3.5" />
+              Open link
+            </button>
+          )}
+          {requestedSchema && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">Response content</div>
+              <Components.Textarea
+                value={content}
+                onChange={(event) => {
+                  setContent(event.target.value);
+                  setJsonError(null);
+                }}
+                className="min-h-24 font-mono text-xs"
+              />
+              <pre className="max-h-32 overflow-auto rounded-md bg-muted p-2 text-xs text-muted-foreground">
+                {JSON.stringify(requestedSchema, null, 2)}
+              </pre>
+              {jsonError && <div className="text-xs text-destructive">{jsonError}</div>}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+          <Components.Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onComplete({ action: "cancel" })}
+          >
+            Cancel
+          </Components.Button>
+          <Components.Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onComplete({ action: "decline" })}
+          >
+            Decline
+          </Components.Button>
+          <Components.Button type="button" size="sm" onClick={approve}>
+            Approve
+          </Components.Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

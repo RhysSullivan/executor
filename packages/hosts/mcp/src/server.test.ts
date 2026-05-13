@@ -392,7 +392,8 @@ describe("MCP host server — client with form-only elicitation", () => {
 describe("MCP host server — client without elicitation (pause/resume)", () => {
   it("exposes execute-action to MCP apps even when trusted elicitation is unavailable", async () => {
     const engine = makeStubEngine({
-      execute: (code) => Effect.succeed({ result: `app:${code}` }),
+      executeWithPause: (code) =>
+        Effect.succeed({ status: "completed", result: { result: `app:${code}` } }),
     });
 
     await withClient(engine, APPS_WITHOUT_ELICITATION_CAPS, async (client) => {
@@ -409,18 +410,43 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
     });
   });
 
-  it("execute-action cancels elicitations when trusted elicitation is unavailable", async () => {
-    const engine = makeElicitingEngine(
-      FormElicitation.make({ message: "Approve UI action?", requestedSchema: {} }),
-      (r) => `action:${r.action}`,
-    );
+  it("execute-action pauses elicitations for shell-owned approval when trusted elicitation is unavailable", async () => {
+    const engine = makeStubEngine({
+      executeWithPause: () =>
+        Effect.succeed(
+          makePausedResult(
+            "exec_app",
+            FormElicitation.make({ message: "Approve UI action?", requestedSchema: {} }),
+          ),
+        ),
+      resume: (executionId, response) =>
+        Effect.succeed(
+          executionId === "exec_app"
+            ? { status: "completed", result: { result: `action:${response.action}` } }
+            : null,
+        ),
+    });
 
     await withClient(engine, APPS_WITHOUT_ELICITATION_CAPS, async (client) => {
-      const result = await client.callTool({
+      const paused = await client.callTool({
         name: "execute-action",
         arguments: { code: "return await tools.github.issues.create({})" },
       });
-      expect(result.content).toEqual([{ type: "text", text: "action:cancel" }]);
+      expect(paused.structuredContent).toEqual({
+        status: "waiting_for_interaction",
+        executionId: "exec_app",
+        interaction: {
+          kind: "form",
+          message: "Approve UI action?",
+          requestedSchema: {},
+        },
+      });
+
+      const resumed = await client.callTool({
+        name: "execute-action-resume",
+        arguments: { executionId: "exec_app", action: "accept", content: "{}" },
+      });
+      expect(resumed.content).toEqual([{ type: "text", text: "action:accept" }]);
     });
   });
 
