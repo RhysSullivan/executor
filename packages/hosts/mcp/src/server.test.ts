@@ -4,10 +4,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
+import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import type * as Cause from "effect/Cause";
 
-import { FormElicitation, ToolId, UrlElicitation } from "@executor-js/sdk";
+import { FormElicitation, ToolId, UrlElicitation, type AnyPlugin } from "@executor-js/sdk";
 import type { ExecutionEngine, ExecutionResult } from "@executor-js/execution";
+import { dynamicUiPlugin } from "@executor-js/plugin-dynamic-ui";
 
 import { createExecutorMcpServer } from "./server";
 
@@ -33,13 +35,16 @@ const makeStubEngine = <E extends Cause.YieldableError = never>(overrides: {
   getDescription: Effect.succeed(overrides.description ?? "test executor"),
 });
 
+const DYNAMIC_UI_PLUGIN = dynamicUiPlugin();
+
 /** Connect a real MCP Client to our executor MCP server over in-memory transports. */
 const withClient = async <E extends Cause.YieldableError>(
   engine: ExecutionEngine<E>,
   capabilities: ClientCapabilities,
   fn: (client: Client) => Promise<void>,
+  options: { readonly plugins?: readonly AnyPlugin[] } = {},
 ) => {
-  const mcpServer = await Effect.runPromise(createExecutorMcpServer({ engine }));
+  const mcpServer = await Effect.runPromise(createExecutorMcpServer({ engine, ...options }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities });
   await mcpServer.connect(serverTransport);
@@ -58,6 +63,16 @@ const ELICITATION_CAPS: ClientCapabilities = {
 };
 const FORM_ONLY_CAPS: ClientCapabilities = { elicitation: { form: {} } };
 const NO_CAPS: ClientCapabilities = {};
+type AppsClientCapabilities = ClientCapabilities & {
+  readonly extensions: Record<string, unknown>;
+};
+const APPS_ELICITATION_CAPS: AppsClientCapabilities = {
+  ...ELICITATION_CAPS,
+  extensions: { [EXTENSION_ID]: { mimeTypes: [RESOURCE_MIME_TYPE] } },
+};
+const APPS_WITHOUT_ELICITATION_CAPS: AppsClientCapabilities = {
+  extensions: { [EXTENSION_ID]: { mimeTypes: [RESOURCE_MIME_TYPE] } },
+};
 
 /** Extract the first text content from a callTool result. */
 const textOf = (result: Awaited<ReturnType<Client["callTool"]>>): string =>
@@ -114,6 +129,177 @@ describe("MCP host server — client with elicitation", () => {
       expect(result.content).toEqual([{ type: "text", text: "ran: 1+1" }]);
       expect(result.isError).toBeFalsy();
     });
+  });
+
+  it("does not expose dynamic UI tools unless a plugin contributes them", async () => {
+    await withClient(makeStubEngine({}), APPS_ELICITATION_CAPS, async (client) => {
+      const { tools } = await client.listTools();
+      const names = tools.map((tool) => tool.name);
+      expect(names).not.toContain("render-ui");
+      expect(names).not.toContain("execute-action");
+    });
+  });
+
+  it("render-ui tool routes React code to the MCP app shell", async () => {
+    await withClient(
+      makeStubEngine({}),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const result = await client.callTool({
+          name: "render-ui",
+          arguments: { code: 'function App() { return <Card className="p-4" />; }' },
+        });
+        expect(result.content).toEqual([
+          { type: "text", text: "Rendered interactive UI component." },
+        ]);
+        expect(result.structuredContent).toEqual({
+          code: 'function App() { return <Card className="p-4" />; }',
+        });
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
+  });
+
+  it("serves the app shell resource with restrictive CSP metadata", async () => {
+    await withClient(
+      makeStubEngine({}),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const result = await client.readResource({
+          uri: "ui://executor/shell-tanstack-query.html",
+        });
+        expect(result.contents).toHaveLength(1);
+        expect(result.contents[0]).toMatchObject({
+          uri: "ui://executor/shell-tanstack-query.html",
+          mimeType: RESOURCE_MIME_TYPE,
+          _meta: {
+            ui: {
+              csp: {
+                connectDomains: [],
+                resourceDomains: [],
+              },
+            },
+          },
+        });
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
+  });
+
+  it("render-ui rejects obvious hardcoded live-data snapshots", async () => {
+    const code = [
+      "const rows = [",
+      '  { service: "api", count: 100 },',
+      '  { service: "web", count: 80 },',
+      "];",
+      "function App() { return <Card><CardContent>{rows.length}</CardContent></Card>; }",
+    ].join("\n");
+
+    await withClient(
+      makeStubEngine({}),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const result = await client.callTool({
+          name: "render-ui",
+          arguments: { code },
+        });
+        expect(result.isError).toBe(true);
+        expect(textOf(result)).toContain("Hardcoded live-data array");
+        expect(textOf(result)).toContain("useQuery");
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
+  });
+
+  it("render-ui rejects redeclared provided globals before iframe evaluation", async () => {
+    const code = [
+      "const { useState } = React;",
+      "function App() {",
+      "  const [count, setCount] = useState(0);",
+      "  return <Button onClick={() => setCount(count + 1)}>{count}</Button>;",
+      "}",
+    ].join("\n");
+
+    await withClient(
+      makeStubEngine({}),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const reactDestructure = await client.callTool({
+          name: "render-ui",
+          arguments: { code },
+        });
+        expect(reactDestructure.isError).toBe(true);
+        expect(textOf(reactDestructure)).toContain("Do not destructure React");
+        expect(textOf(reactDestructure)).toContain("useState");
+
+        const componentRedeclaration = await client.callTool({
+          name: "render-ui",
+          arguments: {
+            code: "const Card = () => null;\nfunction App() { return <Card />; }",
+          },
+        });
+        expect(componentRedeclaration.isError).toBe(true);
+        expect(textOf(componentRedeclaration)).toContain('Provided global "Card"');
+
+        const componentDestructure = await client.callTool({
+          name: "render-ui",
+          arguments: {
+            code: 'const { Card } = require("./components");\nfunction App() { return <Card />; }',
+          },
+        });
+        expect(componentDestructure.isError).toBe(true);
+        expect(textOf(componentDestructure)).toContain('Provided global "Card"');
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
+  });
+
+  it("splits execution and UI rendering into separate model-facing tool descriptions", async () => {
+    const description = [
+      "Execute TypeScript in a sandboxed runtime.",
+      "",
+      "## Rules",
+      "",
+      "- Call tools with `tools.<namespace>.<tool>(args)`.",
+      "",
+      "## Generative UI",
+      "",
+      "When it would be helpful to show an interactive UI, write a React component named `App` with JSX in the `code` parameter.",
+      "- Fetch live data inside the generated component with `useQuery(tools.<namespace>.<tool>.queryOptions(args))`.",
+      "- For user-triggered writes or actions, use `useMutation(tools.<namespace>.<tool>.mutationOptions({ onSuccess }))`.",
+      "",
+      "## Available namespaces",
+      "",
+      "- `axiom_mcp`",
+    ].join("\n");
+
+    await withClient(
+      makeStubEngine({ description }),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const { tools } = await client.listTools();
+        const execute = tools.find((tool) => tool.name === "execute");
+        const renderUi = tools.find((tool) => tool.name === "render-ui");
+
+        expect(execute?.description).toContain("Execute TypeScript");
+        expect(execute?.description).not.toContain("## Generative UI");
+        expect(execute?.description).toContain("## Available namespaces");
+        expect(renderUi?.description).toContain("Render an interactive React UI component");
+        expect(renderUi?.description).toContain("## Available UI Components");
+        expect(renderUi?.description).toContain("shadcn/ui components available by name: Card");
+        expect(renderUi?.description).toContain(
+          "useQuery(tools.<namespace>.<tool>.queryOptions(args))",
+        );
+        expect(renderUi?.description).toContain("Use discovered result shapes exactly");
+        expect(renderUi?.description).toContain("For optimistic UI, use `onMutate`");
+        expect(renderUi?.description).toContain("Do not call API tools first");
+        expect(renderUi?.description).toContain("Do not redeclare or destructure provided globals");
+        expect(renderUi?.description).toContain("server rejects obvious hardcoded live-data");
+        expect(renderUi?.description).toContain("server rejects redeclarations");
+        expect(renderUi?.description).toContain("- `axiom_mcp`");
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
   });
 
   it("execute tool resolves failed engine effects as MCP error results", async () => {
@@ -199,6 +385,34 @@ describe("MCP host server — client with elicitation", () => {
       });
       expect(result.content).toEqual([{ type: "text", text: "action:decline" }]);
     });
+  });
+
+  it("execute-action bridges elicitation to the MCP client instead of auto-approving", async () => {
+    const engine = makeElicitingEngine(
+      FormElicitation.make({ message: "Approve UI action?", requestedSchema: {} }),
+      (r) => `action:${r.action}`,
+    );
+
+    await withClient(
+      engine,
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        let prompted = false;
+        client.setRequestHandler(ElicitRequestSchema, async (request) => {
+          prompted = true;
+          expect((request.params as Record<string, unknown>).message).toBe("Approve UI action?");
+          return { action: "decline" as const, content: {} };
+        });
+
+        const result = await client.callTool({
+          name: "execute-action",
+          arguments: { code: "return await tools.github.issues.create({})" },
+        });
+        expect(prompted).toBe(true);
+        expect(result.content).toEqual([{ type: "text", text: "action:decline" }]);
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
   });
 
   it("empty form schema gets wrapped with minimal valid schema", async () => {
@@ -341,6 +555,76 @@ describe("MCP host server — client with form-only elicitation", () => {
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — client without elicitation (pause/resume)", () => {
+  it("exposes execute-action to MCP apps even when trusted elicitation is unavailable", async () => {
+    const engine = makeStubEngine({
+      executeWithPause: (code) =>
+        Effect.succeed({ status: "completed", result: { result: `app:${code}` } }),
+    });
+
+    await withClient(
+      engine,
+      APPS_WITHOUT_ELICITATION_CAPS,
+      async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools.map((t) => t.name)).toContain("execute-action");
+
+        const result = await client.callTool({
+          name: "execute-action",
+          arguments: { code: "return await tools.axiom_mcp.listdatasets({})" },
+        });
+        expect(result.content).toEqual([
+          { type: "text", text: "app:return await tools.axiom_mcp.listdatasets({})" },
+        ]);
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
+  });
+
+  it("execute-action pauses elicitations for shell-owned approval when trusted elicitation is unavailable", async () => {
+    const engine = makeStubEngine({
+      executeWithPause: () =>
+        Effect.succeed(
+          makePausedResult(
+            "exec_app",
+            FormElicitation.make({ message: "Approve UI action?", requestedSchema: {} }),
+          ),
+        ),
+      resume: (executionId, response) =>
+        Effect.succeed(
+          executionId === "exec_app"
+            ? { status: "completed", result: { result: `action:${response.action}` } }
+            : null,
+        ),
+    });
+
+    await withClient(
+      engine,
+      APPS_WITHOUT_ELICITATION_CAPS,
+      async (client) => {
+        const paused = await client.callTool({
+          name: "execute-action",
+          arguments: { code: "return await tools.github.issues.create({})" },
+        });
+        expect(paused.structuredContent).toEqual({
+          status: "waiting_for_interaction",
+          executionId: "exec_app",
+          interaction: {
+            kind: "form",
+            message: "Approve UI action?",
+            requestedSchema: {},
+          },
+        });
+
+        const resumed = await client.callTool({
+          name: "execute-action-resume",
+          arguments: { executionId: "exec_app", action: "accept", content: "{}" },
+        });
+        expect(resumed.content).toEqual([{ type: "text", text: "action:accept" }]);
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
+  });
+
   it("completed execution returns result directly", async () => {
     const engine = makeStubEngine({
       executeWithPause: () =>
@@ -366,6 +650,8 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
       const names = tools.map((t) => t.name);
       expect(names).toContain("execute");
       expect(names).toContain("resume");
+      expect(names).not.toContain("render-ui");
+      expect(names).not.toContain("execute-action");
     });
   });
 

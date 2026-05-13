@@ -121,6 +121,7 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.PORT ?? "5173", 10),
     host: "127.0.0.1",
+    allowedHosts: true,
     watch: {
       // Workspace packages live under packages/ and are symlinked into
       // node_modules. Without this, chokidar treats them as ordinary

@@ -1,0 +1,54 @@
+{
+  "name": "@executor-js/plugin-dynamic-ui",
+  "version": "1.4.25",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/dynamic-ui",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/plugins/dynamic-ui"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run",
+    "typecheck:slow": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@executor-js/host-mcp": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
+    "@modelcontextprotocol/ext-apps": "^1.6.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "effect": "catalog:",
+    "zod": "^4.3.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
