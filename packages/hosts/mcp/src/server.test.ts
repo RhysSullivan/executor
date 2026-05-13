@@ -390,10 +390,37 @@ describe("MCP host server — client with form-only elicitation", () => {
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — client without elicitation (pause/resume)", () => {
-  it("does not expose execute-action when trusted elicitation is unavailable", async () => {
-    await withClient(makeStubEngine({}), APPS_WITHOUT_ELICITATION_CAPS, async (client) => {
+  it("exposes execute-action to MCP apps even when trusted elicitation is unavailable", async () => {
+    const engine = makeStubEngine({
+      execute: (code) => Effect.succeed({ result: `app:${code}` }),
+    });
+
+    await withClient(engine, APPS_WITHOUT_ELICITATION_CAPS, async (client) => {
       const { tools } = await client.listTools();
-      expect(tools.map((t) => t.name)).not.toContain("execute-action");
+      expect(tools.map((t) => t.name)).toContain("execute-action");
+
+      const result = await client.callTool({
+        name: "execute-action",
+        arguments: { code: "return await tools.axiom_mcp.listdatasets({})" },
+      });
+      expect(result.content).toEqual([
+        { type: "text", text: "app:return await tools.axiom_mcp.listdatasets({})" },
+      ]);
+    });
+  });
+
+  it("execute-action cancels elicitations when trusted elicitation is unavailable", async () => {
+    const engine = makeElicitingEngine(
+      FormElicitation.make({ message: "Approve UI action?", requestedSchema: {} }),
+      (r) => `action:${r.action}`,
+    );
+
+    await withClient(engine, APPS_WITHOUT_ELICITATION_CAPS, async (client) => {
+      const result = await client.callTool({
+        name: "execute-action",
+        arguments: { code: "return await tools.github.issues.create({})" },
+      });
+      expect(result.content).toEqual([{ type: "text", text: "action:cancel" }]);
     });
   });
 

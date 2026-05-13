@@ -288,6 +288,19 @@ const makeMcpElicitationHandler =
     });
   };
 
+const cancelElicitationHandler =
+  (debugLog?: (event: string, data: Record<string, unknown>) => void): ElicitationHandler =>
+  (ctx: ElicitationContext): Effect.Effect<typeof ElicitationResponse.Type> =>
+    Effect.sync(() => {
+      debugLog?.("elicitation.cancel_unmanaged_app_action", {
+        requestTag: elicitationRequestTag(ctx.request),
+        message: ctx.request.message,
+        hasRequestedSchema: requestedSchemaIsNonEmpty(ctx.request),
+        url: elicitationRequestUrl(ctx.request),
+      });
+      return { action: "cancel" as const };
+    });
+
 const formatBoundaryError = (err: unknown): { name?: string; message: string; stack?: string } => {
   // oxlint-disable-next-line executor/no-instanceof-error, executor/no-unknown-error-message -- boundary: SDK Promise rejection supplies unknown JS errors for logging only
   if (err instanceof Error) return { name: err.name, message: err.message, stack: err.stack };
@@ -486,24 +499,10 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           codeLength: code.length,
         });
 
-        if (!supportsManagedElicitation(server)) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Interactive UI actions require client-managed elicitation support.",
-              },
-            ],
-            structuredContent: {
-              status: "error",
-              error: "Interactive UI actions require client-managed elicitation support.",
-            },
-            isError: true,
-          } satisfies McpToolResult;
-        }
-
         const result = yield* engine.execute(code, {
-          onElicitation: makeMcpElicitationHandler(server, debugLog),
+          onElicitation: supportsManagedElicitation(server)
+            ? makeMcpElicitationHandler(server, debugLog)
+            : cancelElicitationHandler(debugLog),
         });
         return toMcpResult(formatExecuteResult(result));
       }).pipe(
@@ -625,9 +624,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         | McpAppsClientCapabilities
         | undefined;
       const uiCap = getUiCapability(capabilities);
-      const executeActionEnabled =
-        Boolean(uiCap?.mimeTypes?.includes(RESOURCE_MIME_TYPE)) &&
-        supportsManagedElicitation(server);
+      const executeActionEnabled = Boolean(uiCap?.mimeTypes?.includes(RESOURCE_MIME_TYPE));
       if (executeActionEnabled) {
         executeActionTool.enable();
       } else {
