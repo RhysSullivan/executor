@@ -23,9 +23,8 @@ if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
   const importFFI: QuickJSSyncVariant["importFFI"] = () =>
     import("@jitl/quickjs-wasmfile-release-sync/ffi").then((m) => m.QuickJSFFI);
   const importModuleLoader: QuickJSSyncVariant["importModuleLoader"] = async () => {
-    const { default: original } = await import(
-      "@jitl/quickjs-wasmfile-release-sync/emscripten-module"
-    );
+    const { default: original } =
+      await import("@jitl/quickjs-wasmfile-release-sync/emscripten-module");
     return (moduleArg = {}) => original({ ...moduleArg, wasmBinary });
   };
   const variant: QuickJSSyncVariant = {
