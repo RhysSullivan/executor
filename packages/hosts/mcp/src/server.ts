@@ -95,12 +95,75 @@ type McpAppsClientCapabilities = ClientCapabilities & {
 
 const SHELL_RESOURCE_URI = "ui://executor/shell.html";
 
-const isReactCode = (code: string): boolean =>
-  /<[A-Z]\w*[\s/>]/.test(code) ||
-  /<\/[A-Z]/.test(code) ||
-  /\bclassName\s*=/.test(code) ||
-  /\bon[A-Z]\w*\s*=\s*\{/.test(code) ||
-  /<>|<\/>/.test(code);
+const sectionStart = (text: string, heading: string): number => {
+  const withNewline = text.indexOf(`\n${heading}`);
+  if (withNewline >= 0) return withNewline + 1;
+  return text.startsWith(heading) ? 0 : -1;
+};
+
+const availableNamespacesSection = (description: string): string | undefined => {
+  const start = sectionStart(description, "## Available namespaces");
+  return start >= 0 ? description.slice(start).trim() : undefined;
+};
+
+const stripGenerativeUiSection = (description: string): string => {
+  const start = sectionStart(description, "## Generative UI");
+  if (start < 0) return description;
+
+  const namespaces = availableNamespacesSection(description);
+  const before = description.slice(0, start).trimEnd();
+  return namespaces ? `${before}\n\n${namespaces}` : before;
+};
+
+const extractGenerativeUiBody = (description: string): string | undefined => {
+  const start = sectionStart(description, "## Generative UI");
+  if (start < 0) return undefined;
+
+  const namespaces = availableNamespacesSection(description);
+  const end = namespaces ? description.indexOf(namespaces) : description.length;
+  const section = description.slice(start, end).trim();
+  return section.replace(/^## Generative UI\s*/, "").trim();
+};
+
+const buildRenderUiDescription = (executeDescription: string): string => {
+  const uiBody =
+    extractGenerativeUiBody(executeDescription) ??
+    [
+      "Write a React component named `App` with JSX in the `code` parameter. It renders in an MCP app iframe alongside the conversation.",
+      "",
+      "**No imports** — everything is already in scope:",
+      "- React: `useState`, `useEffect`, `useRef`, `useCallback`, `useMemo`",
+      "- Data fetching: `useQuery(fn)` -> `{ data, error, isLoading, refetch }`, `useMutation(fn)` -> `{ mutate, data, error, isPending }`",
+      "- Fetch live data inside the generated component with `useQuery(() => tools.<namespace>.<tool>(args))`. Do not call tools before generating the UI and paste returned data into JSX.",
+      "- For user-triggered writes or actions, use `useMutation((input) => tools.<namespace>.<tool>(input))` and call `mutate(input)` from event handlers.",
+      "- Only hardcode small display constants like labels, colors, tab names, and chart configuration. Never embed tool response rows, API results, summaries, or dashboard data as literals in the component.",
+      "- Always render loading and error states from `useQuery` / `useMutation`; do not replace them with hardcoded fallback data.",
+    ].join("\n");
+
+  const namespaces = availableNamespacesSection(executeDescription);
+  return [
+    "Render an interactive React UI component in an MCP app iframe.",
+    "",
+    "## Workflow",
+    "",
+    "1. Write a component named `App` in the `code` parameter.",
+    "2. Fetch all live data inside `App` with `useQuery(() => tools.<namespace>.<tool>(args))`.",
+    "3. Use `useMutation((input) => tools.<namespace>.<tool>(input))` for user-triggered writes or actions.",
+    "4. Return only the component code.",
+    "",
+    "## Rules",
+    "",
+    "- Use this tool instead of `execute` whenever the output should be an interactive UI.",
+    "- Do not call API tools first and paste returned data into JSX.",
+    "- Do not embed tool response rows, API results, summaries, dashboard data, or copied query output as literals in the component.",
+    "- Keep data live by routing every API read/write through the provided `tools` proxy from `useQuery`, `useMutation`, or `run(code)`.",
+    "",
+    "## Generative UI",
+    "",
+    uiBody,
+    ...(namespaces ? ["", namespaces] : []),
+  ].join("\n");
+};
 
 let shellHtmlCache: string | undefined;
 
@@ -358,6 +421,8 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     const description =
       config.description ??
       (yield* engine.getDescription.pipe(Effect.withSpan("mcp.host.get_description")));
+    const executeDescription = stripGenerativeUiSection(description);
+    const renderUiDescription = buildRenderUiDescription(description);
 
     // Captured at construction time. SDK callbacks fire later (often
     // deferred past the outer Effect's await), so we use the runtime to
@@ -517,27 +582,43 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     // --- tools ---
 
     const executeTool = yield* Effect.sync(() =>
-      registerAppTool(
-        server,
+      server.registerTool(
         "execute",
         {
-          description,
+          description: executeDescription,
           inputSchema: { code: z.string().trim().min(1) },
-          _meta: {
-            ui: { resourceUri: SHELL_RESOURCE_URI },
-          },
         },
-        ({ code }) =>
-          isReactCode(code)
-            ? Promise.resolve({
-                content: [{ type: "text" as const, text: "Rendered interactive UI component." }],
-                structuredContent: { code },
-              } satisfies McpToolResult)
-            : runToolEffect(executeCode(code)),
+        ({ code }) => runToolEffect(executeCode(code)),
       ),
     ).pipe(
       Effect.withSpan("mcp.host.register_tool", {
         attributes: { "mcp.tool.name": "execute" },
+      }),
+    );
+
+    const renderUiTool = yield* Effect.sync(() =>
+      registerAppTool(
+        server,
+        "render-ui",
+        {
+          description: renderUiDescription,
+          inputSchema: { code: z.string().trim().min(1) },
+          _meta: {
+            ui: {
+              resourceUri: SHELL_RESOURCE_URI,
+              visibility: ["model"],
+            },
+          },
+        },
+        ({ code }) =>
+          Promise.resolve({
+            content: [{ type: "text" as const, text: "Rendered interactive UI component." }],
+            structuredContent: { code },
+          } satisfies McpToolResult),
+      ),
+    ).pipe(
+      Effect.withSpan("mcp.host.register_tool", {
+        attributes: { "mcp.tool.name": "render-ui" },
       }),
     );
 
@@ -656,11 +737,13 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         | McpAppsClientCapabilities
         | undefined;
       const uiCap = getUiCapability(capabilities);
-      const executeActionEnabled = Boolean(uiCap?.mimeTypes?.includes(RESOURCE_MIME_TYPE));
-      if (executeActionEnabled) {
+      const appsEnabled = Boolean(uiCap?.mimeTypes?.includes(RESOURCE_MIME_TYPE));
+      if (appsEnabled) {
+        renderUiTool.enable();
         executeActionTool.enable();
         executeActionResumeTool.enable();
       } else {
+        renderUiTool.disable();
         executeActionTool.disable();
         executeActionResumeTool.disable();
       }
@@ -669,7 +752,8 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         JSON.stringify({
           ...capabilitySnapshot(server),
           appsSupport: uiCap ?? null,
-          executeActionEnabled,
+          renderUiEnabled: appsEnabled,
+          executeActionEnabled: appsEnabled,
           resumeEnabled: !supportsManagedElicitation(server),
         }),
       );
@@ -678,7 +762,8 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         elicitationSupport: getElicitationSupport(server),
         managedElicitation: supportsManagedElicitation(server),
         appsSupport: uiCap ?? null,
-        executeActionEnabled,
+        renderUiEnabled: appsEnabled,
+        executeActionEnabled: appsEnabled,
         resumeEnabled: !supportsManagedElicitation(server),
       });
     };

@@ -127,10 +127,10 @@ describe("MCP host server — client with elicitation", () => {
     });
   });
 
-  it("execute tool routes React code to the MCP app shell", async () => {
+  it("render-ui tool routes React code to the MCP app shell", async () => {
     await withClient(makeStubEngine({}), APPS_ELICITATION_CAPS, async (client) => {
       const result = await client.callTool({
-        name: "execute",
+        name: "render-ui",
         arguments: { code: 'function App() { return <Card className="p-4" />; }' },
       });
       expect(result.content).toEqual([
@@ -139,6 +139,40 @@ describe("MCP host server — client with elicitation", () => {
       expect(result.structuredContent).toEqual({
         code: 'function App() { return <Card className="p-4" />; }',
       });
+    });
+  });
+
+  it("splits execution and UI rendering into separate model-facing tool descriptions", async () => {
+    const description = [
+      "Execute TypeScript in a sandboxed runtime.",
+      "",
+      "## Rules",
+      "",
+      "- Call tools with `tools.<namespace>.<tool>(args)`.",
+      "",
+      "## Generative UI",
+      "",
+      "When it would be helpful to show an interactive UI, write a React component named `App` with JSX in the `code` parameter.",
+      "- Fetch live data inside the generated component with `useQuery(() => tools.<namespace>.<tool>(args))`.",
+      "- For user-triggered writes or actions, use `useMutation((input) => tools.<namespace>.<tool>(input))`.",
+      "",
+      "## Available namespaces",
+      "",
+      "- `axiom_mcp`",
+    ].join("\n");
+
+    await withClient(makeStubEngine({ description }), APPS_ELICITATION_CAPS, async (client) => {
+      const { tools } = await client.listTools();
+      const execute = tools.find((tool) => tool.name === "execute");
+      const renderUi = tools.find((tool) => tool.name === "render-ui");
+
+      expect(execute?.description).toContain("Execute TypeScript");
+      expect(execute?.description).not.toContain("## Generative UI");
+      expect(execute?.description).toContain("## Available namespaces");
+      expect(renderUi?.description).toContain("Render an interactive React UI component");
+      expect(renderUi?.description).toContain("useQuery(() => tools.<namespace>.<tool>(args))");
+      expect(renderUi?.description).toContain("Do not call API tools first");
+      expect(renderUi?.description).toContain("- `axiom_mcp`");
     });
   });
 
@@ -475,6 +509,8 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
       const names = tools.map((t) => t.name);
       expect(names).toContain("execute");
       expect(names).toContain("resume");
+      expect(names).not.toContain("render-ui");
+      expect(names).not.toContain("execute-action");
     });
   });
 
