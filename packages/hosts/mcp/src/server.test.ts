@@ -247,6 +247,8 @@ describe("MCP host server — client with elicitation", () => {
         expect(renderUi?.description).toContain(
           "useQuery(tools.<namespace>.<tool>.queryOptions(args))",
         );
+        expect(renderUi?.description).toContain("Use discovered result shapes exactly");
+        expect(renderUi?.description).toContain("For optimistic UI, use `onMutate`");
         expect(renderUi?.description).toContain("Do not call API tools first");
         expect(renderUi?.description).toContain("server rejects obvious hardcoded live-data");
         expect(renderUi?.description).toContain("- `axiom_mcp`");
