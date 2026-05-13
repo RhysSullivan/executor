@@ -142,6 +142,25 @@ describe("MCP host server — client with elicitation", () => {
     });
   });
 
+  it("serves the app shell resource with restrictive CSP metadata", async () => {
+    await withClient(makeStubEngine({}), APPS_ELICITATION_CAPS, async (client) => {
+      const result = await client.readResource({ uri: "ui://executor/shell.html" });
+      expect(result.contents).toHaveLength(1);
+      expect(result.contents[0]).toMatchObject({
+        uri: "ui://executor/shell.html",
+        mimeType: RESOURCE_MIME_TYPE,
+        _meta: {
+          ui: {
+            csp: {
+              connectDomains: [],
+              resourceDomains: [],
+            },
+          },
+        },
+      });
+    });
+  });
+
   it("render-ui rejects obvious hardcoded live-data snapshots", async () => {
     const code = [
       "const rows = [",

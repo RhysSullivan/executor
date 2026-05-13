@@ -13,12 +13,34 @@ import {
   type TrustedInteraction,
   type TrustedInteractionResponse,
 } from "./proxy";
-import { compileJsx, evaluateComponent } from "./component-runtime";
 import * as Components from "./components";
+import innerRendererScript from "virtual:executor-inner-renderer";
 
 type PendingInteraction = TrustedInteraction & {
   resolve: (response: TrustedInteractionResponse) => void;
 };
+
+type RendererState = {
+  token: string;
+  code: string;
+  srcDoc: string;
+  config: Record<string, unknown>;
+  height: number;
+};
+
+type RendererRequest =
+  | {
+      type: "executor.toolCall";
+      requestId: number;
+      token: string;
+      path: unknown;
+      args: unknown;
+    }
+  | { type: "executor.run"; requestId: number; token: string; code: unknown }
+  | { type: "executor.renderer.ready"; token: string }
+  | { type: "executor.renderer.config"; token: string; config: unknown }
+  | { type: "executor.renderer.size"; token: string; height: unknown }
+  | { type: "executor.renderer.error"; token: string; message: unknown };
 
 // ---------------------------------------------------------------------------
 // Theme application from MCP Apps host context
@@ -30,19 +52,90 @@ function applyTheme(ctx: McpUiHostContext) {
   }
 }
 
+const createRendererToken = (): string => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `renderer_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+};
+
+const escapeInlineHtml = (value: string): string =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const escapeStyleContent = (value: string): string => value.replace(/<\/style/gi, "<\\/style");
+
+const escapeScriptContent = (value: string): string => value.replace(/<\/script/gi, "<\\/script");
+
+const collectShellCss = (): string =>
+  Array.from(document.styleSheets)
+    .map((sheet) => {
+      try {
+        return Array.from(sheet.cssRules)
+          .map((rule) => rule.cssText)
+          .join("\n");
+      } catch {
+        return "";
+      }
+    })
+    .filter((css) => css.length > 0)
+    .join("\n");
+
+const buildRendererSrcDoc = (token: string): string => {
+  const css = collectShellCss();
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="executor-render-token" content="${escapeInlineHtml(token)}">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'">
+    <style>${escapeStyleContent(css)}</style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>${escapeScriptContent(innerRendererScript)}</script>
+  </body>
+</html>`;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const TOOL_PATH_SEGMENT = /^[A-Za-z_$][\w$]*$/;
+
+const toolPathToCode = (path: unknown, args: unknown): string => {
+  if (!Array.isArray(path) || path.length === 0) {
+    throw new Error("Invalid tool path.");
+  }
+  const parts = path.map((part) => {
+    if (typeof part !== "string" || !TOOL_PATH_SEGMENT.test(part)) {
+      throw new Error("Invalid tool path.");
+    }
+    return part;
+  });
+  const argList = Array.isArray(args) ? args : [];
+  const serializedArgs = JSON.stringify(argList[0] ?? {});
+  return `return await tools.${parts.join(".")}(${serializedArgs})`;
+};
+
 // ---------------------------------------------------------------------------
 // Shell App — connects to MCP host, receives code, renders components
 // ---------------------------------------------------------------------------
 
 function ShellApp() {
   const [component, setComponent] = useState<React.ComponentType | null>(null);
-  const [componentConfig, setComponentConfig] = useState<Record<string, unknown>>({});
+  const [renderer, setRenderer] = useState<RendererState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hostContext, setHostContext] = useState<McpUiHostContext | undefined>();
   const [pendingInteraction, setPendingInteraction] = useState<PendingInteraction | null>(null);
   const toolsRef = useRef<Record<string, unknown>>({});
   const runRef = useRef<(code: string) => Promise<unknown>>(() => Promise.resolve(null));
   const pendingInteractionRef = useRef<PendingInteraction | null>(null);
+  const rendererFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const rendererRef = useRef<RendererState | null>(null);
+
+  useEffect(() => {
+    rendererRef.current = renderer;
+  }, [renderer]);
 
   const requestTrustedInteraction = useCallback(
     (interaction: TrustedInteraction): Promise<TrustedInteractionResponse> =>
@@ -66,6 +159,126 @@ function ShellApp() {
     pending?.resolve(response);
   }, []);
 
+  const postToRenderer = useCallback((message: Record<string, unknown>) => {
+    const current = rendererRef.current;
+    const target = rendererFrameRef.current?.contentWindow;
+    if (!current || !target) return;
+    target.postMessage({ ...message, token: current.token }, "*");
+  }, []);
+
+  useEffect(() => {
+    const handleRendererMessage = (event: MessageEvent<RendererRequest>) => {
+      const current = rendererRef.current;
+      if (!current || event.source !== rendererFrameRef.current?.contentWindow) return;
+      const data = event.data;
+      if (!isRecord(data) || data.token !== current.token) return;
+      const source = event.source;
+      if (!source || typeof source.postMessage !== "function") return;
+      const respond = (requestId: number, ok: boolean, value?: unknown, error?: string) => {
+        source.postMessage(
+          {
+            type: "executor.response",
+            requestId,
+            token: current.token,
+            ok,
+            value,
+            error,
+          },
+          "*",
+        );
+      };
+
+      if (data.type === "executor.renderer.ready") {
+        postToRenderer({
+          type: "executor.render",
+          code: current.code,
+          theme: hostContext?.theme,
+        });
+        return;
+      }
+
+      if (data.type === "executor.renderer.config") {
+        setRenderer((prev) =>
+          prev && prev.token === current.token
+            ? { ...prev, config: isRecord(data.config) ? data.config : {} }
+            : prev,
+        );
+        return;
+      }
+
+      if (data.type === "executor.renderer.size") {
+        const height = typeof data.height === "number" ? Math.ceil(data.height) : current.height;
+        setRenderer((prev) =>
+          prev && prev.token === current.token
+            ? { ...prev, height: Math.max(120, Math.min(4000, height)) }
+            : prev,
+        );
+        return;
+      }
+
+      if (data.type === "executor.renderer.error") {
+        if (typeof data.message === "string") {
+          console.error("[executor-shell] Renderer error:", data.message);
+        }
+        return;
+      }
+
+      if (data.type === "executor.run") {
+        if (typeof data.code !== "string") {
+          respond(data.requestId, false, undefined, "Invalid run payload.");
+          return;
+        }
+        runRef
+          .current(data.code)
+          .then((value) => respond(data.requestId, true, value))
+          .catch((err: unknown) =>
+            respond(
+              data.requestId,
+              false,
+              undefined,
+              err instanceof Error ? err.message : String(err),
+            ),
+          );
+        return;
+      }
+
+      if (data.type === "executor.toolCall") {
+        let code: string;
+        try {
+          code = toolPathToCode(data.path, data.args);
+        } catch (err) {
+          respond(
+            data.requestId,
+            false,
+            undefined,
+            err instanceof Error ? err.message : String(err),
+          );
+          return;
+        }
+        runRef
+          .current(code)
+          .then((value) => respond(data.requestId, true, value))
+          .catch((err: unknown) =>
+            respond(
+              data.requestId,
+              false,
+              undefined,
+              err instanceof Error ? err.message : String(err),
+            ),
+          );
+      }
+    };
+
+    window.addEventListener("message", handleRendererMessage);
+    return () => window.removeEventListener("message", handleRendererMessage);
+  }, [hostContext?.theme, postToRenderer]);
+
+  useEffect(() => {
+    if (renderer) {
+      postToRenderer({ type: "executor.theme", theme: hostContext?.theme });
+    }
+  }, [hostContext?.theme, postToRenderer, renderer]);
+
   const { app, error: connectionError } = useApp({
     appInfo: { name: "Executor Shell", version: "1.0.0" },
     capabilities: {},
@@ -74,25 +287,27 @@ function ShellApp() {
       toolsRef.current = createToolsProxy(app, requestTrustedInteraction);
       runRef.current = createRunFn(app, requestTrustedInteraction);
 
-      /** Compile and render a JSX code string as a React component */
+      /** Render a JSX code string in the sandboxed inner iframe. */
       const renderCode = (code: string) => {
         try {
-          const compiled = compileJsx(code);
-          const evalResult = evaluateComponent(compiled, toolsRef.current, runRef.current);
-
-          if ("error" in evalResult) {
-            setError(evalResult.error);
-            setComponent(null);
-            return;
-          }
-
-          setComponent(() => evalResult.component);
-          setComponentConfig(evalResult.config);
+          const token = createRendererToken();
+          const nextRenderer = {
+            token,
+            code,
+            srcDoc: buildRendererSrcDoc(token),
+            config: {},
+            height: 240,
+          };
+          rendererRef.current = nextRenderer;
+          setRenderer(nextRenderer);
+          setComponent(null);
           setError(null);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           setError(`Compilation error: ${msg}`);
           setComponent(null);
+          rendererRef.current = null;
+          setRenderer(null);
         }
       };
 
@@ -141,6 +356,8 @@ function ShellApp() {
           );
         };
         setComponent(() => DataView);
+        rendererRef.current = null;
+        setRenderer(null);
         setError(null);
       };
 
@@ -200,7 +417,7 @@ function ShellApp() {
     );
   }
 
-  if (!component) {
+  if (!component && !renderer) {
     return (
       <div className="flex items-center justify-center h-full p-4">
         <div className="text-muted-foreground text-sm">Waiting for UI...</div>
@@ -209,7 +426,9 @@ function ShellApp() {
   }
 
   const Component = component;
-  const maxHeight = typeof componentConfig.maxHeight === "number" ? componentConfig.maxHeight : 800;
+  const config = renderer?.config ?? {};
+  const maxHeight = typeof config.maxHeight === "number" ? config.maxHeight : 800;
+  const rendererHeight = renderer ? Math.min(renderer.height, maxHeight) : undefined;
 
   return (
     <Components.TooltipProvider>
@@ -223,9 +442,21 @@ function ShellApp() {
           paddingLeft: hostContext?.safeAreaInsets?.left,
         }}
       >
-        <ErrorBoundary>
-          <Component />
-        </ErrorBoundary>
+        {renderer ? (
+          <iframe
+            key={renderer.token}
+            ref={rendererFrameRef}
+            sandbox="allow-scripts"
+            srcDoc={renderer.srcDoc}
+            title="Generated UI"
+            className="block w-full border-0 bg-background"
+            style={{ height: rendererHeight }}
+          />
+        ) : Component ? (
+          <ErrorBoundary>
+            <Component />
+          </ErrorBoundary>
+        ) : null}
         {pendingInteraction && (
           <TrustedInteractionModal
             key={pendingInteraction.executionId}

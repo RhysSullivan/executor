@@ -767,7 +767,21 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         async () => {
           const html = await loadShellHtml();
           return {
-            contents: [{ uri: SHELL_RESOURCE_URI, mimeType: RESOURCE_MIME_TYPE, text: html }],
+            contents: [
+              {
+                uri: SHELL_RESOURCE_URI,
+                mimeType: RESOURCE_MIME_TYPE,
+                text: html,
+                _meta: {
+                  ui: {
+                    csp: {
+                      connectDomains: [],
+                      resourceDomains: [],
+                    },
+                  },
+                },
+              },
+            ],
           };
         },
       ),

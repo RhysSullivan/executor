@@ -34,4 +34,20 @@ describe("generated UI component runtime", () => {
     if ("error" in result) return;
     expect(typeof result.component).toBe("function");
   });
+
+  it("shadows direct fetch attempts with a clear error", () => {
+    const compiled = compileJsx(`
+      fetch("https://example.com");
+      function App() {
+        return <Card />;
+      }
+    `);
+
+    const result = evaluateComponent(compiled, {}, () => Promise.resolve(null));
+
+    expect(result).toEqual({
+      error:
+        "Evaluation error: fetch is disabled in generated UI. Use tools.* via useQuery/useMutation.",
+    });
+  });
 });

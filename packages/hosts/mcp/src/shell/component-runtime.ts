@@ -29,6 +29,11 @@ const createGeneratedCodeRequire =
     );
   };
 
+const blockedNetworkPrimitive = (name: string) =>
+  function blockedNetworkPrimitive() {
+    throw new Error(`${name} is disabled in generated UI. Use tools.* via useQuery/useMutation.`);
+  };
+
 /** Compile JSX source to plain JS using Sucrase. */
 export function compileJsx(code: string): string {
   const result = transform(code, {
@@ -67,6 +72,15 @@ export function evaluateComponent(
     module,
     exports,
     require: createGeneratedCodeRequire(),
+
+    // Defense in depth for direct network attempts. The inner iframe CSP is
+    // the browser boundary; these shadows produce clearer runtime errors.
+    fetch: blockedNetworkPrimitive("fetch"),
+    XMLHttpRequest: blockedNetworkPrimitive("XMLHttpRequest"),
+    WebSocket: blockedNetworkPrimitive("WebSocket"),
+    EventSource: blockedNetworkPrimitive("EventSource"),
+    Worker: blockedNetworkPrimitive("Worker"),
+    SharedWorker: blockedNetworkPrimitive("SharedWorker"),
 
     // Data fetching
     useQuery,
