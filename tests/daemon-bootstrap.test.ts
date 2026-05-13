@@ -3,9 +3,12 @@ import { createServer } from "node:net";
 import * as Effect from "effect/Effect";
 
 import {
+  baseUrlAuthorizationHeader,
+  baseUrlWithoutCredentials,
   buildDaemonSpawnSpec,
   canAutoStartLocalDaemonForHost,
   chooseDaemonPort,
+  daemonBaseUrlFromRequest,
   isDevCliEntrypoint,
   parseDaemonBaseUrl,
 } from "../apps/cli/src/daemon";
@@ -19,6 +22,27 @@ describe("daemon bootstrap helpers", () => {
   it("parses explicit port from base url", () => {
     const parsed = parseDaemonBaseUrl("http://127.0.0.1:9001", 4788);
     expect(parsed).toEqual({ hostname: "127.0.0.1", port: 9001 });
+  });
+
+  it("derives Basic auth from base url credentials", () => {
+    const header = baseUrlAuthorizationHeader("http://executor:p%40ss@127.0.0.1:4789");
+    expect(header).toBe("Basic ZXhlY3V0b3I6cEBzcw==");
+  });
+
+  it("strips credentials when displaying base urls", () => {
+    expect(baseUrlWithoutCredentials("http://executor:secret@127.0.0.1:4789/path?q=1")).toBe(
+      "http://127.0.0.1:4789",
+    );
+  });
+
+  it("preserves credentials when retargeting a daemon base url", () => {
+    expect(
+      daemonBaseUrlFromRequest({
+        requestedBaseUrl: "http://executor:secret@127.0.0.1:4789/path?q=1",
+        hostname: "localhost",
+        port: 5000,
+      }),
+    ).toBe("http://executor:secret@localhost:5000");
   });
 
   it("rejects non-http schemes for auto-start", () => {

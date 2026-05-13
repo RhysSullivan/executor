@@ -13,9 +13,9 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { app } from "electron";
+import { discoverExistingLocalServer, defaultDesktopScopeDir } from "./server-discovery";
 import { getServerSettings } from "./settings";
 import { SERVER_SETTINGS_USERNAME, type DesktopServerSettings } from "../shared/server-settings";
 
@@ -25,7 +25,8 @@ export interface SidecarConnection {
   readonly port: number;
   readonly username: string;
   readonly authPassword: string | null;
-  readonly child: ChildProcess;
+  readonly child: ChildProcess | null;
+  readonly managed: boolean;
 }
 
 export class SidecarPortInUseError extends Error {
@@ -74,15 +75,28 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
     );
   }
 
-  // executor.jsonc and data.db go to ~/.executor — the same path the CLI's
-  // `executor web` uses. Desktop and CLI share state on the same machine so
-  // sources/secrets/policies set up in one show up in the other, and
-  // user-facing commands like `executor mcp --scope ~/.executor` stay
-  // copy-paste-friendly. Electron's userData (set in main/index.ts) is
+  // executor.jsonc and data.db go to ~/.executor-global — the same default
+  // global scope used by agent/CLI integrations. Desktop and CLI share state
+  // on the same machine so sources/secrets/policies set up in one show up in
+  // the other, and user-facing commands like `executor mcp --scope
+  // ~/.executor-global` stay copy-paste-friendly. Electron's userData (set in main/index.ts) is
   // still used for electron-store, electron-log, and window-state — those
   // stay app-scoped to avoid colliding with anything else under HOME.
-  const scopeDir = join(homedir(), ".executor");
+  const scopeDir = defaultDesktopScopeDir();
   mkdirSync(scopeDir, { recursive: true });
+
+  const existing = settings.requireAuth ? null : await discoverExistingLocalServer({ scopeDir });
+  if (existing) {
+    return {
+      baseUrl: existing.baseUrl,
+      hostname: new URL(existing.baseUrl).hostname,
+      port: existing.port,
+      username: SERVER_SETTINGS_USERNAME,
+      authPassword: null,
+      child: null,
+      managed: false,
+    };
+  }
 
   const effectivePassword = settings.requireAuth ? settings.password : null;
 
@@ -130,6 +144,7 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
           username: SERVER_SETTINGS_USERNAME,
           authPassword: effectivePassword,
           child,
+          managed: true,
         });
       }
     };
@@ -159,7 +174,8 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
   });
 }
 
-export async function stopSidecar(child: ChildProcess): Promise<void> {
+export async function stopSidecar(child: ChildProcess | null): Promise<void> {
+  if (!child) return;
   if (child.exitCode !== null || child.killed) return;
   return new Promise<void>((resolveStop) => {
     const timeout = setTimeout(() => {
