@@ -26,6 +26,8 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/runtime-quickjs": "workspace:*",
     "@tailwindcss/browser": "^4.2.2",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "catalog:",
@@ -37,6 +39,7 @@
     "clsx": "^2.1.1",
     "esbuild": "^0.27.7",
     "lucide-react": "^1.8.0",
+    "playwright-core": "^1.59.1",
     "radix-ui": "^1.4.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
