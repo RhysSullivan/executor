@@ -398,7 +398,7 @@ function ShellApp() {
   if (!app) {
     return (
       <div className="flex items-center justify-center h-full p-4">
-        <div className="text-muted-foreground text-sm">Connecting...</div>
+        <ShellLoadingState label="Connecting" />
       </div>
     );
   }
@@ -419,8 +419,11 @@ function ShellApp() {
 
   if (!component && !renderer) {
     return (
-      <div className="flex items-center justify-center h-full p-4">
-        <div className="text-muted-foreground text-sm">Waiting for UI...</div>
+      <div
+        data-testid="shell-loading-state"
+        className="flex min-h-[220px] items-center justify-center p-4"
+      >
+        <ShellLoadingState label="Preparing interactive UI" />
       </div>
     );
   }
@@ -467,6 +470,31 @@ function ShellApp() {
         )}
       </div>
     </Components.TooltipProvider>
+  );
+}
+
+function ShellLoadingState({ label }: { label: string }) {
+  return (
+    <div className="w-full max-w-md rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+          <Components.Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">{label}</div>
+          <div className="mt-1 flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
+            <span className="h-1.5 w-10 animate-pulse rounded-full bg-muted" />
+            <span className="h-1.5 w-16 animate-pulse rounded-full bg-muted" />
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 space-y-2">
+        <Components.Skeleton className="h-2.5 w-11/12" />
+        <Components.Skeleton className="h-2.5 w-7/12" />
+        <Components.Skeleton className="h-16 w-full rounded-md" />
+      </div>
+    </div>
   );
 }
 

@@ -560,7 +560,7 @@ const openHarness = async (browser: Browser, hostUrl: string) => {
   await page.goto(hostUrl, { waitUntil: "domcontentloaded" });
   const shellFrame = await waitForShellFrame(page);
   await waitForHostInitialized(page);
-  await shellFrame.locator("text=Waiting for UI").waitFor({ timeout: 10_000 });
+  await shellFrame.locator('[data-testid="shell-loading-state"]').waitFor({ timeout: 10_000 });
   return { page, shellFrame };
 };
 
