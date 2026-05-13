@@ -165,10 +165,12 @@ describe("MCP host server — client with elicitation", () => {
       makeStubEngine({}),
       APPS_ELICITATION_CAPS,
       async (client) => {
-        const result = await client.readResource({ uri: "ui://executor/shell.html" });
+        const result = await client.readResource({
+          uri: "ui://executor/shell-tanstack-query.html",
+        });
         expect(result.contents).toHaveLength(1);
         expect(result.contents[0]).toMatchObject({
-          uri: "ui://executor/shell.html",
+          uri: "ui://executor/shell-tanstack-query.html",
           mimeType: RESOURCE_MIME_TYPE,
           _meta: {
             ui: {

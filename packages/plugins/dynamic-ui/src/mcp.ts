@@ -24,7 +24,7 @@ type McpAppsClientCapabilities = ClientCapabilities & {
   readonly extensions?: Record<string, unknown>;
 };
 
-export const DYNAMIC_UI_SHELL_RESOURCE_URI = "ui://executor/shell.html";
+export const DYNAMIC_UI_SHELL_RESOURCE_URI = "ui://executor/shell-tanstack-query.html";
 
 const SHADCN_COMPONENTS =
   "Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, Button, Input, Textarea, Label, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, Checkbox, Switch, Slider, Toggle, Tabs, TabsList, TabsTrigger, TabsContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Avatar, AvatarFallback, Alert, AlertTitle, AlertDescription, Dialog, Sheet, Popover, Tooltip, Separator, ScrollArea, Skeleton, Progress, Accordion, AccordionItem, AccordionTrigger, AccordionContent, DropdownMenu + sub-components";
