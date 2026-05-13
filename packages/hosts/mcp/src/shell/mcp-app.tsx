@@ -1,22 +1,11 @@
 import "./globals.css";
 import "@tailwindcss/browser";
 
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  useContext,
-  Fragment,
-  createContext,
-  type ReactNode,
-} from "react";
+import React, { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
 import type { App, McpUiHostContext } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { transform } from "sucrase";
 
 import {
   createToolsProxy,
@@ -24,12 +13,8 @@ import {
   type TrustedInteraction,
   type TrustedInteractionResponse,
 } from "./proxy";
-import { useQuery, useMutation } from "./hooks";
+import { compileJsx, evaluateComponent } from "./component-runtime";
 import * as Components from "./components";
-
-type EvaluatedComponent =
-  | { component: React.ComponentType; config: Record<string, unknown> }
-  | { error: string };
 
 type PendingInteraction = TrustedInteraction & {
   resolve: (response: TrustedInteractionResponse) => void;
@@ -42,89 +27,6 @@ type PendingInteraction = TrustedInteraction & {
 function applyTheme(ctx: McpUiHostContext) {
   if (ctx.theme) {
     document.documentElement.classList.toggle("dark", ctx.theme === "dark");
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Component compilation + scoped evaluation
-// ---------------------------------------------------------------------------
-
-/** Compile JSX source to plain JS using Sucrase */
-function compileJsx(code: string): string {
-  const result = transform(code, {
-    transforms: ["jsx", "typescript"],
-    jsxRuntime: "classic",
-    production: true,
-  });
-  return result.code;
-}
-
-/**
- * Evaluate compiled JS in a scoped context providing React, hooks,
- * components, tools proxy, useQuery/useMutation, and Lucide icons.
- */
-function evaluateComponent(
-  compiled: string,
-  tools: Record<string, unknown>,
-  run: (code: string) => Promise<unknown>,
-): EvaluatedComponent {
-  // Build the scope object that the model's code can access
-  const scope: Record<string, unknown> = {
-    // React core
-    React,
-    useState,
-    useEffect,
-    useRef,
-    useCallback,
-    useMemo,
-    useContext,
-    Fragment,
-    createContext,
-
-    // Data fetching
-    useQuery,
-    useMutation,
-
-    // Tools proxy + escape hatch
-    tools,
-    run,
-
-    // All UI components, icons, chart primitives
-    ...Components,
-  };
-
-  const scopeKeys = Object.keys(scope);
-  const scopeValues = scopeKeys.map((k) => scope[k]);
-
-  // Execute the compiled code and look for a component + optional config.
-  // We check well-known names (App, Component, Main) via typeof,
-  // which safely returns "undefined" for undeclared variables.
-  const wrappedCode = `
-    "use strict";
-    ${compiled}
-    var __comp = null;
-    if (typeof App === "function") __comp = App;
-    else if (typeof Component === "function") __comp = Component;
-    else if (typeof Main === "function") __comp = Main;
-    var __cfg = typeof config === "object" && config !== null ? config : {};
-    return { component: __comp, config: __cfg };
-  `;
-
-  try {
-    // eslint-disable-next-line no-new-func
-    const factory = new Function(...scopeKeys, wrappedCode);
-    const result = factory(...scopeValues) as {
-      component: React.ComponentType | null;
-      config: Record<string, unknown>;
-    };
-    if (!result.component) {
-      return { error: "No component found. Export a function named App." };
-    }
-    return { component: result.component, config: result.config };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[executor-shell] Failed to evaluate component:", err);
-    return { error: `Evaluation error: ${msg}` };
   }
 }
 
