@@ -254,49 +254,6 @@ describe("MCP host server — client with elicitation", () => {
     );
   });
 
-  it("render-ui rejects stale toggle mutation state patterns", async () => {
-    await withClient(
-      makeStubEngine({}),
-      APPS_ELICITATION_CAPS,
-      async (client) => {
-        const invertedToggle = await client.callTool({
-          name: "render-ui",
-          arguments: {
-            code: [
-              "function App() {",
-              "  const autoRenew = false;",
-              "  const mutation = useMutation(tools.vercel_api.domainsRegistrar.updateDomainAutoRenew.mutationOptions({}));",
-              "  return <Switch onCheckedChange={() => mutation.mutate({ body: { autoRenew: !autoRenew } })} />;",
-              "}",
-            ].join("\n"),
-          },
-        });
-        expect(invertedToggle.isError).toBe(true);
-        expect(textOf(invertedToggle)).toContain(
-          'Mutation payloads must not invert query-backed state like "!autoRenew"',
-        );
-
-        const staleSuccessLabel = await client.callTool({
-          name: "render-ui",
-          arguments: {
-            code: [
-              "function App() {",
-              "  const autoRenew = false;",
-              "  const mutation = { isSuccess: true };",
-              '  return <div>{mutation.isSuccess && <span>Auto-renew {autoRenew ? "enabled" : "disabled"} successfully</span>}</div>;',
-              "}",
-            ].join("\n"),
-          },
-        });
-        expect(staleSuccessLabel.isError).toBe(true);
-        expect(textOf(staleSuccessLabel)).toContain(
-          'Mutation success text must not read "autoRenew"',
-        );
-      },
-      { plugins: [DYNAMIC_UI_PLUGIN] },
-    );
-  });
-
   it("splits execution and UI rendering into separate model-facing tool descriptions", async () => {
     const description = [
       "Execute TypeScript in a sandboxed runtime.",
@@ -337,12 +294,6 @@ describe("MCP host server — client with elicitation", () => {
         expect(renderUi?.description).toContain("For optimistic UI, use `onMutate`");
         expect(renderUi?.description).toContain("Do not call API tools first");
         expect(renderUi?.description).toContain("Do not redeclare or destructure provided globals");
-        expect(renderUi?.description).toContain(
-          "server rejects toggle mutations that invert query-backed booleans",
-        );
-        expect(renderUi?.description).toContain(
-          "server rejects mutation success labels that read enabled/disabled wording",
-        );
         expect(renderUi?.description).toContain("server rejects obvious hardcoded live-data");
         expect(renderUi?.description).toContain("server rejects redeclarations");
         expect(renderUi?.description).toContain("- `axiom_mcp`");

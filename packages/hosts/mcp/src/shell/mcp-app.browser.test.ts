@@ -169,10 +169,11 @@ function App() {
   const domainQuery = useQuery(tools.inventory.domains.getDomain.queryOptions(domainArgs));
   const updateAutoRenew = useMutation(
     tools.inventory.domains.updateDomainAutoRenew.mutationOptions({
-      onSuccess: () =>
+      onSuccess: () => {
         queryClient.invalidateQueries({
           queryKey: tools.inventory.domains.getDomain.queryKey(domainArgs),
-        }),
+        });
+      },
     })
   );
 
@@ -183,6 +184,12 @@ function App() {
       <CardContent>
         <div id="auto-renew-state">
           {domainQuery.isLoading ? "loading" : String(autoRenew)}
+        </div>
+        <div id="auto-renew-pending">{String(updateAutoRenew.isPending)}</div>
+        <div id="auto-renew-success">
+          {updateAutoRenew.isSuccess
+            ? "Auto-renew " + (autoRenew ? "enabled" : "disabled") + " successfully"
+            : ""}
         </div>
         <Button
           id="auto-renew-toggle"
@@ -337,6 +344,7 @@ const startOpenApiServer = (): Promise<OpenApiServer> =>
   new Promise((resolveServer, rejectServer) => {
     let baseUrl = "";
     let domainAutoRenew = false;
+    let nextDomainGetDelayMs = 0;
     const postRequests: string[] = [];
 
     const server: Server = createServer(async (request, response) => {
@@ -501,6 +509,11 @@ const startOpenApiServer = (): Promise<OpenApiServer> =>
       if (request.method === "GET" && request.url?.startsWith("/domains/")) {
         const domain = decodeURIComponent(request.url.slice("/domains/".length));
         if (!domain.includes("/")) {
+          const delayMs = nextDomainGetDelayMs;
+          nextDomainGetDelayMs = 0;
+          if (delayMs > 0) {
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs));
+          }
           response.statusCode = 200;
           response.setHeader("content-type", "application/json");
           response.end(JSON.stringify({ domain, renew: domainAutoRenew }));
@@ -533,6 +546,7 @@ const startOpenApiServer = (): Promise<OpenApiServer> =>
         postRequests.push(body);
         const parsed = JSON.parse(body) as { autoRenew?: unknown };
         domainAutoRenew = parsed.autoRenew === true;
+        nextDomainGetDelayMs = 300;
         const domainPath = request.url.slice(
           "/domains/".length,
           request.url.length - "/auto-renew".length,
@@ -1030,8 +1044,19 @@ describe("MCP app generated UI browser isolation", () => {
       expect(openApiServer.postRequests).toHaveLength(initialPostCount);
 
       await shellFrame.getByRole("button", { name: "Approve" }).click({ timeout: 10_000 });
+      await innerFrame.waitForTimeout(100);
+      expect(await innerFrame.locator("#auto-renew-pending").textContent()).toBe("true");
+      expect(await innerFrame.locator("#auto-renew-success").textContent()).toBe("");
+
       await innerFrame.waitForFunction(
         () => document.querySelector("#auto-renew-state")?.textContent === "true",
+        undefined,
+        { timeout: 10_000 },
+      );
+      await innerFrame.waitForFunction(
+        () =>
+          document.querySelector("#auto-renew-success")?.textContent ===
+          "Auto-renew enabled successfully",
         undefined,
         { timeout: 10_000 },
       );
