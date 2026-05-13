@@ -23,6 +23,7 @@ export type McpPluginRegisterContext<E extends Cause.YieldableError = Cause.Yiel
   readonly engine: ExecutionEngine<E>;
   readonly description: string;
   readonly debugLog: McpDebugLog;
+  readonly loadAppShellHtml: () => Promise<string>;
   readonly runToolEffect: McpRunToolEffect;
   readonly executeCodeFromApp: (code: string) => Effect.Effect<McpToolResult, E>;
   readonly resumeExecution: (
@@ -41,6 +42,7 @@ export type McpPluginClientCapabilitiesContext = {
 
 export type McpPluginContribution<E extends Cause.YieldableError = Cause.YieldableError> = {
   readonly id: string;
+  readonly prepareExecuteDescription?: (description: string) => string;
   readonly register: (ctx: McpPluginRegisterContext<E>) => Effect.Effect<void>;
   readonly onClientCapabilitiesChanged?: (ctx: McpPluginClientCapabilitiesContext) => void;
 };

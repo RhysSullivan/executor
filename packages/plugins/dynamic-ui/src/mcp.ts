@@ -13,7 +13,7 @@ import {
   type McpPluginContribution,
   type McpPluginRegisterContext,
   type McpToolResult,
-} from "./plugin";
+} from "@executor-js/host-mcp";
 
 type ToggleableMcpRegistration = {
   enable: () => void;
@@ -137,38 +137,6 @@ export const validateRenderUiCode = (code: string): string | null => {
   return null;
 };
 
-let shellHtmlCache: string | undefined;
-
-const loadShellHtml = async (): Promise<string> => {
-  if (shellHtmlCache) return shellHtmlCache;
-
-  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: optional prebuilt shell asset is loaded from local filesystem when present
-  try {
-    const fs = await import("node:fs/promises");
-    const path = await import("node:path");
-    const candidates = [
-      path.join(import.meta.dirname, "../dist/mcp-app.html"),
-      path.join(import.meta.dirname, "../../dist/mcp-app.html"),
-    ];
-
-    for (const candidate of candidates) {
-      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: try each possible emitted shell path before falling back
-      try {
-        shellHtmlCache = await fs.readFile(candidate, "utf-8");
-        return shellHtmlCache;
-      } catch {
-        // Try the next candidate path.
-      }
-    }
-  } catch {
-    // Fall through to the development fallback below.
-  }
-
-  shellHtmlCache =
-    "<!doctype html><html><body><p>Shell not built. Run: bun run --cwd packages/hosts/mcp build:shell</p></body></html>";
-  return shellHtmlCache;
-};
-
 const toMcpRenderUiRejectedResult = (reason: string): McpToolResult => ({
   content: [{ type: "text", text: `Render UI rejected: ${reason}` }],
   structuredContent: { status: "error", error: reason },
@@ -182,6 +150,7 @@ export const dynamicUiMcpContribution = (): McpPluginContribution => {
 
   return defineMcpContribution({
     id: "dynamic-ui",
+    prepareExecuteDescription: stripGenerativeUiSection,
     register: (ctx: McpPluginRegisterContext) =>
       Effect.sync(() => {
         renderUiTool = registerAppTool(
@@ -263,7 +232,7 @@ export const dynamicUiMcpContribution = (): McpPluginContribution => {
           DYNAMIC_UI_SHELL_RESOURCE_URI,
           { mimeType: RESOURCE_MIME_TYPE },
           async () => {
-            const html = await loadShellHtml();
+            const html = await ctx.loadAppShellHtml();
             return {
               contents: [
                 {

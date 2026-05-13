@@ -9,10 +9,3 @@ export {
   type McpRunToolEffect,
   type McpToolResult,
 } from "./plugin";
-export {
-  DYNAMIC_UI_SHELL_RESOURCE_URI,
-  buildRenderUiDescription,
-  dynamicUiMcpContribution,
-  stripGenerativeUiSection,
-  validateRenderUiCode,
-} from "./dynamic-ui";

@@ -9,9 +9,9 @@ import type * as Cause from "effect/Cause";
 
 import { FormElicitation, ToolId, UrlElicitation, type AnyPlugin } from "@executor-js/sdk";
 import type { ExecutionEngine, ExecutionResult } from "@executor-js/execution";
+import { dynamicUiPlugin } from "@executor-js/plugin-dynamic-ui";
 
 import { createExecutorMcpServer } from "./server";
-import { dynamicUiMcpContribution } from "./dynamic-ui";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -35,11 +35,7 @@ const makeStubEngine = <E extends Cause.YieldableError = never>(overrides: {
   getDescription: Effect.succeed(overrides.description ?? "test executor"),
 });
 
-const DYNAMIC_UI_PLUGIN: AnyPlugin = {
-  id: "dynamic-ui",
-  storage: () => ({}),
-  mcp: () => dynamicUiMcpContribution(),
-};
+const DYNAMIC_UI_PLUGIN = dynamicUiPlugin();
 
 /** Connect a real MCP Client to our executor MCP server over in-memory transports. */
 const withClient = async <E extends Cause.YieldableError>(

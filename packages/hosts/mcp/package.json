@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@executor-js/plugin-dynamic-ui": "workspace:*",
     "@executor-js/plugin-openapi": "workspace:*",
     "@executor-js/runtime-quickjs": "workspace:*",
     "@tailwindcss/browser": "^4.2.2",

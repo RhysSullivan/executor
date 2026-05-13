@@ -9,15 +9,15 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
-import { createExecutor, makeTestConfig, type AnyPlugin } from "@executor-js/sdk";
+import { createExecutor, makeTestConfig } from "@executor-js/sdk";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { dynamicUiPlugin } from "@executor-js/plugin-dynamic-ui";
 import { chromium, type Browser, type Frame, type Page } from "playwright-core";
 import { createServer as createViteServer } from "vite";
 
 import { createExecutorMcpServer } from "../server";
-import { dynamicUiMcpContribution } from "../dynamic-ui";
 
 type ShellServer = {
   readonly url: string;
@@ -61,12 +61,6 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const chromeExecutablePath =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/usr/bin/google-chrome";
 const testScope = "test-scope";
-
-const dynamicUiPlugin: AnyPlugin = {
-  id: "dynamic-ui",
-  storage: () => ({}),
-  mcp: () => dynamicUiMcpContribution(),
-};
 
 const appsWithoutElicitationCapabilities: AppsClientCapabilities = {
   extensions: { [EXTENSION_ID]: { mimeTypes: [RESOURCE_MIME_TYPE] } },
@@ -430,7 +424,7 @@ const startMcpHarness = async (openApi: OpenApiServer): Promise<McpHarness> => {
     }),
   });
   const mcpServer = await Effect.runPromise(
-    createExecutorMcpServer({ engine, plugins: [dynamicUiPlugin] }),
+    createExecutorMcpServer({ engine, plugins: [dynamicUiPlugin()] }),
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client(

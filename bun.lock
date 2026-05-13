@@ -522,6 +522,7 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
+        "@executor-js/plugin-dynamic-ui": "workspace:*",
         "@executor-js/plugin-openapi": "workspace:*",
         "@executor-js/runtime-quickjs": "workspace:*",
         "@tailwindcss/browser": "^4.2.2",
@@ -648,6 +649,10 @@
       "dependencies": {
         "@executor-js/host-mcp": "workspace:*",
         "@executor-js/sdk": "workspace:*",
+        "@modelcontextprotocol/ext-apps": "^1.6.0",
+        "@modelcontextprotocol/sdk": "^1.12.1",
+        "effect": "catalog:",
+        "zod": "^4.3.0",
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",

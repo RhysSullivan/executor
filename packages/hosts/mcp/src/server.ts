@@ -24,8 +24,8 @@ import {
   type ExecutionEngine,
   type ExecutionEngineConfig,
 } from "@executor-js/execution";
-import { stripGenerativeUiSection } from "./dynamic-ui";
 import { collectMcpContributions, type McpToolResult } from "./plugin";
+import { loadMcpAppShellHtml } from "./shell-html";
 
 // ---------------------------------------------------------------------------
 // Workers-compatible JSON Schema validator (replaces Ajv which uses new Function())
@@ -304,8 +304,11 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     const description =
       config.description ??
       (yield* engine.getDescription.pipe(Effect.withSpan("mcp.host.get_description")));
-    const executeDescription = stripGenerativeUiSection(description);
     const mcpContributions = collectMcpContributions(config.plugins);
+    const executeDescription = mcpContributions.reduce(
+      (current, contribution) => contribution.prepareExecuteDescription?.(current) ?? current,
+      description,
+    );
 
     // Captured at construction time. SDK callbacks fire later (often
     // deferred past the outer Effect's await), so we use the runtime to
@@ -516,6 +519,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
             engine,
             description,
             debugLog,
+            loadAppShellHtml: loadMcpAppShellHtml,
             runToolEffect,
             executeCodeFromApp,
             resumeExecution,

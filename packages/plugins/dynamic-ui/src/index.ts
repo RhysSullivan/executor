@@ -1,5 +1,13 @@
 import { definePlugin } from "@executor-js/sdk/core";
-import { dynamicUiMcpContribution } from "@executor-js/host-mcp";
+import { dynamicUiMcpContribution } from "./mcp";
+
+export {
+  DYNAMIC_UI_SHELL_RESOURCE_URI,
+  buildRenderUiDescription,
+  dynamicUiMcpContribution,
+  stripGenerativeUiSection,
+  validateRenderUiCode,
+} from "./mcp";
 
 /**
  * Dynamic UI is the product-level plugin. Its first contribution is the
