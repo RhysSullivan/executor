@@ -9,6 +9,7 @@
 
 import { resolve, join } from "node:path";
 import { readdirSync } from "node:fs";
+import type { Subprocess } from "bun";
 import { setOAuthCompletionListener } from "@executor-js/api";
 import { consumeOAuthResult, publishOAuthResult } from "./oauth-result-store";
 import { startIntegrationsRefresh } from "./server/integrations";
@@ -64,6 +65,99 @@ function embeddedToStaticRoutes(embedded: Record<string, string>): Record<string
       });
   }
   return routes;
+}
+
+// ---------------------------------------------------------------------------
+// Dev mode: spawn vite as a child and proxy non-API requests to it
+//
+// Enabled when EXECUTOR_DEV=1. Lets `dev:cli` serve a fresh UI without
+// requiring a manual `bun run build` after every change. The daemon still
+// owns /api and /mcp — only SPA/asset requests get proxied.
+// ---------------------------------------------------------------------------
+
+interface ViteChild {
+  readonly url: string;
+  readonly stop: () => Promise<void>;
+}
+
+async function allocatePort(): Promise<number> {
+  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() });
+  const port = probe.port ?? 0;
+  probe.stop(true);
+  return port;
+}
+
+async function startViteChild(): Promise<ViteChild> {
+  const vitePort = await allocatePort();
+  const cwd = resolve(import.meta.dirname, "..");
+  // `bunx --bun vite` runs vite under Bun, matching the `dev:vite` script
+  // already in apps/local. --strictPort keeps the URL we hand back stable.
+  const child: Subprocess = Bun.spawn(
+    ["bunx", "--bun", "vite", "dev", "--port", String(vitePort), "--strictPort", "--host", "127.0.0.1"],
+    {
+      cwd,
+      // EXECUTOR_DEV_VITE_PORT — vite.config reads this and points the
+      // HMR client at vite's real port. The browser loads HTML through
+      // the daemon proxy but opens the HMR WebSocket directly to vite,
+      // sidestepping the daemon's lack of WS proxying.
+      env: {
+        ...process.env,
+        PORT: undefined as unknown as string,
+        EXECUTOR_DEV_VITE_PORT: String(vitePort),
+      },
+      stdout: "inherit",
+      stderr: "inherit",
+    },
+  );
+
+  const url = `http://127.0.0.1:${vitePort}`;
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: probing a child process that may not be listening yet
+    try {
+      const r = await fetch(`${url}/`, { redirect: "manual" });
+      if (r.status < 500) {
+        await r.body?.cancel();
+        return {
+          url,
+          stop: async () => {
+            child.kill();
+            await child.exited;
+          },
+        };
+      }
+      await r.body?.cancel();
+    } catch {
+      // not up yet
+    }
+    if (child.exitCode !== null) {
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: child process aborted before becoming ready
+      throw new Error(`vite dev exited with code ${child.exitCode} before becoming ready`);
+    }
+    await Bun.sleep(150);
+  }
+  child.kill();
+  // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: vite never became reachable
+  throw new Error(`vite dev did not become reachable on ${url} within 30s`);
+}
+
+async function proxyToVite(req: Request, viteUrl: string): Promise<Response> {
+  const target = new URL(req.url);
+  target.protocol = "http:";
+  target.host = new URL(viteUrl).host;
+  // Strip hop-by-hop headers that confuse the upstream
+  const headers = new Headers(req.headers);
+  headers.delete("host");
+  headers.set("host", target.host);
+  const hasBody = req.method !== "GET" && req.method !== "HEAD";
+  return fetch(target, {
+    method: req.method,
+    headers,
+    body: hasBody ? req.body : undefined,
+    redirect: "manual",
+    // @ts-expect-error — Bun/undici extension required for streamed bodies
+    duplex: hasBody ? "half" : undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -124,11 +218,24 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
   // its same-origin web SPA receives results via postMessage directly.
   setOAuthCompletionListener((result) => publishOAuthResult(result));
 
-  // Build static routes from either embedded assets or disk
-  let staticRoutes: Record<string, StaticHandler>;
+  // Build static routes from either embedded assets, disk, or a spawned
+  // vite dev child (EXECUTOR_DEV=1). Vite mode takes precedence and
+  // disables the file-extension 404 short-circuit since vite serves
+  // hashed asset paths directly.
+  let staticRoutes: Record<string, StaticHandler> = {};
   let serveIndex: StaticHandler;
+  let viteChild: ViteChild | null = null;
 
-  if (opts.embeddedWebUI) {
+  const devMode = process.env.EXECUTOR_DEV === "1" && !opts.embeddedWebUI;
+  if (devMode) {
+    console.log("[executor] EXECUTOR_DEV=1 — spawning vite dev child for live UI");
+    viteChild = await startViteChild();
+    console.log(`[executor] proxying SPA requests to ${viteChild.url}`);
+    serveIndex = () =>
+      // Unused when viteChild is non-null; defined so the type checker
+      // can keep `serveIndex` non-nullable.
+      new Response("vite not ready", { status: 503 });
+  } else if (opts.embeddedWebUI) {
     staticRoutes = embeddedToStaticRoutes(opts.embeddedWebUI);
     const indexFile = Bun.file(opts.embeddedWebUI["index.html"] ?? join(clientDir, "index.html"));
     serveIndex = () => new Response(indexFile, { headers: { "content-type": "text/html" } });
@@ -184,6 +291,12 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
         return handlers.api.handler(new Request(url, req));
       }
 
+      // Dev mode: forward everything else (SPA + hashed assets) to the
+      // vite child so source edits show up without a rebuild.
+      if (viteChild) {
+        return proxyToVite(req, viteChild.url);
+      }
+
       // If a path looks like a static asset (has a file extension), do not
       // fall back to SPA HTML. Returning index.html here causes browser module
       // MIME errors when hashed chunks are stale/missing.
@@ -207,6 +320,7 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
       server.stop(true);
       await handlers.mcp.close();
       await handlers.api.dispose();
+      if (viteChild) await viteChild.stop();
     },
   };
 }
