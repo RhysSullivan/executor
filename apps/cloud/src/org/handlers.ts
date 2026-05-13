@@ -13,8 +13,7 @@ import { getMemberLimitForPlan, selectActiveMemberLimitPlan } from "./member-lim
 const requireAdmin = Effect.gen(function* () {
   const auth = yield* AuthContext;
   const workos = yield* WorkOSAuth;
-  const memberships = yield* workos.listOrgMembers(auth.organizationId);
-  const currentMembership = memberships.data.find((m) => m.userId === auth.accountId);
+  const currentMembership = yield* workos.getUserOrgMembership(auth.organizationId, auth.accountId);
   if (!currentMembership || currentMembership.role?.slug !== "admin") {
     return yield* new Forbidden();
   }

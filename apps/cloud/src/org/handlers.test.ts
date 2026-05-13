@@ -14,6 +14,7 @@ type StubFn = (...args: never[]) => Effect.Effect<any>;
 
 type StubOverrides = {
   listOrgMembers?: StubFn;
+  getUserOrgMembership?: StubFn;
   getUser?: StubFn;
   sendInvitation?: StubFn;
   deleteOrgMembership?: StubFn;
@@ -122,8 +123,7 @@ const fakeRoles: FakeRole[] = [
 const requireAdmin = Effect.gen(function* () {
   const auth = yield* AuthContext;
   const workos = yield* WorkOSAuth;
-  const memberships = yield* workos.listOrgMembers(auth.organizationId);
-  const current = memberships.data.find((m: FakeMembership) => m.userId === auth.accountId);
+  const current = yield* workos.getUserOrgMembership(auth.organizationId, auth.accountId);
   if (!current || current.role?.slug !== "admin") {
     return yield* new Forbidden();
   }
@@ -134,6 +134,11 @@ const provide = (auth: typeof adminAuth, workosOverrides: StubOverrides = {}) =>
 
 const withMembers: StubOverrides = {
   listOrgMembers: () => Effect.succeed({ data: fakeMemberships }),
+};
+
+const withCurrentMembership: StubOverrides = {
+  getUserOrgMembership: (_organizationId: string, userId: string) =>
+    Effect.succeed(fakeMemberships.find((m) => m.userId === userId) ?? null),
 };
 
 // ---------------------------------------------------------------------------
@@ -205,14 +210,14 @@ describe("Org handlers", () => {
 
   describe("requireAdmin", () => {
     it.effect("passes for admin user", () =>
-      requireAdmin.pipe(Effect.provide(provide(adminAuth, withMembers))),
+      requireAdmin.pipe(Effect.provide(provide(adminAuth, withCurrentMembership))),
     );
 
     it.effect("rejects non-admin with Forbidden", () =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(requireAdmin);
         expect(error).toBeInstanceOf(Forbidden);
-      }).pipe(Effect.provide(provide(memberAuth, withMembers))),
+      }).pipe(Effect.provide(provide(memberAuth, withCurrentMembership))),
     );
   });
 
@@ -231,7 +236,7 @@ describe("Org handlers", () => {
       }).pipe(
         Effect.provide(
           provide(adminAuth, {
-            ...withMembers,
+            ...withCurrentMembership,
             sendInvitation: (p: { email: string }) =>
               Effect.succeed({ id: "inv_1", email: p.email }),
           }),
@@ -252,7 +257,7 @@ describe("Org handlers", () => {
           }),
         );
         expect(error).toBeInstanceOf(Forbidden);
-      }).pipe(Effect.provide(provide(memberAuth, withMembers))),
+      }).pipe(Effect.provide(provide(memberAuth, withCurrentMembership))),
     );
   });
 
@@ -265,7 +270,7 @@ describe("Org handlers", () => {
       }).pipe(
         Effect.provide(
           provide(adminAuth, {
-            ...withMembers,
+            ...withCurrentMembership,
             deleteOrgMembership: () => Effect.void,
           }),
         ),
@@ -282,7 +287,7 @@ describe("Org handlers", () => {
           }),
         );
         expect(error).toBeInstanceOf(Forbidden);
-      }).pipe(Effect.provide(provide(memberAuth, withMembers))),
+      }).pipe(Effect.provide(provide(memberAuth, withCurrentMembership))),
     );
   });
 
@@ -295,7 +300,7 @@ describe("Org handlers", () => {
       }).pipe(
         Effect.provide(
           provide(adminAuth, {
-            ...withMembers,
+            ...withCurrentMembership,
             updateOrgMembershipRole: () => Effect.void,
           }),
         ),
@@ -312,7 +317,7 @@ describe("Org handlers", () => {
           }),
         );
         expect(error).toBeInstanceOf(Forbidden);
-      }).pipe(Effect.provide(provide(memberAuth, withMembers))),
+      }).pipe(Effect.provide(provide(memberAuth, withCurrentMembership))),
     );
   });
 });

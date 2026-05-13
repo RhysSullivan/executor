@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import { GeneratePortalLinkIntent, WorkOS } from "@workos-inc/node/worker";
 import { WorkOSError, tryPromiseService, withServiceLogging } from "./errors";
 
@@ -22,6 +22,88 @@ type RawWorkOS = WorkOS & {
     entity: unknown,
     options?: { readonly idempotencyKey?: string },
   ) => Promise<{ readonly data: unknown }>;
+};
+
+type WorkOSListMetadata = {
+  readonly before?: string | null;
+  readonly after?: string | null;
+};
+
+type WorkOSAutoPaginatable<Resource> = {
+  readonly object: "list";
+  readonly data: Resource[];
+  readonly listMetadata: WorkOSListMetadata;
+  readonly autoPagination: () => Promise<Resource[]>;
+};
+
+export type WorkOSCollectedList<Resource> = {
+  readonly object: "list";
+  readonly data: Resource[];
+  readonly listMetadata: {
+    readonly before: string | null;
+    readonly after: string | null;
+  };
+};
+
+const RawWorkOSListMetadata = Schema.Struct({
+  before: Schema.optional(Schema.NullOr(Schema.String)),
+  after: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+const RawWorkOSListResponse = Schema.Struct({
+  data: Schema.Array(Schema.Unknown),
+  listMetadata: Schema.optional(RawWorkOSListMetadata),
+  list_metadata: Schema.optional(RawWorkOSListMetadata),
+});
+
+const decodeRawWorkOSListResponse = Schema.decodeUnknownOption(RawWorkOSListResponse);
+
+const completedListMetadata = {
+  before: null,
+  after: null,
+} as const;
+
+const nextCursorFromRawList = (response: typeof RawWorkOSListResponse.Type): string | null =>
+  response.listMetadata?.after ?? response.list_metadata?.after ?? null;
+
+export const collectWorkOSList = async <Resource>(
+  response: WorkOSAutoPaginatable<Resource>,
+): Promise<WorkOSCollectedList<Resource>> => {
+  const data = response.listMetadata.after ? await response.autoPagination() : response.data;
+  return {
+    object: "list",
+    data,
+    listMetadata: completedListMetadata,
+  };
+};
+
+export const collectRawWorkOSList = async (
+  loadPage: (after?: string) => Promise<unknown>,
+): Promise<WorkOSCollectedList<unknown>> => {
+  const first = Option.getOrNull(decodeRawWorkOSListResponse(await loadPage()));
+  if (!first) {
+    return {
+      object: "list",
+      data: [],
+      listMetadata: completedListMetadata,
+    };
+  }
+
+  const data = [...first.data];
+  let after = nextCursorFromRawList(first);
+
+  while (after) {
+    const next = Option.getOrNull(decodeRawWorkOSListResponse(await loadPage(after)));
+    if (!next) break;
+    data.push(...next.data);
+    after = nextCursorFromRawList(next);
+  }
+
+  return {
+    object: "list",
+    data,
+    listMetadata: completedListMetadata,
+  };
 };
 
 class WorkOSAuthConfigurationError extends Data.TaggedError("WorkOSAuthConfigurationError")<{
@@ -132,11 +214,13 @@ const make = Effect.gen(function* () {
 
     /** List organization memberships for a user. */
     listUserMemberships: (userId: string) =>
-      use((wos) =>
-        wos.userManagement.listOrganizationMemberships({
-          userId,
-          statuses: ["active", "pending"],
-        }),
+      use(async (wos) =>
+        collectWorkOSList(
+          await wos.userManagement.listOrganizationMemberships({
+            userId,
+            statuses: ["active", "pending"],
+          }),
+        ),
       ),
 
     /**
@@ -183,10 +267,16 @@ const make = Effect.gen(function* () {
     listUserApiKeys: (userId: string, organizationId: string) =>
       use(async (wos) => {
         const raw = wos as RawWorkOS;
-        const response = await raw.get(`/user_management/users/${userId}/api_keys`, {
-          query: { organization_id: organizationId },
+        return collectRawWorkOSList(async (after) => {
+          const response = await raw.get(`/user_management/users/${userId}/api_keys`, {
+            query: {
+              organization_id: organizationId,
+              limit: 100,
+              ...(after ? { after } : {}),
+            },
+          });
+          return response.data;
         });
-        return response.data;
       }),
 
     createUserApiKey: (params: { userId: string; organizationId: string; name: string }) =>
@@ -203,12 +293,25 @@ const make = Effect.gen(function* () {
 
     /** List organization memberships with user details. */
     listOrgMembers: (organizationId: string) =>
-      use((wos) =>
-        wos.userManagement.listOrganizationMemberships({
-          organizationId,
-          statuses: ["active", "pending"],
-        }),
+      use(async (wos) =>
+        collectWorkOSList(
+          await wos.userManagement.listOrganizationMemberships({
+            organizationId,
+            statuses: ["active", "pending"],
+          }),
+        ),
       ),
+
+    /** Get a user's membership in an organization. */
+    getUserOrgMembership: (organizationId: string, userId: string) =>
+      use(async (wos) => {
+        const response = await wos.userManagement.listOrganizationMemberships({
+          organizationId,
+          userId,
+          statuses: ["active", "pending"],
+        });
+        return response.data[0] ?? null;
+      }),
 
     /** Get a user by ID. */
     getUser: (userId: string) => use((wos) => wos.userManagement.getUser(userId)),
@@ -229,7 +332,13 @@ const make = Effect.gen(function* () {
      * API level, so we filter after.
      */
     listPendingInvitations: (organizationId: string) =>
-      use((wos) => wos.userManagement.listInvitations({ organizationId })).pipe(
+      use(async (wos) =>
+        collectWorkOSList(
+          await wos.userManagement.listInvitations({
+            organizationId,
+          }),
+        ),
+      ).pipe(
         Effect.map((response) => ({
           ...response,
           data: response.data.filter((i) => i.state === "pending"),
@@ -238,7 +347,13 @@ const make = Effect.gen(function* () {
 
     /** List invitations for an email address (across all orgs). */
     listInvitationsByEmail: (email: string) =>
-      use((wos) => wos.userManagement.listInvitations({ email })),
+      use(async (wos) =>
+        collectWorkOSList(
+          await wos.userManagement.listInvitations({
+            email,
+          }),
+        ),
+      ),
 
     /** Accept an invitation; returns the (now accepted) invitation. */
     acceptInvitation: (invitationId: string) =>

@@ -109,6 +109,7 @@ describe("ApiKeyService.WorkOS", () => {
               stubWorkOS({
                 listUserApiKeys: () =>
                   Effect.succeed({
+                    object: "list" as const,
                     data: [
                       {
                         id: "api_key_listed",
@@ -124,6 +125,10 @@ describe("ApiKeyService.WorkOS", () => {
                         },
                       },
                     ],
+                    listMetadata: {
+                      before: null,
+                      after: null,
+                    },
                   }),
                 createUserApiKey: () =>
                   Effect.succeed({
