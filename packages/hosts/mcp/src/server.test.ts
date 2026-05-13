@@ -211,6 +211,49 @@ describe("MCP host server — client with elicitation", () => {
     );
   });
 
+  it("render-ui rejects redeclared provided globals before iframe evaluation", async () => {
+    const code = [
+      "const { useState } = React;",
+      "function App() {",
+      "  const [count, setCount] = useState(0);",
+      "  return <Button onClick={() => setCount(count + 1)}>{count}</Button>;",
+      "}",
+    ].join("\n");
+
+    await withClient(
+      makeStubEngine({}),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const reactDestructure = await client.callTool({
+          name: "render-ui",
+          arguments: { code },
+        });
+        expect(reactDestructure.isError).toBe(true);
+        expect(textOf(reactDestructure)).toContain("Do not destructure React");
+        expect(textOf(reactDestructure)).toContain("useState");
+
+        const componentRedeclaration = await client.callTool({
+          name: "render-ui",
+          arguments: {
+            code: "const Card = () => null;\nfunction App() { return <Card />; }",
+          },
+        });
+        expect(componentRedeclaration.isError).toBe(true);
+        expect(textOf(componentRedeclaration)).toContain('Provided global "Card"');
+
+        const componentDestructure = await client.callTool({
+          name: "render-ui",
+          arguments: {
+            code: 'const { Card } = require("./components");\nfunction App() { return <Card />; }',
+          },
+        });
+        expect(componentDestructure.isError).toBe(true);
+        expect(textOf(componentDestructure)).toContain('Provided global "Card"');
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
+  });
+
   it("splits execution and UI rendering into separate model-facing tool descriptions", async () => {
     const description = [
       "Execute TypeScript in a sandboxed runtime.",
@@ -250,7 +293,9 @@ describe("MCP host server — client with elicitation", () => {
         expect(renderUi?.description).toContain("Use discovered result shapes exactly");
         expect(renderUi?.description).toContain("For optimistic UI, use `onMutate`");
         expect(renderUi?.description).toContain("Do not call API tools first");
+        expect(renderUi?.description).toContain("Do not redeclare or destructure provided globals");
         expect(renderUi?.description).toContain("server rejects obvious hardcoded live-data");
+        expect(renderUi?.description).toContain("server rejects redeclarations");
         expect(renderUi?.description).toContain("- `axiom_mcp`");
       },
       { plugins: [DYNAMIC_UI_PLUGIN] },

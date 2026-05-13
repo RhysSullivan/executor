@@ -65,6 +65,7 @@ const formatDescription = (sources: readonly Source[]): string => {
     "**No imports** — everything is already in scope:",
     "- React: `useState`, `useEffect`, `useRef`, `useCallback`, `useMemo`",
     "- TanStack Query v5: `useQuery`, `useMutation`, `useQueryClient`, `queryOptions`, `mutationOptions`, `skipToken`; the component is already wrapped in `QueryClientProvider`.",
+    "- Do not redeclare or destructure provided globals. Do not write `const { useState } = React`; use `useState(...)` directly or `React.useState(...)`.",
     "- Fetch live data with TanStack options from the tool proxy: `useQuery(tools.<namespace>.<tool>.queryOptions(args))`. Do not call tools before generating the UI and paste returned data into JSX.",
     "- For user-triggered writes or actions, use `useMutation(tools.<namespace>.<tool>.mutationOptions({ onSuccess }))` and call `mutate(input)` from event handlers.",
     "- Invalidate or refetch reads with `useQueryClient()` and stable keys from `tools.<namespace>.<tool>.queryKey(args)`.",
