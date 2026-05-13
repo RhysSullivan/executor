@@ -58,6 +58,7 @@
         "@executor-js/api": "workspace:*",
         "@executor-js/execution": "workspace:*",
         "@executor-js/host-mcp": "workspace:*",
+        "@executor-js/plugin-dynamic-ui": "workspace:*",
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
         "@executor-js/plugin-openapi": "workspace:*",
@@ -162,6 +163,7 @@
         "@executor-js/host-mcp": "workspace:*",
         "@executor-js/integrations-registry": "workspace:*",
         "@executor-js/plugin-desktop-settings": "workspace:*",
+        "@executor-js/plugin-dynamic-ui": "workspace:*",
         "@executor-js/plugin-example": "workspace:*",
         "@executor-js/plugin-file-secrets": "workspace:*",
         "@executor-js/plugin-google-discovery": "workspace:*",
@@ -635,6 +637,22 @@
         "@types/react": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
+      },
+    },
+    "packages/plugins/dynamic-ui": {
+      "name": "@executor-js/plugin-dynamic-ui",
+      "version": "1.4.25",
+      "dependencies": {
+        "@executor-js/host-mcp": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/plugins/example": {
@@ -1396,6 +1414,8 @@
     "@executor-js/marketing": ["@executor-js/marketing@workspace:apps/marketing"],
 
     "@executor-js/plugin-desktop-settings": ["@executor-js/plugin-desktop-settings@workspace:packages/plugins/desktop-settings"],
+
+    "@executor-js/plugin-dynamic-ui": ["@executor-js/plugin-dynamic-ui@workspace:packages/plugins/dynamic-ui"],
 
     "@executor-js/plugin-example": ["@executor-js/plugin-example@workspace:packages/plugins/example"],
 

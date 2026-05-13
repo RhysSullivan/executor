@@ -2,6 +2,7 @@ import { defineExecutorConfig } from "@executor-js/sdk";
 import type { ConfigFileSink } from "@executor-js/config";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
+import { dynamicUiPlugin } from "@executor-js/plugin-dynamic-ui";
 import { googleDiscoveryHttpPlugin } from "@executor-js/plugin-google-discovery/api";
 import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
 import { keychainPlugin } from "@executor-js/plugin-keychain";
@@ -29,6 +30,7 @@ export default defineExecutorConfig({
   plugins: ({ configFile }: LocalPluginDeps = {}) =>
     [
       openApiHttpPlugin({ configFile }),
+      dynamicUiPlugin(),
       mcpHttpPlugin({ dangerouslyAllowStdioMCP: true, configFile }),
       googleDiscoveryHttpPlugin(),
       graphqlHttpPlugin({ configFile }),

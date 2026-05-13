@@ -7,10 +7,11 @@ import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import type * as Cause from "effect/Cause";
 
-import { FormElicitation, ToolId, UrlElicitation } from "@executor-js/sdk";
+import { FormElicitation, ToolId, UrlElicitation, type AnyPlugin } from "@executor-js/sdk";
 import type { ExecutionEngine, ExecutionResult } from "@executor-js/execution";
 
 import { createExecutorMcpServer } from "./server";
+import { dynamicUiMcpContribution } from "./dynamic-ui";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,13 +35,20 @@ const makeStubEngine = <E extends Cause.YieldableError = never>(overrides: {
   getDescription: Effect.succeed(overrides.description ?? "test executor"),
 });
 
+const DYNAMIC_UI_PLUGIN: AnyPlugin = {
+  id: "dynamic-ui",
+  storage: () => ({}),
+  mcp: () => dynamicUiMcpContribution(),
+};
+
 /** Connect a real MCP Client to our executor MCP server over in-memory transports. */
 const withClient = async <E extends Cause.YieldableError>(
   engine: ExecutionEngine<E>,
   capabilities: ClientCapabilities,
   fn: (client: Client) => Promise<void>,
+  options: { readonly plugins?: readonly AnyPlugin[] } = {},
 ) => {
-  const mcpServer = await Effect.runPromise(createExecutorMcpServer({ engine }));
+  const mcpServer = await Effect.runPromise(createExecutorMcpServer({ engine, ...options }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities });
   await mcpServer.connect(serverTransport);
@@ -127,38 +135,57 @@ describe("MCP host server — client with elicitation", () => {
     });
   });
 
-  it("render-ui tool routes React code to the MCP app shell", async () => {
+  it("does not expose dynamic UI tools unless a plugin contributes them", async () => {
     await withClient(makeStubEngine({}), APPS_ELICITATION_CAPS, async (client) => {
-      const result = await client.callTool({
-        name: "render-ui",
-        arguments: { code: 'function App() { return <Card className="p-4" />; }' },
-      });
-      expect(result.content).toEqual([
-        { type: "text", text: "Rendered interactive UI component." },
-      ]);
-      expect(result.structuredContent).toEqual({
-        code: 'function App() { return <Card className="p-4" />; }',
-      });
+      const { tools } = await client.listTools();
+      const names = tools.map((tool) => tool.name);
+      expect(names).not.toContain("render-ui");
+      expect(names).not.toContain("execute-action");
     });
   });
 
+  it("render-ui tool routes React code to the MCP app shell", async () => {
+    await withClient(
+      makeStubEngine({}),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const result = await client.callTool({
+          name: "render-ui",
+          arguments: { code: 'function App() { return <Card className="p-4" />; }' },
+        });
+        expect(result.content).toEqual([
+          { type: "text", text: "Rendered interactive UI component." },
+        ]);
+        expect(result.structuredContent).toEqual({
+          code: 'function App() { return <Card className="p-4" />; }',
+        });
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
+  });
+
   it("serves the app shell resource with restrictive CSP metadata", async () => {
-    await withClient(makeStubEngine({}), APPS_ELICITATION_CAPS, async (client) => {
-      const result = await client.readResource({ uri: "ui://executor/shell.html" });
-      expect(result.contents).toHaveLength(1);
-      expect(result.contents[0]).toMatchObject({
-        uri: "ui://executor/shell.html",
-        mimeType: RESOURCE_MIME_TYPE,
-        _meta: {
-          ui: {
-            csp: {
-              connectDomains: [],
-              resourceDomains: [],
+    await withClient(
+      makeStubEngine({}),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const result = await client.readResource({ uri: "ui://executor/shell.html" });
+        expect(result.contents).toHaveLength(1);
+        expect(result.contents[0]).toMatchObject({
+          uri: "ui://executor/shell.html",
+          mimeType: RESOURCE_MIME_TYPE,
+          _meta: {
+            ui: {
+              csp: {
+                connectDomains: [],
+                resourceDomains: [],
+              },
             },
           },
-        },
-      });
-    });
+        });
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
   });
 
   it("render-ui rejects obvious hardcoded live-data snapshots", async () => {
@@ -170,15 +197,20 @@ describe("MCP host server — client with elicitation", () => {
       "function App() { return <Card><CardContent>{rows.length}</CardContent></Card>; }",
     ].join("\n");
 
-    await withClient(makeStubEngine({}), APPS_ELICITATION_CAPS, async (client) => {
-      const result = await client.callTool({
-        name: "render-ui",
-        arguments: { code },
-      });
-      expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("Hardcoded live-data array");
-      expect(textOf(result)).toContain("useQuery");
-    });
+    await withClient(
+      makeStubEngine({}),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const result = await client.callTool({
+          name: "render-ui",
+          arguments: { code },
+        });
+        expect(result.isError).toBe(true);
+        expect(textOf(result)).toContain("Hardcoded live-data array");
+        expect(textOf(result)).toContain("useQuery");
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
   });
 
   it("splits execution and UI rendering into separate model-facing tool descriptions", async () => {
@@ -200,22 +232,27 @@ describe("MCP host server — client with elicitation", () => {
       "- `axiom_mcp`",
     ].join("\n");
 
-    await withClient(makeStubEngine({ description }), APPS_ELICITATION_CAPS, async (client) => {
-      const { tools } = await client.listTools();
-      const execute = tools.find((tool) => tool.name === "execute");
-      const renderUi = tools.find((tool) => tool.name === "render-ui");
+    await withClient(
+      makeStubEngine({ description }),
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        const { tools } = await client.listTools();
+        const execute = tools.find((tool) => tool.name === "execute");
+        const renderUi = tools.find((tool) => tool.name === "render-ui");
 
-      expect(execute?.description).toContain("Execute TypeScript");
-      expect(execute?.description).not.toContain("## Generative UI");
-      expect(execute?.description).toContain("## Available namespaces");
-      expect(renderUi?.description).toContain("Render an interactive React UI component");
-      expect(renderUi?.description).toContain("## Available UI Components");
-      expect(renderUi?.description).toContain("shadcn/ui components available by name: Card");
-      expect(renderUi?.description).toContain("useQuery(() => tools.<namespace>.<tool>(args))");
-      expect(renderUi?.description).toContain("Do not call API tools first");
-      expect(renderUi?.description).toContain("server rejects obvious hardcoded live-data");
-      expect(renderUi?.description).toContain("- `axiom_mcp`");
-    });
+        expect(execute?.description).toContain("Execute TypeScript");
+        expect(execute?.description).not.toContain("## Generative UI");
+        expect(execute?.description).toContain("## Available namespaces");
+        expect(renderUi?.description).toContain("Render an interactive React UI component");
+        expect(renderUi?.description).toContain("## Available UI Components");
+        expect(renderUi?.description).toContain("shadcn/ui components available by name: Card");
+        expect(renderUi?.description).toContain("useQuery(() => tools.<namespace>.<tool>(args))");
+        expect(renderUi?.description).toContain("Do not call API tools first");
+        expect(renderUi?.description).toContain("server rejects obvious hardcoded live-data");
+        expect(renderUi?.description).toContain("- `axiom_mcp`");
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
   });
 
   it("execute tool resolves failed engine effects as MCP error results", async () => {
@@ -309,21 +346,26 @@ describe("MCP host server — client with elicitation", () => {
       (r) => `action:${r.action}`,
     );
 
-    await withClient(engine, APPS_ELICITATION_CAPS, async (client) => {
-      let prompted = false;
-      client.setRequestHandler(ElicitRequestSchema, async (request) => {
-        prompted = true;
-        expect((request.params as Record<string, unknown>).message).toBe("Approve UI action?");
-        return { action: "decline" as const, content: {} };
-      });
+    await withClient(
+      engine,
+      APPS_ELICITATION_CAPS,
+      async (client) => {
+        let prompted = false;
+        client.setRequestHandler(ElicitRequestSchema, async (request) => {
+          prompted = true;
+          expect((request.params as Record<string, unknown>).message).toBe("Approve UI action?");
+          return { action: "decline" as const, content: {} };
+        });
 
-      const result = await client.callTool({
-        name: "execute-action",
-        arguments: { code: "return await tools.github.issues.create({})" },
-      });
-      expect(prompted).toBe(true);
-      expect(result.content).toEqual([{ type: "text", text: "action:decline" }]);
-    });
+        const result = await client.callTool({
+          name: "execute-action",
+          arguments: { code: "return await tools.github.issues.create({})" },
+        });
+        expect(prompted).toBe(true);
+        expect(result.content).toEqual([{ type: "text", text: "action:decline" }]);
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
   });
 
   it("empty form schema gets wrapped with minimal valid schema", async () => {
@@ -472,18 +514,23 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         Effect.succeed({ status: "completed", result: { result: `app:${code}` } }),
     });
 
-    await withClient(engine, APPS_WITHOUT_ELICITATION_CAPS, async (client) => {
-      const { tools } = await client.listTools();
-      expect(tools.map((t) => t.name)).toContain("execute-action");
+    await withClient(
+      engine,
+      APPS_WITHOUT_ELICITATION_CAPS,
+      async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools.map((t) => t.name)).toContain("execute-action");
 
-      const result = await client.callTool({
-        name: "execute-action",
-        arguments: { code: "return await tools.axiom_mcp.listdatasets({})" },
-      });
-      expect(result.content).toEqual([
-        { type: "text", text: "app:return await tools.axiom_mcp.listdatasets({})" },
-      ]);
-    });
+        const result = await client.callTool({
+          name: "execute-action",
+          arguments: { code: "return await tools.axiom_mcp.listdatasets({})" },
+        });
+        expect(result.content).toEqual([
+          { type: "text", text: "app:return await tools.axiom_mcp.listdatasets({})" },
+        ]);
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
   });
 
   it("execute-action pauses elicitations for shell-owned approval when trusted elicitation is unavailable", async () => {
@@ -503,27 +550,32 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         ),
     });
 
-    await withClient(engine, APPS_WITHOUT_ELICITATION_CAPS, async (client) => {
-      const paused = await client.callTool({
-        name: "execute-action",
-        arguments: { code: "return await tools.github.issues.create({})" },
-      });
-      expect(paused.structuredContent).toEqual({
-        status: "waiting_for_interaction",
-        executionId: "exec_app",
-        interaction: {
-          kind: "form",
-          message: "Approve UI action?",
-          requestedSchema: {},
-        },
-      });
+    await withClient(
+      engine,
+      APPS_WITHOUT_ELICITATION_CAPS,
+      async (client) => {
+        const paused = await client.callTool({
+          name: "execute-action",
+          arguments: { code: "return await tools.github.issues.create({})" },
+        });
+        expect(paused.structuredContent).toEqual({
+          status: "waiting_for_interaction",
+          executionId: "exec_app",
+          interaction: {
+            kind: "form",
+            message: "Approve UI action?",
+            requestedSchema: {},
+          },
+        });
 
-      const resumed = await client.callTool({
-        name: "execute-action-resume",
-        arguments: { executionId: "exec_app", action: "accept", content: "{}" },
-      });
-      expect(resumed.content).toEqual([{ type: "text", text: "action:accept" }]);
-    });
+        const resumed = await client.callTool({
+          name: "execute-action-resume",
+          arguments: { executionId: "exec_app", action: "accept", content: "{}" },
+        });
+        expect(resumed.content).toEqual([{ type: "text", text: "action:accept" }]);
+      },
+      { plugins: [DYNAMIC_UI_PLUGIN] },
+    );
   });
 
   it("completed execution returns result directly", async () => {
