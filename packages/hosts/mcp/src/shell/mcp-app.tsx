@@ -515,64 +515,78 @@ function TrustedInteractionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-lg border border-border bg-card text-card-foreground shadow-xl">
-        <div className="border-b border-border px-4 py-3">
-          <div className="text-sm font-semibold">Approve action</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            This approval is handled by the Executor shell.
-          </div>
-        </div>
-        <div className="space-y-3 px-4 py-4">
-          <div className="text-sm">{message}</div>
-          {url && (
-            <button
-              type="button"
-              onClick={openUrl}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground hover:bg-muted"
-            >
-              <Components.ExternalLink className="h-3.5 w-3.5" />
-              Open link
-            </button>
-          )}
-          {requestedSchema && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">Response content</div>
-              <Components.Textarea
-                value={content}
-                onChange={(event) => {
-                  setContent(event.target.value);
-                  setJsonError(null);
-                }}
-                className="min-h-24 font-mono text-xs"
-              />
-              <pre className="max-h-32 overflow-auto rounded-md bg-muted p-2 text-xs text-muted-foreground">
-                {JSON.stringify(requestedSchema, null, 2)}
-              </pre>
-              {jsonError && <div className="text-xs text-destructive">{jsonError}</div>}
+    <div
+      data-testid="trusted-interaction-modal"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/45 p-2 backdrop-blur-sm"
+    >
+      <div className="flex min-h-full items-start justify-center">
+        <div
+          data-testid="trusted-interaction-card"
+          className="flex max-h-[calc(100vh-1rem)] w-full max-w-md flex-col overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-xl"
+        >
+          <div className="shrink-0 border-b border-border px-4 py-3">
+            <div className="text-sm font-semibold">Approve action</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              This approval is handled by the Executor shell.
             </div>
-          )}
-        </div>
-        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-          <Components.Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => onComplete({ action: "cancel" })}
+          </div>
+          <div
+            data-testid="trusted-interaction-body"
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
           >
-            Cancel
-          </Components.Button>
-          <Components.Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onComplete({ action: "decline" })}
+            <div className="text-sm">{message}</div>
+            {url && (
+              <button
+                type="button"
+                onClick={openUrl}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground hover:bg-muted"
+              >
+                <Components.ExternalLink className="h-3.5 w-3.5" />
+                Open link
+              </button>
+            )}
+            {requestedSchema && (
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">Response content</div>
+                <Components.Textarea
+                  value={content}
+                  onChange={(event) => {
+                    setContent(event.target.value);
+                    setJsonError(null);
+                  }}
+                  className="min-h-24 font-mono text-xs"
+                />
+                <pre className="max-h-32 overflow-auto rounded-md bg-muted p-2 text-xs text-muted-foreground">
+                  {JSON.stringify(requestedSchema, null, 2)}
+                </pre>
+                {jsonError && <div className="text-xs text-destructive">{jsonError}</div>}
+              </div>
+            )}
+          </div>
+          <div
+            data-testid="trusted-interaction-footer"
+            className="flex shrink-0 justify-end gap-2 border-t border-border px-4 py-3"
           >
-            Decline
-          </Components.Button>
-          <Components.Button type="button" size="sm" onClick={approve}>
-            Approve
-          </Components.Button>
+            <Components.Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onComplete({ action: "cancel" })}
+            >
+              Cancel
+            </Components.Button>
+            <Components.Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onComplete({ action: "decline" })}
+            >
+              Decline
+            </Components.Button>
+            <Components.Button type="button" size="sm" onClick={approve}>
+              Approve
+            </Components.Button>
+          </div>
         </div>
       </div>
     </div>

@@ -761,4 +761,54 @@ describe("MCP app generated UI browser isolation", () => {
       await page.close();
     }
   }, 30_000);
+
+  it("keeps trusted approval controls visible in a short host iframe", async () => {
+    if (!browser || !hostServer) {
+      throw new Error("Browser harness did not start.");
+    }
+    const { page, shellFrame } = await openHarness(browser, hostServer.url);
+
+    try {
+      await page.evaluate(() => {
+        const appFrame = document.getElementById("app") as HTMLIFrameElement | null;
+        if (!appFrame) throw new Error("Missing app iframe.");
+        appFrame.style.height = "180px";
+      });
+      await shellFrame.waitForFunction(() => document.documentElement.clientHeight <= 180);
+
+      const innerFrame = await renderGeneratedUi(page, shellFrame, generatedApprovalCode);
+      await innerFrame.locator("#ask").click({ timeout: 10_000 });
+      await shellFrame.locator("text=Approve action").waitFor({ timeout: 10_000 });
+
+      const metrics = await shellFrame
+        .locator('[data-testid="trusted-interaction-modal"]')
+        .evaluate((modal) => {
+          const card = modal.querySelector<HTMLElement>('[data-testid="trusted-interaction-card"]');
+          const body = modal.querySelector<HTMLElement>('[data-testid="trusted-interaction-body"]');
+          const footer = modal.querySelector<HTMLElement>(
+            '[data-testid="trusted-interaction-footer"]',
+          );
+          if (!card || !body || !footer) throw new Error("Missing trusted modal element.");
+
+          const cardRect = card.getBoundingClientRect();
+          const footerRect = footer.getBoundingClientRect();
+          return {
+            bodyOverflowY: getComputedStyle(body).overflowY,
+            cardBottom: cardRect.bottom,
+            cardTop: cardRect.top,
+            footerBottom: footerRect.bottom,
+            footerTop: footerRect.top,
+            viewportHeight: document.documentElement.clientHeight,
+          };
+        });
+
+      expect(metrics.bodyOverflowY).toBe("auto");
+      expect(metrics.cardTop).toBeGreaterThanOrEqual(0);
+      expect(metrics.cardBottom).toBeLessThanOrEqual(metrics.viewportHeight + 1);
+      expect(metrics.footerTop).toBeGreaterThanOrEqual(0);
+      expect(metrics.footerBottom).toBeLessThanOrEqual(metrics.viewportHeight + 1);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
 });
