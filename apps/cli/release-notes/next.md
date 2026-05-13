@@ -14,3 +14,7 @@ Downloads land on each [GitHub release](https://github.com/RhysSullivan/executor
 ## UI
 
 - Sidebar now shows a "Beta" pill next to the executor wordmark.
+
+## Fixes
+
+- Source configuration is no longer replayed from or written back to `executor.jsonc`; local source state stays in the shared Executor database while `executor.jsonc` continues to load plugin entries.
