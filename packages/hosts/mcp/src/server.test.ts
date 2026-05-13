@@ -142,6 +142,26 @@ describe("MCP host server — client with elicitation", () => {
     });
   });
 
+  it("render-ui rejects obvious hardcoded live-data snapshots", async () => {
+    const code = [
+      "const rows = [",
+      '  { service: "api", count: 100 },',
+      '  { service: "web", count: 80 },',
+      "];",
+      "function App() { return <Card><CardContent>{rows.length}</CardContent></Card>; }",
+    ].join("\n");
+
+    await withClient(makeStubEngine({}), APPS_ELICITATION_CAPS, async (client) => {
+      const result = await client.callTool({
+        name: "render-ui",
+        arguments: { code },
+      });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("Hardcoded live-data array");
+      expect(textOf(result)).toContain("useQuery");
+    });
+  });
+
   it("splits execution and UI rendering into separate model-facing tool descriptions", async () => {
     const description = [
       "Execute TypeScript in a sandboxed runtime.",
@@ -170,8 +190,11 @@ describe("MCP host server — client with elicitation", () => {
       expect(execute?.description).not.toContain("## Generative UI");
       expect(execute?.description).toContain("## Available namespaces");
       expect(renderUi?.description).toContain("Render an interactive React UI component");
+      expect(renderUi?.description).toContain("## Available UI Components");
+      expect(renderUi?.description).toContain("shadcn/ui components available by name: Card");
       expect(renderUi?.description).toContain("useQuery(() => tools.<namespace>.<tool>(args))");
       expect(renderUi?.description).toContain("Do not call API tools first");
+      expect(renderUi?.description).toContain("server rejects obvious hardcoded live-data");
       expect(renderUi?.description).toContain("- `axiom_mcp`");
     });
   });

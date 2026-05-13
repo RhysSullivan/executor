@@ -95,6 +95,15 @@ type McpAppsClientCapabilities = ClientCapabilities & {
 
 const SHELL_RESOURCE_URI = "ui://executor/shell.html";
 
+const SHADCN_COMPONENTS =
+  "Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, Button, Input, Textarea, Label, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, Checkbox, Switch, Slider, Toggle, Tabs, TabsList, TabsTrigger, TabsContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Avatar, AvatarFallback, Alert, AlertTitle, AlertDescription, Dialog, Sheet, Popover, Tooltip, Separator, ScrollArea, Skeleton, Progress, Accordion, AccordionItem, AccordionTrigger, AccordionContent, DropdownMenu + sub-components";
+
+const RECHARTS_COMPONENTS =
+  "BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend, ChartContainer, ChartTooltip, ChartTooltipContent";
+
+const LUCIDE_ICONS =
+  "Plus, Minus, Check, X, Search, Loader2, AlertCircle, ExternalLink, Copy, Trash2, Edit, Settings, User, Globe, Star, TrendingUp, Activity, Database, Shield, Package, and more";
+
 const sectionStart = (text: string, heading: string): number => {
   const withNewline = text.indexOf(`\n${heading}`);
   if (withNewline >= 0) return withNewline + 1;
@@ -138,6 +147,9 @@ const buildRenderUiDescription = (executeDescription: string): string => {
       "- For user-triggered writes or actions, use `useMutation((input) => tools.<namespace>.<tool>(input))` and call `mutate(input)` from event handlers.",
       "- Only hardcode small display constants like labels, colors, tab names, and chart configuration. Never embed tool response rows, API results, summaries, or dashboard data as literals in the component.",
       "- Always render loading and error states from `useQuery` / `useMutation`; do not replace them with hardcoded fallback data.",
+      `- shadcn/ui components available by name: ${SHADCN_COMPONENTS}`,
+      `- Recharts components available by name: ${RECHARTS_COMPONENTS}`,
+      `- Lucide icons available by name: ${LUCIDE_ICONS}`,
     ].join("\n");
 
   const namespaces = availableNamespacesSection(executeDescription);
@@ -151,18 +163,47 @@ const buildRenderUiDescription = (executeDescription: string): string => {
     "3. Use `useMutation((input) => tools.<namespace>.<tool>(input))` for user-triggered writes or actions.",
     "4. Return only the component code.",
     "",
+    "## Available UI Components",
+    "",
+    `- shadcn/ui components available by name: ${SHADCN_COMPONENTS}`,
+    `- Recharts components available by name: ${RECHARTS_COMPONENTS}`,
+    `- Lucide icons available by name: ${LUCIDE_ICONS}`,
+    "",
     "## Rules",
     "",
     "- Use this tool instead of `execute` whenever the output should be an interactive UI.",
     "- Do not call API tools first and paste returned data into JSX.",
     "- Do not embed tool response rows, API results, summaries, dashboard data, or copied query output as literals in the component.",
     "- Keep data live by routing every API read/write through the provided `tools` proxy from `useQuery`, `useMutation`, or `run(code)`.",
+    "- The server rejects obvious hardcoded live-data snapshots such as `const rows = [{...}, {...}]`; regenerate with `useQuery` instead.",
     "",
     "## Generative UI",
     "",
     uiBody,
     ...(namespaces ? ["", namespaces] : []),
   ].join("\n");
+};
+
+const DATA_SNAPSHOT_NAME =
+  /(?:^|_|\b)(?:data|rows|items|results|records|datasets|dashboards|logs|events|metrics|traces|services|endpoints|series|points|stats|summary|requests|errors|users|issues|tickets)(?:$|_|\b)/i;
+
+const OBJECT_ARRAY_LITERAL =
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[((?:[^\][{}]|\{[^{}]*\})*)\]/gs;
+
+const validateRenderUiCode = (code: string): string | null => {
+  for (const match of code.matchAll(OBJECT_ARRAY_LITERAL)) {
+    const name = match[1];
+    const body = match[2] ?? "";
+    const objectCount = body.match(/\{/g)?.length ?? 0;
+    if (DATA_SNAPSHOT_NAME.test(name) && objectCount >= 2) {
+      return [
+        `Hardcoded live-data array "${name}" is not allowed in render-ui.`,
+        "Fetch the data inside App with useQuery(() => tools.<namespace>.<tool>(args)) and derive rows/cards/charts from the query result.",
+      ].join(" ");
+    }
+  }
+
+  return null;
 };
 
 let shellHtmlCache: string | undefined;
@@ -400,6 +441,12 @@ const toMcpFailureResult = (cause: Cause.Cause<unknown>): McpToolResult => {
   };
 };
 
+const toMcpRenderUiRejectedResult = (reason: string): McpToolResult => ({
+  content: [{ type: "text", text: `Render UI rejected: ${reason}` }],
+  structuredContent: { status: "error", error: reason },
+  isError: true,
+});
+
 const JsonObjectFromString = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown));
 const decodeJsonObjectString = Schema.decodeUnknownOption(JsonObjectFromString);
 
@@ -610,11 +657,17 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
             },
           },
         },
-        ({ code }) =>
-          Promise.resolve({
-            content: [{ type: "text" as const, text: "Rendered interactive UI component." }],
-            structuredContent: { code },
-          } satisfies McpToolResult),
+        ({ code }) => {
+          const rejection = validateRenderUiCode(code);
+          return Promise.resolve(
+            rejection
+              ? toMcpRenderUiRejectedResult(rejection)
+              : ({
+                  content: [{ type: "text" as const, text: "Rendered interactive UI component." }],
+                  structuredContent: { code },
+                } satisfies McpToolResult),
+          );
+        },
       ),
     ).pipe(
       Effect.withSpan("mcp.host.register_tool", {
