@@ -338,6 +338,7 @@ export const buildRenderUiDescription = (executeDescription: string): string => 
       "- Use the discovered output shape exactly. Do not invent wrapper fields like `data.domain` or `data.items` unless the schema/sample shows them.",
       "- For toggles and switches, mutate with the checked value from the event instead of inverting possibly stale query data.",
       "- For optimistic writes, use TanStack `onMutate` / `onError` / `onSettled`: cancel the query, snapshot old data, `setQueryData`, roll back on error, then invalidate.",
+      "- Success messages must use `mutation.variables` or neutral wording, not query-derived state that may still be stale while invalidation refetches.",
       "- Only hardcode small display constants like labels, colors, tab names, and chart configuration. Never embed tool response rows, API results, summaries, or dashboard data as literals in the component.",
       "- Always render loading and error states from `useQuery` / `useMutation`; do not replace them with hardcoded fallback data.",
       `- shadcn/ui components available by name: ${SHADCN_COMPONENTS}`,
@@ -372,7 +373,9 @@ export const buildRenderUiDescription = (executeDescription: string): string => 
     "- For simple writes, invalidate with `queryClient.invalidateQueries(tools.<namespace>.<queryTool>.queryFilter(args))` in `onSuccess` or `onSettled`.",
     "- For toggles and switches, pass the new checked value into `mutate`: `onCheckedChange={(checked) => mutation.mutate({ body: { enabled: checked } })}`.",
     "- For optimistic UI, use `onMutate` to `cancelQueries`, snapshot `getQueryData`, and `setQueryData`; return the snapshot, restore it in `onError`, and invalidate in `onSettled`.",
-    "- Do not show success text by combining `mutation.isSuccess` with stale query data. Either update the query cache optimistically or show a neutral saved state after invalidation.",
+    "- Do not send mutation payloads by inverting query state like `autoRenew: !autoRenew`; the cached value can be stale after an approval flow.",
+    '- Do not show success text by combining `mutation.isSuccess` with query-derived state like `autoRenew ? "enabled" : "disabled"`. `isSuccess` becomes true before invalidated reads finish refetching.',
+    '- For action-specific success text, read the submitted value from `mutation.variables` such as `mutation.variables?.body?.autoRenew ? "enabled" : "disabled"`, or show neutral text like `Saved successfully`.',
     "",
     "## Available UI Components",
     "",
@@ -388,6 +391,8 @@ export const buildRenderUiDescription = (executeDescription: string): string => 
     "- Keep data live by routing every API read/write through the provided `tools` proxy from TanStack Query or `run(code)`.",
     "- Do not redeclare or destructure provided globals. Hooks, components, icons, `tools`, and `run` are already in scope; use them directly.",
     "- Tool proxy helpers are TanStack-native: `.queryOptions(args, options)`, `.mutationOptions(options)`, `.queryKey(args)`, `.queryFilter(args, filters)`, `.pathKey()`, `.pathFilter(filters)`, and `.mutationKey()`.",
+    "- The server rejects toggle mutations that invert query-backed booleans such as `autoRenew: !autoRenew`; use the checked value from the UI event.",
+    "- The server rejects mutation success labels that read enabled/disabled wording from stale query state; use `mutation.variables` or neutral text.",
     "- The server rejects obvious hardcoded live-data snapshots such as `const rows = [{...}, {...}]`; regenerate with `useQuery` instead.",
     "- The server rejects redeclarations of provided globals such as `const { useState } = React` or `const Card = ...` before the UI reaches the iframe.",
     "",
@@ -410,6 +415,19 @@ const OBJECT_DESTRUCTURING_DECLARATION = /\b(?:const|let|var)\s*\{([^{}]*)\}\s*=
 
 const PROVIDED_GLOBAL_DECLARATION =
   /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b|\bfunction\s+([A-Za-z_$][\w$]*)\s*\(|\bclass\s+([A-Za-z_$][\w$]*)\b/g;
+
+const QUERY_BACKED_BOOLEAN_NAME =
+  "(?:autoRenew|enabled|isEnabled|checked|isChecked|active|isActive|disabled|isDisabled)";
+
+const MUTATION_INVERTS_QUERY_STATE = new RegExp(
+  String.raw`\bmutate\s*\(\s*\{[\s\S]{0,1000}\b[A-Za-z_$][\w$]*\s*:\s*!\s*(${QUERY_BACKED_BOOLEAN_NAME})\b`,
+  "i",
+);
+
+const MUTATION_SUCCESS_USES_QUERY_STATE_LABEL = new RegExp(
+  String.raw`\b\w+\.isSuccess\b[\s\S]{0,1200}\{\s*(${QUERY_BACKED_BOOLEAN_NAME})\s*\?\s*["'\`](?:enabled|disabled|on|off|activated|deactivated)\b`,
+  "i",
+);
 
 const firstDefined = (...values: Array<string | undefined>): string | undefined =>
   values.find((value): value is string => value !== undefined);
@@ -453,6 +471,22 @@ export const validateRenderUiCode = (code: string): string | null => {
         "Remove the local declaration and use the provided global directly.",
       ].join(" ");
     }
+  }
+
+  const invertedState = MUTATION_INVERTS_QUERY_STATE.exec(code)?.[1];
+  if (invertedState) {
+    return [
+      `Mutation payloads must not invert query-backed state like "!${invertedState}".`,
+      "Switch and checkbox handlers receive the next checked value; pass that value into mutate instead.",
+    ].join(" ");
+  }
+
+  const staleSuccessState = MUTATION_SUCCESS_USES_QUERY_STATE_LABEL.exec(code)?.[1];
+  if (staleSuccessState) {
+    return [
+      `Mutation success text must not read "${staleSuccessState}" from query state.`,
+      "`mutation.isSuccess` becomes true before invalidated queries finish refetching; use mutation.variables for action-specific text or show neutral saved text.",
+    ].join(" ");
   }
 
   for (const match of code.matchAll(OBJECT_ARRAY_LITERAL)) {

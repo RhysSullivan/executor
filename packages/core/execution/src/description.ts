@@ -72,6 +72,7 @@ const formatDescription = (sources: readonly Source[]): string => {
     "- Use the discovered output shape exactly. Do not invent wrapper fields like `data.domain` or `data.items` unless the schema/sample shows them.",
     "- For toggles and switches, mutate with the checked value from the event instead of inverting possibly stale query data.",
     "- For optimistic writes, use TanStack `onMutate` / `onError` / `onSettled`: cancel the query, snapshot old data, `setQueryData`, roll back on error, then invalidate.",
+    "- Success messages must use `mutation.variables` or neutral wording, not query-derived state that may still be stale while invalidation refetches.",
     "- Only hardcode small display constants like labels, colors, tab names, and chart configuration. Never embed tool response rows, API results, summaries, or dashboard data as literals in the component.",
     "- Always render loading and error states from `useQuery` / `useMutation`; do not replace them with hardcoded fallback data.",
     "- Tools: `tools.<namespace>.<tool>(args)` — call any configured API tool (never use raw `fetch`). Tool helpers: `.queryOptions(args, options)`, `.mutationOptions(options)`, `.queryKey(args)`, `.pathKey()`, and `.mutationKey()`.",
