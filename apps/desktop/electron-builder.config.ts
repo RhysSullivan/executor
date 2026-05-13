@@ -26,10 +26,12 @@ const config: Configuration = {
   ],
   mac: {
     category: "public.app-category.developer-tools",
-    target: [
-      { target: "dmg", arch: ["arm64", "x64"] },
-      { target: "zip", arch: ["arm64", "x64"] },
-    ],
+    // Do NOT pin `arch:` inside the target objects. The publish workflow's
+    // matrix passes `--arm64` / `--x64` per leg; a config-level arch list
+    // would override that flag and force every leg to build both archs from
+    // a single per-leg sidecar binary, shipping mismatched-arch DMGs (errno
+    // -86 / EBADARCH on Apple Silicon). The CLI flag is the source of truth.
+    target: ["dmg", "zip"],
     hardenedRuntime: true,
     gatekeeperAssess: false,
     // electron-builder reads CSC_LINK / CSC_KEY_PASSWORD for the signing

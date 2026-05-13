@@ -7,16 +7,16 @@
  *
  * Flow:
  *   1. Spin up a tiny local OpenAPI server (one operation, returns 42).
- *   2. Write a temp executor.jsonc that points at it as a source.
- *   3. Spawn the compiled `executor-sidecar` binary with EXECUTOR_PORT=0
+ *   2. Spawn the compiled `executor-sidecar` binary with EXECUTOR_PORT=0
  *      and parse the `EXECUTOR_READY:<port>` sentinel.
- *   4. Connect via MCP streamable HTTP, call the `execute` tool with code
- *      that invokes the OpenAPI tool, assert the answer round-trips as 42.
+ *   3. Connect via MCP streamable HTTP, call the `execute` tool with code
+ *      that registers and invokes the OpenAPI tool, assert the answer
+ *      round-trips as 42.
  *
  * Run after `bun ./scripts/build-sidecar.ts`. Exits non-zero on any
  * deviation so it can gate CI.
  */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn, type Subprocess } from "bun";
@@ -127,8 +127,10 @@ const startOpenApiServer = () => {
 };
 
 const waitForReadyPort = (proc: Subprocess<"ignore", "pipe", "pipe">): Promise<number> =>
+  // oxlint-disable-next-line executor/no-promise-reject -- boundary: standalone build-time smoke harness, no Effect runtime
   new Promise((resolveReady, rejectReady) => {
     const deadline = setTimeout(() => {
+      // oxlint-disable-next-line executor/no-promise-reject, executor/no-error-constructor -- boundary: standalone smoke harness reporting a build-time timeout
       rejectReady(new Error(`sidecar did not announce ready within ${READY_TIMEOUT_MS}ms`));
     }, READY_TIMEOUT_MS);
 
@@ -150,6 +152,7 @@ const waitForReadyPort = (proc: Subprocess<"ignore", "pipe", "pipe">): Promise<n
         const { value, done } = await reader.read();
         if (done) {
           clearTimeout(deadline);
+          // oxlint-disable-next-line executor/no-promise-reject, executor/no-error-constructor -- boundary: standalone smoke harness, stdout-closed surfaced as rejection
           rejectReady(new Error("sidecar stdout closed before ready"));
           return;
         }
@@ -179,18 +182,6 @@ const main = async () => {
   console.log(`[smoke-sidecar] scope:   ${scopeDir}`);
   console.log(`[smoke-sidecar] openapi: ${openapi.origin}`);
 
-  const config = {
-    sources: [
-      {
-        kind: "openapi",
-        spec: `${openapi.origin}/openapi.json`,
-        baseUrl: openapi.origin,
-        namespace: "petstore",
-      },
-    ],
-  };
-  await writeFile(join(scopeDir, "executor.jsonc"), JSON.stringify(config, null, 2));
-
   const proc = spawn({
     cmd: [BINARY],
     env: {
@@ -217,9 +208,11 @@ const main = async () => {
       if (exitCode === null) proc.kill("SIGKILL");
     }
     openapi.server.stop(true);
+    // oxlint-disable-next-line executor/no-promise-catch -- boundary: best-effort tempdir cleanup in a standalone smoke harness
     await rm(scopeDir, { recursive: true, force: true }).catch(() => {});
   };
 
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: standalone smoke harness needs a finally to tear down the spawned binary + http server
   try {
     const port = await waitForReadyPort(proc);
     const mcpUrl = new URL(`http://127.0.0.1:${port}/mcp`);
@@ -236,9 +229,16 @@ const main = async () => {
     if (!hasExecute) fail(`MCP tools/list missing "execute": ${JSON.stringify(tools.tools)}`);
 
     // Drive the running OpenAPI server through a multi-step orchestration
-    // in one execute. Covers: array list response, path param dispatch, and
-    // object responses — all going out over real HTTP from inside QuickJS.
+    // in one execute. Covers: source registration, array list response, path
+    // param dispatch, and object responses — all going out over real HTTP from
+    // inside QuickJS.
     const code = `
+await tools.executor.openapi.addSource({
+  scope: ${JSON.stringify(scopeDir)},
+  spec: ${JSON.stringify(`${openapi.origin}/openapi.json`)},
+  baseUrl: ${JSON.stringify(openapi.origin)},
+  namespace: "petstore",
+});
 const list = await tools.petstore.pets.listPets({});
 const fetched = await tools.petstore.pets.getPet({ petId: list[1].id });
 return {

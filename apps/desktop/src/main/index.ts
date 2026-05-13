@@ -28,9 +28,9 @@ import { SERVER_SETTINGS_USERNAME, type DesktopServerSettings } from "../shared/
 
 // Pin userData to a friendly app-name-scoped dir BEFORE app.ready so every
 // Electron-side consumer (electron-store, electron-log, window-state) lands
-// at a predictable spot. User-mutable executor state (executor.jsonc,
-// data.db) is pinned separately to ~/.executor in main/sidecar.ts — that
-// path matches the CLI's default.
+// at a predictable spot. User-mutable executor state (data.db and the optional
+// executor.jsonc plugin manifest) is pinned separately to ~/.executor in
+// main/sidecar.ts — that path matches the CLI's default.
 app.setName("Executor");
 app.setPath("userData", join(app.getPath("appData"), "Executor"));
 
@@ -302,6 +302,11 @@ const promptInstallUpdate = async (version: string) => {
   }
 };
 
+// Re-check periodically so a long-running session picks up releases
+// without requiring a quit + relaunch. The boot-time check still runs;
+// this interval is purely a self-heal for idle apps.
+const UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
 const setupAutoUpdater = () => {
   if (!app.isPackaged) return;
   autoUpdater.logger = log;
@@ -315,6 +320,11 @@ const setupAutoUpdater = () => {
   autoUpdater.on("error", (err: Error) => {
     log.warn("[updater] error", err);
   });
+
+  setInterval(() => {
+    if (downloadedUpdateVersion) return; // already staged; waiting on the user
+    void runUpdateCheck({ alertOnFail: false });
+  }, UPDATE_POLL_INTERVAL_MS);
 };
 
 interface UpdateCheckOptions {
