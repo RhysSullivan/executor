@@ -332,6 +332,17 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
   readonly close: () => Effect.Effect<void, StorageFailure>;
 } & PluginExtensions<TPlugins>;
 
+export interface ExecutorDb {
+  readonly db: FumaDb;
+  readonly close?: () => Effect.Effect<void, StorageFailure> | Promise<void> | void;
+}
+
+export type ExecutorDbInput = FumaDb | ExecutorDb;
+
+export type ExecutorDbFactory = (config: {
+  readonly tables: FumaTables;
+}) => ExecutorDbInput | Effect.Effect<ExecutorDbInput, StorageFailure>;
+
 export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly []> {
   /**
    * Precedence-ordered scope stack. Innermost first; typical shape is
@@ -341,7 +352,7 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
    * Must be non-empty.
    */
   readonly scopes: readonly Scope[];
-  readonly db: FumaDb;
+  readonly db: ExecutorDbInput | ExecutorDbFactory;
   readonly plugins?: TPlugins;
   /**
    * How to respond when a tool requests user input mid-invocation. Pass
@@ -751,7 +762,14 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       const empty: readonly AnyPlugin[] = [];
       return empty as TPlugins;
     };
-    const { scopes, db: rootDbUntyped, plugins = defaultPlugins() } = config;
+    const { scopes, plugins = defaultPlugins() } = config;
+    const dbInput = yield* Effect.suspend(() => {
+      if (typeof config.db !== "function") return Effect.succeed(config.db);
+      const out = config.db({ tables: collectTables(plugins) });
+      return Effect.isEffect(out) ? out : Effect.succeed(out);
+    });
+    const rootDbUntyped = "db" in dbInput ? dbInput.db : dbInput;
+    const closeDb = "db" in dbInput ? dbInput.close : undefined;
 
     if (scopes.length === 0) {
       return yield* new StorageError({
@@ -3481,6 +3499,21 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         for (const runtime of runtimes.values()) {
           if (runtime.plugin.close) {
             yield* runtime.plugin.close();
+          }
+        }
+        if (closeDb) {
+          const out = closeDb();
+          if (Effect.isEffect(out)) {
+            yield* out;
+          } else if (out instanceof Promise) {
+            yield* Effect.tryPromise({
+              try: () => out,
+              catch: (cause) =>
+                new StorageError({
+                  message: "Executor database close failed",
+                  cause,
+                }),
+            });
           }
         }
       });

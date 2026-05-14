@@ -3,7 +3,6 @@
  * — no Effect knowledge needed. In-memory stores, runs anywhere.
  */
 import { createExecutor, SecretId, SetSecretInput } from "@executor-js/sdk/promise";
-import { collectTables } from "@executor-js/sdk/core";
 import { createSqliteTestFumaDb } from "@executor-js/sdk/testing";
 import { mcpPlugin } from "@executor-js/plugin-mcp/promise";
 import { openApiPlugin } from "@executor-js/plugin-openapi/promise";
@@ -14,13 +13,13 @@ import { graphqlPlugin } from "@executor-js/plugin-graphql/promise";
 // ---------------------------------------------------------------------------
 
 const plugins = [mcpPlugin(), openApiPlugin(), graphqlPlugin()] as const;
-const db = await createSqliteTestFumaDb({
-  tables: collectTables(plugins),
-  namespace: "executor_promise_example",
-});
 
 const executor = await createExecutor({
-  db: db.db,
+  db: ({ tables }) =>
+    createSqliteTestFumaDb({
+      tables,
+      namespace: "executor_promise_example",
+    }),
   scopes: [{ id: "my-app", name: "my-app" }],
   plugins,
   onElicitation: "accept-all",
@@ -120,4 +119,3 @@ const resolved = await executor.secrets.get("api-key");
 console.log("Secret:", resolved);
 
 await executor.close();
-await db.close();

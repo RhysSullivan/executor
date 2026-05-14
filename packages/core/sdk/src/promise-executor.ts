@@ -15,11 +15,12 @@
 import { Brand, Effect } from "effect";
 
 import {
+  collectTables,
   createExecutor as createEffectExecutor,
   type Executor as EffectExecutor,
   type OnElicitation,
 } from "./executor";
-import type { FumaDb } from "./fuma-runtime";
+import type { FumaDb, FumaTables } from "./fuma-runtime";
 import { ScopeId } from "./ids";
 import type { AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
@@ -73,12 +74,21 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
    * `{ id, name }` partials to build a multi-scope executor.
    */
   readonly scopes?: readonly { readonly id?: string; readonly name?: string }[];
-  /**
-   * FumaDB ORM handle for the configured Executor schema. Hosts choose
-   * their database engine and FumaDB adapter, then pass the query handle here.
-   */
-  readonly db: FumaDb;
   readonly plugins?: TPlugins;
+  /**
+   * FumaDB ORM handle, or a factory that receives the full Executor table
+   * map after plugins have been applied. Public consumers usually want the
+   * factory form so `collectTables(plugins)` stays inside `createExecutor`.
+   */
+  readonly db:
+    | FumaDb
+    | { readonly db: FumaDb; readonly close?: () => Promise<void> | void }
+    | ((config: {
+        readonly tables: FumaTables;
+      }) =>
+        | FumaDb
+        | { readonly db: FumaDb; readonly close?: () => Promise<void> | void }
+        | Promise<FumaDb | { readonly db: FumaDb; readonly close?: () => Promise<void> | void }>);
   /**
    * How to respond when a tool requests user input mid-invocation. Pass
    * `"accept-all"` for tests / non-interactive hosts, or a handler
@@ -141,6 +151,10 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
   config: ExecutorConfig<TPlugins>,
 ): Promise<Executor<TPlugins>> => {
   const plugins = (config?.plugins ?? []) as TPlugins;
+  const db =
+    typeof config.db === "function"
+      ? await config.db({ tables: collectTables(plugins) })
+      : config.db;
 
   const scopes =
     config.scopes && config.scopes.length > 0
@@ -161,7 +175,7 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
 
   const effectConfig = {
     scopes,
-    db: config.db,
+    db,
     plugins,
     onElicitation: config.onElicitation,
   };

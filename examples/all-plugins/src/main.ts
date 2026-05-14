@@ -19,14 +19,7 @@
 
 import { Cause, Effect } from "effect";
 
-import {
-  SecretId,
-  Scope,
-  ScopeId,
-  SetSecretInput,
-  collectTables,
-  createExecutor,
-} from "@executor-js/sdk";
+import { SecretId, Scope, ScopeId, SetSecretInput, createExecutor } from "@executor-js/sdk";
 import { createSqliteTestFumaDb } from "@executor-js/sdk/testing";
 
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
@@ -166,16 +159,15 @@ const program = Effect.gen(function* () {
   console.log("Building executor with every ported plugin");
   console.log("=".repeat(72));
 
-  const sqlite = yield* Effect.promise(() =>
-    createSqliteTestFumaDb({
-      tables: collectTables(plugins),
-      namespace: "executor_example_all_plugins",
-    }),
-  );
-
   const executor = yield* createExecutor({
     scopes: [scope],
-    db: sqlite.db,
+    db: ({ tables }) =>
+      Effect.promise(() =>
+        createSqliteTestFumaDb({
+          tables,
+          namespace: "executor_example_all_plugins",
+        }),
+      ),
     plugins,
     onElicitation: "accept-all" as const,
   });
@@ -437,7 +429,6 @@ const program = Effect.gen(function* () {
   console.log("-".repeat(72));
 
   yield* executor.close();
-  yield* Effect.promise(() => sqlite.close());
   console.log("Executor closed. Done.");
 });
 

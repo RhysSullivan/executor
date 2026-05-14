@@ -305,6 +305,9 @@ export {
 export {
   type Executor,
   type ExecutorConfig,
+  type ExecutorDb,
+  type ExecutorDbFactory,
+  type ExecutorDbInput,
   type OnElicitation,
   type InvokeOptions,
   createExecutor,
