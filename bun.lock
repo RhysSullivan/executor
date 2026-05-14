@@ -372,9 +372,11 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
+        "@types/better-sqlite3": "^7.6.13",
         "@types/node": "catalog:",
         "@types/pg": "^8.20.0",
         "@types/semver": "^7.7.1",
+        "better-sqlite3": "^12.9.0",
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",

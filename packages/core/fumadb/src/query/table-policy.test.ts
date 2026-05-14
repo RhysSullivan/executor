@@ -118,12 +118,12 @@ const v1 = schema({
   },
 });
 
-const policyDB = fumadb({
-  namespace: "policy_black_box",
+const tablePolicyDB = fumadb({
+  namespace: "table_policy_test",
   schemas: [v1],
 });
 
-type PolicyQuery = AbstractQuery<typeof v1>;
+type TablePolicyQuery = AbstractQuery<typeof v1>;
 
 const makeContext = (allowedTenantIds: readonly string[], marker: string): TenantPolicyContext => ({
   allowedTenantIds: new Set(allowedTenantIds),
@@ -136,7 +136,7 @@ const makeHarness = async () => {
   sqlite.pragma("foreign_keys = ON");
   const runtimeSchema = createDrizzleRuntimeSchemaFromTables({
     tables: v1.tables,
-    namespace: "policy_black_box",
+    namespace: "table_policy_test",
     version: "1.0.0",
     provider: "sqlite",
   });
@@ -144,14 +144,14 @@ const makeHarness = async () => {
 
   for (const statement of createDrizzleRuntimeSchemaSqlFromTables({
     tables: v1.tables,
-    namespace: "policy_black_box",
+    namespace: "table_policy_test",
     version: "1.0.0",
     provider: "sqlite",
   })) {
     sqlite.exec(statement);
   }
 
-  const client = policyDB.client(
+  const client = tablePolicyDB.client(
     drizzleAdapter({
       db: drizzleDb,
       provider: "sqlite",
@@ -166,14 +166,14 @@ const makeHarness = async () => {
   };
 };
 
-const useHarness = <A>(run: (orm: PolicyQuery) => Promise<A>) =>
+const useHarness = <A>(run: (orm: TablePolicyQuery) => Promise<A>) =>
   Effect.acquireUseRelease(
     Effect.promise(makeHarness),
     ({ orm }) => Effect.promise(() => run(orm)),
     ({ close }) => Effect.promise(close),
   );
 
-const seedTenants = async (orm: PolicyQuery) => {
+const seedTenants = async (orm: TablePolicyQuery) => {
   const seed = withQueryContext(orm, makeContext(["tenant-a", "tenant-b"], "seed"));
 
   await seed.createMany("authors", [
