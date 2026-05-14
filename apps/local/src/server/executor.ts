@@ -5,7 +5,14 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
-import { Scope, ScopeId, collectTables, createExecutor, type AnyPlugin } from "@executor-js/sdk";
+import {
+  Scope,
+  ScopeId,
+  collectTables,
+  createExecutor,
+  type AnyPlugin,
+  withQueryContext,
+} from "@executor-js/sdk";
 import { loadPluginsFromJsonc } from "@executor-js/config";
 
 import executorConfig from "../../executor.config";
@@ -189,7 +196,9 @@ const importLegacySqliteIfNeeded = async (options: {
     const result = await importSqliteDataToFuma({
       sqlitePath: storage.sqlitePath,
       markerPath: storage.importMarkerPath,
-      db: target.db,
+      target: withQueryContext(target.db, {
+        allowedScopeIds: new Set([scopeId]),
+      }),
       tables,
       scopeId,
     });

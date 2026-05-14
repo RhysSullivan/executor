@@ -15,7 +15,7 @@ export const hasExecutorScopePolicy = (table: AnyTable): boolean =>
   table.policies.some((policy) => policy.name === executorScopePolicyName);
 
 const scopePolicyViolation = (message: string): never => {
-  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: FumaDB row policy callbacks are promise callbacks, not Effect effects
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: FumaDB table policy callbacks are promise callbacks, not Effect effects
   throw new StorageError({ message, cause: undefined });
 };
 

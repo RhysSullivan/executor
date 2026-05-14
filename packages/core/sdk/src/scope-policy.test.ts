@@ -10,6 +10,7 @@ import { Scope } from "./scope";
 import { dateColumn, scopedExecutorTable, textColumn } from "./core-schema";
 import { assertExecutorScopeAllowed, type ExecutorScopePolicyContext } from "./scope-policy";
 import { makeTestConfig } from "./test-config";
+import { createSqliteTestFumaDb } from "./sqlite-test-db";
 
 const scope = (id: string) =>
   Scope.make({
@@ -82,14 +83,16 @@ const leakyPlugin = definePlugin(() => ({
   extension: (ctx) => ctx.storage,
 }))();
 
+const unscopedSchema = {
+  raw_table: table("raw_table", {
+    row_id: idColumn("row_id", "varchar(255)").defaultTo$("auto"),
+    id: column("id", "varchar(255)"),
+  }),
+};
+
 const unscopedPlugin = definePlugin(() => ({
   id: "unscoped" as const,
-  schema: {
-    raw_table: table("raw_table", {
-      row_id: idColumn("row_id", "varchar(255)").defaultTo$("auto"),
-      id: column("id", "varchar(255)"),
-    }),
-  },
+  schema: unscopedSchema,
   storage: () => ({}),
 }))();
 
@@ -97,6 +100,31 @@ describe("executor FumaDB scope policy", () => {
   it("rejects plugin tables without an explicit executor scope policy", () => {
     expect(() => makeTestConfig({ plugins: [unscopedPlugin] as const })).toThrow(StorageError);
   });
+
+  it.effect("rejects direct database handles with unscoped table maps", () =>
+    Effect.gen(function* () {
+      const sqlite = yield* Effect.acquireRelease(
+        Effect.promise(() =>
+          createSqliteTestFumaDb({
+            tables: unscopedSchema,
+            namespace: "executor_unscoped_test",
+          }),
+        ),
+        (db) => Effect.promise(() => db.close()).pipe(Effect.ignore),
+      );
+
+      const error = yield* createExecutor({
+        scopes: [innerScope],
+        db: sqlite.db,
+        onElicitation: "accept-all",
+      }).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(StorageError);
+      expect(error).toMatchObject({
+        message: expect.stringContaining("missing an executor scope policy"),
+      });
+    }),
+  );
 
   it.effect("allows in-scope partial reads and keeps hidden scope columns invisible", () =>
     Effect.gen(function* () {

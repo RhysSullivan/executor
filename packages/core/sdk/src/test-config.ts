@@ -1,9 +1,11 @@
 import { Context, Effect, Layer } from "effect";
+import { withQueryContext } from "fumadb/query";
 import { collectTables, createExecutor, type Executor, type ExecutorConfig } from "./executor";
 import type { FumaDb } from "./fuma-runtime";
 import { ScopeId } from "./ids";
 import { definePlugin, type AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
+import type { ExecutorScopePolicyContext } from "./scope-policy";
 import type { SecretProvider } from "./secrets";
 import type { SqliteTestFumaDb } from "./sqlite-test-db";
 
@@ -108,10 +110,13 @@ export const makeTestConfig = <const TPlugins extends readonly AnyPlugin[] = rea
     backend: options?.backend ?? "sqlite",
     dataDir: options?.dataDir,
   });
+  const db = withQueryContext(testDb.db, {
+    allowedScopeIds: new Set(scopes.map((scope) => String(scope.id))),
+  } satisfies ExecutorScopePolicyContext);
 
   return {
     scopes,
-    db: testDb.db,
+    db,
     plugins: options?.plugins,
     testDb,
     // Tests default to auto-accepting elicitation prompts. Override via

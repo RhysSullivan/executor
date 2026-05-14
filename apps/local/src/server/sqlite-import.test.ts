@@ -81,10 +81,11 @@ describe("importSqliteDataToFuma", () => {
       path: join(workDir, "target.db"),
     });
 
+    const scopedDb = withQueryContext(sqlite.db, { allowedScopeIds: new Set(["scope_a"]) });
     const result = await importSqliteDataToFuma({
       sqlitePath,
       markerPath,
-      db: sqlite.db,
+      target: scopedDb,
       tables,
       scopeId: "scope_a",
     });
@@ -96,9 +97,7 @@ describe("importSqliteDataToFuma", () => {
     expect(existsSync(sqlitePath)).toBe(false);
     expect(result.backupPath && existsSync(result.backupPath)).toBe(true);
 
-    const db = withQueryContext(sqlite.db, { allowedScopeIds: new Set(["scope_a"]) });
-
-    const source = (await db.findFirst("source", {
+    const source = (await scopedDb.findFirst("source", {
       where: (b) => b("id", "=", "src_1"),
     })) as Record<string, unknown>;
     expect(source.scope_id).toBe("scope_a");
@@ -107,7 +106,7 @@ describe("importSqliteDataToFuma", () => {
     expect(source.can_edit).toBe(true);
     expect(source.created_at).toBeInstanceOf(Date);
 
-    const blob = (await db.findFirst("blob", {
+    const blob = (await scopedDb.findFirst("blob", {
       where: (b) => b("id", "=", JSON.stringify(["scope_a/plugin", "spec"])),
     })) as Record<string, unknown>;
     expect(blob.value).toBe("{}");

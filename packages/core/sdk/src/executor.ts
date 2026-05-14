@@ -19,6 +19,7 @@ import type { OAuthEndpointUrlPolicy } from "./oauth-helpers";
 import { generateKeyBetween } from "fractional-indexing";
 import {
   StorageError,
+  isStorageFailure,
   makeFumaClient,
   type FumaDb,
   type FumaRow,
@@ -400,12 +401,19 @@ export const collectTables = (plugins: readonly AnyPlugin[]): FumaTables => {
     }
   }
 
-  for (const tableDef of Object.values(merged)) {
-    assertExecutorScopePolicyTable(tableDef);
-  }
+  validateExecutorScopePolicyTables(merged);
 
   return merged;
 };
+
+const validateExecutorScopePolicyTables = (tables: FumaTables): void => {
+  for (const tableDef of Object.values(tables)) {
+    assertExecutorScopePolicyTable(tableDef);
+  }
+};
+
+const storageFailureFromUnknown = (message: string, cause: unknown): StorageFailure =>
+  isStorageFailure(cause) ? cause : new StorageError({ message, cause });
 
 const createDefaultMemoryDb = (tables: FumaTables): ExecutorDb => {
   const version = "1.0.0";
@@ -790,14 +798,22 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       return empty as TPlugins;
     };
     const { scopes, plugins = defaultPlugins() } = config;
+    const tables = yield* Effect.try({
+      try: () => collectTables(plugins),
+      catch: (cause) => storageFailureFromUnknown("Failed to collect executor tables", cause),
+    });
     const dbInput = yield* Effect.suspend(() => {
-      if (!config.db) return Effect.succeed(createDefaultMemoryDb(collectTables(plugins)));
+      if (!config.db) return Effect.succeed(createDefaultMemoryDb(tables));
       if (typeof config.db !== "function") return Effect.succeed(config.db);
-      const out = config.db({ tables: collectTables(plugins) });
+      const out = config.db({ tables });
       return Effect.isEffect(out) ? out : Effect.succeed(out);
     });
     const rootDbUntyped = "db" in dbInput ? dbInput.db : dbInput;
     const closeDb = "db" in dbInput ? dbInput.close : undefined;
+    yield* Effect.try({
+      try: () => validateExecutorScopePolicyTables(rootDbUntyped.internal.tables),
+      catch: (cause) => storageFailureFromUnknown("Failed to validate executor tables", cause),
+    });
 
     if (scopes.length === 0) {
       return yield* new StorageError({

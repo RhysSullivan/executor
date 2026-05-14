@@ -6,13 +6,7 @@ import { dirname } from "node:path";
 
 /* oxlint-disable executor/no-json-parse, executor/no-switch-statement, executor/no-try-catch-or-throw -- boundary: one-shot legacy SQLite importer normalizes unknown rows and wraps native sqlite failures */
 
-import {
-  withQueryContext,
-  type AnyColumn,
-  type AnyTable,
-  type FumaDb,
-  type FumaTables,
-} from "@executor-js/sdk";
+import { type AnyColumn, type AnyTable, type FumaTables } from "@executor-js/sdk";
 
 type SqliteRow = Record<string, unknown>;
 
@@ -31,7 +25,7 @@ export class LocalSqliteImportError extends Data.TaggedError("LocalSqliteImportE
 export interface LocalSqliteImportOptions {
   readonly sqlitePath: string;
   readonly markerPath: string;
-  readonly db: FumaDb;
+  readonly target: ImportFumaDb;
   readonly tables: FumaTables;
   readonly scopeId: string;
 }
@@ -186,11 +180,8 @@ export const importSqliteDataToFuma = async (
     sqlite = new Database(options.sqlitePath, { readonly: true });
     const importedTables: string[] = [];
     let importedRows = 0;
-    const dbWithScopeContext = withQueryContext(options.db, {
-      allowedScopeIds: new Set([options.scopeId]),
-    });
 
-    await (dbWithScopeContext as ImportFumaDb).transaction(async (db) => {
+    await options.target.transaction(async (db) => {
       for (const [tableKey, table] of Object.entries(options.tables)) {
         const tableName = table.names.sql;
         if (!tableExists(sqlite!, tableName)) continue;
