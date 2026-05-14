@@ -12,7 +12,7 @@ import {
   matchPattern,
   resolveToolPolicy,
 } from "./policies";
-import { definePlugin, defineSchema } from "./plugin";
+import { definePlugin } from "./plugin";
 import { makeTestExecutor } from "./testing";
 
 // ---------------------------------------------------------------------------
@@ -268,9 +268,9 @@ const recordingHandler = (calls: { count: number }): ElicitationHandler =>
 const decliningHandler: ElicitationHandler = () =>
   Effect.succeed(ElicitationResponse.make({ action: "decline" }));
 
-const policyTestSchema = defineSchema({
+const policyTestSchema = {
   ptest_marker: scopedExecutorTable("ptest_marker", {}),
-});
+};
 
 const policyTestPlugin = definePlugin(() => ({
   id: "ptest" as const,

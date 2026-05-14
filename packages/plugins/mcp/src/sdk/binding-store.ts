@@ -21,7 +21,7 @@ import { Effect, Option, Schema } from "effect";
 import {
   ConfiguredCredentialBinding,
   dateColumn,
-  defineSchema,
+  type FumaTables,
   jsonColumn,
   nullableTextColumn,
   scopedExecutorTable,
@@ -44,7 +44,7 @@ import {
 // Schema
 // ---------------------------------------------------------------------------
 
-export const mcpSchema = defineSchema({
+export const mcpSchema = {
   mcp_source: scopedExecutorTable("mcp_source", {
     name: textColumn("name"),
     // Plugin-private structural data minus the ref-bearing fields
@@ -84,7 +84,7 @@ export const mcpSchema = defineSchema({
     binding: jsonColumn("binding"),
     created_at: dateColumn("created_at"),
   }),
-});
+} satisfies FumaTables;
 
 export type McpSchema = typeof mcpSchema;
 

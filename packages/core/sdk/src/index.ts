@@ -298,7 +298,6 @@ export {
   type SecretListEntry,
   type Elicit,
   definePlugin,
-  defineSchema,
   tool,
 } from "./plugin";
 

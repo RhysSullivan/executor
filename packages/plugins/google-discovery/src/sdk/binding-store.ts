@@ -16,7 +16,7 @@ import { Effect, Option, Schema } from "effect";
 
 import {
   dateColumn,
-  defineSchema,
+  type FumaTables,
   jsonColumn,
   nullableTextColumn,
   scopedExecutorTable,
@@ -46,7 +46,7 @@ export const GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
 // Schema — plugin-declared tables merged with coreSchema at executor start.
 // ---------------------------------------------------------------------------
 
-export const googleDiscoverySchema = defineSchema({
+export const googleDiscoverySchema = {
   google_discovery_source: scopedExecutorTable("google_discovery_source", {
     name: textColumn("name"),
     // Plugin-private structural config minus auth/credentials —
@@ -89,7 +89,7 @@ export const googleDiscoverySchema = defineSchema({
     binding: jsonColumn("binding"),
     created_at: dateColumn("created_at"),
   }),
-});
+} satisfies FumaTables;
 
 export type GoogleDiscoverySchema = typeof googleDiscoverySchema;
 

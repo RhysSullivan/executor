@@ -1,6 +1,6 @@
 import { Cause, Context, Data, Effect, Exit, Layer, Predicate } from "effect";
 import type { AbstractQuery } from "fumadb/query";
-import type { AnySchema, AnyTable } from "fumadb/schema";
+import type { AnySchema, AnyTable, Schema as FumaSchema } from "fumadb/schema";
 
 export class StorageError extends Data.TaggedError("StorageError")<{
   readonly message: string;
@@ -14,6 +14,9 @@ export class UniqueViolationError extends Data.TaggedError("UniqueViolationError
 export type StorageFailure = StorageError | UniqueViolationError;
 
 export type FumaTables = Record<string, AnyTable>;
+export type TablesToFumaSchema<TTables extends FumaTables | undefined> = TTables extends FumaTables
+  ? FumaSchema<"latest", TTables>
+  : AnySchema;
 export type FumaDb<TSchema extends AnySchema = AnySchema> = AbstractQuery<TSchema>;
 export type FumaRow<TTable extends AnyTable> = Omit<
   {
@@ -83,9 +86,12 @@ class TransactionEffectDefect {
   constructor(readonly cause: unknown) {}
 }
 
-export type IFumaClient = Readonly<{
-  db: FumaDb;
-  use: <A>(label: string, fn: (db: FumaDb) => Promise<A>) => Effect.Effect<A, StorageFailure>;
+export type IFumaClient<TSchema extends AnySchema = AnySchema> = Readonly<{
+  db: FumaDb<TSchema>;
+  use: <A>(
+    label: string,
+    fn: (db: FumaDb<TSchema>) => Promise<A>,
+  ) => Effect.Effect<A, StorageFailure>;
   transaction: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E | StorageFailure>;
 }>;
 

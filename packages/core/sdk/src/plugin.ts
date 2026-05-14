@@ -3,7 +3,13 @@ import type { Context, Layer } from "effect";
 import type { HttpClient } from "effect/unstable/http";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
-import type { FumaDb, FumaTables, IFumaClient, StorageFailure } from "./fuma-runtime";
+import type {
+  FumaDb,
+  FumaTables,
+  IFumaClient,
+  StorageFailure,
+  TablesToFumaSchema,
+} from "./fuma-runtime";
 
 import type { PluginBlobStore } from "./blob";
 import type {
@@ -44,7 +50,7 @@ import type { Usage, UsagesForConnectionInput, UsagesForSecretInput } from "./us
 // and writes stamp an explicit `scope_id`.
 // ---------------------------------------------------------------------------
 
-export interface StorageDeps<_TTables extends FumaTables | undefined = undefined> {
+export interface StorageDeps<TTables extends FumaTables | undefined = undefined> {
   /**
    * Precedence-ordered scope stack visible to this executor. Innermost
    * first. Reads on scoped tables walk every scope; writes require the
@@ -53,18 +59,11 @@ export interface StorageDeps<_TTables extends FumaTables | undefined = undefined
    */
   readonly scopes: readonly Scope[];
   /** Plugin-facing FumaDB query handle. Plugins call FumaDB directly. */
-  readonly db: FumaDb;
+  readonly db: FumaDb<TablesToFumaSchema<TTables>>;
   /** Effect boundary around the same FumaDB handle for stores implemented in Effect. */
-  readonly fuma: IFumaClient;
+  readonly fuma: IFumaClient<TablesToFumaSchema<TTables>>;
   readonly blobs: PluginBlobStore;
 }
-
-// ---------------------------------------------------------------------------
-// defineSchema — compatibility name for plugin tables. It returns FumaDB table
-// definitions directly; there is no Executor-specific schema DSL anymore.
-// ---------------------------------------------------------------------------
-
-export const defineSchema = <const TTables extends FumaTables>(tables: TTables): TTables => tables;
 
 // ---------------------------------------------------------------------------
 // Elicit — suspends the fiber, calls the invoke-time elicitation

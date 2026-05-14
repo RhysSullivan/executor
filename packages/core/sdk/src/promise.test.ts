@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import { createExecutor } from "./promise";
 import { collectTables } from "./executor";
-import { definePlugin, defineSchema, tool } from "./plugin";
+import { definePlugin, tool } from "./plugin";
 import { createSqliteTestFumaDb } from "./sqlite-test-db";
 import { Effect, Schema } from "effect";
 
@@ -11,7 +11,7 @@ import { Effect, Schema } from "effect";
 // nested methods (executor.tools.*) and plugin extensions.
 const echoPlugin = definePlugin(() => ({
   id: "echo" as const,
-  schema: defineSchema({}),
+  schema: {},
   storage: () => ({}),
   staticSources: () => [
     {
@@ -84,7 +84,7 @@ describe("promise/createExecutor", () => {
     // wrapped invocation error.
     const approvedPlugin = definePlugin(() => ({
       id: "ap" as const,
-      schema: defineSchema({}),
+      schema: {},
       storage: () => ({}),
       staticSources: () => [
         {

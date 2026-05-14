@@ -2,13 +2,10 @@ import { Effect } from "effect";
 
 import {
   dateColumn,
-  defineSchema,
+  type FumaTables,
   nullableTextColumn,
   scopedExecutorTable,
   StorageError,
-  type AnyColumn,
-  type Condition,
-  type ConditionBuilder,
   type SecretProvider,
   type StorageDeps,
   type StorageFailure,
@@ -39,13 +36,13 @@ const KEK_NOT_READY_BACKOFF_MS = 1000;
 // table just tracks what we know about and lets us enumerate.
 // ---------------------------------------------------------------------------
 
-export const workosVaultSchema = defineSchema({
+export const workosVaultSchema = {
   workos_vault_metadata: scopedExecutorTable("workos_vault_metadata", {
     name: textColumn("name"),
     purpose: nullableTextColumn("purpose"),
     created_at: dateColumn("created_at"),
   }),
-});
+} satisfies FumaTables;
 
 export type WorkosVaultSchema = typeof workosVaultSchema;
 
@@ -80,55 +77,10 @@ export const makeWorkosVaultStore = (deps: StorageDeps<WorkosVaultSchema>): Work
   const { fuma } = deps;
   const scopeIds = deps.scopes.map((scope) => String(scope.id));
 
-  type FumaStoreDb = {
-    readonly create: (
-      table: string,
-      row: Record<string, unknown>,
-    ) => Promise<Record<string, unknown>>;
-    readonly deleteMany: (table: string, options: unknown) => Promise<void>;
-    readonly findFirst: (
-      table: string,
-      options: unknown,
-    ) => Promise<Record<string, unknown> | null>;
-    readonly findMany: (
-      table: string,
-      options?: unknown,
-    ) => Promise<readonly Record<string, unknown>[]>;
-    readonly updateMany: (table: string, options: unknown) => Promise<void>;
-  };
-
-  const asStoreDb = (db: unknown): FumaStoreDb => db as FumaStoreDb;
-
-  type StoreConditionBuilder = ConditionBuilder<Record<string, AnyColumn>>;
-
-  const byScopedId =
-    (id: string, scope: string) =>
-    (b: StoreConditionBuilder): Condition =>
-      b.and(b("id", "=", id), b("scope_id", "=", scope)) as Condition;
-
-  const findFirst = (options: unknown): Effect.Effect<MetadataRow | null, StorageFailure> =>
-    fuma
-      .use("workos_vault_metadata.findFirst", (db) =>
-        asStoreDb(db).findFirst("workos_vault_metadata", options),
-      )
-      .pipe(Effect.map((row): MetadataRow | null => (row ? toMetadataRow(row) : null)));
-
-  const scopedWhere = (b: StoreConditionBuilder): Condition =>
-    scopeIds.length === 1
-      ? b("scope_id", "=", scopeIds[0]!)
-      : (b("scope_id", "in", [...scopeIds]) as Condition);
-
-  const findMany = (options?: unknown): Effect.Effect<readonly MetadataRow[], StorageFailure> =>
-    fuma
-      .use("workos_vault_metadata.findMany", (db) =>
-        asStoreDb(db).findMany("workos_vault_metadata", options),
-      )
-      .pipe(Effect.map((rows) => rows.map(toMetadataRow)));
-
   const create = (row: MetadataRow): Effect.Effect<void, StorageFailure> =>
     fuma
       .use("workos_vault_metadata.create", (db) =>
-        asStoreDb(db).create("workos_vault_metadata", {
+        db.create("workos_vault_metadata", {
           id: row.id,
           scope_id: row.scope_id,
           name: row.name,
@@ -140,8 +92,8 @@ export const makeWorkosVaultStore = (deps: StorageDeps<WorkosVaultSchema>): Work
 
   const update = (row: MetadataRow): Effect.Effect<void, StorageFailure> =>
     fuma.use("workos_vault_metadata.updateMany", (db) =>
-      asStoreDb(db).updateMany("workos_vault_metadata", {
-        where: byScopedId(row.id, row.scope_id),
+      db.updateMany("workos_vault_metadata", {
+        where: (b) => b.and(b("id", "=", row.id), b("scope_id", "=", row.scope_id)),
         set: {
           name: row.name,
           purpose: row.purpose ?? null,
@@ -151,14 +103,21 @@ export const makeWorkosVaultStore = (deps: StorageDeps<WorkosVaultSchema>): Work
 
   const deleteScoped = (id: string, scope: string): Effect.Effect<void, StorageFailure> =>
     fuma.use("workos_vault_metadata.deleteMany", (db) =>
-      asStoreDb(db).deleteMany("workos_vault_metadata", {
-        where: byScopedId(id, scope),
+      db.deleteMany("workos_vault_metadata", {
+        where: (b) => b.and(b("id", "=", id), b("scope_id", "=", scope)),
       }),
     );
 
   // Every read/write to a specific row pins BOTH `id` and `scope_id`.
   // Scope is a normal FumaDB predicate here, not hidden behavior.
-  const findScoped = (id: string, scope: string) => findFirst({ where: byScopedId(id, scope) });
+  const findScoped = (id: string, scope: string) =>
+    fuma
+      .use("workos_vault_metadata.findFirst", (db) =>
+        db.findFirst("workos_vault_metadata", {
+          where: (b) => b.and(b("id", "=", id), b("scope_id", "=", scope)),
+        }),
+      )
+      .pipe(Effect.map((row): MetadataRow | null => (row ? toMetadataRow(row) : null)));
 
   return {
     get: (id, scope) => findScoped(id, scope),
@@ -179,11 +138,21 @@ export const makeWorkosVaultStore = (deps: StorageDeps<WorkosVaultSchema>): Work
         return true;
       }),
     list: () =>
-      findMany({ where: scopedWhere }).pipe(
-        Effect.map((rows): readonly MetadataRow[] =>
-          [...rows].sort((l, r) => l.created_at.getTime() - r.created_at.getTime()),
+      fuma
+        .use("workos_vault_metadata.findMany", (db) =>
+          db.findMany("workos_vault_metadata", {
+            where: (b) =>
+              scopeIds.length === 1
+                ? b("scope_id", "=", scopeIds[0]!)
+                : b("scope_id", "in", [...scopeIds]),
+          }),
+        )
+        .pipe(
+          Effect.map((rows) => rows.map(toMetadataRow)),
+          Effect.map((rows): readonly MetadataRow[] =>
+            [...rows].sort((l, r) => l.created_at.getTime() - r.created_at.getTime()),
+          ),
         ),
-      ),
   };
 };
 

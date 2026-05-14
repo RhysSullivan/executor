@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect";
 
 import {
   ConfiguredCredentialBinding,
-  defineSchema,
+  type FumaTables,
   jsonColumn,
   nullableTextColumn,
   scopedExecutorTable,
@@ -35,7 +35,7 @@ import {
 //     internal opaque data).
 // ---------------------------------------------------------------------------
 
-export const graphqlSchema = defineSchema({
+export const graphqlSchema = {
   graphql_source: scopedExecutorTable("graphql_source", {
     name: textColumn("name"),
     endpoint: textColumn("endpoint"),
@@ -62,7 +62,7 @@ export const graphqlSchema = defineSchema({
     source_id: textColumn("source_id"),
     binding: jsonColumn("binding"),
   }),
-});
+} satisfies FumaTables;
 
 export type GraphqlSchema = typeof graphqlSchema;
 
