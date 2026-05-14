@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { collectTables, withQueryContext } from "@executor-js/sdk";
+import { collectTables } from "@executor-js/sdk";
+import { withQueryContext } from "fumadb/query";
 
 import { importSqliteDataToFuma } from "./sqlite-import";
 import { createSqliteFumaDb, type SqliteFumaDb } from "./sqlite-fumadb";

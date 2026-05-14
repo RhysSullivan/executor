@@ -5,14 +5,8 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
-import {
-  Scope,
-  ScopeId,
-  collectTables,
-  createExecutor,
-  type AnyPlugin,
-  withQueryContext,
-} from "@executor-js/sdk";
+import { Scope, ScopeId, collectTables, createExecutor, type AnyPlugin } from "@executor-js/sdk";
+import { withQueryContext } from "fumadb/query";
 import { loadPluginsFromJsonc } from "@executor-js/config";
 
 import executorConfig from "../../executor.config";

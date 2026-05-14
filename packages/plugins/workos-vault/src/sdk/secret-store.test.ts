@@ -12,7 +12,6 @@ import {
   ScopeId,
   SecretId,
   SetSecretInput,
-  withQueryContext,
 } from "@executor-js/sdk";
 
 import {
@@ -328,7 +327,7 @@ const makeLayeredExecutors = (client: WorkOSVaultClient) =>
       createdAt: new Date(),
     });
 
-    const config = makeTestConfig({ scopes: [outerScope], plugins });
+    const config = makeTestConfig({ scopes: [innerScope, outerScope], plugins });
     const execOuter = yield* createExecutor({ ...config, scopes: [outerScope] });
     const execInner = yield* createExecutor({ ...config, scopes: [innerScope, outerScope] });
     return { execOuter, execInner, outerId, innerId, config };
@@ -413,9 +412,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
 
       const rows = toVaultMetadataRows(
         yield* Effect.promise(() =>
-          withQueryContext(config.db, {
-            allowedScopeIds: new Set([String(innerId), String(outerId)]),
-          }).findMany("workos_vault_metadata", {
+          config.db.findMany("workos_vault_metadata", {
             where: (b) => b("id", "=", "api-token"),
           }),
         ),
