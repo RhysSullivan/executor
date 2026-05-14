@@ -8,6 +8,7 @@ import { ScopeHandlers } from "./scope";
 import { ExecutionsHandlers } from "./executions";
 import { OAuthHandlers } from "./oauth";
 import { PoliciesHandlers } from "./policies";
+import { CredentialBindingsHandlers } from "./credential-bindings";
 
 export { ToolsHandlers } from "./tools";
 export { SourcesHandlers } from "./sources";
@@ -17,6 +18,7 @@ export { ScopeHandlers } from "./scope";
 export { ExecutionsHandlers } from "./executions";
 export { OAuthHandlers } from "./oauth";
 export { PoliciesHandlers } from "./policies";
+export { CredentialBindingsHandlers } from "./credential-bindings";
 
 export const CoreHandlers = Layer.mergeAll(
   ToolsHandlers,
@@ -28,4 +30,5 @@ export const CoreHandlers = Layer.mergeAll(
   OAuthHandlers,
   OAuthHandlers,
   PoliciesHandlers,
+  CredentialBindingsHandlers,
 );

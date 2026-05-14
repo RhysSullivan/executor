@@ -11,6 +11,7 @@ import {
   tool,
   resolveSecretBackedMap,
   type CredentialBindingRef,
+  type CredentialBindingValue,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -44,10 +45,7 @@ import {
   ConfiguredHeaderBinding,
   OAuth2SourceConfig,
   OpenApiCredentialInput as OpenApiCredentialInputSchema,
-  OpenApiSourceBindingInput,
-  OpenApiSourceBindingRef,
   type OpenApiCredentialInput as OpenApiCredentialInputValue,
-  type OpenApiSourceBindingValue,
   OperationBinding,
   type ConfiguredHeaderValue as ConfiguredHeaderValueValue,
   type HeaderValue as HeaderValueValue,
@@ -141,19 +139,6 @@ export interface OpenApiPluginExtension {
     namespace: string,
     scope: string,
     input: OpenApiUpdateSourceInput,
-  ) => Effect.Effect<void, StorageFailure>;
-  readonly listSourceBindings: (
-    sourceId: string,
-    sourceScope: string,
-  ) => Effect.Effect<readonly OpenApiSourceBindingRef[], StorageFailure>;
-  readonly setSourceBinding: (
-    input: OpenApiSourceBindingInput,
-  ) => Effect.Effect<OpenApiSourceBindingRef, StorageFailure>;
-  readonly removeSourceBinding: (
-    sourceId: string,
-    sourceScope: string,
-    slot: string,
-    scope: string,
   ) => Effect.Effect<void, StorageFailure>;
 }
 
@@ -279,14 +264,14 @@ const canonicalizeHeaders = (
   readonly headers: Record<string, ConfiguredHeaderValue>;
   readonly bindings: ReadonlyArray<{
     readonly slot: string;
-    readonly value: OpenApiSourceBindingValue;
+    readonly value: CredentialBindingValue;
     readonly targetScope?: string;
   }>;
 } => {
   const nextHeaders: Record<string, ConfiguredHeaderValue> = {};
   const bindings: Array<{
     slot: string;
-    value: OpenApiSourceBindingValue;
+    value: CredentialBindingValue;
     targetScope?: string;
   }> = [];
   for (const [name, value] of Object.entries(headers ?? {})) {
@@ -326,14 +311,14 @@ const canonicalizeCredentialMap = (
   readonly values: Record<string, ConfiguredHeaderValue>;
   readonly bindings: ReadonlyArray<{
     readonly slot: string;
-    readonly value: OpenApiSourceBindingValue;
+    readonly value: CredentialBindingValue;
     readonly targetScope?: string;
   }>;
 } => {
   const nextValues: Record<string, ConfiguredHeaderValue> = {};
   const bindings: Array<{
     slot: string;
-    value: OpenApiSourceBindingValue;
+    value: CredentialBindingValue;
     targetScope?: string;
   }> = [];
   for (const [name, value] of Object.entries(values ?? {})) {
@@ -377,7 +362,7 @@ const canonicalizeSpecFetchCredentials = (
   readonly credentials?: SourceConfig["specFetchCredentials"];
   readonly bindings: ReadonlyArray<{
     readonly slot: string;
-    readonly value: OpenApiSourceBindingValue;
+    readonly value: CredentialBindingValue;
     readonly targetScope?: string;
   }>;
 } => {
@@ -407,7 +392,7 @@ const canonicalizeOAuth2 = (
   readonly oauth2?: OAuth2SourceConfig;
   readonly bindings: ReadonlyArray<{
     readonly slot: string;
-    readonly value: OpenApiSourceBindingValue;
+    readonly value: CredentialBindingValue;
   }>;
 } => {
   if (!oauth2) return { bindings: [] };
@@ -433,42 +418,12 @@ const scopeRanks = (ctx: PluginCtx<OpenapiStore>): ReadonlyMap<string, number> =
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number =>
   ranks.get(scopeId) ?? Infinity;
 
-const coreBindingToOpenApiBinding = (binding: CredentialBindingRef): OpenApiSourceBindingRef =>
-  OpenApiSourceBindingRef.make({
-    sourceId: binding.sourceId,
-    sourceScopeId: binding.sourceScopeId,
-    scopeId: binding.scopeId,
-    slot: binding.slotKey,
-    value: binding.value,
-    createdAt: binding.createdAt,
-    updatedAt: binding.updatedAt,
-  });
-
-const listOpenApiSourceBindings = (
-  ctx: PluginCtx<OpenapiStore>,
-  sourceId: string,
-  sourceScope: string,
-): Effect.Effect<readonly OpenApiSourceBindingRef[], StorageFailure> =>
-  Effect.gen(function* () {
-    const ranks = scopeRanks(ctx);
-    const sourceSourceRank = scopeRank(ranks, sourceScope);
-    if (sourceSourceRank === Infinity) return [];
-    const bindings = yield* ctx.credentialBindings.listForSource({
-      pluginId: OPENAPI_PLUGIN_ID,
-      sourceId,
-      sourceScope: ScopeId.make(sourceScope),
-    });
-    return bindings
-      .filter((binding) => scopeRank(ranks, binding.scopeId) <= sourceSourceRank)
-      .map(coreBindingToOpenApiBinding);
-  });
-
-const resolveOpenApiSourceBinding = (
+const resolveOpenApiCredentialBinding = (
   ctx: PluginCtx<OpenapiStore>,
   sourceId: string,
   sourceScope: string,
   slot: string,
-): Effect.Effect<OpenApiSourceBindingRef | null, StorageFailure> =>
+): Effect.Effect<CredentialBindingRef | null, StorageFailure> =>
   Effect.gen(function* () {
     const ranks = scopeRanks(ctx);
     const sourceSourceRank = scopeRank(ranks, sourceScope);
@@ -484,7 +439,7 @@ const resolveOpenApiSourceBinding = (
           candidate.slotKey === slot && scopeRank(ranks, candidate.scopeId) <= sourceSourceRank,
       )
       .sort((a, b) => scopeRank(ranks, a.scopeId) - scopeRank(ranks, b.scopeId))[0];
-    return binding ? coreBindingToOpenApiBinding(binding) : null;
+    return binding ?? null;
   });
 
 const validateOpenApiBindingTarget = (
@@ -612,7 +567,7 @@ const resolveConfiguredValueMap = (
         resolved[name] = value;
         continue;
       }
-      const binding = yield* resolveOpenApiSourceBinding(
+      const binding = yield* resolveOpenApiCredentialBinding(
         ctx,
         params.sourceId,
         params.sourceScope,
@@ -702,7 +657,7 @@ const resolveOAuthConnectionId = (
   StorageFailure
 > =>
   Effect.gen(function* () {
-    const binding = yield* resolveOpenApiSourceBinding(
+    const binding = yield* resolveOpenApiCredentialBinding(
       ctx,
       params.sourceId,
       params.sourceScope,
@@ -1142,43 +1097,6 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
                 }
               }),
             );
-          }),
-
-        listSourceBindings: (sourceId: string, sourceScope: string) =>
-          listOpenApiSourceBindings(ctx, sourceId, sourceScope),
-
-        setSourceBinding: (input: OpenApiSourceBindingInput) =>
-          Effect.gen(function* () {
-            yield* validateOpenApiBindingTarget(ctx, {
-              sourceId: input.sourceId,
-              sourceScope: input.sourceScope,
-              targetScope: input.scope,
-            });
-            const binding = yield* ctx.credentialBindings.set({
-              targetScope: input.scope,
-              pluginId: OPENAPI_PLUGIN_ID,
-              sourceId: input.sourceId,
-              sourceScope: input.sourceScope,
-              slotKey: input.slot,
-              value: input.value,
-            });
-            return coreBindingToOpenApiBinding(binding);
-          }),
-
-        removeSourceBinding: (sourceId: string, sourceScope: string, slot: string, scope: string) =>
-          Effect.gen(function* () {
-            yield* validateOpenApiBindingTarget(ctx, {
-              sourceId,
-              sourceScope,
-              targetScope: scope,
-            });
-            yield* ctx.credentialBindings.remove({
-              targetScope: ScopeId.make(scope),
-              pluginId: OPENAPI_PLUGIN_ID,
-              sourceId,
-              sourceScope: ScopeId.make(sourceScope),
-              slotKey: slot,
-            });
           }),
       };
     },

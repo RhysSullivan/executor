@@ -1,7 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
-import { connectionsAtom, sourceAtom } from "@executor-js/react/api/atoms";
+import {
+  connectionsAtom,
+  sourceAtom,
+  sourceCredentialBindingsAtom,
+} from "@executor-js/react/api/atoms";
 import { Badge } from "@executor-js/react/components/badge";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
 import { ScopeId } from "@executor-js/sdk/core";
@@ -11,9 +15,9 @@ import {
   missingSourceCredentialLabels,
   type SourceCredentialSlot,
 } from "@executor-js/react/plugins/source-credential-status";
+import { effectiveCredentialBindingForScope } from "@executor-js/react/plugins/credential-bindings";
 
-import { openApiSourceAtom, openApiSourceBindingsAtom } from "./atoms";
-import { effectiveBindingForScope } from "../sdk/credential-status";
+import { openApiSourceAtom } from "./atoms";
 import { oauth2ClientSecretSlot, type StoredSourceSchemaType } from "../sdk/store";
 
 function OAuthBadge() {
@@ -80,7 +84,12 @@ export default function OpenApiSourceSummary(props: {
       : displayScope;
   const sourceResult = useAtomValue(openApiSourceAtom(ScopeId.make(sourceScopeId), props.sourceId));
   const bindingsResult = useAtomValue(
-    openApiSourceBindingsAtom(displayScope, props.sourceId, ScopeId.make(sourceScopeId)),
+    sourceCredentialBindingsAtom(
+      displayScope,
+      "openapi",
+      props.sourceId,
+      ScopeId.make(sourceScopeId),
+    ),
   );
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 
@@ -118,7 +127,7 @@ export default function OpenApiSourceSummary(props: {
   if (missing.length > 0) return <SourceCredentialStatusBadge missing={missing} />;
 
   if (!oauth2) return null;
-  const connectionBinding = effectiveBindingForScope(
+  const connectionBinding = effectiveCredentialBindingForScope(
     bindings,
     oauth2.connectionSlot,
     credentialTargetScope,

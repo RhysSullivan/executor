@@ -11,6 +11,11 @@ import {
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { GraphQLNonNull, GraphQLObjectType, GraphQLSchema, GraphQLString } from "graphql";
 import { createYoga, type GraphQLParams, type YogaInitialContext } from "graphql-yoga";
+import {
+  ScopeId,
+  type CredentialBindingsFacade,
+  type CredentialBindingValue,
+} from "@executor-js/sdk";
 import { serveTestHttpApp } from "@executor-js/sdk/testing";
 
 const GraphqlRequestPayload = EffectSchema.Struct({
@@ -184,6 +189,41 @@ export const makeGreetingGraphqlSchema = (): GraphQLSchema => {
 
   return new GraphQLSchema({ query: Query, mutation: Mutation });
 };
+
+type ScopeInput = ScopeId | string;
+
+const scopeId = (scope: ScopeInput): ScopeId => ScopeId.make(String(scope));
+
+export interface GraphqlTestCredentialBindingInput {
+  readonly sourceId: string;
+  readonly sourceScope: ScopeInput;
+  readonly targetScope: ScopeInput;
+  readonly slotKey: string;
+  readonly value: CredentialBindingValue;
+}
+
+export const setGraphqlCredentialBinding = (
+  executor: { readonly credentialBindings: CredentialBindingsFacade },
+  input: GraphqlTestCredentialBindingInput,
+): ReturnType<CredentialBindingsFacade["set"]> =>
+  executor.credentialBindings.set({
+    targetScope: scopeId(input.targetScope),
+    pluginId: "graphql",
+    sourceId: input.sourceId,
+    sourceScope: scopeId(input.sourceScope),
+    slotKey: input.slotKey,
+    value: input.value,
+  });
+
+export const listGraphqlCredentialBindings = (
+  executor: { readonly credentialBindings: CredentialBindingsFacade },
+  input: { readonly sourceId: string; readonly sourceScope: ScopeInput },
+): ReturnType<CredentialBindingsFacade["listForSource"]> =>
+  executor.credentialBindings.listForSource({
+    pluginId: "graphql",
+    sourceId: input.sourceId,
+    sourceScope: scopeId(input.sourceScope),
+  });
 
 export const TestLayers = {
   greeting: () => GraphqlTestServer.layer({ schema: makeGreetingGraphqlSchema() }),

@@ -8,8 +8,6 @@ import {
   GraphqlCredentialInput,
   GraphqlSourceAuth,
   GraphqlSourceAuthInput,
-  GraphqlSourceBindingInput,
-  GraphqlSourceBindingRef,
 } from "../sdk/types";
 
 // StoredGraphqlSource shape as an HTTP response schema. Kept local to the
@@ -35,12 +33,6 @@ const ScopeParams = {
 const SourceParams = {
   scopeId: ScopeId,
   namespace: Schema.String,
-};
-
-const SourceBindingParams = {
-  scopeId: ScopeId,
-  namespace: Schema.String,
-  sourceScopeId: ScopeId,
 };
 
 // ---------------------------------------------------------------------------
@@ -71,13 +63,6 @@ const UpdateSourcePayload = Schema.Struct({
 
 const UpdateSourceResponse = Schema.Struct({
   updated: Schema.Boolean,
-});
-
-const RemoveBindingPayload = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScope: ScopeId,
-  slot: Schema.String,
-  scope: ScopeId,
 });
 
 // ---------------------------------------------------------------------------
@@ -134,33 +119,6 @@ export const GraphqlGroup = HttpApiGroup.make("graphql")
       params: SourceParams,
       payload: UpdateSourcePayload,
       success: UpdateSourceResponse,
-      error: GraphqlErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.get(
-      "listSourceBindings",
-      "/scopes/:scopeId/graphql/sources/:namespace/base/:sourceScopeId/bindings",
-      {
-        params: SourceBindingParams,
-        success: Schema.Array(GraphqlSourceBindingRef),
-        error: GraphqlErrors,
-      },
-    ),
-  )
-  .add(
-    HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/graphql/source-bindings", {
-      params: ScopeParams,
-      payload: GraphqlSourceBindingInput,
-      success: GraphqlSourceBindingRef,
-      error: GraphqlErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.post("removeSourceBinding", "/scopes/:scopeId/graphql/source-bindings/remove", {
-      params: ScopeParams,
-      payload: RemoveBindingPayload,
-      success: Schema.Struct({ removed: Schema.Boolean }),
       error: GraphqlErrors,
     }),
   );

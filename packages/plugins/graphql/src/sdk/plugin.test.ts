@@ -20,9 +20,14 @@ import { memorySecretsPlugin, serveTestHttpApp } from "@executor-js/sdk/testing"
 import { graphqlPlugin } from "./plugin";
 import { endpointForTelemetry } from "./invoke";
 import { introspect } from "./introspect";
-import { GraphqlSourceBindingInput, graphqlHeaderSlot, graphqlQueryParamSlot } from "./types";
+import { graphqlHeaderSlot, graphqlQueryParamSlot } from "./types";
 import type { IntrospectionResult } from "./introspect";
-import { makeGreetingGraphqlSchema, serveGraphqlTestServer } from "../testing";
+import {
+  listGraphqlCredentialBindings,
+  makeGreetingGraphqlSchema,
+  serveGraphqlTestServer,
+  setGraphqlCredentialBinding,
+} from "../testing";
 
 const TEST_SCOPE = "test-scope";
 
@@ -705,24 +710,20 @@ describe("graphqlPlugin", () => {
         credentialTargetScope: ORG_SCOPE,
       });
 
-      yield* executor.graphql.setSourceBinding(
-        GraphqlSourceBindingInput.make({
-          sourceId: "shared_credentials",
-          sourceScope: ScopeId.make(ORG_SCOPE),
-          scope: ScopeId.make(USER_SCOPE),
-          slot: graphqlHeaderSlot("Authorization"),
-          value: { kind: "secret", secretId: SecretId.make("user-token") },
-        }),
-      );
-      yield* executor.graphql.setSourceBinding(
-        GraphqlSourceBindingInput.make({
-          sourceId: "shared_credentials",
-          sourceScope: ScopeId.make(ORG_SCOPE),
-          scope: ScopeId.make(USER_SCOPE),
-          slot: graphqlQueryParamSlot("token"),
-          value: { kind: "secret", secretId: SecretId.make("user-query") },
-        }),
-      );
+      yield* setGraphqlCredentialBinding(executor, {
+        sourceId: "shared_credentials",
+        sourceScope: ScopeId.make(ORG_SCOPE),
+        targetScope: ScopeId.make(USER_SCOPE),
+        slotKey: graphqlHeaderSlot("Authorization"),
+        value: { kind: "secret", secretId: SecretId.make("user-token") },
+      });
+      yield* setGraphqlCredentialBinding(executor, {
+        sourceId: "shared_credentials",
+        sourceScope: ScopeId.make(ORG_SCOPE),
+        targetScope: ScopeId.make(USER_SCOPE),
+        slotKey: graphqlQueryParamSlot("token"),
+        value: { kind: "secret", secretId: SecretId.make("user-query") },
+      });
 
       yield* server.clearRequests;
       const result = yield* executor.tools.invoke("shared_credentials.query.hello", {
@@ -783,20 +784,20 @@ describe("graphqlPlugin", () => {
         },
       });
 
-      const bindings = yield* executor.graphql.listSourceBindings(
-        "row_scoped_credentials",
-        ORG_SCOPE,
-      );
+      const bindings = yield* listGraphqlCredentialBindings(executor, {
+        sourceId: "row_scoped_credentials",
+        sourceScope: ORG_SCOPE,
+      });
 
-      expect(bindings.map((binding) => binding.slot).sort()).toEqual([
+      expect(bindings.map((binding) => binding.slotKey).sort()).toEqual([
         graphqlHeaderSlot("Authorization"),
         graphqlQueryParamSlot("token"),
       ]);
       expect(
-        bindings.find((binding) => binding.slot === graphqlHeaderSlot("Authorization"))?.scopeId,
+        bindings.find((binding) => binding.slotKey === graphqlHeaderSlot("Authorization"))?.scopeId,
       ).toBe(ScopeId.make(USER_SCOPE));
       expect(
-        bindings.find((binding) => binding.slot === graphqlQueryParamSlot("token"))?.scopeId,
+        bindings.find((binding) => binding.slotKey === graphqlQueryParamSlot("token"))?.scopeId,
       ).toBe(ScopeId.make(ORG_SCOPE));
     }),
   );
@@ -954,7 +955,10 @@ describe("graphqlPlugin", () => {
         headers: {},
       });
 
-      const bindings = yield* executor.graphql.listSourceBindings("stale_binding", ORG_SCOPE);
+      const bindings = yield* listGraphqlCredentialBindings(executor, {
+        sourceId: "stale_binding",
+        sourceScope: ORG_SCOPE,
+      });
       expect(bindings).toEqual([]);
     }),
   );

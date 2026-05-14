@@ -17,7 +17,7 @@ import {
 } from "@executor-js/sdk";
 
 import { openApiPlugin } from "./plugin";
-import { OpenApiSourceBindingInput } from "./types";
+import { setOpenApiCredentialBinding } from "../testing";
 
 const specJson = JSON.stringify({
   openapi: "3.0.0",
@@ -105,15 +105,13 @@ describe("OpenAPI usage scope isolation", () => {
         namespace: "private_source",
         baseUrl: "http://example.com",
       });
-      yield* orgAExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "private_source",
-          sourceScope: orgA.id,
-          scope: orgA.id,
-          slot: "header:authorization",
-          value: { kind: "secret", secretId },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(orgAExec, {
+        sourceId: "private_source",
+        sourceScope: orgA.id,
+        targetScope: orgA.id,
+        slotKey: "header:authorization",
+        value: { kind: "secret", secretId },
+      });
 
       const usages = yield* orgBExec.secrets.usages(secretId);
       expect(usages).toEqual([]);
@@ -179,15 +177,13 @@ describe("OpenAPI usage scope isolation", () => {
         namespace: "private_source",
         baseUrl: "http://example.com",
       });
-      yield* orgAExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "private_source",
-          sourceScope: orgA.id,
-          scope: orgA.id,
-          slot: "oauth:connection",
-          value: { kind: "connection", connectionId },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(orgAExec, {
+        sourceId: "private_source",
+        sourceScope: orgA.id,
+        targetScope: orgA.id,
+        slotKey: "oauth:connection",
+        value: { kind: "connection", connectionId },
+      });
 
       const usages = yield* orgBExec.connections.usages(connectionId);
       expect(usages).toEqual([]);

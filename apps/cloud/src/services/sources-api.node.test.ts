@@ -760,13 +760,14 @@ describe("sources api (HTTP)", () => {
               value: "alice-secret",
             },
           });
-          const binding = yield* client.openapi.setSourceBinding({
+          const binding = yield* client.credentialBindings.set({
             params: { scopeId: ScopeId.make(aliceScope) },
             payload: {
+              targetScope: ScopeId.make(aliceScope),
+              pluginId: "openapi",
               sourceId: namespace,
               sourceScope: ScopeId.make(orgId),
-              scope: ScopeId.make(aliceScope),
-              slot: "auth:personal-token",
+              slotKey: "auth:personal-token",
               value: {
                 kind: "secret",
                 secretId: SecretId.make("alice_pat"),
@@ -777,7 +778,7 @@ describe("sources api (HTTP)", () => {
             sourceId: namespace,
             sourceScopeId: ScopeId.make(orgId),
             scopeId: ScopeId.make(aliceScope),
-            slot: "auth:personal-token",
+            slotKey: "auth:personal-token",
             value: {
               kind: "secret",
               secretId: SecretId.make("alice_pat"),
@@ -798,13 +799,14 @@ describe("sources api (HTTP)", () => {
               value: "bob-secret",
             },
           });
-          yield* client.openapi.setSourceBinding({
+          yield* client.credentialBindings.set({
             params: { scopeId: ScopeId.make(bobScope) },
             payload: {
+              targetScope: ScopeId.make(bobScope),
+              pluginId: "openapi",
               sourceId: namespace,
               sourceScope: ScopeId.make(orgId),
-              scope: ScopeId.make(bobScope),
-              slot: "auth:personal-token",
+              slotKey: "auth:personal-token",
               value: {
                 kind: "secret",
                 secretId: SecretId.make("bob_pat"),
@@ -815,18 +817,19 @@ describe("sources api (HTTP)", () => {
       );
 
       const aliceBindings = yield* asUser(aliceId, orgId, (client) =>
-        client.openapi.listSourceBindings({
+        client.credentialBindings.listForSource({
           params: {
             scopeId: ScopeId.make(aliceScope),
-            namespace,
-            sourceScopeId: ScopeId.make(orgId),
+            pluginId: "openapi",
+            sourceId: namespace,
+            sourceScope: ScopeId.make(orgId),
           },
         }),
       );
       expect(aliceBindings).toContainEqual(
         expect.objectContaining({
           scopeId: ScopeId.make(aliceScope),
-          slot: "auth:personal-token",
+          slotKey: "auth:personal-token",
           value: {
             kind: "secret",
             secretId: SecretId.make("alice_pat"),
@@ -837,25 +840,26 @@ describe("sources api (HTTP)", () => {
       expect(
         aliceBindings.some(
           (binding) =>
-            binding.slot === "auth:personal-token" &&
+            binding.slotKey === "auth:personal-token" &&
             binding.value.kind === "secret" &&
             binding.value.secretId === SecretId.make("bob_pat"),
         ),
       ).toBe(false);
 
       const bobBindings = yield* asUser(bobId, orgId, (client) =>
-        client.openapi.listSourceBindings({
+        client.credentialBindings.listForSource({
           params: {
             scopeId: ScopeId.make(bobScope),
-            namespace,
-            sourceScopeId: ScopeId.make(orgId),
+            pluginId: "openapi",
+            sourceId: namespace,
+            sourceScope: ScopeId.make(orgId),
           },
         }),
       );
       expect(bobBindings).toContainEqual(
         expect.objectContaining({
           scopeId: ScopeId.make(bobScope),
-          slot: "auth:personal-token",
+          slotKey: "auth:personal-token",
           value: {
             kind: "secret",
             secretId: SecretId.make("bob_pat"),
@@ -866,7 +870,7 @@ describe("sources api (HTTP)", () => {
       expect(
         bobBindings.some(
           (binding) =>
-            binding.slot === "auth:personal-token" &&
+            binding.slotKey === "auth:personal-token" &&
             binding.value.kind === "secret" &&
             binding.value.secretId === SecretId.make("alice_pat"),
         ),

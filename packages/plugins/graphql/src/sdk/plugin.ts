@@ -6,6 +6,7 @@ import {
   ConnectionId,
   ConfiguredCredentialBinding,
   type CredentialBindingRef,
+  type CredentialBindingValue,
   definePlugin,
   tool,
   ScopeId,
@@ -47,8 +48,6 @@ import {
   GRAPHQL_OAUTH_CONNECTION_SLOT,
   GraphqlCredentialInput as GraphqlCredentialInputSchema,
   GraphqlSourceAuthInput as GraphqlSourceAuthInputSchema,
-  GraphqlSourceBindingInput,
-  GraphqlSourceBindingRef,
   graphqlHeaderSlot,
   graphqlQueryParamSlot,
   OperationBinding,
@@ -57,7 +56,6 @@ import {
   type GraphqlSourceAuth,
   type HeaderValue as HeaderValueValue,
   type GraphqlSourceAuthInput,
-  type GraphqlSourceBindingValue,
   type GraphqlOperationKind,
 } from "./types";
 
@@ -329,42 +327,12 @@ const scopeRanks = (ctx: PluginCtx<GraphqlStore>): ReadonlyMap<string, number> =
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number =>
   ranks.get(scopeId) ?? Infinity;
 
-const coreBindingToGraphqlBinding = (binding: CredentialBindingRef): GraphqlSourceBindingRef =>
-  GraphqlSourceBindingRef.make({
-    sourceId: binding.sourceId,
-    sourceScopeId: binding.sourceScopeId,
-    scopeId: binding.scopeId,
-    slot: binding.slotKey,
-    value: binding.value,
-    createdAt: binding.createdAt,
-    updatedAt: binding.updatedAt,
-  });
-
-const listGraphqlSourceBindings = (
-  ctx: PluginCtx<GraphqlStore>,
-  sourceId: string,
-  sourceScope: string,
-): Effect.Effect<readonly GraphqlSourceBindingRef[], StorageFailure> =>
-  Effect.gen(function* () {
-    const ranks = scopeRanks(ctx);
-    const sourceSourceRank = scopeRank(ranks, sourceScope);
-    if (sourceSourceRank === Infinity) return [];
-    const bindings = yield* ctx.credentialBindings.listForSource({
-      pluginId: GRAPHQL_PLUGIN_ID,
-      sourceId,
-      sourceScope: ScopeId.make(sourceScope),
-    });
-    return bindings
-      .filter((binding) => scopeRank(ranks, binding.scopeId) <= sourceSourceRank)
-      .map(coreBindingToGraphqlBinding);
-  });
-
-const resolveGraphqlSourceBinding = (
+const resolveGraphqlCredentialBinding = (
   ctx: PluginCtx<GraphqlStore>,
   sourceId: string,
   sourceScope: string,
   slot: string,
-): Effect.Effect<GraphqlSourceBindingRef | null, StorageFailure> =>
+): Effect.Effect<CredentialBindingRef | null, StorageFailure> =>
   Effect.gen(function* () {
     const ranks = scopeRanks(ctx);
     const sourceSourceRank = scopeRank(ranks, sourceScope);
@@ -380,7 +348,7 @@ const resolveGraphqlSourceBinding = (
           candidate.slotKey === slot && scopeRank(ranks, candidate.scopeId) <= sourceSourceRank,
       )
       .sort((a, b) => scopeRank(ranks, a.scopeId) - scopeRank(ranks, b.scopeId))[0];
-    return binding ? coreBindingToGraphqlBinding(binding) : null;
+    return binding ?? null;
   });
 
 const validateGraphqlBindingTarget = (
@@ -456,14 +424,14 @@ const canonicalizeCredentialMap = (
   readonly values: Record<string, ConfiguredGraphqlCredentialValue>;
   readonly bindings: ReadonlyArray<{
     readonly slot: string;
-    readonly value: GraphqlSourceBindingValue;
+    readonly value: CredentialBindingValue;
     readonly targetScope?: string;
   }>;
 } => {
   const nextValues: Record<string, ConfiguredGraphqlCredentialValue> = {};
   const bindings: Array<{
     slot: string;
-    value: GraphqlSourceBindingValue;
+    value: CredentialBindingValue;
     targetScope?: string;
   }> = [];
   for (const [name, value] of Object.entries(values ?? {})) {
@@ -502,7 +470,7 @@ const canonicalizeAuth = (
   readonly auth: GraphqlSourceAuth;
   readonly bindings: ReadonlyArray<{
     readonly slot: string;
-    readonly value: GraphqlSourceBindingValue;
+    readonly value: CredentialBindingValue;
     readonly targetScope?: string;
   }>;
 } => {
@@ -540,7 +508,7 @@ const resolveGraphqlBindingValueMap = <E>(
         resolved[name] = value;
         continue;
       }
-      const binding = yield* resolveGraphqlSourceBinding(
+      const binding = yield* resolveGraphqlCredentialBinding(
         ctx,
         params.sourceId,
         params.sourceScope,
@@ -585,7 +553,7 @@ const resolveGraphqlStoredOAuthHeader = (
 ) =>
   Effect.gen(function* () {
     if (!auth || auth.kind === "none") return undefined;
-    const binding = yield* resolveGraphqlSourceBinding(
+    const binding = yield* resolveGraphqlCredentialBinding(
       ctx,
       sourceId,
       sourceScope,
@@ -678,7 +646,7 @@ const makeGraphqlExtension = (
         "connectionId" in auth
           ? { id: auth.connectionId, scope: targetScope ?? sourceScope }
           : yield* Effect.gen(function* () {
-              const binding = yield* resolveGraphqlSourceBinding(
+              const binding = yield* resolveGraphqlCredentialBinding(
                 ctx,
                 sourceId,
                 sourceScope,
@@ -922,43 +890,6 @@ const makeGraphqlExtension = (
             }
           }),
         );
-      }),
-
-    listSourceBindings: (sourceId: string, sourceScope: string) =>
-      listGraphqlSourceBindings(ctx, sourceId, sourceScope),
-
-    setSourceBinding: (input: GraphqlSourceBindingInput) =>
-      Effect.gen(function* () {
-        yield* validateGraphqlBindingTarget(ctx, {
-          sourceId: input.sourceId,
-          sourceScope: input.sourceScope,
-          targetScope: input.scope,
-        });
-        const binding = yield* ctx.credentialBindings.set({
-          targetScope: input.scope,
-          pluginId: GRAPHQL_PLUGIN_ID,
-          sourceId: input.sourceId,
-          sourceScope: input.sourceScope,
-          slotKey: input.slot,
-          value: input.value,
-        });
-        return coreBindingToGraphqlBinding(binding);
-      }),
-
-    removeSourceBinding: (sourceId: string, sourceScope: string, slot: string, scope: string) =>
-      Effect.gen(function* () {
-        yield* validateGraphqlBindingTarget(ctx, {
-          sourceId,
-          sourceScope,
-          targetScope: scope,
-        });
-        yield* ctx.credentialBindings.remove({
-          targetScope: ScopeId.make(scope),
-          pluginId: GRAPHQL_PLUGIN_ID,
-          sourceId,
-          sourceScope: ScopeId.make(sourceScope),
-          slotKey: slot,
-        });
       }),
   };
 };

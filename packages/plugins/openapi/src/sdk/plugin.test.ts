@@ -31,8 +31,13 @@ import type { ConfigFileSink } from "@executor-js/config";
 
 const TEST_SCOPE = "test-scope";
 import { openApiPlugin } from "./plugin";
-import { ConfiguredHeaderBinding, OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
-import { makeOpenApiTestServer } from "../testing";
+import { ConfiguredHeaderBinding, OAuth2SourceConfig } from "./types";
+import {
+  listOpenApiCredentialBindings,
+  makeOpenApiTestServer,
+  removeOpenApiCredentialBinding,
+  setOpenApiCredentialBinding,
+} from "../testing";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -399,14 +404,14 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec(input);
 
-      const bindings = yield* executor.openapi.listSourceBindings(
-        "org_direct_user_credential",
-        String(orgScope),
-      );
+      const bindings = yield* listOpenApiCredentialBindings(executor, {
+        sourceId: "org_direct_user_credential",
+        sourceScope: String(orgScope),
+      });
       expect(bindings).toHaveLength(1);
       expect(bindings[0]).toMatchObject({
         scopeId: userScope,
-        slot: "query_param:token",
+        slotKey: "query_param:token",
         value: { kind: "secret", secretId: SecretId.make("user-query-token") },
       });
     }),
@@ -450,7 +455,10 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         headers: {},
       });
 
-      const bindings = yield* executor.openapi.listSourceBindings("stale_binding", TEST_SCOPE);
+      const bindings = yield* listOpenApiCredentialBindings(executor, {
+        sourceId: "stale_binding",
+        sourceScope: TEST_SCOPE,
+      });
       expect(bindings).toEqual([]);
     }),
   );
@@ -496,15 +504,13 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         baseUrl: "",
         oauth2: oldOAuth,
       });
-      yield* executor.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "stale_oauth",
-          sourceScope: ScopeId.make(TEST_SCOPE),
-          scope: ScopeId.make(TEST_SCOPE),
-          slot: oldOAuth.clientIdSlot,
-          value: { kind: "secret", secretId: SecretId.make("old-client-id") },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(executor, {
+        sourceId: "stale_oauth",
+        sourceScope: ScopeId.make(TEST_SCOPE),
+        targetScope: ScopeId.make(TEST_SCOPE),
+        slotKey: oldOAuth.clientIdSlot,
+        value: { kind: "secret", secretId: SecretId.make("old-client-id") },
+      });
 
       yield* executor.openapi.updateSource("stale_oauth", TEST_SCOPE, {
         oauth2: OAuth2SourceConfig.make({
@@ -520,8 +526,11 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         }),
       });
 
-      const bindings = yield* executor.openapi.listSourceBindings("stale_oauth", TEST_SCOPE);
-      expect(bindings.some((binding) => binding.slot === oldOAuth.clientIdSlot)).toBe(false);
+      const bindings = yield* listOpenApiCredentialBindings(executor, {
+        sourceId: "stale_oauth",
+        sourceScope: TEST_SCOPE,
+      });
+      expect(bindings.some((binding) => binding.slotKey === oldOAuth.clientIdSlot)).toBe(false);
     }),
   );
 
@@ -611,14 +620,14 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         },
       });
 
-      const bindings = yield* executor.openapi.listSourceBindings(
-        "default_target_scope",
-        TEST_SCOPE,
-      );
+      const bindings = yield* listOpenApiCredentialBindings(executor, {
+        sourceId: "default_target_scope",
+        sourceScope: TEST_SCOPE,
+      });
       expect(bindings).toHaveLength(1);
       expect(bindings[0]).toMatchObject({
         scopeId: ScopeId.make(TEST_SCOPE),
-        slot: "header:authorization",
+        slotKey: "header:authorization",
         value: { kind: "secret", secretId: SecretId.make("config-sync-token") },
       });
     }),
@@ -673,15 +682,13 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
           }),
         },
       });
-      yield* executor.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "noauth",
-          sourceScope: ScopeId.make(TEST_SCOPE),
-          scope: ScopeId.make(TEST_SCOPE),
-          slot: "header:authorization",
-          value: { kind: "secret", secretId: SecretId.make("missing-token") },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(executor, {
+        sourceId: "noauth",
+        sourceScope: ScopeId.make(TEST_SCOPE),
+        targetScope: ScopeId.make(TEST_SCOPE),
+        slotKey: "header:authorization",
+        value: { kind: "secret", secretId: SecretId.make("missing-token") },
+      });
       secretStore.delete(key(TEST_SCOPE, "missing-token"));
 
       const error = yield* Effect.flip(
@@ -894,7 +901,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
     }),
   );
 
-  it.effect("listSourceBindings returns [] for a removed source", () =>
+  it.effect("core credential bindings return [] for a removed source", () =>
     // Regression: the React bindings atom revalidates after a removeSpec
     // (sourceWriteKeys invalidate it) before unmount. The store used to
     // throw StorageError("source does not exist"), which surfaced to the
@@ -919,7 +926,10 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       });
       yield* executor.openapi.removeSpec("removable", TEST_SCOPE);
 
-      const bindings = yield* executor.openapi.listSourceBindings("removable", TEST_SCOPE);
+      const bindings = yield* listOpenApiCredentialBindings(executor, {
+        sourceId: "removable",
+        sourceScope: TEST_SCOPE,
+      });
       expect(bindings).toEqual([]);
     }),
   );
@@ -1297,40 +1307,40 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       expect(stored?.config.oauth2?.connectionSlot).toBe("oauth2:oauth2:connection");
       expect(stored?.config.oauth2?.clientIdSlot).toBe("oauth2:oauth2:client-id");
 
-      yield* executor.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "deferred",
-          sourceScope: ScopeId.make(TEST_SCOPE),
-          scope: ScopeId.make(TEST_SCOPE),
-          slot: stored!.config.oauth2!.clientIdSlot,
-          value: { kind: "secret", secretId: SecretId.make("acme-client-id") },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(executor, {
+        sourceId: "deferred",
+        sourceScope: ScopeId.make(TEST_SCOPE),
+        targetScope: ScopeId.make(TEST_SCOPE),
+        slotKey: stored!.config.oauth2!.clientIdSlot,
+        value: { kind: "secret", secretId: SecretId.make("acme-client-id") },
+      });
 
-      const clientIdBinding = yield* executor.openapi
-        .listSourceBindings("deferred", TEST_SCOPE)
-        .pipe(
-          Effect.map(
-            (bindings) =>
-              bindings.find((binding) => binding.slot === stored!.config.oauth2!.clientIdSlot) ??
-              null,
-          ),
-        );
+      const clientIdBinding = yield* listOpenApiCredentialBindings(executor, {
+        sourceId: "deferred",
+        sourceScope: TEST_SCOPE,
+      }).pipe(
+        Effect.map(
+          (bindings) =>
+            bindings.find((binding) => binding.slotKey === stored!.config.oauth2!.clientIdSlot) ??
+            null,
+        ),
+      );
       expect(clientIdBinding?.value).toEqual({
         kind: "secret",
         secretId: SecretId.make("acme-client-id"),
         secretScopeId: ScopeId.make(TEST_SCOPE),
       });
 
-      const connectionBinding = yield* executor.openapi
-        .listSourceBindings("deferred", TEST_SCOPE)
-        .pipe(
-          Effect.map(
-            (bindings) =>
-              bindings.find((binding) => binding.slot === stored!.config.oauth2!.connectionSlot) ??
-              null,
-          ),
-        );
+      const connectionBinding = yield* listOpenApiCredentialBindings(executor, {
+        sourceId: "deferred",
+        sourceScope: TEST_SCOPE,
+      }).pipe(
+        Effect.map(
+          (bindings) =>
+            bindings.find((binding) => binding.slotKey === stored!.config.oauth2!.connectionSlot) ??
+            null,
+        ),
+      );
       expect(connectionBinding).toBeNull();
 
       // Tools should be listed even without a live connection; invocation
@@ -1374,15 +1384,13 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       });
 
       // Configure a slot binding pointing at the same secret.
-      yield* executor.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "with_secret",
-          sourceScope: ScopeId.make(TEST_SCOPE),
-          scope: ScopeId.make(TEST_SCOPE),
-          slot: "header:authorization",
-          value: { kind: "secret", secretId: SecretId.make("api-key") },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(executor, {
+        sourceId: "with_secret",
+        sourceScope: ScopeId.make(TEST_SCOPE),
+        targetScope: ScopeId.make(TEST_SCOPE),
+        slotKey: "header:authorization",
+        value: { kind: "secret", secretId: SecretId.make("api-key") },
+      });
 
       const usages = yield* executor.secrets.usages(SecretId.make("api-key"));
       expect(usages.length).toBe(2);
@@ -1415,15 +1423,13 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         namespace: "ref",
         baseUrl: "http://example.com",
       });
-      yield* executor.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "ref",
-          sourceScope: ScopeId.make(TEST_SCOPE),
-          scope: ScopeId.make(TEST_SCOPE),
-          slot: "header:authorization",
-          value: { kind: "secret", secretId: SecretId.make("locked") },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(executor, {
+        sourceId: "ref",
+        sourceScope: ScopeId.make(TEST_SCOPE),
+        targetScope: ScopeId.make(TEST_SCOPE),
+        slotKey: "header:authorization",
+        value: { kind: "secret", secretId: SecretId.make("locked") },
+      });
 
       const failure = yield* executor.secrets
         .remove(
@@ -1436,12 +1442,12 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       expect(Predicate.isTagged(failure, "SecretInUseError")).toBe(true);
 
       // Detach the binding, then remove succeeds.
-      yield* executor.openapi.removeSourceBinding(
-        "ref",
-        ScopeId.make(TEST_SCOPE),
-        "header:authorization",
-        ScopeId.make(TEST_SCOPE),
-      );
+      yield* removeOpenApiCredentialBinding(executor, {
+        sourceId: "ref",
+        sourceScope: ScopeId.make(TEST_SCOPE),
+        slotKey: "header:authorization",
+        targetScope: ScopeId.make(TEST_SCOPE),
+      });
       yield* executor.secrets.remove(
         RemoveSecretInput.make({
           id: SecretId.make("locked"),

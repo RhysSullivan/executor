@@ -5,7 +5,14 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
-import { connectionsAtom, sourceAtom, startOAuth } from "@executor-js/react/api/atoms";
+import {
+  connectionsAtom,
+  removeSourceCredentialBinding,
+  setSourceCredentialBinding,
+  sourceAtom,
+  sourceCredentialBindingsAtom,
+  startOAuth,
+} from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { Button } from "@executor-js/react/components/button";
@@ -34,16 +41,11 @@ import {
   exactCredentialBindingForScope,
   isConnectionCredentialBindingValue,
   isSecretCredentialBindingValue,
+  type SourceCredentialBindingRef,
 } from "@executor-js/react/plugins/credential-bindings";
 import { SecretCredentialSlotBindings } from "@executor-js/react/plugins/credential-slot-bindings";
 
-import {
-  openApiSourceAtom,
-  openApiSourceBindingsAtom,
-  removeOpenApiSourceBinding,
-  setOpenApiSourceBinding,
-  updateOpenApiSource,
-} from "./atoms";
+import { openApiSourceAtom, updateOpenApiSource } from "./atoms";
 import { OpenApiSourceDetailsFields } from "./OpenApiSourceDetailsFields";
 import {
   OPENAPI_OAUTH_CALLBACK_PATH,
@@ -52,11 +54,7 @@ import {
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
 import { oauth2ClientSecretSlot } from "../sdk/store";
-import {
-  OAuth2SourceConfig,
-  OpenApiSourceBindingInput,
-  type OpenApiSourceBindingRef,
-} from "../sdk/types";
+import { OAuth2SourceConfig } from "../sdk/types";
 
 const ErrorMessage = Schema.Struct({ message: Schema.String });
 const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
@@ -131,16 +129,16 @@ export default function EditOpenApiSource(props: {
 
   const sourceResult = useAtomValue(openApiSourceAtom(sourceScope, props.sourceId));
   const bindingsResult = useAtomValue(
-    openApiSourceBindingsAtom(displayScope, props.sourceId, sourceScope),
+    sourceCredentialBindingsAtom(displayScope, "openapi", props.sourceId, sourceScope),
   );
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
   const secretList = useSecretPickerSecrets();
 
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promiseExit" });
-  const doSetBinding = useAtomSet(setOpenApiSourceBinding, {
+  const doSetBinding = useAtomSet(setSourceCredentialBinding, {
     mode: "promiseExit",
   });
-  const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, {
+  const doRemoveBinding = useAtomSet(removeSourceCredentialBinding, {
     mode: "promiseExit",
   });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
@@ -152,7 +150,7 @@ export default function EditOpenApiSource(props: {
 
   const source =
     AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
-  const bindingRows: readonly OpenApiSourceBindingRef[] = AsyncResult.isSuccess(bindingsResult)
+  const bindingRows: readonly SourceCredentialBindingRef[] = AsyncResult.isSuccess(bindingsResult)
     ? bindingsResult.value
     : [];
   const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
@@ -362,18 +360,19 @@ export default function EditOpenApiSource(props: {
     setBusyKey(inputKey);
     setError(null);
     const exit = await doSetBinding({
-      params: { scopeId: displayScope },
-      payload: OpenApiSourceBindingInput.make({
+      params: { scopeId: targetScope },
+      payload: {
+        targetScope,
+        pluginId: "openapi",
         sourceId: props.sourceId,
         sourceScope,
-        scope: targetScope,
-        slot,
+        slotKey: slot,
         value: {
           kind: "secret",
           secretId: SecretId.make(trimmed),
           secretScopeId: secretScope,
         },
-      }),
+      },
       reactivityKeys: sourceWriteKeys,
     });
     if (Exit.isFailure(exit)) {
@@ -386,12 +385,13 @@ export default function EditOpenApiSource(props: {
     setBusyKey(`${targetScope}:${slot}:clear`);
     setError(null);
     const exit = await doRemoveBinding({
-      params: { scopeId: displayScope },
+      params: { scopeId: targetScope },
       payload: {
+        targetScope,
+        pluginId: "openapi",
         sourceId: props.sourceId,
         sourceScope,
-        slot,
-        scope: targetScope,
+        slotKey: slot,
       },
       reactivityKeys: sourceWriteKeys,
     });
@@ -489,17 +489,18 @@ export default function EditOpenApiSource(props: {
         return;
       }
       const setBindingExit = await doSetBinding({
-        params: { scopeId: displayScope },
-        payload: OpenApiSourceBindingInput.make({
+        params: { scopeId: targetScope },
+        payload: {
+          targetScope,
+          pluginId: "openapi",
           sourceId: props.sourceId,
           sourceScope,
-          scope: targetScope,
-          slot: oauth2.connectionSlot,
+          slotKey: oauth2.connectionSlot,
           value: {
             kind: "connection",
             connectionId: ConnectionId.make(response.completedConnection.connectionId),
           },
-        }),
+        },
         reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
       });
       if (Exit.isFailure(setBindingExit)) {
@@ -557,17 +558,18 @@ export default function EditOpenApiSource(props: {
       }),
       onSuccess: async (result) => {
         const setBindingExit = await doSetBinding({
-          params: { scopeId: displayScope },
-          payload: OpenApiSourceBindingInput.make({
+          params: { scopeId: targetScope },
+          payload: {
+            targetScope,
+            pluginId: "openapi",
             sourceId: props.sourceId,
             sourceScope,
-            scope: targetScope,
-            slot: oauth2.connectionSlot,
+            slotKey: oauth2.connectionSlot,
             value: {
               kind: "connection",
               connectionId: ConnectionId.make(result.connectionId),
             },
-          }),
+          },
           reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
         });
         if (Exit.isFailure(setBindingExit)) {

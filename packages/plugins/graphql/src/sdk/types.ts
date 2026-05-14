@@ -1,11 +1,9 @@
 import { Effect, Schema } from "effect";
 import {
   ConfiguredCredentialValue,
-  CredentialBindingValue,
   credentialSlotKey,
   ScopedSecretCredentialInput,
   SecretBackedValue,
-  ScopeId,
 } from "@executor-js/sdk/core";
 
 // ---------------------------------------------------------------------------
@@ -106,29 +104,6 @@ export const GraphqlSourceAuthInput = Schema.Union([
   }),
 ]);
 export type GraphqlSourceAuthInput = typeof GraphqlSourceAuthInput.Type;
-
-export const GraphqlSourceBindingValue = CredentialBindingValue;
-export type GraphqlSourceBindingValue = typeof GraphqlSourceBindingValue.Type;
-
-export const GraphqlSourceBindingInput = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScope: ScopeId,
-  scope: ScopeId,
-  slot: Schema.String,
-  value: GraphqlSourceBindingValue,
-});
-export type GraphqlSourceBindingInput = typeof GraphqlSourceBindingInput.Type;
-
-export const GraphqlSourceBindingRef = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScopeId: ScopeId,
-  scopeId: ScopeId,
-  slot: Schema.String,
-  value: GraphqlSourceBindingValue,
-  createdAt: Schema.Date,
-  updatedAt: Schema.Date,
-});
-export type GraphqlSourceBindingRef = typeof GraphqlSourceBindingRef.Type;
 
 export const InvocationConfig = Schema.Struct({
   /** The GraphQL endpoint URL */

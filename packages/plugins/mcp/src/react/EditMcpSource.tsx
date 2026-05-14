@@ -2,13 +2,12 @@ import { useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
+import { mcpSourceAtom, updateMcpSource } from "./atoms";
 import {
-  mcpSourceAtom,
-  mcpSourceBindingsAtom,
-  setMcpSourceBinding,
-  updateMcpSource,
-} from "./atoms";
-import { connectionsAtom } from "@executor-js/react/api/atoms";
+  connectionsAtom,
+  setSourceCredentialBinding,
+  sourceCredentialBindingsAtom,
+} from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { slugifyNamespace, useSourceIdentity } from "@executor-js/react/plugins/source-identity";
@@ -29,12 +28,9 @@ import { SourceOAuthConnectionControl } from "@executor-js/react/plugins/source-
 import { Button } from "@executor-js/react/components/button";
 import { Badge } from "@executor-js/react/components/badge";
 import { ScopeId } from "@executor-js/sdk/core";
+import type { CredentialBindingRef } from "@executor-js/sdk/core";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
-import {
-  McpSourceBindingInput,
-  type McpCredentialInput,
-  type McpSourceBindingRef,
-} from "../sdk/types";
+import { type McpCredentialInput } from "../sdk/types";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +40,7 @@ import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
 function RemoteEditForm(props: {
   sourceId: string;
   initial: McpStoredSourceSchemaType & { config: { transport: "remote" } };
-  bindings: readonly McpSourceBindingRef[];
+  bindings: readonly CredentialBindingRef[];
   onSave: () => void;
 }) {
   const displayScope = useScope();
@@ -62,7 +58,7 @@ function RemoteEditForm(props: {
     initialTargetScope: initialCredentialTargetScope(sourceScope, props.bindings),
   });
   const doUpdate = useAtomSet(updateMcpSource, { mode: "promiseExit" });
-  const setBinding = useAtomSet(setMcpSourceBinding, { mode: "promise" });
+  const setBinding = useAtomSet(setSourceCredentialBinding, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 
@@ -206,13 +202,14 @@ function RemoteEditForm(props: {
           onConnected={async (connectionId) => {
             await setBinding({
               params: { scopeId: oauthCredentialTargetScope },
-              payload: McpSourceBindingInput.make({
+              payload: {
+                targetScope: oauthCredentialTargetScope,
+                pluginId: "mcp",
                 sourceId: props.sourceId,
                 sourceScope,
-                scope: oauthCredentialTargetScope,
-                slot: oauth2.connectionSlot,
+                slotKey: oauth2.connectionSlot,
                 value: { kind: "connection", connectionId },
-              }),
+              },
               reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
             });
           }}
@@ -297,7 +294,9 @@ export default function EditMcpSource({
   const source =
     AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
   const sourceScope = source ? ScopeId.make(source.scope) : scopeId;
-  const bindingsResult = useAtomValue(mcpSourceBindingsAtom(scopeId, sourceId, sourceScope));
+  const bindingsResult = useAtomValue(
+    sourceCredentialBindingsAtom(scopeId, "mcp", sourceId, sourceScope),
+  );
 
   if (!AsyncResult.isSuccess(sourceResult) || !source || !AsyncResult.isSuccess(bindingsResult)) {
     return (

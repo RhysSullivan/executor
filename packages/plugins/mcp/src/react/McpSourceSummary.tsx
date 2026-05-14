@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
-import { connectionsAtom } from "@executor-js/react/api/atoms";
+import { connectionsAtom, sourceCredentialBindingsAtom } from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
 import {
   SourceCredentialNotice,
@@ -11,7 +11,7 @@ import {
 } from "@executor-js/react/plugins/source-credential-status";
 import { ScopeId } from "@executor-js/sdk/core";
 
-import { mcpSourceAtom, mcpSourceBindingsAtom } from "./atoms";
+import { mcpSourceAtom } from "./atoms";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
 
 const sourceCredentialSlots = (
@@ -62,7 +62,7 @@ export default function McpSourceSummary(props: {
     AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
   const sourceScope = source ? ScopeId.make(source.scope) : displayScope;
   const bindingsResult = useAtomValue(
-    mcpSourceBindingsAtom(displayScope, props.sourceId, sourceScope),
+    sourceCredentialBindingsAtom(displayScope, "mcp", props.sourceId, sourceScope),
   );
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 

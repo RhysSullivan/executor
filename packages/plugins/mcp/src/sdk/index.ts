@@ -26,9 +26,6 @@ export {
   McpConnectionAuth,
   McpConnectionAuthInput,
   McpCredentialInput,
-  McpSourceBindingInput,
-  McpSourceBindingRef,
   mcpHeaderSlot,
   mcpQueryParamSlot,
-  type McpSourceBindingValue,
 } from "./types";

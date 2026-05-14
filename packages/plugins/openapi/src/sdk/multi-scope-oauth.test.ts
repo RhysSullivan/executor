@@ -43,7 +43,8 @@ import { serveTestHttpApp } from "@executor-js/sdk/testing";
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
-import { OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
+import { OAuth2SourceConfig } from "./types";
+import { setOpenApiCredentialBinding } from "../testing";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -335,15 +336,13 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         baseUrl,
         oauth2,
       });
-      yield* aliceExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: aliceScope.id,
-          scope: aliceScope.id,
-          slot: oauth2.connectionSlot,
-          value: { kind: "connection", connectionId: ConnectionId.make(aliceAuth.connectionId) },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(aliceExec, {
+        sourceId: "petstore",
+        sourceScope: aliceScope.id,
+        targetScope: aliceScope.id,
+        slotKey: oauth2.connectionSlot,
+        value: { kind: "connection", connectionId: ConnectionId.make(aliceAuth.connectionId) },
+      });
       yield* bobExec.openapi.addSpec({
         spec: specJson,
         scope: String(bobScope.id),
@@ -351,15 +350,13 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         baseUrl,
         oauth2,
       });
-      yield* bobExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: bobScope.id,
-          scope: bobScope.id,
-          slot: oauth2.connectionSlot,
-          value: { kind: "connection", connectionId: ConnectionId.make(bobAuth.connectionId) },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(bobExec, {
+        sourceId: "petstore",
+        sourceScope: bobScope.id,
+        targetScope: bobScope.id,
+        slotKey: oauth2.connectionSlot,
+        value: { kind: "connection", connectionId: ConnectionId.make(bobAuth.connectionId) },
+      });
 
       // -------------------------------------------------------------
       // 4. Invoke through each exec — Authorization must carry that
@@ -603,15 +600,13 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         baseUrl,
         oauth2,
       });
-      yield* adminExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: orgScope.id,
-          scope: orgScope.id,
-          slot: oauth2.connectionSlot,
-          value: { kind: "connection", connectionId: ConnectionId.make(adminAuth) },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(adminExec, {
+        sourceId: "petstore",
+        sourceScope: orgScope.id,
+        targetScope: orgScope.id,
+        slotKey: oauth2.connectionSlot,
+        value: { kind: "connection", connectionId: ConnectionId.make(adminAuth) },
+      });
 
       // Alice signs in → resolves her shadowed user-scope creds
       // (`alice-client`), mints her own token, writes at user-alice.
@@ -619,24 +614,20 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // Bob signs in → no user-scope shadow, falls through to the
       // org defaults (`org-client`), writes at user-bob.
       const bobAuth = yield* startClientCredentials(bobExec, bobScope.id, startInput);
-      yield* aliceExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: orgScope.id,
-          scope: aliceScope.id,
-          slot: oauth2.connectionSlot,
-          value: { kind: "connection", connectionId: ConnectionId.make(aliceAuth) },
-        }),
-      );
-      yield* bobExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: orgScope.id,
-          scope: bobScope.id,
-          slot: oauth2.connectionSlot,
-          value: { kind: "connection", connectionId: ConnectionId.make(bobAuth) },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(aliceExec, {
+        sourceId: "petstore",
+        sourceScope: orgScope.id,
+        targetScope: aliceScope.id,
+        slotKey: oauth2.connectionSlot,
+        value: { kind: "connection", connectionId: ConnectionId.make(aliceAuth) },
+      });
+      yield* setOpenApiCredentialBinding(bobExec, {
+        sourceId: "petstore",
+        sourceScope: orgScope.id,
+        targetScope: bobScope.id,
+        slotKey: oauth2.connectionSlot,
+        value: { kind: "connection", connectionId: ConnectionId.make(bobAuth) },
+      });
 
       // ---- Regression assertions ----
 

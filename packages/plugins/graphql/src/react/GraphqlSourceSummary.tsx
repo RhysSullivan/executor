@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
-import { connectionsAtom } from "@executor-js/react/api/atoms";
+import { connectionsAtom, sourceCredentialBindingsAtom } from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
 import {
   SourceCredentialNotice,
@@ -11,7 +11,7 @@ import {
 } from "@executor-js/react/plugins/source-credential-status";
 import { ScopeId } from "@executor-js/sdk/core";
 
-import { graphqlSourceAtom, graphqlSourceBindingsAtom } from "./atoms";
+import { graphqlSourceAtom } from "./atoms";
 import type { StoredGraphqlSource } from "../sdk/store";
 
 const sourceCredentialSlots = (source: StoredGraphqlSource): readonly SourceCredentialSlot[] => {
@@ -45,7 +45,7 @@ export default function GraphqlSourceSummary(props: {
     AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
   const sourceScope = source ? ScopeId.make(source.scope) : displayScope;
   const bindingsResult = useAtomValue(
-    graphqlSourceBindingsAtom(displayScope, props.sourceId, sourceScope),
+    sourceCredentialBindingsAtom(displayScope, "graphql", props.sourceId, sourceScope),
   );
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 

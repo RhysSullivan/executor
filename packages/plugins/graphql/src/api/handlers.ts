@@ -4,7 +4,6 @@ import { Context, Effect } from "effect";
 import { addGroup, capture } from "@executor-js/api";
 import { ScopeId } from "@executor-js/sdk/core";
 import type { GraphqlPluginExtension, GraphqlUpdateSourceInput } from "../sdk/plugin";
-import { GraphqlSourceBindingInput } from "../sdk/types";
 import { GraphqlGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -85,36 +84,6 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
             auth: payload.auth,
           } as GraphqlUpdateSourceInput);
           return { updated: true };
-        }),
-      ),
-    )
-    .handle("listSourceBindings", ({ params: path }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* GraphqlExtensionService;
-          return yield* ext.listSourceBindings(path.namespace, path.sourceScopeId);
-        }),
-      ),
-    )
-    .handle("setSourceBinding", ({ payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* GraphqlExtensionService;
-          return yield* ext.setSourceBinding(GraphqlSourceBindingInput.make(payload));
-        }),
-      ),
-    )
-    .handle("removeSourceBinding", ({ payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* GraphqlExtensionService;
-          yield* ext.removeSourceBinding(
-            payload.sourceId,
-            payload.sourceScope,
-            payload.slot,
-            payload.scope,
-          );
-          return { removed: true };
         }),
       ),
     ),
