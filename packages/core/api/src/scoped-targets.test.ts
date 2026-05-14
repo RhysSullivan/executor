@@ -49,6 +49,9 @@ const handlerContextFor = (executor: Executor) =>
 
 const scope = (id: ScopeId, name: string) => Scope.make({ id, name, createdAt: new Date() });
 
+const toScopeRows = (rows: unknown): ReadonlyArray<{ readonly scope_id: string }> =>
+  rows as ReadonlyArray<{ readonly scope_id: string }>;
+
 const connectionProviderPlugin = definePlugin(() => ({
   id: "test-connection-provider" as const,
   storage: () => ({}),
@@ -170,10 +173,13 @@ describe("core API explicit target scopes", () => {
       );
 
       expect(response.status).toBe(200);
-      const rows = (yield* config.adapter.findMany({
-        model: "connection",
-        where: [{ field: "id", value: connectionId }],
-      })) as ReadonlyArray<{ readonly scope_id: string }>;
+      const rows = toScopeRows(
+        yield* Effect.promise(() =>
+          config.db.findMany("connection", {
+            where: (b) => b("id", "=", connectionId),
+          }),
+        ),
+      );
       expect(rows.map((row) => row.scope_id).sort()).toEqual([String(userScope)]);
     }),
   );
@@ -216,7 +222,7 @@ describe("core API explicit target scopes", () => {
       );
 
       expect(response.status).toBe(400);
-      const sessions = yield* config.adapter.findMany({ model: "oauth2_session" });
+      const sessions = yield* Effect.promise(() => config.db.findMany("oauth2_session"));
       expect(sessions).toEqual([]);
     }),
   );

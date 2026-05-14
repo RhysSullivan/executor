@@ -73,7 +73,6 @@
     "@effect/vitest": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/react": "workspace:*",
-    "@executor-js/storage-core": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "bun-types": "catalog:",

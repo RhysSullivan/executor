@@ -1699,8 +1699,8 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         // toolRow.scope_id is the resolved owning scope of the tool
         // (innermost-wins from the executor's stack). The matching
         // mcp_binding + mcp_source rows live at the same scope, so
-        // pin every store lookup to it instead of relying on the
-        // scoped adapter's stack-wide fall-through.
+        // pin every store lookup to it instead of relying on stack-wide
+        // scope fall-through.
         const toolScope = toolRow.scope_id;
         const entry = yield* ctx.storage.getBinding(toolRow.id, toolScope).pipe(
           Effect.withSpan("mcp.plugin.load_binding", {
@@ -1854,8 +1854,8 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
     // Honor upstream destructiveHint from MCP ToolAnnotations.
     // Bindings are fetched per scope so shadowed sources (e.g. an org-level
     // source overridden per-user) each resolve against their own scope's
-    // row rather than collapsing onto whichever row the scoped adapter
-    // sees first.
+    // row rather than collapsing onto whichever visible row would otherwise
+    // win first.
     resolveAnnotations: ({ ctx, sourceId, toolRows }) =>
       Effect.gen(function* () {
         const scopes = new Set(toolRows.map((row) => row.scope_id));

@@ -13,21 +13,21 @@ import { Effect } from "effect";
 import {
   Scope,
   ScopeId,
-  collectSchemas,
+  collectTables,
   createExecutor,
   makeHostedHttpClientLayer,
 } from "@executor-js/sdk";
-import { makePostgresAdapter, makePostgresBlobStore } from "@executor-js/storage-postgres";
+import { createDrizzleFumaDb } from "@executor-js/sdk/drizzle";
 
 import { env } from "cloudflare:workers";
 import executorConfig from "../../executor.config";
 import { DbService } from "./db";
 
 // ---------------------------------------------------------------------------
-// Plugin list lives in `executor.config.ts` — that file is the single
-// source of truth, also consumed by the schema-gen CLI and the test
-// harness. Per-request runtime values (WorkOS credentials from the
-// Worker env) are passed through the factory's `deps` parameter.
+// Plugin list lives in `executor.config.ts` — that file is the single source
+// of truth for runtime, schema wiring, and the test harness. Per-request
+// runtime values (WorkOS credentials from the Worker env) are passed through
+// the factory's `deps` parameter.
 // ---------------------------------------------------------------------------
 
 export type CloudPlugins = ReturnType<typeof executorConfig.plugins>;
@@ -67,9 +67,12 @@ export const createScopedExecutor = (
     const httpClientLayer = makeHostedHttpClientLayer({
       allowLocalNetwork: env.NODE_ENV === "test",
     });
-    const schema = collectSchemas(plugins);
-    const adapter = makePostgresAdapter({ db, schema });
-    const blobs = makePostgresBlobStore({ db });
+    const fuma = createDrizzleFumaDb({
+      db,
+      tables: collectTables(plugins),
+      namespace: "executor_cloud",
+      provider: "postgresql",
+    });
 
     const orgScope = Scope.make({
       id: ScopeId.make(organizationId),
@@ -88,8 +91,7 @@ export const createScopedExecutor = (
     // where `ErrorCaptureLive` (Sentry) gets wired in.
     return yield* createExecutor({
       scopes: [userOrgScope, orgScope],
-      adapter,
-      blobs,
+      db: fuma.db,
       plugins,
       httpClientLayer,
       onElicitation: "accept-all",

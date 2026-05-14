@@ -11,15 +11,13 @@ import { desktopSettingsPlugin } from "@executor-js/plugin-desktop-settings/serv
 // ---------------------------------------------------------------------------
 // Single source of truth for the local app's plugin list.
 //
-// Consumed by:
-//   - the schema-gen CLI (reads `plugin.schema` only; calls `plugins({})`)
-//   - the host runtime
+// Consumed by the host runtime. The runtime passes the merged plugin tables
+// to FumaDB directly; there is no separate Executor schema-generation step.
 //
 // First-party and third-party plugins use the same import-and-call flow.
 // ---------------------------------------------------------------------------
 
 export default defineExecutorConfig({
-  dialect: "sqlite",
   plugins: () =>
     [
       openApiHttpPlugin(),

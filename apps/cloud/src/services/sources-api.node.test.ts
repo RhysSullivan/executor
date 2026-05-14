@@ -288,10 +288,10 @@ const startMcpServer = () => {
 
 // The Cloudflare OpenAPI spec is the biggest real spec we care about:
 // 16MB, 2700+ operations, thousands of shared schemas. Exercising
-// addSpec end-to-end on it through the real postgres adapter is the
-// load-bearing check that any adapter regression (per-row `createMany`,
-// accidental N+1 reads, transaction snapshots that copy too much) will
-// show up as a test failure instead of a prod incident.
+// addSpec end-to-end on it through the real Drizzle/FumaDB path is the
+// load-bearing check that any storage regression (per-row `createMany`,
+// accidental N+1 reads, transaction snapshots that copy too much) will show up
+// as a test failure instead of a prod incident.
 const CLOUDFLARE_SPEC_PATH = resolve(
   __dirname,
   "../../../../packages/plugins/openapi/fixtures/cloudflare.json",
@@ -880,7 +880,7 @@ describe("sources api (HTTP)", () => {
   );
 
   it.effect(
-    "addSpec persists the full Cloudflare spec through the real adapter",
+    "addSpec persists the full Cloudflare spec through the real Drizzle/FumaDB path",
     () =>
       Effect.gen(function* () {
         const org = `org_${crypto.randomUUID()}`;

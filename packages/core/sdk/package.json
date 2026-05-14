@@ -20,6 +20,8 @@
     "./core": "./src/index.ts",
     "./promise": "./src/promise.ts",
     "./client": "./src/client.ts",
+    "./pglite": "./src/pglite.ts",
+    "./drizzle": "./src/drizzle.ts",
     "./testing": "./src/testing.ts"
   },
   "publishConfig": {
@@ -43,6 +45,18 @@
           "default": "./dist/client.js"
         }
       },
+      "./pglite": {
+        "import": {
+          "types": "./dist/pglite.d.ts",
+          "default": "./dist/pglite.js"
+        }
+      },
+      "./drizzle": {
+        "import": {
+          "types": "./dist/drizzle.d.ts",
+          "default": "./dist/drizzle.js"
+        }
+      },
       "./testing": {
         "import": {
           "types": "./dist/testing.d.ts",
@@ -58,10 +72,13 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@executor-js/storage-core": "workspace:*",
+    "@electric-sql/pglite": "^0.4.4",
+    "@electric-sql/pglite-socket": "^0.1.4",
     "@standard-schema/spec": "^1.1.0",
+    "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "fractional-indexing": "^3.2.0",
+    "fumadb": "workspace:*",
     "oauth4webapi": "^3.8.5"
   },
   "devDependencies": {

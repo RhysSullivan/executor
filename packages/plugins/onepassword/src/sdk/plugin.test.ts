@@ -1,19 +1,23 @@
-import { describe, expect, it } from "@effect/vitest";
+import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { ScopeId, createExecutor, makeTestConfig } from "@executor-js/sdk";
+import { ScopeId, createExecutor, makeTestExecutorLayer, TestExecutor } from "@executor-js/sdk";
 
 import { onepasswordPlugin } from "./plugin";
 import { OnePasswordConfig, DesktopAppAuth } from "./types";
 
-describe("onepassword plugin", () => {
+const plugins = [onepasswordPlugin()] as const;
+
+layer(
+  makeTestExecutorLayer({
+    plugins,
+  }),
+  { timeout: "15 seconds" },
+)("onepassword plugin", (it) => {
   it.effect("registers onepassword as a secret provider", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [onepasswordPlugin()] as const,
-        }),
-      );
+      const { config: harnessConfig } = yield* TestExecutor;
+      const executor = yield* createExecutor({ ...harnessConfig, plugins });
       const providers = yield* executor.secrets.providers();
       expect(providers).toContain("onepassword");
     }),
@@ -21,11 +25,8 @@ describe("onepassword plugin", () => {
 
   it.effect("configure / getConfig / removeConfig round-trip via blob store", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [onepasswordPlugin()] as const,
-        }),
-      );
+      const { config: harnessConfig } = yield* TestExecutor;
+      const executor = yield* createExecutor({ ...harnessConfig, plugins });
 
       const initial = yield* executor.onepassword.getConfig();
       expect(initial).toBeNull();
@@ -54,11 +55,8 @@ describe("onepassword plugin", () => {
 
   it.effect("status reports not-configured before configure", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [onepasswordPlugin()] as const,
-        }),
-      );
+      const { config: harnessConfig } = yield* TestExecutor;
+      const executor = yield* createExecutor({ ...harnessConfig, plugins });
       const status = yield* executor.onepassword.status();
       expect(status.connected).toBe(false);
       expect(status.error).toBe("Not configured");

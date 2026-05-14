@@ -10,7 +10,7 @@ import type * as Tracer from "effect/Tracer";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TransportState } from "agents/mcp";
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import postgres, { type Sql } from "postgres";
 
 import { createExecutorMcpServer } from "@executor-js/host-mcp";
 import { buildExecuteDescription } from "@executor-js/execution";
@@ -114,7 +114,7 @@ const withIncomingParent = <A, E, R>(
   return parsed ? OtelTracer.withSpanContext(effect, parsed) : effect;
 };
 
-type DbHandle = DbServiceShape & { end: () => Promise<void> };
+type DbHandle = DbServiceShape & { readonly sql: Sql; end: () => Promise<void> };
 type SessionMeta = {
   readonly organizationId: string;
   readonly organizationName: string;

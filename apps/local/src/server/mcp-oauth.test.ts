@@ -25,9 +25,6 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
 import { HttpApi, HttpApiBuilder, HttpApiClient } from "effect/unstable/httpapi";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
@@ -37,13 +34,12 @@ import { addGroup, observabilityMiddleware } from "@executor-js/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor-js/api/server";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
-import { Scope, ScopeId, collectSchemas, createExecutor } from "@executor-js/sdk";
-import { makeSqliteAdapter, makeSqliteBlobStore } from "@executor-js/storage-file";
+import { Scope, ScopeId, collectTables, createExecutor } from "@executor-js/sdk";
+import { createPgliteFumaDb } from "@executor-js/sdk/pglite";
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 import { mcpPlugin } from "@executor-js/plugin-mcp";
 import { McpExtensionService, McpGroup, McpHandlers } from "@executor-js/plugin-mcp/api";
 
-import * as executorSchema from "./executor-schema";
 import { ErrorCaptureLive } from "./observability";
 
 // Shape of the test API: core + mcp group, with InternalError surfaced at
@@ -219,11 +215,10 @@ const startFakeServer = async (): Promise<FakeServer> => {
 };
 
 // ---------------------------------------------------------------------------
-// In-process local API harness — tmpdir sqlite + minimal plugin set.
+// In-process local API harness — tmpdir PGlite + minimal plugin set.
 // ---------------------------------------------------------------------------
 
 const TEST_BASE_URL = "http://local.test";
-const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
 interface Harness {
   readonly fetch: typeof globalThis.fetch;
@@ -232,19 +227,16 @@ interface Harness {
 }
 
 const startHarness = async (tmpDir: string): Promise<Harness> => {
-  const sqlite = new Database(join(tmpDir, "data.db"));
-  sqlite.exec("PRAGMA journal_mode = WAL");
-  const db = drizzle(sqlite, { schema: executorSchema });
-  migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
-
   const scopeId = `test-${randomBytes(4).toString("hex")}`;
   const plugins = [
     mcpPlugin({ dangerouslyAllowStdioMCP: false }),
     fileSecretsPlugin({ directory: tmpDir }),
   ] as const;
-  const schema = collectSchemas(plugins);
-  const adapter = makeSqliteAdapter({ db, schema });
-  const blobs = makeSqliteBlobStore({ db });
+  const pglite = await createPgliteFumaDb({
+    tables: collectTables(plugins),
+    namespace: "executor_local_test",
+    dataDir: join(tmpDir, "pglite"),
+  });
 
   const scope = Scope.make({
     id: ScopeId.make(scopeId),
@@ -253,10 +245,9 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
   });
 
   const executor = await Effect.runPromise(
-    createExecutor({
+    createExecutor<typeof plugins>({
       scopes: [scope],
-      adapter,
-      blobs,
+      db: pglite.db,
       plugins,
       onElicitation: "accept-all",
       oauthEndpointUrlPolicy: { allowHttp: true },
@@ -300,7 +291,7 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
       await Effect.runPromise(
         Effect.ignore(Effect.tryPromise(() => Effect.runPromise(executor.close()))),
       );
-      sqlite.close();
+      await pglite.close();
     },
   };
 };

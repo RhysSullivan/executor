@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { StorageError } from "@executor-js/storage-core";
+import { StorageError } from "./fuma-runtime";
 
 import { makeInMemoryBlobStore, pluginBlobStore } from "./blob";
 

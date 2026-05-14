@@ -24,6 +24,8 @@
     "@executor-js/plugin-openapi": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "@types/node": "catalog:",
+    "drizzle-orm": "catalog:",
+    "postgres": "^3.4.9",
     "vitest": "catalog:",
     "wrangler": "^4.81.0"
   }

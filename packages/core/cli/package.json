@@ -46,7 +46,6 @@
   },
   "devDependencies": {
     "@executor-js/sdk": "workspace:*",
-    "@executor-js/storage-core": "workspace:*",
     "@types/node": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",

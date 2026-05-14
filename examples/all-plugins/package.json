@@ -18,7 +18,6 @@
     "@executor-js/plugin-openapi": "workspace:*",
     "@executor-js/plugin-workos-vault": "workspace:*",
     "@executor-js/sdk": "workspace:*",
-    "@executor-js/storage-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

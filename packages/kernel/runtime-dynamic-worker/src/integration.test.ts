@@ -16,18 +16,23 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
+import { drizzle } from "drizzle-orm/postgres-js";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
+import postgres from "postgres";
 
 import {
+  collectTables,
   createExecutor,
   definePlugin,
-  makeTestConfig,
   type InvokeOptions,
   type SecretProvider,
+  Scope,
+  ScopeId,
 } from "@executor-js/sdk";
+import { createDrizzleFumaDb, createPostgresDrizzleSchema } from "@executor-js/sdk/drizzle";
 import { makeExecutorToolInvoker } from "@executor-js/execution";
 import { openApiPlugin } from "@executor-js/plugin-openapi";
 
@@ -39,6 +44,10 @@ import { makeDynamicWorkerExecutor } from "./executor";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 const TEST_SCOPE = "test-scope";
+const DATABASE_NAMESPACE = "executor_worker_test";
+const DATABASE_URL =
+  (env as { DATABASE_URL?: string }).DATABASE_URL ??
+  "postgresql://postgres:postgres@127.0.0.1:5435/postgres";
 
 const memoryProvider: SecretProvider = (() => {
   const store = new Map<string, string>();
@@ -147,20 +156,60 @@ const makeSpec = (contentType: string, schema: Record<string, unknown> = { type:
   });
 
 const buildSandboxBridge = (spec: string, namespace: string, baseUrl = "https://upstream.test") =>
-  Effect.gen(function* () {
-    const recording = makeRecordingHttpClient();
-    const executor = yield* createExecutor(
-      makeTestConfig({
-        plugins: [
-          openApiPlugin({ httpClientLayer: recording.layer }),
-          memorySecretsPlugin(),
-        ] as const,
-      }),
-    );
-    yield* executor.openapi.addSpec({ spec, scope: TEST_SCOPE, namespace, baseUrl });
-    const invoker = makeExecutorToolInvoker(executor, { invokeOptions: autoApprove });
-    return { executor, invoker, captured: recording.captured };
-  });
+  Effect.acquireRelease(
+    Effect.gen(function* () {
+      const recording = makeRecordingHttpClient();
+      const plugins = [
+        openApiPlugin({ httpClientLayer: recording.layer }),
+        memorySecretsPlugin(),
+      ] as const;
+      const tables = collectTables(plugins);
+      const sql = postgres(DATABASE_URL, {
+        max: 1,
+        idle_timeout: 0,
+        max_lifetime: 60,
+        connect_timeout: 10,
+        fetch_types: false,
+        prepare: true,
+        onnotice: () => undefined,
+      });
+      const schema = createPostgresDrizzleSchema({
+        tables,
+        namespace: DATABASE_NAMESPACE,
+      });
+      const db = createDrizzleFumaDb({
+        db: drizzle(sql, { schema }),
+        tables,
+        namespace: DATABASE_NAMESPACE,
+        provider: "postgresql",
+      });
+      const executor = yield* createExecutor({
+        scopes: [
+          Scope.make({
+            id: ScopeId.make(TEST_SCOPE),
+            name: "test",
+            createdAt: new Date(),
+          }),
+        ],
+        db: db.db,
+        plugins,
+        onElicitation: "accept-all",
+      });
+      yield* executor.openapi.addSpec({ spec, scope: TEST_SCOPE, namespace, baseUrl });
+      const invoker = makeExecutorToolInvoker(executor, { invokeOptions: autoApprove });
+      return { executor, invoker, captured: recording.captured, sql };
+    }),
+    ({ executor, sql }) =>
+      executor.close().pipe(
+        Effect.ignore,
+        Effect.andThen(
+          Effect.tryPromise({
+            try: () => sql.end({ timeout: 0 }),
+            catch: (cause) => cause,
+          }).pipe(Effect.ignore),
+        ),
+      ),
+  );
 
 const loader = (env as { LOADER: WorkerLoader }).LOADER;
 
@@ -196,7 +245,7 @@ describe("sandbox → openApiPlugin integration", () => {
       // Regression guard for the JSON-stringify bug — the symptom was
       // either an empty body part or `[object Object]` in place of bytes.
       expect(wire).not.toContain("[object Object]");
-    }),
+    }).pipe(Effect.scoped),
   );
 
   it.effect("multipart with Uint8Array: bytes survive intact", () =>
@@ -232,7 +281,7 @@ describe("sandbox → openApiPlugin integration", () => {
         }
       }
       expect(found).toBe(true);
-    }),
+    }).pipe(Effect.scoped),
   );
 
   it.effect("application/json: primitive object body round-trips unchanged", () =>
@@ -246,11 +295,10 @@ describe("sandbox → openApiPlugin integration", () => {
         }`,
         invoker,
       );
-
       expect(result.error).toBeUndefined();
       const json = JSON.parse(new TextDecoder().decode(captured[0]!.body));
       expect(json).toEqual({ name: "Acme", count: 7, ok: true });
-    }),
+    }).pipe(Effect.scoped),
   );
 
   it.effect("application/octet-stream: Uint8Array body matches byte-for-byte", () =>
@@ -271,6 +319,6 @@ describe("sandbox → openApiPlugin integration", () => {
 
       expect(result.error).toBeUndefined();
       expect(Array.from(captured[0]!.body)).toEqual([1, 2, 3, 4, 5, 0xff, 0x00, 0x7f]);
-    }),
+    }).pipe(Effect.scoped),
   );
 });

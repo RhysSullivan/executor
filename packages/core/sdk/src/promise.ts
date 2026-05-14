@@ -59,7 +59,7 @@ export {
 
 // File-config helper for the CLI. Plain typed-object factory with no
 // Effect in its signature, so it's safe to live on the Promise surface.
-export { defineExecutorConfig, type ExecutorCliConfig, type ExecutorDialect } from "./config";
+export { defineExecutorConfig, type ExecutorCliConfig } from "./config";
 
 // Error tags — Promise callers handle these via .catch().
 export {

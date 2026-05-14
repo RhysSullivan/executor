@@ -447,8 +447,8 @@ describe("Google Discovery plugin", () => {
 
   // -------------------------------------------------------------------------
   // Multi-scope shadowing — regression suite covering the bug class where
-  // store reads/writes that don't pin scope_id collapse onto whichever row
-  // the scoped adapter's `scope_id IN (stack)` filter sees first. Each
+  // store reads/writes that don't pin scope_id collapse onto whichever visible
+  // row wins first. Each
   // scenario is reproducible against the pre-fix store.
   // -------------------------------------------------------------------------
 

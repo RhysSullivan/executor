@@ -1,6 +1,6 @@
 import { Effect, Match, Schema } from "effect";
 
-import type { StorageFailure } from "@executor-js/storage-core";
+import type { StorageFailure } from "./fuma-runtime";
 
 import { credentialBindingKinds, type CredentialBindingRow } from "./core-schema";
 import { ConnectionId, CredentialBindingId, ScopeId, SecretId } from "./ids";

@@ -8,7 +8,7 @@
 // `Writable` I/O object) is opened in request 1's context and reused by
 // request 2, which the runtime forbids:
 //
-//   StorageError: [storage-drizzle] findMany select failed:
+//   StorageError: FumaDB findMany select failed:
 //     Cannot perform I/O on behalf of a different request. (I/O type: Writable)
 //
 // The only primitive that actually rebuilds per request is a custom

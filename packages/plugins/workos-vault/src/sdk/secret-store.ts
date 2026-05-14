@@ -1,11 +1,18 @@
 import { Effect } from "effect";
 
 import {
+  dateColumn,
   defineSchema,
+  nullableTextColumn,
+  scopedExecutorTable,
   StorageError,
+  type AnyColumn,
+  type Condition,
+  type ConditionBuilder,
   type SecretProvider,
   type StorageDeps,
   type StorageFailure,
+  textColumn,
 } from "@executor-js/sdk/core";
 
 import {
@@ -33,15 +40,11 @@ const KEK_NOT_READY_BACKOFF_MS = 1000;
 // ---------------------------------------------------------------------------
 
 export const workosVaultSchema = defineSchema({
-  workos_vault_metadata: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      name: { type: "string", required: true },
-      purpose: { type: "string", required: false },
-      created_at: { type: "date", required: true },
-    },
-  },
+  workos_vault_metadata: scopedExecutorTable("workos_vault_metadata", {
+    name: textColumn("name"),
+    purpose: nullableTextColumn("purpose"),
+    created_at: dateColumn("created_at"),
+  }),
 });
 
 export type WorkosVaultSchema = typeof workosVaultSchema;
@@ -53,6 +56,14 @@ interface MetadataRow {
   readonly purpose?: string | null;
   readonly created_at: Date;
 }
+
+const toMetadataRow = (row: Record<string, unknown>): MetadataRow => ({
+  id: String(row.id),
+  scope_id: String(row.scope_id),
+  name: String(row.name),
+  purpose: typeof row.purpose === "string" ? row.purpose : null,
+  created_at: row.created_at instanceof Date ? row.created_at : new Date(String(row.created_at)),
+});
 
 // ---------------------------------------------------------------------------
 // WorkosVaultStore — typed metadata-store the plugin uses internally.
@@ -66,25 +77,88 @@ export interface WorkosVaultStore {
 }
 
 export const makeWorkosVaultStore = (deps: StorageDeps<WorkosVaultSchema>): WorkosVaultStore => {
-  const { adapter: db } = deps;
+  const { fuma } = deps;
+  const scopeIds = deps.scopes.map((scope) => String(scope.id));
+
+  type FumaStoreDb = {
+    readonly create: (
+      table: string,
+      row: Record<string, unknown>,
+    ) => Promise<Record<string, unknown>>;
+    readonly deleteMany: (table: string, options: unknown) => Promise<void>;
+    readonly findFirst: (
+      table: string,
+      options: unknown,
+    ) => Promise<Record<string, unknown> | null>;
+    readonly findMany: (
+      table: string,
+      options?: unknown,
+    ) => Promise<readonly Record<string, unknown>[]>;
+    readonly updateMany: (table: string, options: unknown) => Promise<void>;
+  };
+
+  const asStoreDb = (db: unknown): FumaStoreDb => db as FumaStoreDb;
+
+  type StoreConditionBuilder = ConditionBuilder<Record<string, AnyColumn>>;
+
+  const byScopedId =
+    (id: string, scope: string) =>
+    (b: StoreConditionBuilder): Condition =>
+      b.and(b("id", "=", id), b("scope_id", "=", scope)) as Condition;
+
+  const findFirst = (options: unknown): Effect.Effect<MetadataRow | null, StorageFailure> =>
+    fuma
+      .use("workos_vault_metadata.findFirst", (db) =>
+        asStoreDb(db).findFirst("workos_vault_metadata", options),
+      )
+      .pipe(Effect.map((row): MetadataRow | null => (row ? toMetadataRow(row) : null)));
+
+  const scopedWhere = (b: StoreConditionBuilder): Condition =>
+    scopeIds.length === 1
+      ? b("scope_id", "=", scopeIds[0]!)
+      : (b("scope_id", "in", [...scopeIds]) as Condition);
+
+  const findMany = (options?: unknown): Effect.Effect<readonly MetadataRow[], StorageFailure> =>
+    fuma
+      .use("workos_vault_metadata.findMany", (db) =>
+        asStoreDb(db).findMany("workos_vault_metadata", options),
+      )
+      .pipe(Effect.map((rows) => rows.map(toMetadataRow)));
+
+  const create = (row: MetadataRow): Effect.Effect<void, StorageFailure> =>
+    fuma
+      .use("workos_vault_metadata.create", (db) =>
+        asStoreDb(db).create("workos_vault_metadata", {
+          id: row.id,
+          scope_id: row.scope_id,
+          name: row.name,
+          purpose: row.purpose ?? null,
+          created_at: row.created_at,
+        }),
+      )
+      .pipe(Effect.asVoid);
+
+  const update = (row: MetadataRow): Effect.Effect<void, StorageFailure> =>
+    fuma.use("workos_vault_metadata.updateMany", (db) =>
+      asStoreDb(db).updateMany("workos_vault_metadata", {
+        where: byScopedId(row.id, row.scope_id),
+        set: {
+          name: row.name,
+          purpose: row.purpose ?? null,
+        },
+      }),
+    );
+
+  const deleteScoped = (id: string, scope: string): Effect.Effect<void, StorageFailure> =>
+    fuma.use("workos_vault_metadata.deleteMany", (db) =>
+      asStoreDb(db).deleteMany("workos_vault_metadata", {
+        where: byScopedId(id, scope),
+      }),
+    );
 
   // Every read/write to a specific row pins BOTH `id` and `scope_id`.
-  // The store runs behind the SDK's scoped adapter (which auto-injects
-  // `scope_id IN (stack)`), so a bare `{id}` filter resolves to any
-  // row in the stack in adapter-iteration order. For shadowed rows
-  // (same id at multiple scopes), that landed the update/delete on the
-  // wrong scope. Callers thread the target scope in so every mutation
-  // targets a single, unambiguous row.
-  const findScoped = (id: string, scope: string) =>
-    db
-      .findOne({
-        model: "workos_vault_metadata",
-        where: [
-          { field: "id", value: id },
-          { field: "scope_id", value: scope },
-        ],
-      })
-      .pipe(Effect.map((row): MetadataRow | null => row ?? null));
+  // Scope is a normal FumaDB predicate here, not hidden behavior.
+  const findScoped = (id: string, scope: string) => findFirst({ where: byScopedId(id, scope) });
 
   return {
     get: (id, scope) => findScoped(id, scope),
@@ -92,53 +166,24 @@ export const makeWorkosVaultStore = (deps: StorageDeps<WorkosVaultSchema>): Work
       Effect.gen(function* () {
         const existing = yield* findScoped(row.id, row.scope_id);
         if (existing) {
-          yield* db.update({
-            model: "workos_vault_metadata",
-            where: [
-              { field: "id", value: row.id },
-              { field: "scope_id", value: row.scope_id },
-            ],
-            update: {
-              name: row.name,
-              purpose: row.purpose ?? null,
-              // created_at preserved from existing
-            },
-          });
+          yield* update(row);
           return;
         }
-        yield* db.create({
-          model: "workos_vault_metadata",
-          data: {
-            id: row.id,
-            scope_id: row.scope_id,
-            name: row.name,
-            purpose: row.purpose ?? null,
-            created_at: row.created_at,
-          },
-          forceAllowId: true,
-        });
+        yield* create(row);
       }),
     remove: (id, scope) =>
       Effect.gen(function* () {
         const existing = yield* findScoped(id, scope);
         if (!existing) return false;
-        yield* db.delete({
-          model: "workos_vault_metadata",
-          where: [
-            { field: "id", value: id },
-            { field: "scope_id", value: scope },
-          ],
-        });
+        yield* deleteScoped(id, scope);
         return true;
       }),
     list: () =>
-      db
-        .findMany({ model: "workos_vault_metadata" })
-        .pipe(
-          Effect.map((rows): readonly MetadataRow[] =>
-            [...rows].sort((l, r) => l.created_at.getTime() - r.created_at.getTime()),
-          ),
+      findMany({ where: scopedWhere }).pipe(
+        Effect.map((rows): readonly MetadataRow[] =>
+          [...rows].sort((l, r) => l.created_at.getTime() - r.created_at.getTime()),
         ),
+      ),
   };
 };
 

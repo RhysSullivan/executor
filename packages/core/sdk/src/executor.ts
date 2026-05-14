@@ -1,5 +1,4 @@
 import {
-  Context,
   Deferred,
   Duration,
   Effect,
@@ -11,19 +10,20 @@ import {
   Semaphore,
 } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
+import type { Condition, ConditionBuilder } from "fumadb/query";
+import type { AnyColumn } from "fumadb/schema";
 import type { OAuthEndpointUrlPolicy } from "./oauth-helpers";
 import { generateKeyBetween } from "fractional-indexing";
 import {
   StorageError,
-  typedAdapter,
-  type DBAdapter,
-  type DBSchema,
-  type DBTransactionAdapter,
+  makeFumaClient,
+  type FumaDb,
+  type FumaRow,
+  type FumaTables,
   type StorageFailure,
-  type TypedAdapter,
-} from "@executor-js/storage-core";
+} from "./fuma-runtime";
 
-import { pluginBlobStore, type BlobStore } from "./blob";
+import { makeFumaBlobStore, pluginBlobStore } from "./blob";
 import {
   ConnectionProviderState,
   ConnectionRef,
@@ -119,13 +119,6 @@ import {
   type ToolListFilter,
 } from "./types";
 import { buildToolTypeScriptPreview } from "./schema-types";
-import {
-  scopedTypedAdapter,
-  scopeAdapter,
-  scopeTransactionAdapter,
-  type ScopeContext,
-  type ScopedDBAdapter,
-} from "./scoped-adapter";
 import { validateHostedOutboundUrl } from "./hosted-http-client";
 
 const MAX_ANNOTATION_GROUPS = 64;
@@ -169,7 +162,7 @@ const resolveElicitationHandler = (onElicitation: OnElicitation): ElicitationHan
 // pool. No ToolRegistry, no SourceRegistry, no SecretStore services.
 // ---------------------------------------------------------------------------
 
-export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
+export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
   /**
    * Precedence-ordered scope stack this executor was configured with.
    * Innermost first. Consumers that need "the display scope" typically
@@ -339,7 +332,7 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
   readonly close: () => Effect.Effect<void, StorageFailure>;
 } & PluginExtensions<TPlugins>;
 
-export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
+export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly []> {
   /**
    * Precedence-ordered scope stack. Innermost first; typical shape is
    * `[userInOrgScope, orgScope]`. Reads on scoped tables walk the
@@ -348,8 +341,7 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
    * Must be non-empty.
    */
   readonly scopes: readonly Scope[];
-  readonly adapter: DBAdapter;
-  readonly blobs: BlobStore;
+  readonly db: FumaDb;
   readonly plugins?: TPlugins;
   /**
    * How to respond when a tool requests user input mid-invocation. Pass
@@ -371,27 +363,25 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
 }
 
 // ---------------------------------------------------------------------------
-// collectSchemas — merge coreSchema with every plugin's declared schema.
-// Hosts call this and pass the result to the migration runner (or to
-// the adapter factory for backends that auto-migrate from a schema
-// manifest) before constructing the executor.
+// collectTables — merge core tables with every plugin's declared Fuma table.
+// Hosts pass the result to FumaDB when constructing the database client.
 // ---------------------------------------------------------------------------
 
-export const collectSchemas = (plugins: readonly AnyPlugin[]): DBSchema => {
-  const merged: Record<string, DBSchema[string]> = { ...coreSchema };
+export const collectTables = (plugins: readonly AnyPlugin[]): FumaTables => {
+  const merged: FumaTables = { ...coreSchema };
   for (const plugin of plugins) {
     if (!plugin.schema) continue;
-    for (const [modelKey, model] of Object.entries(plugin.schema)) {
-      if (merged[modelKey]) {
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: collectSchemas is a synchronous configuration API
+    for (const [tableKey, tableDef] of Object.entries(plugin.schema)) {
+      if (merged[tableKey]) {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: collectTables is a synchronous configuration API
         throw new StorageError({
           message:
-            `Duplicate model "${modelKey}" contributed by plugin "${plugin.id}"` +
+            `Duplicate storage table "${tableKey}" contributed by plugin "${plugin.id}"` +
             ` (reserved by core or another plugin)`,
           cause: undefined,
         });
       }
-      merged[modelKey] = model as DBSchema[string];
+      merged[tableKey] = tableDef as FumaTables[string];
     }
   }
   return merged;
@@ -484,6 +474,126 @@ const EXECUTOR_SOURCE: StaticSourceDecl = {
   tools: [],
 };
 
+const scopeFilter =
+  (scopes: readonly string[]) =>
+  (b: ConditionBuilder<Record<string, AnyColumn>>): Condition =>
+    scopes.length === 1 ? b("scope_id", "=", scopes[0]!) : b("scope_id", "in", [...scopes]);
+
+const scopedWhere =
+  (
+    scopes: readonly string[],
+    where?: (b: ConditionBuilder<Record<string, AnyColumn>>) => Condition | boolean,
+  ) =>
+  (b: ConditionBuilder<Record<string, AnyColumn>>): Condition | boolean =>
+    b.and(scopeFilter(scopes)(b), where ? where(b) : true);
+
+const byId =
+  (id: string) =>
+  (b: ConditionBuilder<Record<string, AnyColumn>>): Condition =>
+    b("id", "=", id);
+
+const byScopedId =
+  (scope: string, id: string) =>
+  (b: ConditionBuilder<Record<string, AnyColumn>>): Condition =>
+    b.and(b("scope_id", "=", scope), b("id", "=", id)) as Condition;
+
+type CoreTableName = keyof CoreSchema & string;
+type CoreRow<TName extends CoreTableName> = FumaRow<CoreSchema[TName]>;
+type CoreWhere<_TName extends CoreTableName> = (
+  b: ConditionBuilder<Record<string, AnyColumn>>,
+) => Condition | boolean;
+type CoreFindManyOptions<TName extends CoreTableName> = {
+  readonly where?: CoreWhere<TName>;
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly orderBy?:
+    | readonly [string, "asc" | "desc"]
+    | readonly (readonly [string, "asc" | "desc"])[];
+};
+type CoreFindFirstOptions<TName extends CoreTableName> = Omit<
+  CoreFindManyOptions<TName>,
+  "limit" | "offset"
+>;
+
+type LooseStorageDb = {
+  readonly count: (tableName: string, options?: unknown) => Promise<number>;
+  readonly create: (
+    tableName: string,
+    row: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
+  readonly createMany: (
+    tableName: string,
+    rows: readonly Record<string, unknown>[],
+  ) => Promise<readonly unknown[]>;
+  readonly deleteMany: (tableName: string, options?: unknown) => Promise<void>;
+  readonly findFirst: (
+    tableName: string,
+    options?: unknown,
+  ) => Promise<Record<string, unknown> | null>;
+  readonly findMany: (
+    tableName: string,
+    options?: unknown,
+  ) => Promise<readonly Record<string, unknown>[]>;
+  readonly updateMany: (tableName: string, options: unknown) => Promise<void>;
+};
+
+const asLooseStorageDb = (db: unknown): LooseStorageDb => db as LooseStorageDb;
+
+const makeCoreDb = (fuma: ReturnType<typeof makeFumaClient>) => ({
+  count: <TName extends CoreTableName>(
+    tableName: TName,
+    options?: { readonly where?: CoreWhere<TName> },
+  ): Effect.Effect<number, StorageFailure> =>
+    fuma.use(`${tableName}.count`, (db) => asLooseStorageDb(db).count(tableName, options)),
+  create: <TName extends CoreTableName>(
+    tableName: TName,
+    row: Record<string, unknown>,
+  ): Effect.Effect<CoreRow<TName>, StorageFailure> =>
+    fuma.use(`${tableName}.create`, (db) =>
+      asLooseStorageDb(db).create(tableName, row),
+    ) as Effect.Effect<CoreRow<TName>, StorageFailure>,
+  createMany: <TName extends CoreTableName>(
+    tableName: TName,
+    rows: readonly Record<string, unknown>[],
+  ): Effect.Effect<void, StorageFailure> =>
+    rows.length === 0
+      ? Effect.void
+      : fuma
+          .use(`${tableName}.createMany`, (db) => asLooseStorageDb(db).createMany(tableName, rows))
+          .pipe(Effect.asVoid),
+  deleteMany: <TName extends CoreTableName>(
+    tableName: TName,
+    options: { readonly where?: CoreWhere<TName> } = {},
+  ): Effect.Effect<void, StorageFailure> =>
+    fuma.use(`${tableName}.deleteMany`, (db) =>
+      asLooseStorageDb(db).deleteMany(tableName, options),
+    ),
+  findFirst: <TName extends CoreTableName>(
+    tableName: TName,
+    options: CoreFindFirstOptions<TName>,
+  ): Effect.Effect<CoreRow<TName> | null, StorageFailure> =>
+    fuma.use(`${tableName}.findFirst`, (db) =>
+      asLooseStorageDb(db).findFirst(tableName, options),
+    ) as Effect.Effect<CoreRow<TName> | null, StorageFailure>,
+  findMany: <TName extends CoreTableName>(
+    tableName: TName,
+    options: CoreFindManyOptions<TName> = {},
+  ): Effect.Effect<readonly CoreRow<TName>[], StorageFailure> =>
+    fuma.use(`${tableName}.findMany`, (db) =>
+      asLooseStorageDb(db).findMany(tableName, options),
+    ) as Effect.Effect<readonly CoreRow<TName>[], StorageFailure>,
+  updateMany: <TName extends CoreTableName>(
+    tableName: TName,
+    options: {
+      readonly where?: CoreWhere<TName>;
+      readonly set: Record<string, unknown>;
+    },
+  ): Effect.Effect<void, StorageFailure> =>
+    fuma.use(`${tableName}.updateMany`, (db) =>
+      asLooseStorageDb(db).updateMany(tableName, options),
+    ),
+});
+
 // ---------------------------------------------------------------------------
 // Dynamic-row writers — used by ctx.core.sources.register. Static sources
 // never touch these functions.
@@ -494,7 +604,7 @@ const EXECUTOR_SOURCE: StaticSourceDecl = {
 // sync from executor.jsonc can call register() on rows that already
 // exist without tripping a UNIQUE constraint.
 const writeSourceInput = (
-  core: TypedAdapter<CoreSchema>,
+  core: ReturnType<typeof makeCoreDb>,
   pluginId: string,
   input: SourceInput,
 ): Effect.Effect<void, StorageFailure> =>
@@ -502,22 +612,18 @@ const writeSourceInput = (
     yield* deleteSourceById(core, input.id, input.scope);
 
     const now = new Date();
-    yield* core.create({
-      model: "source",
-      data: {
-        id: input.id,
-        scope_id: input.scope,
-        plugin_id: pluginId,
-        kind: input.kind,
-        name: input.name,
-        url: input.url ?? undefined,
-        can_remove: input.canRemove ?? true,
-        can_refresh: input.canRefresh ?? false,
-        can_edit: input.canEdit ?? false,
-        created_at: now,
-        updated_at: now,
-      },
-      forceAllowId: true,
+    yield* core.create("source", {
+      id: input.id,
+      scope_id: input.scope,
+      plugin_id: pluginId,
+      kind: input.kind,
+      name: input.name,
+      url: input.url ?? null,
+      can_remove: input.canRemove ?? true,
+      can_refresh: input.canRefresh ?? false,
+      can_edit: input.canEdit ?? false,
+      created_at: now,
+      updated_at: now,
     });
 
     const toolsById = new Map<string, (typeof input.tools)[number]>();
@@ -527,82 +633,61 @@ const writeSourceInput = (
     const tools = [...toolsById.entries()];
 
     if (tools.length > 0) {
-      yield* core.createMany({
-        model: "tool",
-        data: tools.map(([id, tool]) => ({
+      yield* core.createMany(
+        "tool",
+        tools.map(([id, tool]) => ({
           id,
           scope_id: input.scope,
           source_id: input.id,
           plugin_id: pluginId,
           name: tool.name,
           description: tool.description,
-          input_schema: tool.inputSchema ?? undefined,
-          output_schema: tool.outputSchema ?? undefined,
+          input_schema: tool.inputSchema ?? null,
+          output_schema: tool.outputSchema ?? null,
           created_at: now,
           updated_at: now,
         })),
-        forceAllowId: true,
-      });
+      );
     }
   });
 
 // Delete a source and its tools + definitions at ONE specific scope.
-// The scoped adapter already narrows reads/writes to the executor's
-// stack via `scope_id IN (...)`, but we pin `scope_id = scopeId` here
-// so this helper never widens into a stack-wide wipe — a bystander
-// scope's rows with a colliding `source_id` must survive.
+// The helper pins `scope_id = scopeId` so it never widens into a stack-wide
+// wipe; a bystander scope's rows with a colliding `source_id` must survive.
 const deleteSourceById = (
-  core: TypedAdapter<CoreSchema>,
+  core: ReturnType<typeof makeCoreDb>,
   sourceId: string,
   scopeId: string,
 ): Effect.Effect<void, StorageFailure> =>
   Effect.gen(function* () {
-    yield* core.deleteMany({
-      model: "tool",
-      where: [
-        { field: "source_id", value: sourceId },
-        { field: "scope_id", value: scopeId },
-      ],
+    yield* core.deleteMany("tool", {
+      where: (b) => b.and(b("source_id", "=", sourceId), b("scope_id", "=", scopeId)),
     });
-    yield* core.deleteMany({
-      model: "definition",
-      where: [
-        { field: "source_id", value: sourceId },
-        { field: "scope_id", value: scopeId },
-      ],
+    yield* core.deleteMany("definition", {
+      where: (b) => b.and(b("source_id", "=", sourceId), b("scope_id", "=", scopeId)),
     });
-    yield* core.delete({
-      model: "source",
-      where: [
-        { field: "id", value: sourceId },
-        { field: "scope_id", value: scopeId },
-      ],
+    yield* core.deleteMany("source", {
+      where: byScopedId(scopeId, sourceId),
     });
   });
 
 const writeDefinitions = (
-  core: TypedAdapter<CoreSchema>,
+  core: ReturnType<typeof makeCoreDb>,
   pluginId: string,
   input: DefinitionsInput,
 ): Effect.Effect<void, StorageFailure> =>
   Effect.gen(function* () {
-    // Pin the delete to `input.scope` — without this, the scoped
-    // adapter's `scope_id IN (stack)` injection would nuke definitions
-    // at outer scopes whenever an inner-scope writer re-registers
-    // definitions for the same source id.
-    yield* core.deleteMany({
-      model: "definition",
-      where: [
-        { field: "source_id", value: input.sourceId },
-        { field: "scope_id", value: input.scope },
-      ],
+    // Pin the delete to `input.scope` so an inner-scope writer cannot remove
+    // outer-scope definitions for the same source id.
+    yield* core.deleteMany("definition", {
+      where: (b) => b.and(b("source_id", "=", input.sourceId), b("scope_id", "=", input.scope)),
     });
     const entries = Object.entries(input.definitions);
     if (entries.length === 0) return;
     const now = new Date();
-    yield* core.createMany({
-      model: "definition",
-      data: entries.map(([name, schema]) => ({
+    yield* core.createMany(
+      "definition",
+      entries.map(([name, schema]) => ({
         id: `${input.sourceId}.${name}`,
         scope_id: input.scope,
         source_id: input.sourceId,
@@ -611,8 +696,7 @@ const writeDefinitions = (
         schema: schema as Record<string, unknown>,
         created_at: now,
       })),
-      forceAllowId: true,
-    });
+    );
   });
 
 // ---------------------------------------------------------------------------
@@ -630,110 +714,11 @@ const toolMatchesFilter = (tool: Tool, filter: ToolListFilter): boolean => {
   return true;
 };
 
-// ---------------------------------------------------------------------------
-// Active-adapter FiberRef. Nested plugin writes read this ref so that
-// `ctx.transaction` can swap in a tx-bound adapter handle without changing
-// the ctx shape — the root adapter returned by `buildAdapterRouter` below
-// resolves its target per call, so any Effect running inside
-// `Effect.locally(_, activeAdapterRef, trx)` automatically routes every
-// query through the same sql.begin connection. This is what makes nested
-// writes atomic on postgres + Hyperdrive without deadlocking a pool of 1.
-// ---------------------------------------------------------------------------
-const activeAdapterRef = Context.Reference<DBTransactionAdapter | null>("executor/ActiveAdapter", {
-  defaultValue: () => null,
-});
-const activeRawAdapterRef = Context.Reference<DBTransactionAdapter | null>(
-  "executor/ActiveRawAdapter",
-  {
-    defaultValue: () => null,
-  },
-);
-
 const approvalArgumentPreview = (args: unknown): string => {
   const text = JSON.stringify(args ?? {}, null, 2) ?? "null";
   return text.length > MAX_APPROVAL_ARGUMENT_PREVIEW_CHARS
     ? `${text.slice(0, MAX_APPROVAL_ARGUMENT_PREVIEW_CHARS)}...`
     : text;
-};
-
-// A `DBAdapter` whose methods dispatch to the active adapter (tx handle or
-// root) on every call. Stable identity for consumers (plugin storage,
-// `typedAdapter`, etc.) — they see one adapter object, but the routing is
-// decided at call time via the FiberRef above.
-const buildAdapterRouter = (
-  root: ScopedDBAdapter,
-  rawRoot: DBAdapter,
-  scopeCtx: ScopeContext,
-  schema: DBSchema,
-): ScopedDBAdapter => {
-  const pick = <A, E>(
-    use: (active: DBTransactionAdapter) => Effect.Effect<A, E>,
-  ): Effect.Effect<A, E> =>
-    Effect.flatMap(Effect.service(activeAdapterRef), (active) =>
-      use(active ?? (root as DBTransactionAdapter)),
-    );
-
-  return {
-    id: root.id,
-    create: (data) => pick((a) => a.create(data)),
-    createMany: (data) => pick((a) => a.createMany(data)),
-    findOne: (data) => pick((a) => a.findOne(data)),
-    findMany: (data) => pick((a) => a.findMany(data)),
-    count: (data) => pick((a) => a.count(data)),
-    update: (data) => pick((a) => a.update(data)),
-    updateMany: (data) => pick((a) => a.updateMany(data)),
-    delete: (data) => pick((a) => a.delete(data)),
-    deleteMany: (data) => pick((a) => a.deleteMany(data)),
-    // transaction() always opens a real boundary on the ROOT adapter so the
-    // tx uses one real connection from the pool. If we're already inside a
-    // parent tx (FiberRef set), skip opening a nested sql.begin — that's
-    // the postgres.js + Hyperdrive deadlock path — and just run the
-    // callback with the existing tx handle. In both cases the callback
-    // sees a FiberRef-substituted adapter so further nested writes thread
-    // through.
-    transaction: (callback) =>
-      Effect.flatMap(Effect.service(activeAdapterRef), (active) =>
-        Effect.flatMap(Effect.service(activeRawAdapterRef), (activeRaw) => {
-          if (active && activeRaw) return callback(active);
-          return rawRoot.transaction((rawTrx) => {
-            const scopedTrx = scopeTransactionAdapter(rawTrx, scopeCtx, schema);
-            return callback(scopedTrx).pipe(
-              Effect.provideService(activeAdapterRef, scopedTrx),
-              Effect.provideService(activeRawAdapterRef, rawTrx),
-            );
-          });
-        }),
-      ),
-  } as ScopedDBAdapter;
-};
-
-const buildRawAdapterRouter = (root: DBAdapter): DBAdapter => {
-  const pick = <A, E>(
-    use: (active: DBTransactionAdapter) => Effect.Effect<A, E>,
-  ): Effect.Effect<A, E> =>
-    Effect.flatMap(Effect.service(activeRawAdapterRef), (active) =>
-      use(active ?? (root as DBTransactionAdapter)),
-    );
-
-  return {
-    ...root,
-    create: (data) => pick((a) => a.create(data)),
-    createMany: (data) => pick((a) => a.createMany(data)),
-    findOne: (data) => pick((a) => a.findOne(data)),
-    findMany: (data) => pick((a) => a.findMany(data)),
-    count: (data) => pick((a) => a.count(data)),
-    update: (data) => pick((a) => a.update(data)),
-    updateMany: (data) => pick((a) => a.updateMany(data)),
-    delete: (data) => pick((a) => a.delete(data)),
-    deleteMany: (data) => pick((a) => a.deleteMany(data)),
-    transaction: (callback) =>
-      Effect.flatMap(Effect.service(activeRawAdapterRef), (active) => {
-        if (active) return callback(active);
-        return root.transaction((rawTrx) =>
-          Effect.provideService(callback(rawTrx), activeRawAdapterRef, rawTrx),
-        );
-      }),
-  };
 };
 
 // ---------------------------------------------------------------------------
@@ -758,7 +743,7 @@ interface PluginRuntime {
   readonly ctx: PluginCtx<unknown>;
 }
 
-export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>(
+export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = readonly []>(
   config: ExecutorConfig<TPlugins>,
 ): Effect.Effect<Executor<TPlugins>, StorageFailure> =>
   Effect.gen(function* () {
@@ -766,7 +751,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       const empty: readonly AnyPlugin[] = [];
       return empty as TPlugins;
     };
-    const { scopes, adapter: rootAdapter, blobs, plugins = defaultPlugins() } = config;
+    const { scopes, db: rootDbUntyped, plugins = defaultPlugins() } = config;
 
     if (scopes.length === 0) {
       return yield* new StorageError({
@@ -775,21 +760,13 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       });
     }
 
-    // Scope-wrap the root adapter so every read on a tenant-scoped
-    // table filters by `scope_id IN (scopes)` and every write's
-    // `scope_id` payload is validated to be in the stack. Reads walk
-    // the scope array in order at the consumer layer (secrets,
-    // blobs) — the adapter itself just bounds the set of rows
-    // visible. Only tables whose schema declares `scope_id` are
-    // scoped.
-    const schema = collectSchemas(plugins);
+    // FumaDB is the storage model. Scope constraints are explicit in each
+    // table query rather than hidden behind a separate adapter layer.
+    const fuma = makeFumaClient(rootDbUntyped);
+    const core = makeCoreDb(fuma);
+    const blobs = makeFumaBlobStore(fuma);
     const scopeIds = scopes.map((s) => String(s.id));
-    const scopeCtx = { scopes: scopeIds };
-    const scopedRoot = scopeAdapter(rootAdapter, scopeCtx, schema);
-    const adapter = buildAdapterRouter(scopedRoot, rootAdapter, scopeCtx, schema);
-    const rawAdapter = buildRawAdapterRouter(rootAdapter);
-    const core = scopedTypedAdapter<CoreSchema>(adapter);
-    const rawCore = typedAdapter<CoreSchema>(rawAdapter);
+    const transaction = <A, E>(effect: Effect.Effect<A, E>) => fuma.transaction(effect);
 
     // Populated once, never mutated after startup.
     const staticTools = new Map<string, StaticTools>();
@@ -851,8 +828,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
     // Rank a row by how close its `scope_id` sits to the innermost scope.
     // Rows whose scope isn't in the stack get pushed to the end (they
-    // shouldn't reach us — the adapter filters by `scope_id IN (stack)` —
-    // but guarding here means a stray row can't silently win).
+    // should only arrive through explicit scope predicates, but guarding here
+    // means a stray row can't silently win).
     const rowScopeId = (row: { readonly scope_id: unknown }) =>
       typeof row.scope_id === "string" ? row.scope_id : null;
     const scopeRank = (row: { readonly scope_id: unknown }) => {
@@ -860,13 +837,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       return scopeId === null ? Infinity : (scopePrecedence.get(scopeId) ?? Infinity);
     };
 
-    // Pick the innermost-scope row on a findOne-by-id against a scoped
-    // model. The scope-wrapped adapter returns rows from every scope in
-    // the stack, so a bare `findOne({ id })` picks whichever one the
-    // storage backend iterates first — non-deterministic across backends,
-    // and wrong when a user has shadowed an outer default. Callers that
-    // need a single logical row (invoke, tool schema, source removal)
-    // must go through this path so the innermost write always wins.
+    // Pick the innermost-scope row from a scoped Fuma query. Callers that
+    // need one logical row query the whole visible scope stack and resolve
+    // shadowing here.
     const findInnermost = <T extends { scope_id: unknown }>(rows: readonly T[]): T | null => {
       if (rows.length === 0) return null;
       let winner: T | undefined;
@@ -885,10 +858,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       usages.filter((usage) => scopeIds.includes(usage.scopeId));
 
     const secretRowsForId = (id: string): Effect.Effect<readonly SecretRow[], StorageFailure> =>
-      core.findMany({
-        model: "secret",
-        where: [{ field: "id", value: id }],
-      }) as Effect.Effect<readonly SecretRow[], StorageFailure>;
+      core.findMany("secret", { where: scopedWhere(scopeIds, byId(id)) }) as Effect.Effect<
+        readonly SecretRow[],
+        StorageFailure
+      >;
 
     const resolveSecretValueFromRows = (
       id: string,
@@ -927,10 +900,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       id: string,
     ): Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure> =>
       Effect.gen(function* () {
-        // The scope-wrapped adapter injects `scope_id IN (scopeIds)`
-        // automatically, so we only filter by id here. Connection-owned
-        // token rows are internal plumbing; public secret resolution
-        // must not expose them even if a token secret id is leaked.
+        // Connection-owned token rows are internal plumbing; public secret
+        // resolution must not expose them even if a token secret id is leaked.
         const rows = yield* secretRowsForId(id);
         const owned = rows.find((row) => row.owned_by_connection_id);
         const ownedByConnectionId = owned?.owned_by_connection_id;
@@ -1012,9 +983,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
     const secretsSet = (input: SetSecretInput): Effect.Effect<SecretRef, StorageFailure> =>
       Effect.gen(function* () {
-        // Validate the write target up front. The adapter would reject
-        // an out-of-stack scope too, but catching it here gives a
-        // clearer error before we touch the provider.
+        // Validate the write target before we touch the provider.
         if (!scopeIds.includes(input.scope)) {
           return yield* new StorageError({
             message:
@@ -1062,28 +1031,19 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
         // Upsert metadata row in the core `secret` table at the
         // caller-named scope. Pin the delete to `scope_id = input.scope`
-        // — without it, the scoped adapter's `scope_id IN (stack)`
-        // injection would wipe rows at outer scopes too, so any member
-        // writing a personal override could delete admin-written
-        // org-wide secrets with the same id.
+        // so a personal override never deletes an org-wide secret with
+        // the same id.
         const now = new Date();
-        yield* core.delete({
-          model: "secret",
-          where: [
-            { field: "id", value: input.id },
-            { field: "scope_id", value: input.scope },
-          ],
+        yield* core.deleteMany("secret", {
+          where: byScopedId(input.scope, input.id),
         });
-        yield* core.create({
-          model: "secret",
-          data: {
-            id: input.id,
-            scope_id: input.scope,
-            name: input.name,
-            provider: target.key,
-            created_at: now,
-          },
-          forceAllowId: true,
+        yield* core.create("secret", {
+          id: input.id,
+          scope_id: input.scope,
+          name: input.name,
+          provider: target.key,
+          owned_by_connection_id: null,
+          created_at: now,
         });
 
         return SecretRef.make({
@@ -1096,8 +1056,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       });
 
     // Fan out across every plugin that contributes `usagesForSecret`. Each
-    // plugin queries its own normalized columns through its scoped adapter,
-    // so scope filtering is automatic.
+    // plugin queries its own normalized columns with explicit scope filters.
     //
     // The display path (`secretsUsages` / `connectionsUsages` from the API)
     // calls `*Lenient`: per-plugin errors become a logWarning so one buggy
@@ -1228,9 +1187,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         // it. If no core row exists at the target scope, provider cleanup
         // is still scoped to the explicit target for provider-enumerated
         // secrets, but core metadata never falls through to an outer row.
-        const rows = yield* core.findMany({
-          model: "secret",
-          where: [{ field: "id", value: id }],
+        const rows = yield* core.findMany("secret", {
+          where: scopedWhere(scopeIds, byId(id)),
         });
         const target = rows.find((row) => row.scope_id === targetScope);
         // Refuse to delete connection-owned secrets. The connection owns
@@ -1267,12 +1225,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         );
 
         if (target) {
-          yield* core.delete({
-            model: "secret",
-            where: [
-              { field: "id", value: id },
-              { field: "scope_id", value: targetScope },
-            ],
+          yield* core.deleteMany("secret", {
+            where: byScopedId(targetScope, id),
           });
         }
       });
@@ -1293,9 +1247,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     // Providers without a list() method (e.g. keychain) contribute
     // only via the core table path.
     //
-    // Multi-scope: core rows from any scope in the stack show up
-    // (adapter filters by `scope_id IN`), each tagged with its own
-    // `scope_id`. When the same id appears in multiple scopes, the
+    // Multi-scope: core rows from any scope in the stack show up, each
+    // tagged with its own `scope_id`. When the same id appears in multiple scopes, the
     // innermost wins — same rule as `secretsGet`. Provider-enumerated
     // entries don't know what scope they belong to and are attributed
     // to the innermost scope as a display default.
@@ -1303,14 +1256,12 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       Effect.gen(function* () {
         const byId = new Map<string, SecretRef>();
 
-        // Core routing rows first. Adapter returns rows from every
-        // scope in the stack; resolve collisions using the caller's
-        // precedence order (innermost first). Rows owned by a
-        // connection are filtered out — the user sees the Connection
-        // entry, not its backing token secrets. Their ids go in a
-        // deny-set so provider `list()` results for the same id can't
-        // leak them back in below.
-        const allRows = yield* core.findMany({ model: "secret" });
+        // Core routing rows first. Resolve collisions using the caller's
+        // precedence order (innermost first). Rows owned by a connection
+        // are filtered out — the user sees the Connection entry, not its
+        // backing token secrets. Their ids go in a deny-set so provider
+        // `list()` results for the same id can't leak them back in below.
+        const allRows = yield* core.findMany("secret", { where: scopedWhere(scopeIds) });
         const rows = allRows.filter((r) => !r.owned_by_connection_id);
         const pick = (row: (typeof rows)[number]) => {
           const existing = byId.get(row.id);
@@ -1373,7 +1324,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
     const secretsListAll = (): Effect.Effect<readonly SecretRef[], StorageFailure> =>
       Effect.gen(function* () {
-        const allRows = yield* core.findMany({ model: "secret" });
+        const allRows = yield* core.findMany("secret", { where: scopedWhere(scopeIds) });
         const coreIds = new Set<string>();
         const refs: SecretRef[] = [];
 
@@ -1448,9 +1399,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       id: string,
     ): Effect.Effect<ConnectionRow | null, StorageFailure> =>
       Effect.gen(function* () {
-        const rows = yield* core.findMany({
-          model: "connection",
-          where: [{ field: "id", value: id }],
+        const rows = yield* core.findMany("connection", {
+          where: scopedWhere(scopeIds, byId(id)),
         });
         return findInnermost(rows as readonly ConnectionRow[]);
       });
@@ -1476,7 +1426,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
     const connectionsList = (): Effect.Effect<readonly ConnectionRef[], StorageFailure> =>
       Effect.gen(function* () {
-        const rows = yield* core.findMany({ model: "connection" });
+        const rows = yield* core.findMany("connection", { where: scopedWhere(scopeIds) });
         // Dedup by id, innermost scope wins — same rule as sources/tools.
         const byId = new Map<string, ConnectionRow>();
         const byIdRank = new Map<string, number>();
@@ -1519,24 +1469,16 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         yield* target.set(params.id, params.value, params.scope);
 
         const now = new Date();
-        yield* core.delete({
-          model: "secret",
-          where: [
-            { field: "id", value: params.id },
-            { field: "scope_id", value: params.scope },
-          ],
+        yield* core.deleteMany("secret", {
+          where: byScopedId(params.scope, params.id),
         });
-        yield* core.create({
-          model: "secret",
-          data: {
-            id: params.id,
-            scope_id: params.scope,
-            name: params.name,
-            provider: target.key,
-            owned_by_connection_id: params.ownedByConnectionId,
-            created_at: now,
-          },
-          forceAllowId: true,
+        yield* core.create("secret", {
+          id: params.id,
+          scope_id: params.scope,
+          name: params.name,
+          provider: target.key,
+          owned_by_connection_id: params.ownedByConnectionId,
+          created_at: now,
         });
       });
 
@@ -1585,18 +1527,14 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         const writable = yield* pickWritableProvider();
         const now = new Date();
 
-        return yield* adapter.transaction(() =>
+        return yield* transaction(
           Effect.gen(function* () {
             // Drop any existing connection row at this scope first so a
             // re-auth replaces cleanly. Owned-secret rows for the old
             // connection are removed by the cascade below (we delete
             // both old + new token secret ids explicitly).
-            yield* core.delete({
-              model: "connection",
-              where: [
-                { field: "id", value: input.id },
-                { field: "scope_id", value: input.scope },
-              ],
+            yield* core.deleteMany("connection", {
+              where: byScopedId(input.scope, input.id),
             });
 
             yield* writeOwnedSecret({
@@ -1618,22 +1556,18 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
               });
             }
 
-            yield* core.create({
-              model: "connection",
-              data: {
-                id: input.id,
-                scope_id: input.scope,
-                provider: input.provider,
-                identity_label: input.identityLabel ?? undefined,
-                access_token_secret_id: input.accessToken.secretId,
-                refresh_token_secret_id: input.refreshToken?.secretId ?? undefined,
-                expires_at: input.expiresAt ?? undefined,
-                scope: input.oauthScope ?? undefined,
-                provider_state: input.providerState ?? undefined,
-                created_at: now,
-                updated_at: now,
-              },
-              forceAllowId: true,
+            yield* core.create("connection", {
+              id: input.id,
+              scope_id: input.scope,
+              provider: input.provider,
+              identity_label: input.identityLabel ?? null,
+              access_token_secret_id: input.accessToken.secretId,
+              refresh_token_secret_id: input.refreshToken?.secretId ?? null,
+              expires_at: input.expiresAt ?? null,
+              scope: input.oauthScope ?? null,
+              provider_state: input.providerState ?? null,
+              created_at: now,
+              updated_at: now,
             });
 
             return ConnectionRef.make({
@@ -1667,7 +1601,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         const accessName = `Connection ${input.id} access token`;
         const refreshName = `Connection ${input.id} refresh token`;
 
-        return yield* adapter.transaction(() =>
+        return yield* transaction(
           Effect.gen(function* () {
             yield* writeOwnedSecret({
               id: row.access_token_secret_id,
@@ -1690,19 +1624,15 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
             }
             const now = new Date();
             const patch: Record<string, unknown> = { updated_at: now };
-            if (input.expiresAt !== undefined) patch.expires_at = input.expiresAt ?? undefined;
-            if (input.oauthScope !== undefined) patch.scope = input.oauthScope ?? undefined;
+            if (input.expiresAt !== undefined) patch.expires_at = input.expiresAt ?? null;
+            if (input.oauthScope !== undefined) patch.scope = input.oauthScope ?? null;
             if (input.providerState !== undefined)
-              patch.provider_state = input.providerState ?? undefined;
+              patch.provider_state = input.providerState ?? null;
             if (input.identityLabel !== undefined)
-              patch.identity_label = input.identityLabel ?? undefined;
-            yield* core.update({
-              model: "connection",
-              where: [
-                { field: "id", value: row.id },
-                { field: "scope_id", value: row.scope_id },
-              ],
-              update: patch,
+              patch.identity_label = input.identityLabel ?? null;
+            yield* core.updateMany("connection", {
+              where: byScopedId(row.scope_id, row.id),
+              set: patch,
             });
             const updated = yield* findConnectionRowAtScope({
               connectionId: row.id,
@@ -1740,14 +1670,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
             connectionId: ConnectionId.make(id),
           });
         }
-        yield* core.update({
-          model: "connection",
-          where: [
-            { field: "id", value: id },
-            { field: "scope_id", value: row.scope_id },
-          ],
-          update: {
-            identity_label: label ?? undefined,
+        yield* core.updateMany("connection", {
+          where: byScopedId(row.scope_id, id),
+          set: {
+            identity_label: label ?? null,
             updated_at: new Date(),
           },
         });
@@ -1760,9 +1686,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         const id = input.id;
         const targetScope = input.targetScope;
         yield* assertScopeInStack("connection remove targetScope", targetScope);
-        const allRows = yield* core.findMany({
-          model: "connection",
-          where: [{ field: "id", value: id }],
+        const allRows = yield* core.findMany("connection", {
+          where: scopedWhere(scopeIds, byId(id)),
         });
         const row =
           (allRows as readonly ConnectionRow[]).find(
@@ -1779,19 +1704,15 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           });
         }
         const scope = targetScope;
-        yield* adapter.transaction(() =>
+        yield* transaction(
           Effect.gen(function* () {
             // Find every owned secret at this scope and drop through
             // its provider + the core row. We look up by
             // `owned_by_connection_id` rather than just the two ids on
             // the connection row so any accidentally-orphaned siblings
             // get cleaned up too.
-            const owned = yield* core.findMany({
-              model: "secret",
-              where: [
-                { field: "owned_by_connection_id", value: id },
-                { field: "scope_id", value: scope },
-              ],
+            const owned = yield* core.findMany("secret", {
+              where: (b) => b.and(b("owned_by_connection_id", "=", id), b("scope_id", "=", scope)),
             });
             const deleters = [...secretProviders.values()].filter(
               (p): p is typeof p & { delete: NonNullable<typeof p.delete> } =>
@@ -1814,19 +1735,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
                 { concurrency: "unbounded" },
               );
             }
-            yield* core.deleteMany({
-              model: "secret",
-              where: [
-                { field: "owned_by_connection_id", value: id },
-                { field: "scope_id", value: scope },
-              ],
+            yield* core.deleteMany("secret", {
+              where: (b) => b.and(b("owned_by_connection_id", "=", id), b("scope_id", "=", scope)),
             });
-            yield* core.delete({
-              model: "connection",
-              where: [
-                { field: "id", value: id },
-                { field: "scope_id", value: scope },
-              ],
+            yield* core.deleteMany("connection", {
+              where: byScopedId(scope, id),
             });
           }),
         );
@@ -2045,13 +1958,13 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     }): Effect.Effect<SourceRow | null, StorageFailure> =>
       Effect.gen(function* () {
         if (!scopeIds.includes(input.sourceScope)) return null;
-        return yield* core.findOne({
-          model: "source",
-          where: [
-            { field: "plugin_id", value: input.pluginId },
-            { field: "id", value: input.sourceId },
-            { field: "scope_id", value: input.sourceScope },
-          ],
+        return yield* core.findFirst("source", {
+          where: (b) =>
+            b.and(
+              b("plugin_id", "=", input.pluginId),
+              b("id", "=", input.sourceId),
+              b("scope_id", "=", input.sourceScope),
+            ),
         });
       });
 
@@ -2061,12 +1974,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     }): Effect.Effect<SecretRow | null, StorageFailure> =>
       Effect.gen(function* () {
         if (!scopeIds.includes(input.scopeId)) return null;
-        return yield* core.findOne({
-          model: "secret",
-          where: [
-            { field: "id", value: input.secretId },
-            { field: "scope_id", value: input.scopeId },
-          ],
+        return yield* core.findFirst("secret", {
+          where: byScopedId(input.scopeId, input.secretId),
         });
       });
 
@@ -2076,12 +1985,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     }): Effect.Effect<ConnectionRow | null, StorageFailure> =>
       Effect.gen(function* () {
         if (!scopeIds.includes(input.scopeId)) return null;
-        return yield* core.findOne({
-          model: "connection",
-          where: [
-            { field: "id", value: input.connectionId },
-            { field: "scope_id", value: input.scopeId },
-          ],
+        return yield* core.findFirst("connection", {
+          where: byScopedId(input.scopeId, input.connectionId),
         });
       });
 
@@ -2090,13 +1995,14 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     ): Effect.Effect<readonly CredentialBindingRow[], StorageFailure> =>
       scopeIds.includes(input.sourceScope)
         ? (core
-            .findMany({
-              model: "credential_binding",
-              where: [
-                { field: "plugin_id", value: input.pluginId },
-                { field: "source_id", value: input.sourceId },
-                { field: "source_scope_id", value: input.sourceScope },
-              ],
+            .findMany("credential_binding", {
+              where: scopedWhere(scopeIds, (b) =>
+                b.and(
+                  b("plugin_id", "=", input.pluginId),
+                  b("source_id", "=", input.sourceId),
+                  b("source_scope_id", "=", input.sourceScope),
+                ),
+              ),
             })
             .pipe(
               Effect.map((rows) => {
@@ -2113,14 +2019,15 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     ): Effect.Effect<readonly CredentialBindingRow[], StorageFailure> =>
       scopeIds.includes(input.sourceScope)
         ? (core
-            .findMany({
-              model: "credential_binding",
-              where: [
-                { field: "plugin_id", value: input.pluginId },
-                { field: "source_id", value: input.sourceId },
-                { field: "source_scope_id", value: input.sourceScope },
-                { field: "slot_key", value: input.slotKey },
-              ],
+            .findMany("credential_binding", {
+              where: scopedWhere(scopeIds, (b) =>
+                b.and(
+                  b("plugin_id", "=", input.pluginId),
+                  b("source_id", "=", input.sourceId),
+                  b("source_scope_id", "=", input.sourceScope),
+                  b("slot_key", "=", input.slotKey),
+                ),
+              ),
             })
             .pipe(
               Effect.map((rows) => {
@@ -2232,16 +2139,13 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
               }
               if (name === undefined) continue;
               const now = new Date();
-              yield* core.create({
-                model: "secret",
-                data: {
-                  id: secretId,
-                  scope_id: secretScope,
-                  name,
-                  provider: key,
-                  created_at: now,
-                },
-                forceAllowId: true,
+              yield* core.create("secret", {
+                id: secretId,
+                scope_id: secretScope,
+                name,
+                provider: key,
+                owned_by_connection_id: null,
+                created_at: now,
               });
               materialized = true;
               break;
@@ -2278,37 +2182,31 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
         const id = credentialBindingId(input);
         const now = new Date();
-        yield* core.deleteMany({
-          model: "credential_binding",
-          where: [
-            { field: "scope_id", value: input.targetScope },
-            { field: "plugin_id", value: input.pluginId },
-            { field: "source_id", value: input.sourceId },
-            { field: "source_scope_id", value: input.sourceScope },
-            { field: "slot_key", value: input.slotKey },
-          ],
+        yield* core.deleteMany("credential_binding", {
+          where: (b) =>
+            b.and(
+              b("scope_id", "=", input.targetScope),
+              b("plugin_id", "=", input.pluginId),
+              b("source_id", "=", input.sourceId),
+              b("source_scope_id", "=", input.sourceScope),
+              b("slot_key", "=", input.slotKey),
+            ),
         });
-        yield* core.create({
-          model: "credential_binding",
-          data: {
-            id,
-            scope_id: input.targetScope,
-            plugin_id: input.pluginId,
-            source_id: input.sourceId,
-            source_scope_id: input.sourceScope,
-            slot_key: input.slotKey,
-            kind: input.value.kind,
-            text_value: input.value.kind === "text" ? input.value.text : undefined,
-            secret_id: input.value.kind === "secret" ? input.value.secretId : undefined,
-            secret_scope_id:
-              input.value.kind === "secret"
-                ? (input.value.secretScopeId ?? input.targetScope)
-                : undefined,
-            connection_id: input.value.kind === "connection" ? input.value.connectionId : undefined,
-            created_at: now,
-            updated_at: now,
-          },
-          forceAllowId: true,
+        yield* core.create("credential_binding", {
+          id,
+          scope_id: input.targetScope,
+          plugin_id: input.pluginId,
+          source_id: input.sourceId,
+          source_scope_id: input.sourceScope,
+          slot_key: input.slotKey,
+          kind: input.value.kind,
+          text_value: input.value.kind === "text" ? input.value.text : null,
+          secret_id: input.value.kind === "secret" ? input.value.secretId : null,
+          secret_scope_id:
+            input.value.kind === "secret" ? (input.value.secretScopeId ?? input.targetScope) : null,
+          connection_id: input.value.kind === "connection" ? input.value.connectionId : null,
+          created_at: now,
+          updated_at: now,
         });
         return credentialBindingRowToRef({
           id,
@@ -2355,15 +2253,15 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           });
         }
 
-        yield* core.deleteMany({
-          model: "credential_binding",
-          where: [
-            { field: "scope_id", value: input.targetScope },
-            { field: "plugin_id", value: input.pluginId },
-            { field: "source_id", value: input.sourceId },
-            { field: "source_scope_id", value: input.sourceScope },
-            { field: "slot_key", value: input.slotKey },
-          ],
+        yield* core.deleteMany("credential_binding", {
+          where: (b) =>
+            b.and(
+              b("scope_id", "=", input.targetScope),
+              b("plugin_id", "=", input.pluginId),
+              b("source_id", "=", input.sourceId),
+              b("source_scope_id", "=", input.sourceScope),
+              b("slot_key", "=", input.slotKey),
+            ),
         });
       });
 
@@ -2393,14 +2291,14 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         }
 
         const nextSlots = new Set(input.bindings.map((binding) => binding.slotKey));
-        const existing = yield* core.findMany({
-          model: "credential_binding",
-          where: [
-            { field: "scope_id", value: input.targetScope },
-            { field: "plugin_id", value: input.pluginId },
-            { field: "source_id", value: input.sourceId },
-            { field: "source_scope_id", value: input.sourceScope },
-          ],
+        const existing = yield* core.findMany("credential_binding", {
+          where: (b) =>
+            b.and(
+              b("scope_id", "=", input.targetScope),
+              b("plugin_id", "=", input.pluginId),
+              b("source_id", "=", input.sourceId),
+              b("source_scope_id", "=", input.sourceScope),
+            ),
         });
         for (const row of existing as readonly CredentialBindingRow[]) {
           const shouldOwnSlot = input.slotPrefixes.some((prefix) =>
@@ -2442,15 +2340,14 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         // Source-owner cleanup is intentionally broader than a normal scoped
         // binding delete. Removing a shared source must detach all credential
         // rows for that source identity, including user-owned bindings that
-        // are not in the source owner's current stack. Normal list/resolve/
-        // remove paths stay behind the scoped adapter.
-        yield* rawCore.deleteMany({
-          model: "credential_binding",
-          where: [
-            { field: "plugin_id", value: input.pluginId },
-            { field: "source_id", value: input.sourceId },
-            { field: "source_scope_id", value: input.sourceScope },
-          ],
+        // are not in the source owner's current stack.
+        yield* core.deleteMany("credential_binding", {
+          where: (b) =>
+            b.and(
+              b("plugin_id", "=", input.pluginId),
+              b("source_id", "=", input.sourceId),
+              b("source_scope_id", "=", input.sourceScope),
+            ),
         });
       });
 
@@ -2514,9 +2411,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       Effect.gen(function* () {
         const sourceIds = [...new Set(rows.map((row) => row.source_id))];
         if (sourceIds.length === 0) return new Map<string, string>();
-        const sourceRows = yield* core.findMany({
-          model: "source",
-          where: [{ field: "id", value: sourceIds, operator: "in" }],
+        const sourceRows = yield* core.findMany("source", {
+          where: scopedWhere(scopeIds, (b) => b("id", "in", sourceIds)),
         });
         return new Map(
           sourceRows.map((row) => [`${row.scope_id}\u0000${row.id}`, row.name] as const),
@@ -2546,9 +2442,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       id: string,
     ): Effect.Effect<readonly Usage[], StorageFailure> =>
       Effect.gen(function* () {
-        const rows = yield* core.findMany({
-          model: "credential_binding",
-          where: [{ field: "secret_id", value: id }],
+        const rows = yield* core.findMany("credential_binding", {
+          where: scopedWhere(scopeIds, (b) => b("secret_id", "=", id)),
         });
         return yield* credentialBindingRowsToUsages(rows as readonly CredentialBindingRow[]);
       });
@@ -2557,9 +2452,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       id: string,
     ): Effect.Effect<readonly Usage[], StorageFailure> =>
       Effect.gen(function* () {
-        const rows = yield* core.findMany({
-          model: "credential_binding",
-          where: [{ field: "connection_id", value: id }],
+        const rows = yield* core.findMany("credential_binding", {
+          where: scopedWhere(scopeIds, (b) => b("connection_id", "=", id)),
         });
         return yield* credentialBindingRowsToUsages(rows as readonly CredentialBindingRow[]);
       });
@@ -2576,8 +2470,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     };
 
     const oauthBundle = makeOAuth2Service({
-      adapter: core,
-      rawAdapter: adapter,
+      fuma,
       secretsGet: (id) =>
         secretsGet(id).pipe(
           Effect.catchTag("SecretOwnedByConnectionError", () => Effect.succeed(null)),
@@ -2606,16 +2499,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         });
       }
 
-      // Plugin-facing typed view. `StorageError` and `UniqueViolationError`
-      // flow through the typed channel unchanged — plugins can
-      // `catchTag("UniqueViolationError", …)` to translate to their own
-      // user-facing errors; the HTTP edge (see @executor-js/api
-      // `withCapture`) is responsible for translating any
-      // `StorageError` that still escapes into the opaque InternalError.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const storageDeps: StorageDeps<any> = {
+      const storageDeps: StorageDeps = {
         scopes,
-        adapter: plugin.schema ? scopedTypedAdapter(adapter) : adapter,
+        db: rootDbUntyped,
+        fuma,
         // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
         // sharing a backing BlobStore can't collide or leak on the
         // same `(plugin, key)` pair. The store's `get`/`has` walk the
@@ -2654,27 +2541,17 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
                     });
                   }
                 }
-                // Wrap in adapter.transaction so a standalone register()
-                // call is atomic (source create + tools createMany group
-                // together). When already inside a parent ctx.transaction,
-                // the router short-circuits to the active tx handle
-                // instead of opening a nested sql.begin — that nested
-                // sql.begin is the postgres.js + pool=1 deadlock path.
-                yield* adapter.transaction(() => writeSourceInput(core, plugin.id, input));
+                yield* transaction(writeSourceInput(core, plugin.id, input));
               }),
             unregister: (input: RemoveSourceInput) =>
               // `unregister` is scoped to a caller-named source row. The
               // plugin already knows which source owner it is updating,
               // so the core path must not infer an innermost target.
-              adapter.transaction(() =>
+              transaction(
                 Effect.gen(function* () {
                   yield* assertScopeInStack("source unregister targetScope", input.targetScope);
-                  const row = yield* core.findOne({
-                    model: "source",
-                    where: [
-                      { field: "id", value: input.id },
-                      { field: "scope_id", value: input.targetScope },
-                    ],
+                  const row = yield* core.findFirst("source", {
+                    where: byScopedId(input.targetScope, input.id),
                   });
                   if (!row) return;
                   yield* deleteSourceById(core, input.id, input.targetScope);
@@ -2682,15 +2559,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
               ),
             update: (input) =>
               core
-                .update({
-                  model: "source",
-                  where: [
-                    { field: "id", value: input.id },
-                    { field: "scope_id", value: input.scope },
-                  ],
-                  update: {
+                .updateMany("source", {
+                  where: byScopedId(input.scope, input.id),
+                  set: {
                     ...(input.name !== undefined ? { name: input.name } : {}),
-                    ...(input.url !== undefined ? { url: input.url ?? undefined } : {}),
+                    ...(input.url !== undefined ? { url: input.url ?? null } : {}),
                     updated_at: new Date(),
                   },
                 })
@@ -2698,7 +2571,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           },
           definitions: {
             register: (input: DefinitionsInput) =>
-              adapter.transaction(() => writeDefinitions(core, plugin.id, input)),
+              transaction(writeDefinitions(core, plugin.id, input)),
           },
         },
         secrets: {
@@ -2721,13 +2594,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         },
         credentialBindings,
         oauth: oauthBundle.service,
-        // Open one real tx boundary and route every nested write inside
-        // `effect` through that same handle via the activeAdapterRef —
-        // see buildAdapterRouter above. Caller-typed errors (`E`)
-        // propagate unchanged; storage failures also stay typed
-        // (`StorageFailure`) so the HTTP edge wrapper can translate them.
-        transaction: <A, E>(effect: Effect.Effect<A, E>) =>
-          adapter.transaction(() => effect) as Effect.Effect<A, E | StorageFailure>,
+        transaction: <A, E>(effect: Effect.Effect<A, E>) => transaction(effect),
       };
 
       // Build extension FIRST so it's available as `self` when resolving
@@ -2831,7 +2698,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     // ------------------------------------------------------------------
     const listSources = () =>
       Effect.gen(function* () {
-        const dynamic = yield* core.findMany({ model: "source" });
+        const dynamic = yield* core.findMany("source", { where: scopedWhere(scopeIds) });
         // Dedup by id with innermost scope winning. Without this, a user
         // who shadowed an org-wide source at their inner scope would see
         // two rows — their override and the outer default — which is
@@ -2909,9 +2776,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
     const listTools = (filter?: ToolListFilter) =>
       Effect.gen(function* () {
-        const dynamic = yield* core.findMany({
-          model: "tool",
-          where: filter?.sourceId ? [{ field: "source_id", value: filter.sourceId }] : undefined,
+        const dynamic = yield* core.findMany("tool", {
+          where: scopedWhere(
+            scopeIds,
+            filter?.sourceId ? (b) => b("source_id", "=", filter.sourceId!) : undefined,
+          ),
         });
         // Dedup by tool id, innermost scope winning — same reason as
         // `listSources` above: a shadowed id must surface as one entry
@@ -2981,9 +2850,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     // dedup by name keeping the innermost-scope row.
     const loadDefinitionsForSource = (sourceId: string) =>
       Effect.gen(function* () {
-        const defRows = yield* core.findMany({
-          model: "definition",
-          where: [{ field: "source_id", value: sourceId }],
+        const defRows = yield* core.findMany("definition", {
+          where: scopedWhere(scopeIds, (b) => b("source_id", "=", sourceId)),
         });
         const winners = new Map<string, { row: (typeof defRows)[number]; rank: number }>();
         for (const row of defRows) {
@@ -3075,15 +2943,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
             rawOutput: toToolJsonSchema(staticEntry.tool.outputSchema, "output"),
           });
         }
-        // Innermost-wins lookup: the scope-wrapped adapter returns rows
-        // from every scope in the stack, so a bare findOne would pick the
-        // first row the backend iterates. That's wrong when a user has
-        // shadowed an outer-scope tool — they'd get the outer schema
-        // back instead of their override.
+        // Innermost-wins lookup across every visible scope.
         const rows = yield* core
-          .findMany({
-            model: "tool",
-            where: [{ field: "id", value: toolId }],
+          .findMany("tool", {
+            where: scopedWhere(scopeIds, byId(toolId)),
           })
           .pipe(Effect.withSpan("executor.tool.resolve"));
         const row = findInnermost(rows);
@@ -3114,7 +2977,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     // scope's schema wins.
     const toolsDefinitions = () =>
       Effect.gen(function* () {
-        const rows = yield* core.findMany({ model: "definition" });
+        const rows = yield* core.findMany("definition", { where: scopedWhere(scopeIds) });
         const winners = new Map<string, { row: (typeof rows)[number]; rank: number }>();
         for (const row of rows) {
           const key = `${row.source_id}\u0000${row.name}`;
@@ -3171,7 +3034,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     // used as today.
     // ------------------------------------------------------------------
 
-    const loadAllPolicies = () => core.findMany({ model: "tool_policy" });
+    const loadAllPolicies = () => core.findMany("tool_policy", { where: scopedWhere(scopeIds) });
 
     const resolveToolPolicyForId = (toolId: string) =>
       Effect.gen(function* () {
@@ -3273,14 +3136,12 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           ).pipe(Effect.withSpan("executor.tool.handler"));
         }
 
-        // Dynamic path — DB lookup + delegate to owning plugin. Walk
-        // the whole scope stack and pick the innermost-scope row so a
-        // user's shadow of an outer tool actually wins on invoke (a bare
-        // findOne would pick whatever row the backend iterated first).
+        // Dynamic path — DB lookup + delegate to owning plugin. Walk the
+        // whole scope stack and pick the innermost-scope row so a user's
+        // shadow of an outer tool actually wins on invoke.
         const toolRows = yield* core
-          .findMany({
-            model: "tool",
-            where: [{ field: "id", value: toolId }],
+          .findMany("tool", {
+            where: scopedWhere(scopeIds, byId(toolId)),
           })
           .pipe(Effect.withSpan("executor.tool.resolve"));
         const row = findInnermost(toolRows);
@@ -3355,12 +3216,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         if (staticSources.has(sourceId)) {
           return yield* new SourceRemovalNotAllowedError({ sourceId });
         }
-        const sourceRow = yield* core.findOne({
-          model: "source",
-          where: [
-            { field: "id", value: sourceId },
-            { field: "scope_id", value: input.targetScope },
-          ],
+        const sourceRow = yield* core.findFirst("source", {
+          where: byScopedId(input.targetScope, sourceId),
         });
         if (!sourceRow) return;
         if (!sourceRow.can_remove) {
@@ -3368,10 +3225,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         }
         const runtime = runtimes.get(sourceRow.plugin_id);
         // Group the plugin's own cleanup + the core row delete into one
-        // tx so a removeSource never leaves orphan rows on failure. The
-        // router short-circuits on nested calls when the caller is
-        // already inside a parent ctx.transaction.
-        yield* adapter.transaction(() =>
+        // Fuma transaction so removeSource never leaves orphan rows on failure.
+        yield* transaction(
           Effect.gen(function* () {
             if (runtime?.plugin.removeSource) {
               yield* runtime.plugin.removeSource({
@@ -3390,12 +3245,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         yield* assertScopeInStack("source refresh targetScope", input.targetScope);
         const sourceId = input.id;
         if (staticSources.has(sourceId)) return;
-        const sourceRow = yield* core.findOne({
-          model: "source",
-          where: [
-            { field: "id", value: sourceId },
-            { field: "scope_id", value: input.targetScope },
-          ],
+        const sourceRow = yield* core.findFirst("source", {
+          where: byScopedId(input.targetScope, sourceId),
         });
         if (!sourceRow) return;
         const runtime = runtimes.get(sourceRow.plugin_id);
@@ -3508,6 +3359,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
     const policiesCreate = (input: CreateToolPolicyInput) =>
       Effect.gen(function* () {
+        yield* assertScopeInStack("tool policy targetScope", input.targetScope);
         if (!isValidPattern(input.pattern)) {
           return yield* new StorageError({
             message:
@@ -3534,9 +3386,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
         // not as a background fallback.
         let position = input.position;
         if (position === undefined) {
-          const existing = yield* core.findMany({
-            model: "tool_policy",
-            where: [{ field: "scope_id", value: input.targetScope }],
+          const existing = yield* core.findMany("tool_policy", {
+            where: (b) => b("scope_id", "=", input.targetScope),
           });
           let min: string | null = null;
           for (const row of existing) {
@@ -3548,18 +3399,14 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
         const id = `pol_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
         const now = new Date();
-        yield* core.create({
-          model: "tool_policy",
-          data: {
-            id,
-            scope_id: input.targetScope,
-            pattern: input.pattern,
-            action: input.action,
-            position,
-            created_at: now,
-            updated_at: now,
-          },
-          forceAllowId: true,
+        yield* core.create("tool_policy", {
+          id,
+          scope_id: input.targetScope,
+          pattern: input.pattern,
+          action: input.action,
+          position,
+          created_at: now,
+          updated_at: now,
         });
         return rowToToolPolicy({
           id,
@@ -3574,6 +3421,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
 
     const policiesUpdate = (input: UpdateToolPolicyInput) =>
       Effect.gen(function* () {
+        yield* assertScopeInStack("tool policy targetScope", input.targetScope);
         if (input.pattern !== undefined && !isValidPattern(input.pattern)) {
           return yield* new StorageError({
             message: `Invalid tool policy pattern "${input.pattern}".`,
@@ -3587,12 +3435,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           });
         }
 
-        const rows = yield* core.findMany({
-          model: "tool_policy",
-          where: [
-            { field: "id", value: input.id },
-            { field: "scope_id", value: input.targetScope },
-          ],
+        const rows = yield* core.findMany("tool_policy", {
+          where: byScopedId(input.targetScope, input.id),
         });
         const row = rows[0] ?? null;
         if (!row) {
@@ -3609,13 +3453,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
           position: input.position ?? row.position,
           updated_at: new Date(),
         };
-        yield* core.update({
-          model: "tool_policy",
-          where: [
-            { field: "id", value: input.id },
-            { field: "scope_id", value: input.targetScope },
-          ],
-          update: {
+        yield* core.updateMany("tool_policy", {
+          where: byScopedId(input.targetScope, input.id),
+          set: {
             pattern: updated.pattern,
             action: updated.action,
             position: updated.position,
@@ -3626,15 +3466,12 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       }).pipe(Effect.withSpan("executor.policies.update"));
 
     const policiesRemove = (input: RemoveToolPolicyInput) =>
-      core
-        .deleteMany({
-          model: "tool_policy",
-          where: [
-            { field: "id", value: input.id },
-            { field: "scope_id", value: input.targetScope },
-          ],
-        })
-        .pipe(Effect.asVoid, Effect.withSpan("executor.policies.remove"));
+      Effect.gen(function* () {
+        yield* assertScopeInStack("tool policy targetScope", input.targetScope);
+        yield* core.deleteMany("tool_policy", {
+          where: byScopedId(input.targetScope, input.id),
+        });
+      }).pipe(Effect.withSpan("executor.policies.remove"));
 
     const policiesResolve = (toolId: string) =>
       resolveToolPolicyForId(toolId).pipe(Effect.withSpan("executor.policies.resolve"));

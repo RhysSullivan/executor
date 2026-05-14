@@ -4,5 +4,6 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     exclude: ["src/api/**", "src/react/**"],
+    testTimeout: 15_000,
   },
 });

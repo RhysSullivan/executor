@@ -1,13 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
+/* oxlint-disable executor/no-try-catch-or-throw -- boundary: fake WorkOS Promise client throws SDK-like errors so wrapper behavior can be tested */
 
 import {
-  collectSchemas,
   createExecutor,
-  makeInMemoryBlobStore,
   makeTestConfig,
+  makeTestExecutor,
   RemoveSecretInput,
   Scope,
   ScopeId,
@@ -31,11 +30,8 @@ interface VaultMetadataRow {
   readonly created_at: Date;
 }
 
-// ---------------------------------------------------------------------------
-// Fake status errors — the real provider's isStatusError check pattern-
-// matches on a `status` field, so these bare Error subclasses are
-// enough to simulate 404/409 responses from the WorkOS SDK.
-// ---------------------------------------------------------------------------
+const toVaultMetadataRows = (rows: unknown): readonly VaultMetadataRow[] =>
+  rows as readonly VaultMetadataRow[];
 
 class FakeNotFoundError extends Error {
   readonly status = 404;
@@ -59,16 +55,6 @@ const makeMetadata = (
   updatedAt: new Date(),
   versionId,
 });
-
-// ---------------------------------------------------------------------------
-// makeFakeClient — in-memory WorkOS Vault mock.
-//
-// `conflictOnNextSecretUpdate` injects a single 409 on the next
-// `updateObject` call against an object whose name ends in
-// `/secrets/conflict`. After consuming the conflict it behaves
-// normally, so the retry loop's second attempt re-reads the current
-// version and succeeds.
-// ---------------------------------------------------------------------------
 
 const makeFakeClient = (options?: {
   readonly conflictOnNextSecretUpdate?: boolean;
@@ -101,11 +87,9 @@ const makeFakeClient = (options?: {
       readonly context: Record<string, string>;
     }) => {
       if (options?.rejectNamesWithColon && name.includes(":")) {
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeInvalidRequestError(`Invalid object name "${name}"`);
       }
       if (objects.has(name)) {
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeConflictError(`Object "${name}" already exists`);
       }
       const id = nextId();
@@ -116,18 +100,15 @@ const makeFakeClient = (options?: {
 
     readObjectByName: async (name: string) => {
       if (options?.rejectNamesWithColon && name.includes(":")) {
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeInvalidRequestError(`Invalid object name "${name}"`);
       }
       if (
         options?.rejectReadNamesLongerThan !== undefined &&
         name.length > options.rejectReadNamesLongerThan
       ) {
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeInvalidRequestError(`Invalid object name "${name}"`);
       }
       const object = objects.get(name);
-      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
       if (!object) throw new FakeNotFoundError(`Object "${name}" not found`);
       return object;
     },
@@ -142,15 +123,12 @@ const makeFakeClient = (options?: {
       readonly versionCheck?: string;
     }) => {
       const current = [...objects.values()].find((o) => o.id === id);
-      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
       if (!current) throw new FakeNotFoundError(`Object "${id}" not found`);
       if (conflictPending && current.name.endsWith("/secrets/conflict")) {
         conflictPending = false;
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeConflictError(`Injected conflict for "${id}"`);
       }
       if (versionCheck && current.metadata.versionId !== versionCheck) {
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeConflictError(`Version mismatch for "${id}"`);
       }
       const nextVersion = current.metadata.versionId.replace(
@@ -172,7 +150,6 @@ const makeFakeClient = (options?: {
 
     deleteObject: async ({ id }: { readonly id: string }) => {
       const entry = [...objects.entries()].find(([, o]) => o.id === id);
-      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
       if (!entry) throw new FakeNotFoundError(`Object "${id}" not found`);
       objects.delete(entry[0]);
     },
@@ -192,13 +169,7 @@ const makeFakeClient = (options?: {
 };
 
 const makeExecutor = (client: WorkOSVaultClient) =>
-  createExecutor(makeTestConfig({ plugins: [workosVaultPlugin({ client })] as const }));
-
-// ---------------------------------------------------------------------------
-// Tests — drive the provider through the real executor's secrets facade
-// so we exercise the core `secret` routing table + metadata-store + Vault
-// roundtrip all at once.
-// ---------------------------------------------------------------------------
+  makeTestExecutor({ plugins: [workosVaultPlugin({ client })] as const });
 
 describe("WorkOS Vault secret provider", () => {
   it.effect("stores and resolves secrets through WorkOS Vault", () =>
@@ -311,10 +282,6 @@ describe("WorkOS Vault secret provider", () => {
 
   it.effect("retries secret value writes on 409 version conflicts", () =>
     Effect.gen(function* () {
-      // Inject one conflict on the next update against `/secrets/conflict`.
-      // Flow: first `set` creates the object (no update). Second `set`
-      // takes the update path and hits the injected conflict; the retry
-      // loop re-reads and succeeds on the second attempt.
       const executor = yield* makeExecutor(makeFakeClient({ conflictOnNextSecretUpdate: true }));
 
       yield* executor.secrets.set(
@@ -343,25 +310,9 @@ describe("WorkOS Vault secret provider", () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// Multi-scope regression tests — the plugin ships in the cloud app with
-// a two-element stack (`[userOrgScope, orgScope]`). When the same secret
-// id exists at both scopes (inner override of an outer default), the
-// store's `get` / `upsert` / `remove` must operate on the caller-named
-// scope's row only. Previously these methods used `where: [{id}]` with
-// no scope pin, letting the scoped adapter widen the filter to
-// `scope_id IN (stack)` — so a remove at inner scope could wipe the
-// outer metadata row, and an update at inner scope could rewrite the
-// outer row's name. Each test shares one adapter + one vault client
-// across an outer-only executor and an inner-stacked executor.
-// ---------------------------------------------------------------------------
-
 const makeLayeredExecutors = (client: WorkOSVaultClient) =>
   Effect.gen(function* () {
     const plugins = [workosVaultPlugin({ client })] as const;
-    const schema = collectSchemas(plugins);
-    const adapter = makeMemoryAdapter({ schema });
-    const blobs = makeInMemoryBlobStore();
 
     const outerId = ScopeId.make("org");
     const innerId = ScopeId.make("user-org:u1:org");
@@ -376,21 +327,10 @@ const makeLayeredExecutors = (client: WorkOSVaultClient) =>
       createdAt: new Date(),
     });
 
-    const execOuter = yield* createExecutor({
-      scopes: [outerScope],
-      adapter,
-      blobs,
-      plugins,
-      onElicitation: "accept-all",
-    });
-    const execInner = yield* createExecutor({
-      scopes: [innerScope, outerScope],
-      adapter,
-      blobs,
-      plugins,
-      onElicitation: "accept-all",
-    });
-    return { execOuter, execInner, outerId, innerId, adapter };
+    const config = makeTestConfig({ scopes: [outerScope], plugins });
+    const execOuter = yield* createExecutor({ ...config, scopes: [outerScope] });
+    const execInner = yield* createExecutor({ ...config, scopes: [innerScope, outerScope] });
+    return { execOuter, execInner, outerId, innerId, config };
   });
 
 describe("WorkOS Vault secret provider — multi-scope isolation", () => {
@@ -417,7 +357,6 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
       const client = makeFakeClient();
       const { execOuter, execInner, outerId, innerId } = yield* makeLayeredExecutors(client);
 
-      // Outer admin writes the org-wide default.
       yield* execOuter.secrets.set(
         SetSecretInput.make({
           id: SecretId.make("api-token"),
@@ -426,7 +365,6 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
           value: "org-default",
         }),
       );
-      // Inner user writes their personal override at the inner scope.
       yield* execInner.secrets.set(
         SetSecretInput.make({
           id: SecretId.make("api-token"),
@@ -436,7 +374,6 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
         }),
       );
 
-      // Inner caller removes. Should only drop the inner row.
       yield* execInner.secrets.remove(
         RemoveSecretInput.make({
           id: SecretId.make("api-token"),
@@ -444,54 +381,79 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
         }),
       );
 
-      // The outer executor must still see its row and resolve its value.
       const outer = yield* execOuter.secrets.list();
       expect(outer.map((r) => r.id)).toContain("api-token");
       expect(yield* execOuter.secrets.get("api-token")).toBe("org-default");
     }),
   );
 
-  it.effect(
-    "shadowed `set` produces independent metadata rows — inner write leaves outer row untouched",
-    () =>
-      // The SDK's core `secret` table shields the user from the plugin's
-      // internal metadata corruption (core wins over provider.list in
-      // dedupe + SDK uses the caller-supplied scope for vault lookups,
-      // not whatever the metadata row says). We assert against the
-      // plugin table directly so we exercise the store contract, not
-      // just the SDK's defensive shielding.
-      Effect.gen(function* () {
-        const client = makeFakeClient();
-        const { execOuter, execInner, outerId, innerId, adapter } =
-          yield* makeLayeredExecutors(client);
+  it.effect("shadowed `set` produces independent metadata rows per scope", () =>
+    Effect.gen(function* () {
+      const client = makeFakeClient();
+      const { execOuter, execInner, outerId, innerId, config } =
+        yield* makeLayeredExecutors(client);
 
-        yield* execOuter.secrets.set(
-          SetSecretInput.make({
-            id: SecretId.make("api-token"),
-            scope: outerId,
-            name: "Org default",
-            value: "org-default",
-          }),
-        );
-        yield* execInner.secrets.set(
-          SetSecretInput.make({
-            id: SecretId.make("api-token"),
-            scope: innerId,
-            name: "Personal override",
-            value: "personal-override",
-          }),
-        );
+      yield* execOuter.secrets.set(
+        SetSecretInput.make({
+          id: SecretId.make("api-token"),
+          scope: outerId,
+          name: "Org default",
+          value: "org-default",
+        }),
+      );
+      yield* execInner.secrets.set(
+        SetSecretInput.make({
+          id: SecretId.make("api-token"),
+          scope: innerId,
+          name: "Personal override",
+          value: "personal-override",
+        }),
+      );
 
-        const rows = (yield* adapter.findMany({
-          model: "workos_vault_metadata",
-          where: [{ field: "id", value: "api-token" }],
-        })) as readonly VaultMetadataRow[];
-        const scopes = rows.map((r) => r.scope_id).sort();
-        expect(scopes).toEqual([outerId, innerId].sort());
-      }),
+      const rows = toVaultMetadataRows(
+        yield* Effect.promise(() =>
+          config.db.findMany("workos_vault_metadata", {
+            where: (b) => b("id", "=", "api-token"),
+          }),
+        ),
+      );
+      const scopes = rows.map((r) => r.scope_id).sort();
+      expect(scopes).toEqual([outerId, innerId].sort());
+    }),
   );
 
-  it.effect("shadowed secrets produce independent metadata rows per scope", () =>
+  it.effect("list only includes metadata from the executor scope stack", () =>
+    Effect.gen(function* () {
+      const client = makeFakeClient();
+      const plugins = [workosVaultPlugin({ client })] as const;
+      const orgA = Scope.make({
+        id: ScopeId.make("org_a"),
+        name: "Org A",
+        createdAt: new Date(),
+      });
+      const orgB = Scope.make({
+        id: ScopeId.make("org_b"),
+        name: "Org B",
+        createdAt: new Date(),
+      });
+      const config = makeTestConfig({ scopes: [orgA], plugins });
+      const execA = yield* createExecutor({ ...config, scopes: [orgA] });
+      const execB = yield* createExecutor({ ...config, scopes: [orgB] });
+
+      yield* execA.secrets.set(
+        SetSecretInput.make({
+          id: SecretId.make("api-token"),
+          scope: orgA.id,
+          name: "Org A token",
+          value: "org-a-secret",
+        }),
+      );
+
+      expect((yield* execB.secrets.list()).map((row) => row.id)).not.toContain("api-token");
+    }),
+  );
+
+  it.effect("shadowed secrets resolve independently per scope", () =>
     Effect.gen(function* () {
       const client = makeFakeClient();
       const { execOuter, execInner, outerId, innerId } = yield* makeLayeredExecutors(client);
@@ -513,40 +475,22 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
         }),
       );
 
-      // Inner sees its override value.
       expect(yield* execInner.secrets.get("api-token")).toBe("personal-override");
-      // Outer sees the unshadowed default.
       expect(yield* execOuter.secrets.get("api-token")).toBe("org-default");
     }),
   );
 });
 
-// ---------------------------------------------------------------------------
-// KEK context shape — each semantic dimension of a scope id must land in
-// its own vault-context key so WorkOS's KEK matcher can key off real
-// identities (user, org) rather than an opaque compound string. This
-// avoids the `KEK was created but is not yet ready` hang we hit when a
-// context value itself contained a `:`.
-// ---------------------------------------------------------------------------
-
 const makeExecutorForScope = (client: WorkOSVaultClient, scopeId: string) =>
-  Effect.gen(function* () {
-    const plugins = [workosVaultPlugin({ client })] as const;
-    const schema = collectSchemas(plugins);
-    const adapter = makeMemoryAdapter({ schema });
-    const blobs = makeInMemoryBlobStore();
-    const scope = Scope.make({
-      id: ScopeId.make(scopeId),
-      name: scopeId,
-      createdAt: new Date(),
-    });
-    return yield* createExecutor({
-      scopes: [scope],
-      adapter,
-      blobs,
-      plugins,
-      onElicitation: "accept-all",
-    });
+  makeTestExecutor({
+    plugins: [workosVaultPlugin({ client })] as const,
+    scopes: [
+      Scope.make({
+        id: ScopeId.make(scopeId),
+        name: scopeId,
+        createdAt: new Date(),
+      }),
+    ],
   });
 
 describe("WorkOS Vault secret provider — KEK context", () => {

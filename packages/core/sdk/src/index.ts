@@ -17,25 +17,26 @@ export {
   HttpApiSchema,
 } from "effect/unstable/httpapi";
 
-// Storage adapter interface types (re-exported from @executor-js/storage-core
-// so plugin authors can write adapters against a single public surface
-// without depending on storage-core directly).
-export type {
-  DBAdapter,
-  DBSchema,
-  DBFieldAttribute,
-  DBFieldType,
-  StorageFailure,
-  TypedAdapter,
-  Where,
-  WhereOperator,
-} from "@executor-js/storage-core";
+// FumaDB integration.
+export { fumadb } from "fumadb";
+export type { FumaDB } from "fumadb";
+export type { AbstractQuery, Condition, ConditionBuilder } from "fumadb/query";
+export { column, idColumn, schema as fumaSchema, table } from "fumadb/schema";
+export type { AnyColumn, AnySchema, AnyTable, Column, Schema as FumaSchema } from "fumadb/schema";
 
-export { typedAdapter } from "@executor-js/storage-core";
+export type { FumaDb, FumaRow, FumaTables, IFumaClient, StorageFailure } from "./fuma-runtime";
+export {
+  FumaClient,
+  StorageError,
+  UniqueViolationError,
+  fumaEffect,
+  fumaFailureFromCause,
+  isStorageFailure,
+  makeFumaClient,
+} from "./fuma-runtime";
 
-// Storage-layer typed errors (re-exported so plugin code can catchTag
-// `UniqueViolationError` without importing storage-core directly).
-export { StorageError, UniqueViolationError } from "@executor-js/storage-core";
+// Storage-layer typed errors are still exported so plugin code can catchTag
+// `UniqueViolationError`, but FumaDB itself is the storage API.
 
 // IDs (branded)
 export { ScopeId, ToolId, SecretId, PolicyId, ConnectionId, CredentialBindingId } from "./ids";
@@ -77,8 +78,18 @@ export {
 
 // Core schema
 export {
+  bigintColumn,
+  boolColumn,
   coreSchema,
+  dateColumn,
+  executorTable,
   isToolPolicyAction,
+  jsonColumn,
+  nullableBigintColumn,
+  nullableJsonColumn,
+  nullableTextColumn,
+  scopedExecutorTable,
+  textColumn,
   TOOL_POLICY_ACTIONS,
   type CoreSchema,
   type SourceInput,
@@ -181,6 +192,7 @@ export {
   type BlobStore,
   type PluginBlobStore,
   pluginBlobStore,
+  makeFumaBlobStore,
   makeInMemoryBlobStore,
 } from "./blob";
 
@@ -233,7 +245,6 @@ export {
 } from "./oauth-helpers";
 
 export { makeOAuth2Service, type OAuthServiceDeps } from "./oauth-service";
-export type { ScopedDBAdapter, ScopedTypedAdapter } from "./scoped-adapter";
 
 export {
   HostedOutboundRequestBlocked,
@@ -298,19 +309,29 @@ export {
   type OnElicitation,
   type InvokeOptions,
   createExecutor,
-  collectSchemas,
+  collectTables,
 } from "./executor";
 
 // CLI / runtime config
 export {
   defineExecutorConfig,
   type ExecutorCliConfig,
-  type ExecutorDialect,
   type ExecutorPluginsFactory,
 } from "./config";
 
 // Test helper
-export { makeTestConfig } from "./test-config";
+export {
+  makeTestConfig,
+  makeTestExecutor,
+  makeTestExecutorHarness,
+  makeTestExecutorLayer,
+  memorySecretsPlugin,
+  TestExecutor,
+  type TestConfigOptions,
+  type TestDatabaseBackend,
+  type TestExecutorHarness,
+  type TestFumaDb,
+} from "./test-config";
 
 // JSON schema $ref helpers (used by openapi for $defs handling)
 export { hoistDefinitions, collectRefs, reattachDefs, normalizeRefs } from "./schema-refs";

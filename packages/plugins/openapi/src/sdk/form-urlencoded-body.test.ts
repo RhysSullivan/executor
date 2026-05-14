@@ -12,7 +12,7 @@
 // bodies, JSON.stringify as a last-resort fallback (never `[object Object]`).
 // ---------------------------------------------------------------------------
 
-import { describe, expect, it } from "@effect/vitest";
+import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { createServer } from "node:http";
@@ -21,7 +21,8 @@ import type { AddressInfo } from "node:net";
 import {
   createExecutor,
   definePlugin,
-  makeTestConfig,
+  makeTestExecutorLayer,
+  TestExecutor,
   type InvokeOptions,
   type SecretProvider,
 } from "@executor-js/sdk";
@@ -125,19 +126,22 @@ const formSpec = JSON.stringify({
   },
 });
 
-describe("OpenAPI non-JSON request body serialization", () => {
+const plugins = [
+  openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
+  memorySecretsPlugin(),
+] as const;
+
+layer(
+  makeTestExecutorLayer({
+    plugins,
+  }),
+  { timeout: "15 seconds" },
+)("OpenAPI non-JSON request body serialization", (it) => {
   it.effect("form-urlencoded object body is properly encoded (no '[object Object]')", () =>
     Effect.gen(function* () {
       const { baseUrl, captured } = yield* startEchoServer();
-
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const { config } = yield* TestExecutor;
+      const executor = yield* createExecutor({ ...config, plugins });
 
       yield* executor.openapi.addSpec({
         spec: formSpec,

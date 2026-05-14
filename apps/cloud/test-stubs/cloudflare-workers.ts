@@ -9,6 +9,7 @@
 // PGlite socket server started by `scripts/test-globalsetup.ts`.
 export const env: Record<string, unknown> = {
   DATABASE_URL: process.env.DATABASE_URL,
+  EXECUTOR_TEST_DIRECT_PGLITE: process.env.EXECUTOR_TEST_DIRECT_PGLITE,
   WORKOS_API_KEY: process.env.WORKOS_API_KEY,
   WORKOS_CLIENT_ID: process.env.WORKOS_CLIENT_ID,
   WORKOS_COOKIE_PASSWORD: process.env.WORKOS_COOKIE_PASSWORD,

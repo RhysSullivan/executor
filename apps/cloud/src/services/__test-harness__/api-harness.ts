@@ -26,8 +26,8 @@ import {
 } from "@executor-js/api/server";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
-import { Scope, ScopeId, collectSchemas, createExecutor } from "@executor-js/sdk";
-import { makePostgresAdapter, makePostgresBlobStore } from "@executor-js/storage-postgres";
+import { Scope, ScopeId, collectTables, createExecutor } from "@executor-js/sdk";
+import { createDrizzleFumaDb } from "@executor-js/sdk/drizzle";
 import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 
 import executorConfig from "../../../executor.config";
@@ -70,9 +70,12 @@ const createTestScopedExecutor = (userId: string, orgId: string, orgName: string
   Effect.gen(function* () {
     const { db } = yield* DbService;
     const plugins = testPlugins;
-    const schema = collectSchemas(plugins);
-    const adapter = makePostgresAdapter({ db, schema });
-    const blobs = makePostgresBlobStore({ db });
+    const fuma = createDrizzleFumaDb({
+      db,
+      tables: collectTables(plugins),
+      namespace: "executor_cloud",
+      provider: "postgresql",
+    });
     const orgScope = Scope.make({
       id: ScopeId.make(orgId),
       name: orgName,
@@ -85,8 +88,7 @@ const createTestScopedExecutor = (userId: string, orgId: string, orgName: string
     });
     return yield* createExecutor({
       scopes: [userOrgScope, orgScope],
-      adapter,
-      blobs,
+      db: fuma.db,
       plugins,
       httpClientLayer: testHttpClientLayer,
       onElicitation: "accept-all",

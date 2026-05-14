@@ -9,8 +9,8 @@
 // the new SDK shape — minus the HTTP API layer, runtime lifecycle, and
 // scope persistence that real apps add on top.
 //
-// Runs against an in-memory adapter + in-memory blob store so you can
-// `bun run src/main.ts` and watch the whole surface exercise itself.
+// Runs against in-memory PGlite through FumaDB so you can `bun run src/main.ts`
+// and watch the whole surface exercise itself.
 // Plugins that need external infra (keychain prompts, 1Password unlock,
 // MCP transport, WorkOS Vault, Google OAuth) are wired so their secret
 // providers and extensions exist, but the flows that hit their
@@ -24,11 +24,10 @@ import {
   Scope,
   ScopeId,
   SetSecretInput,
-  collectSchemas,
+  collectTables,
   createExecutor,
-  makeInMemoryBlobStore,
 } from "@executor-js/sdk";
-import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
+import { createPgliteFumaDb } from "@executor-js/sdk/pglite";
 
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
@@ -42,7 +41,7 @@ import { workosVaultPlugin } from "@executor-js/plugin-workos-vault";
 // ---------------------------------------------------------------------------
 // 1. Build the ExecutorConfig.
 //
-// Three pieces only: scope, storage seam (adapter + blobs), plugins.
+// Three pieces only: scope, FumaDB, plugins.
 // Compare to the old SDK, where you'd pass pre-built ToolRegistry,
 // SourceRegistry, SecretStore, and PolicyEngine service instances.
 // ---------------------------------------------------------------------------
@@ -81,14 +80,6 @@ const plugins = [
   //   },
   // }),
 ] as const;
-
-const config = {
-  scopes: [scope],
-  adapter: makeMemoryAdapter({ schema: collectSchemas(plugins) }),
-  blobs: makeInMemoryBlobStore(),
-  plugins,
-  onElicitation: "accept-all" as const,
-};
 
 // Silence the unused-import warning for workos-vault (kept in scope as
 // documentation; uncomment the plugin entry above to use it).
@@ -175,7 +166,19 @@ const program = Effect.gen(function* () {
   console.log("Building executor with every ported plugin");
   console.log("=".repeat(72));
 
-  const executor = yield* createExecutor(config);
+  const pglite = yield* Effect.promise(() =>
+    createPgliteFumaDb({
+      tables: collectTables(plugins),
+      namespace: "executor_example_all_plugins",
+    }),
+  );
+
+  const executor = yield* createExecutor({
+    scopes: [scope],
+    db: pglite.db,
+    plugins,
+    onElicitation: "accept-all" as const,
+  });
 
   // Every plugin's extension is accessible as `executor[pluginId]`.
   // TypeScript knows about each one — hovering over `executor` in your
@@ -434,6 +437,7 @@ const program = Effect.gen(function* () {
   console.log("-".repeat(72));
 
   yield* executor.close();
+  yield* Effect.promise(() => pglite.close());
   console.log("Executor closed. Done.");
 });
 

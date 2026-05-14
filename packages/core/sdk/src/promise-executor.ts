@@ -14,16 +14,14 @@
 
 import { Brand, Effect } from "effect";
 
-import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
-
-import { makeInMemoryBlobStore } from "./blob";
 import {
   createExecutor as createEffectExecutor,
-  collectSchemas,
+  collectTables,
   type Executor as EffectExecutor,
   type OnElicitation,
 } from "./executor";
 import { ScopeId } from "./ids";
+import { createPgliteFumaDb } from "./pglite";
 import type { AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
 
@@ -65,11 +63,11 @@ export type Promisified<T> = T extends (...args: infer A) => Effect.Effect<infer
       ? { readonly [K in keyof T]: Promisified<T[K]> }
       : T;
 
-export type Executor<TPlugins extends readonly AnyPlugin[] = []> = Promisified<
+export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = Promisified<
   EffectExecutor<TPlugins>
 >;
 
-export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
+export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly []> {
   /**
    * Precedence-ordered scope stack (innermost first). Optional — defaults
    * to a single-element stack with id "default-scope". Pass an array of
@@ -132,15 +130,15 @@ const promisifyDeep = <T>(value: T): Promisified<T> => {
 
 // ---------------------------------------------------------------------------
 // createExecutor — Promise wrapper over the Effect createExecutor.
-// Defaults to an in-memory adapter + blob store, so a consumer can
-// construct an executor with just `{ plugins: [...] }`.
+// Defaults to in-memory PGlite/FumaDB, so a consumer can construct an
+// executor with just `{ plugins: [...] }`.
 // ---------------------------------------------------------------------------
 
-export const createExecutor = async <const TPlugins extends readonly AnyPlugin[] = []>(
+export const createExecutor = async <const TPlugins extends readonly AnyPlugin[] = readonly []>(
   config: ExecutorConfig<TPlugins>,
 ): Promise<Executor<TPlugins>> => {
   const plugins = (config?.plugins ?? []) as TPlugins;
-  const schema = collectSchemas(plugins);
+  const tables = collectTables(plugins);
 
   const scopes =
     config.scopes && config.scopes.length > 0
@@ -159,10 +157,14 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
           }),
         ];
 
+  const pglite = await createPgliteFumaDb({
+    tables,
+    namespace: "executor_promise",
+  });
+
   const effectConfig = {
     scopes,
-    adapter: makeMemoryAdapter({ schema }),
-    blobs: makeInMemoryBlobStore(),
+    db: pglite.db,
     plugins,
     onElicitation: config.onElicitation,
   };
@@ -175,5 +177,12 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
   // rewrite that exposes the full error union to consumers.
   const effectExecutor = await Effect.runPromise(createEffectExecutor(effectConfig));
 
-  return promisifyDeep(effectExecutor) as Executor<TPlugins>;
+  const executor = promisifyDeep(effectExecutor) as Executor<TPlugins>;
+  return {
+    ...executor,
+    close: async () => {
+      await Effect.runPromise(effectExecutor.close());
+      await pglite.close();
+    },
+  } as Executor<TPlugins>;
 };

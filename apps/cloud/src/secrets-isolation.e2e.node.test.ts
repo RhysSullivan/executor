@@ -5,7 +5,7 @@
 // the cloud app actually ships: `[userOrgScope, orgScope]`. The harness
 // builds the same shape `apps/cloud/src/services/executor.ts#createScopedExecutor`
 // builds in production, and every request goes through `HttpApiClient` →
-// `fetch` → the real `ProtectedCloudApi` → real postgres adapter.
+// `fetch` → the real `ProtectedCloudApi` → the real Drizzle/FumaDB path.
 //
 // Invariants the product is staking on:
 //

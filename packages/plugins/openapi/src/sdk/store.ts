@@ -1,6 +1,18 @@
 import { Effect, Option, Schema } from "effect";
 
-import { defineSchema, type StorageDeps, type StorageFailure } from "@executor-js/sdk/core";
+import {
+  defineSchema,
+  jsonColumn,
+  nullableJsonColumn,
+  nullableTextColumn,
+  scopedExecutorTable,
+  type AnyColumn,
+  type Condition,
+  type ConditionBuilder,
+  type StorageDeps,
+  type StorageFailure,
+  textColumn,
+} from "@executor-js/sdk/core";
 
 import {
   ConfiguredHeaderValue,
@@ -26,79 +38,58 @@ import {
 // declaration site.
 
 export const openapiSchema = defineSchema({
-  openapi_source: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      name: { type: "string", required: true },
-      spec: { type: "string", required: true },
-      // Origin URL the spec was fetched from. Set when `addSpec` was
-      // invoked with an http(s) URL; null when the caller passed raw
-      // spec text. Drives `canRefresh` on the core source row and
-      // is the address re-fetched on `refreshSource`.
-      source_url: { type: "string", required: false },
-      base_url: { type: "string", required: false },
-      // OAuth2 stays JSON because it is one typed source-owned config object
-      // carrying slot names, not concrete secret/connection ids.
-      oauth2: { type: "json", required: false },
+  openapi_source: scopedExecutorTable("openapi_source", {
+    name: textColumn("name"),
+    spec: textColumn("spec"),
+    // Origin URL the spec was fetched from. Set when `addSpec` was
+    // invoked with an http(s) URL; null when the caller passed raw
+    // spec text. Drives `canRefresh` on the core source row and
+    // is the address re-fetched on `refreshSource`.
+    source_url: nullableTextColumn("source_url"),
+    base_url: nullableTextColumn("base_url"),
+    // OAuth2 stays JSON because it is one typed source-owned config object
+    // carrying slot names, not concrete secret/connection ids.
+    oauth2: nullableJsonColumn("oauth2"),
+  }),
+  openapi_operation: scopedExecutorTable("openapi_operation", {
+    source_id: textColumn("source_id"),
+    binding: jsonColumn("binding"),
+  }),
+  openapi_source_header: scopedExecutorTable("openapi_source_header", {
+    source_id: textColumn("source_id"),
+    name: textColumn("name"),
+    kind: textColumn("kind"),
+    text_value: nullableTextColumn("text_value"),
+    slot_key: nullableTextColumn("slot_key"),
+    prefix: nullableTextColumn("prefix"),
+  }),
+  openapi_source_query_param: scopedExecutorTable("openapi_source_query_param", {
+    source_id: textColumn("source_id"),
+    name: textColumn("name"),
+    kind: textColumn("kind"),
+    text_value: nullableTextColumn("text_value"),
+    slot_key: nullableTextColumn("slot_key"),
+    prefix: nullableTextColumn("prefix"),
+  }),
+  openapi_source_spec_fetch_header: scopedExecutorTable("openapi_source_spec_fetch_header", {
+    source_id: textColumn("source_id"),
+    name: textColumn("name"),
+    kind: textColumn("kind"),
+    text_value: nullableTextColumn("text_value"),
+    slot_key: nullableTextColumn("slot_key"),
+    prefix: nullableTextColumn("prefix"),
+  }),
+  openapi_source_spec_fetch_query_param: scopedExecutorTable(
+    "openapi_source_spec_fetch_query_param",
+    {
+      source_id: textColumn("source_id"),
+      name: textColumn("name"),
+      kind: textColumn("kind"),
+      text_value: nullableTextColumn("text_value"),
+      slot_key: nullableTextColumn("slot_key"),
+      prefix: nullableTextColumn("prefix"),
     },
-  },
-  openapi_operation: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      source_id: { type: "string", required: true, index: true },
-      binding: { type: "json", required: true },
-    },
-  },
-  openapi_source_header: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      source_id: { type: "string", required: true, index: true },
-      name: { type: "string", required: true },
-      kind: { type: ["text", "binding"], required: true },
-      text_value: { type: "string", required: false },
-      slot_key: { type: "string", required: false },
-      prefix: { type: "string", required: false },
-    },
-  },
-  openapi_source_query_param: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      source_id: { type: "string", required: true, index: true },
-      name: { type: "string", required: true },
-      kind: { type: ["text", "binding"], required: true },
-      text_value: { type: "string", required: false },
-      slot_key: { type: "string", required: false },
-      prefix: { type: "string", required: false },
-    },
-  },
-  openapi_source_spec_fetch_header: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      source_id: { type: "string", required: true, index: true },
-      name: { type: "string", required: true },
-      kind: { type: ["text", "binding"], required: true },
-      text_value: { type: "string", required: false },
-      slot_key: { type: "string", required: false },
-      prefix: { type: "string", required: false },
-    },
-  },
-  openapi_source_spec_fetch_query_param: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      source_id: { type: "string", required: true, index: true },
-      name: { type: "string", required: true },
-      kind: { type: ["text", "binding"], required: true },
-      text_value: { type: "string", required: false },
-      slot_key: { type: "string", required: false },
-      prefix: { type: "string", required: false },
-    },
-  },
+  ),
 });
 
 export type OpenapiSchema = typeof openapiSchema;
@@ -128,8 +119,7 @@ export interface OpenApiSpecFetchCredentials {
 export interface StoredSource {
   readonly namespace: string;
   /** Executor scope id this source row lives in. Writes stamp this on
-   *  `scope_id`; reads return whichever scope's row the adapter's
-   *  fall-through filter sees first. */
+   *  `scope_id`; reads choose scope explicitly in the FumaDB query. */
   readonly scope: string;
   readonly name: string;
   readonly config: SourceConfig;
@@ -226,8 +216,6 @@ interface ChildRow {
   readonly text_value?: string;
   readonly slot_key?: string;
   readonly prefix?: string;
-  // Index signature to satisfy adapter's `RowInput` shape (the typed
-  // adapter exposes its row shape with one).
   readonly [k: string]: unknown;
 }
 
@@ -292,7 +280,6 @@ const childRowsToValueMap = (
   return out;
 };
 
-// oxlint-disable-next-line executor/no-explicit-unknown-record -- boundary: storage adapter accepts JSON object columns
 const toJsonRecord = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
 
 const slugifySlotPart = (value: string): string =>
@@ -333,22 +320,9 @@ const normalizeStoredOAuth2 = (value: unknown): OAuth2SourceConfig | undefined =
 // Store interface
 // ---------------------------------------------------------------------------
 
-// Every method routes through the typed adapter (`ctx.storage.adapter`)
-// so the typed error channel is `StorageFailure`. Schema-decode failures
-// inside `Effect.gen` land as defects, not typed errors, and are caught
-// by the HTTP edge's observability middleware.
-//
 // Every read/write that targets a single row pins BOTH the natural id
-// (namespace, toolId, sessionId) AND the owning `scope_id`. The store
-// runs behind the scoped adapter (which auto-injects `scope_id IN
-// (stack)`), so a bare `{id}` filter resolves to any matching row in
-// the stack in adapter-iteration order. For shadowed rows (same id at
-// multiple scopes — e.g. an org-level openapi source with a per-user
-// override), that's a scope-isolation bug: updates and deletes can
-// land on the wrong scope's row. Callers thread the resolved scope in
-// (typically `path.scopeId` for HTTP, `toolRow.scope_id` /
-// `input.scope` for invokeTool/lifecycle) so every keyed mutation
-// targets exactly one row.
+// (namespace, toolId, sessionId) AND the owning `scope_id`. Scope is a
+// normal FumaDB predicate here, not hidden behavior.
 export interface OpenapiStore {
   readonly upsertSource: (
     input: StoredSource,
@@ -396,9 +370,69 @@ export interface OpenapiStore {
 // Default store implementation
 // ---------------------------------------------------------------------------
 
-export const makeDefaultOpenapiStore = ({ adapter }: StorageDeps<OpenapiSchema>): OpenapiStore => {
+type FumaStoreDb = {
+  readonly create: (
+    table: string,
+    row: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
+  readonly createMany: (
+    table: string,
+    rows: readonly Record<string, unknown>[],
+  ) => Promise<readonly unknown[]>;
+  readonly deleteMany: (table: string, options: unknown) => Promise<void>;
+  readonly findFirst: (table: string, options: unknown) => Promise<Record<string, unknown> | null>;
+  readonly findMany: (
+    table: string,
+    options?: unknown,
+  ) => Promise<readonly Record<string, unknown>[]>;
+  readonly updateMany: (table: string, options: unknown) => Promise<void>;
+};
+
+const asStoreDb = (db: unknown): FumaStoreDb => db as FumaStoreDb;
+
+type StoreConditionBuilder = ConditionBuilder<Record<string, AnyColumn>>;
+
+const bySourceScope =
+  (sourceId: string, scope: string) =>
+  (b: StoreConditionBuilder): Condition =>
+    b.and(b("source_id", "=", sourceId), b("scope_id", "=", scope)) as Condition;
+
+const byScopedId =
+  (id: string, scope: string) =>
+  (b: StoreConditionBuilder): Condition =>
+    b.and(b("id", "=", id), b("scope_id", "=", scope)) as Condition;
+
+export const makeDefaultOpenapiStore = ({ fuma }: StorageDeps<OpenapiSchema>): OpenapiStore => {
+  const findMany = (
+    table: string,
+    options?: unknown,
+  ): Effect.Effect<readonly Record<string, unknown>[], StorageFailure> =>
+    fuma.use(`${table}.findMany`, (db) => asStoreDb(db).findMany(table, options));
+
+  const findFirst = (
+    table: string,
+    options: unknown,
+  ): Effect.Effect<Record<string, unknown> | null, StorageFailure> =>
+    fuma.use(`${table}.findFirst`, (db) => asStoreDb(db).findFirst(table, options));
+
+  const createMany = (
+    table: string,
+    rows: readonly Record<string, unknown>[],
+  ): Effect.Effect<void, StorageFailure> =>
+    rows.length === 0
+      ? Effect.void
+      : fuma
+          .use(`${table}.createMany`, (db) => asStoreDb(db).createMany(table, rows))
+          .pipe(Effect.asVoid);
+
+  const deleteMany = (table: string, options: unknown): Effect.Effect<void, StorageFailure> =>
+    fuma.use(`${table}.deleteMany`, (db) => asStoreDb(db).deleteMany(table, options));
+
+  const updateMany = (table: string, options: unknown): Effect.Effect<void, StorageFailure> =>
+    fuma.use(`${table}.updateMany`, (db) => asStoreDb(db).updateMany(table, options));
+
   const loadChildValueMap = (
-    model:
+    tableName:
       | "openapi_source_header"
       | "openapi_source_query_param"
       | "openapi_source_spec_fetch_header"
@@ -406,15 +440,9 @@ export const makeDefaultOpenapiStore = ({ adapter }: StorageDeps<OpenapiSchema>)
     sourceId: string,
     scope: string,
   ) =>
-    adapter
-      .findMany({
-        model,
-        where: [
-          { field: "source_id", value: sourceId },
-          { field: "scope_id", value: scope },
-        ],
-      })
-      .pipe(Effect.map(childRowsToValueMap));
+    findMany(tableName, { where: bySourceScope(sourceId, scope) }).pipe(
+      Effect.map(childRowsToValueMap),
+    );
 
   const rowToSource = (row: Record<string, unknown>): Effect.Effect<StoredSource, StorageFailure> =>
     Effect.gen(function* () {
@@ -478,7 +506,7 @@ export const makeDefaultOpenapiStore = ({ adapter }: StorageDeps<OpenapiSchema>)
   // insert. Single helper so upsertSource and updateSourceMeta both
   // funnel through the same write path.
   const replaceChildRows = (
-    model:
+    tableName:
       | "openapi_source_header"
       | "openapi_source_query_param"
       | "openapi_source_spec_fetch_header"
@@ -488,74 +516,44 @@ export const makeDefaultOpenapiStore = ({ adapter }: StorageDeps<OpenapiSchema>)
     values: Record<string, ConfiguredHeaderValue> | undefined,
   ) =>
     Effect.gen(function* () {
-      yield* adapter.deleteMany({
-        model,
-        where: [
-          { field: "source_id", value: sourceId },
-          { field: "scope_id", value: scope },
-        ],
-      });
+      yield* deleteMany(tableName, { where: bySourceScope(sourceId, scope) });
       const rows = valueMapToChildRows(sourceId, scope, values);
       if (rows.length === 0) return;
-      yield* adapter.createMany({
-        model,
-        data: rows,
-        forceAllowId: true,
-      });
+      yield* createMany(tableName, rows);
     });
 
   const deleteSource = (namespace: string, scope: string) =>
     Effect.gen(function* () {
-      yield* adapter.deleteMany({
-        model: "openapi_operation",
-        where: [
-          { field: "source_id", value: namespace },
-          { field: "scope_id", value: scope },
-        ],
-      });
+      yield* deleteMany("openapi_operation", { where: bySourceScope(namespace, scope) });
       // Drop every child table's rows for this source/scope.
-      for (const model of [
+      for (const tableName of [
         "openapi_source_header",
         "openapi_source_query_param",
         "openapi_source_spec_fetch_header",
         "openapi_source_spec_fetch_query_param",
       ] as const) {
-        yield* adapter.deleteMany({
-          model,
-          where: [
-            { field: "source_id", value: namespace },
-            { field: "scope_id", value: scope },
-          ],
-        });
+        yield* deleteMany(tableName, { where: bySourceScope(namespace, scope) });
       }
-      yield* adapter.delete({
-        model: "openapi_source",
-        where: [
-          { field: "id", value: namespace },
-          { field: "scope_id", value: scope },
-        ],
-      });
+      yield* deleteMany("openapi_source", { where: byScopedId(namespace, scope) });
     });
 
   return {
     upsertSource: (input, operations) =>
       Effect.gen(function* () {
         yield* deleteSource(input.namespace, input.scope);
-        yield* adapter.create({
-          model: "openapi_source",
-          data: {
+        yield* createMany("openapi_source", [
+          {
             id: input.namespace,
             scope_id: input.scope,
             name: input.name,
             spec: input.config.spec,
-            source_url: input.config.sourceUrl ?? undefined,
-            base_url: input.config.baseUrl ?? undefined,
+            source_url: input.config.sourceUrl ?? null,
+            base_url: input.config.baseUrl ?? null,
             oauth2: input.config.oauth2
               ? toJsonRecord(encodeOAuth2SourceConfig(input.config.oauth2))
-              : undefined,
+              : null,
           },
-          forceAllowId: true,
-        });
+        ]);
         yield* replaceChildRows(
           "openapi_source_header",
           input.namespace,
@@ -581,27 +579,22 @@ export const makeDefaultOpenapiStore = ({ adapter }: StorageDeps<OpenapiSchema>)
           input.config.specFetchCredentials?.queryParams,
         );
         if (operations.length > 0) {
-          yield* adapter.createMany({
-            model: "openapi_operation",
-            data: operations.map((op) => ({
+          yield* createMany(
+            "openapi_operation",
+            operations.map((op) => ({
               id: op.toolId,
               scope_id: input.scope,
               source_id: op.sourceId,
               binding: toJsonRecord(encodeBinding(op.binding)),
             })),
-            forceAllowId: true,
-          });
+          );
         }
       }),
 
     updateSourceMeta: (namespace, scope, patch) =>
       Effect.gen(function* () {
-        const existingRow = yield* adapter.findOne({
-          model: "openapi_source",
-          where: [
-            { field: "id", value: namespace },
-            { field: "scope_id", value: scope },
-          ],
+        const existingRow = yield* findFirst("openapi_source", {
+          where: byScopedId(namespace, scope),
         });
         if (!existingRow) return;
         const existing = yield* rowToSource(existingRow);
@@ -610,16 +603,12 @@ export const makeDefaultOpenapiStore = ({ adapter }: StorageDeps<OpenapiSchema>)
         const nextBaseUrl = patch.baseUrl !== undefined ? patch.baseUrl : existing.config.baseUrl;
         const nextOAuth2 = patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
 
-        yield* adapter.update({
-          model: "openapi_source",
-          where: [
-            { field: "id", value: namespace },
-            { field: "scope_id", value: scope },
-          ],
-          update: {
+        yield* updateMany("openapi_source", {
+          where: byScopedId(namespace, scope),
+          set: {
             name: nextName,
-            base_url: nextBaseUrl ?? undefined,
-            oauth2: nextOAuth2 ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2)) : undefined,
+            base_url: nextBaseUrl ?? null,
+            oauth2: nextOAuth2 ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2)) : null,
           },
         });
         if (patch.headers !== undefined) {
@@ -637,46 +626,28 @@ export const makeDefaultOpenapiStore = ({ adapter }: StorageDeps<OpenapiSchema>)
 
     getSource: (namespace, scope) =>
       Effect.gen(function* () {
-        const row = yield* adapter.findOne({
-          model: "openapi_source",
-          where: [
-            { field: "id", value: namespace },
-            { field: "scope_id", value: scope },
-          ],
-        });
+        const row = yield* findFirst("openapi_source", { where: byScopedId(namespace, scope) });
         if (!row) return null;
         return yield* rowToSource(row);
       }),
 
     listSources: () =>
       Effect.gen(function* () {
-        const rows = yield* adapter.findMany({ model: "openapi_source" });
+        const rows = yield* findMany("openapi_source");
         return yield* Effect.forEach(rows, rowToSource, {
           concurrency: "unbounded",
         });
       }),
 
     getOperationByToolId: (toolId, scope) =>
-      adapter
-        .findOne({
-          model: "openapi_operation",
-          where: [
-            { field: "id", value: toolId },
-            { field: "scope_id", value: scope },
-          ],
-        })
-        .pipe(Effect.map((row) => (row ? rowToOperation(row) : null))),
+      findFirst("openapi_operation", { where: byScopedId(toolId, scope) }).pipe(
+        Effect.map((row) => (row ? rowToOperation(row) : null)),
+      ),
 
     listOperationsBySource: (sourceId, scope) =>
-      adapter
-        .findMany({
-          model: "openapi_operation",
-          where: [
-            { field: "source_id", value: sourceId },
-            { field: "scope_id", value: scope },
-          ],
-        })
-        .pipe(Effect.map((rows) => rows.map(rowToOperation))),
+      findMany("openapi_operation", { where: bySourceScope(sourceId, scope) }).pipe(
+        Effect.map((rows) => rows.map(rowToOperation)),
+      ),
 
     removeSource: (namespace, scope) => deleteSource(namespace, scope),
   };

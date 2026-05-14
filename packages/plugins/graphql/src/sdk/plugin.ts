@@ -1006,8 +1006,8 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         // toolRow.scope_id is the resolved owning scope of the tool
         // (innermost-wins from the executor's stack). The matching
         // graphql_operation + graphql_source rows live at the same
-        // scope, so pin every store lookup to it instead of relying
-        // on the scoped adapter's stack-wide fall-through.
+        // scope, so pin every store lookup to it instead of relying on
+        // stack-wide scope fall-through.
         const toolScope = toolRow.scope_id;
         const op = yield* ctx.storage.getOperationByToolId(toolRow.id, toolScope);
         if (!op) {

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Database service — Postgres via postgres.js (porsager)
+// Database service — Postgres through Drizzle
 // ---------------------------------------------------------------------------
 //
 // We use `postgres` (not `pg`) because Cloudflare Workers forbids sharing
@@ -7,6 +7,10 @@
 // hangs when its Client is reused across requests. postgres.js creates a
 // fresh TCP socket per Effect scope, which aligns with Workers' per-request
 // I/O model. See personal-notes/pg-cloudflare-sockets-dev.md.
+//
+// Node integration tests use Drizzle's PGlite driver directly. Workerd still
+// uses postgres.js over the PGlite socket, which is the path production uses
+// through Hyperdrive.
 //
 // Migrations are run out-of-band (e.g. via a separate script or CI step),
 // not at request time — Cloudflare Workers cannot read the filesystem.
@@ -29,9 +33,23 @@ export const combinedSchema = { ...cloudSchema, ...executorSchema };
 export type DrizzleDb = PgDatabase<any, any, any>;
 
 export type DbServiceShape = {
-  readonly sql: Sql;
+  readonly sql?: Sql;
   readonly db: DrizzleDb;
 };
+
+type DbResource = DbServiceShape & {
+  readonly close: () => Effect.Effect<void>;
+};
+
+type DirectPgliteRuntime = {
+  readonly db: DrizzleDb;
+};
+
+type TestEnv = typeof env & {
+  readonly EXECUTOR_TEST_DIRECT_PGLITE?: string;
+};
+
+let directPgliteRuntime: Promise<DirectPgliteRuntime> | undefined;
 
 export const resolveConnectionString = () => {
   // Production should always use Hyperdrive when the binding exists. Keeping
@@ -48,9 +66,9 @@ const makeSql = (): Sql =>
     // max=1 is correct for Hyperdrive: one request, one connection. The
     // earlier deadlock under ctx.transaction (outer sql.begin holding the
     // only connection while nested writes pulled fresh ones) is fixed in
-    // @executor-js/sdk — nested writes now thread through the active tx
-    // handle via a FiberRef in buildAdapterRouter, so they reuse the same
-    // connection and never contend with the outer sql.begin.
+    // @executor-js/sdk — nested writes now thread through the active FumaDB tx
+    // handle, so they reuse the same connection and never contend with the
+    // outer sql.begin.
     max: 1,
     idle_timeout: 0,
     max_lifetime: 60,
@@ -60,28 +78,71 @@ const makeSql = (): Sql =>
     onnotice: () => undefined,
   });
 
+const getDirectPgliteRuntime = async (): Promise<DirectPgliteRuntime> => {
+  directPgliteRuntime ??= (async () => {
+    const [
+      { collectTables },
+      { createPgliteFumaDb },
+      { default: executorConfig },
+      { ensureCloudSchema },
+    ] = await Promise.all([
+      import("@executor-js/sdk"),
+      import("@executor-js/sdk/pglite"),
+      import("../../executor.config"),
+      import("./schema-init"),
+    ]);
+    const runtime = await createPgliteFumaDb({
+      tables: collectTables(executorConfig.plugins({})),
+      namespace: "executor_cloud",
+    });
+    await ensureCloudSchema(runtime.drizzle);
+    return { db: runtime.drizzle as DrizzleDb };
+  })();
+  return directPgliteRuntime;
+};
+
+const makeDirectPgliteResource = async (): Promise<DbResource> => {
+  const runtime = await getDirectPgliteRuntime();
+  return {
+    db: runtime.db,
+    close: () => Effect.void,
+  };
+};
+
+export const warmDirectPgliteDb = async (): Promise<void> => {
+  await getDirectPgliteRuntime();
+};
+
+const makePostgresResource = (): DbResource => {
+  const sql = makeSql();
+  return {
+    sql,
+    db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb,
+    close: () =>
+      Effect.sync(() => {
+        void Effect.runFork(
+          Effect.ignore(
+            Effect.tryPromise({
+              try: () => sql.end({ timeout: 0 }),
+              catch: (cause) => cause,
+            }),
+          ),
+        );
+      }),
+  };
+};
+
+const makeDbResource = (): Effect.Effect<DbResource> => {
+  if ((env as TestEnv).EXECUTOR_TEST_DIRECT_PGLITE === "true") {
+    return Effect.promise(makeDirectPgliteResource);
+  }
+  return Effect.sync(makePostgresResource);
+};
+
 export class DbService extends Context.Service<DbService, DbServiceShape>()(
   "@executor-js/cloud/DbService",
 ) {
   static Live = Layer.effect(this)(
-    Effect.acquireRelease(
-      Effect.sync((): DbServiceShape => {
-        const sql = makeSql();
-        return { sql, db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb };
-      }),
-      ({ sql }) =>
-        // Fire-and-forget: the Terminate round-trip sometimes hangs, and
-        // we don't need to block scope close waiting for it.
-        Effect.sync(() => {
-          void Effect.runFork(
-            Effect.ignore(
-              Effect.tryPromise({
-                try: () => sql.end({ timeout: 0 }),
-                catch: (cause) => cause,
-              }),
-            ),
-          );
-        }),
-    ),
+    Effect.acquireRelease(makeDbResource(), (resource) => resource.close()),
   );
 }

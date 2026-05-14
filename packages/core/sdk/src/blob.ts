@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------------------
-// BlobStore — the seam for large, opaque, write-once data. Separate from
-// the relational adapter on purpose: blobs want different lifecycle,
-// durability, and placement (think S3/R2 in cloud, flat files locally)
-// than the metadata that indexes them.
+// BlobStore — the seam for large, opaque, write-once data. Blobs are stored
+// in FumaDB with their own lifecycle and namespacing, separate from source
+// metadata and plugin-owned config rows.
 //
 // Plugins see a `PluginBlobStore` that's already namespaced to the
 // plugin id and bound to the executor's scope stack. Reads fall through
@@ -18,7 +17,7 @@
 
 import { Effect } from "effect";
 
-import { StorageError } from "@executor-js/storage-core";
+import { StorageError, type IFumaClient } from "./fuma-runtime";
 
 export interface BlobStore {
   readonly get: (namespace: string, key: string) => Effect.Effect<string | null, StorageError>;
@@ -147,3 +146,91 @@ export const makeInMemoryBlobStore = (): BlobStore => {
     has: (ns, key) => Effect.sync(() => store.has(k(ns, key))),
   };
 };
+
+const blobId = (namespace: string, key: string): string => JSON.stringify([namespace, key]);
+
+type BlobRow = {
+  readonly id: string;
+  readonly namespace: string;
+  readonly key: string;
+  readonly value: string;
+};
+
+const toBlobRows = (rows: unknown): readonly BlobRow[] => rows as readonly BlobRow[];
+
+export const makeFumaBlobStore = (fuma: IFumaClient): BlobStore => ({
+  get: (namespace, key) =>
+    fuma
+      .use("blob.get", (db) =>
+        db.findFirst("blob", {
+          where: (b) => b.and(b("namespace", "=", namespace), b("key", "=", key)),
+        }),
+      )
+      .pipe(Effect.map((row) => row as BlobRow | null))
+      .pipe(
+        Effect.map((row) => row?.value ?? null),
+        Effect.mapError(
+          (cause) => new StorageError({ message: "FumaDB blob operation failed", cause }),
+        ),
+      ),
+  getMany: (namespaces, key) =>
+    namespaces.length === 0
+      ? Effect.succeed(new Map<string, string>())
+      : fuma
+          .use("blob.getMany", (db) =>
+            db.findMany("blob", {
+              where: (b) => b.and(b("namespace", "in", [...namespaces]), b("key", "=", key)),
+            }),
+          )
+          .pipe(Effect.map(toBlobRows))
+          .pipe(
+            Effect.map((rows) => {
+              const out = new Map<string, string>();
+              for (const row of rows) out.set(row.namespace, row.value);
+              return out;
+            }),
+            Effect.mapError(
+              (cause) => new StorageError({ message: "FumaDB blob operation failed", cause }),
+            ),
+          ),
+  put: (namespace, key, value) =>
+    Effect.gen(function* () {
+      const id = blobId(namespace, key);
+      const existing = (yield* fuma.use("blob.findForPut", (db) =>
+        db.findFirst("blob", { where: (b) => b("id", "=", id) }),
+      )) as BlobRow | null;
+      if (existing) {
+        yield* fuma.use("blob.update", (db) =>
+          db.updateMany("blob", { where: (b) => b("id", "=", id), set: { value } }),
+        );
+        return;
+      }
+      yield* fuma.use("blob.create", (db) => db.create("blob", { id, namespace, key, value }));
+    }).pipe(
+      Effect.mapError(
+        (cause) => new StorageError({ message: "FumaDB blob operation failed", cause }),
+      ),
+    ),
+  delete: (namespace, key) =>
+    fuma
+      .use("blob.delete", (db) =>
+        db.deleteMany("blob", { where: (b) => b("id", "=", blobId(namespace, key)) }),
+      )
+      .pipe(
+        Effect.asVoid,
+        Effect.mapError(
+          (cause) => new StorageError({ message: "FumaDB blob operation failed", cause }),
+        ),
+      ),
+  has: (namespace, key) =>
+    fuma
+      .use("blob.has", (db) =>
+        db.count("blob", { where: (b) => b("id", "=", blobId(namespace, key)) }),
+      )
+      .pipe(
+        Effect.map((count) => count > 0),
+        Effect.mapError(
+          (cause) => new StorageError({ message: "FumaDB blob operation failed", cause }),
+        ),
+      ),
+});

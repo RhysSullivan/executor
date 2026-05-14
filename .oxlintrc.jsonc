@@ -118,6 +118,7 @@
     "dist/",
     "integrationsdotsh/",
     "node_modules/",
+    "packages/core/fumadb/",
     "bun.lock",
     "*.tsbuildinfo",
     "executor-*.tgz",

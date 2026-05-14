@@ -38,7 +38,7 @@
 import { Duration, Effect, Layer, Match, Option, Schema } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import type { StorageFailure, TypedAdapter } from "@executor-js/storage-core";
+import type { IFumaClient, StorageFailure } from "./fuma-runtime";
 
 import {
   ConnectionRefreshError,
@@ -50,7 +50,6 @@ import {
   type ConnectionRef,
 } from "./connections";
 import type { ConnectionProviderNotRegisteredError } from "./errors";
-import type { CoreSchema } from "./core-schema";
 import { ConnectionId, ScopeId, SecretId } from "./ids";
 import { SetSecretInput, type SecretRef } from "./secrets";
 import {
@@ -88,7 +87,6 @@ import {
   type OAuthEndpointUrlPolicy,
   refreshAccessToken,
 } from "./oauth-helpers";
-import type { ScopedDBAdapter } from "./scoped-adapter";
 
 // ---------------------------------------------------------------------------
 // Session payload — persisted under `oauth2_session.payload` as opaque
@@ -164,18 +162,12 @@ const decodeProviderState = (value: unknown): OAuthProviderState =>
 // ---------------------------------------------------------------------------
 // Service dependencies — the executor wires these up when it constructs
 // the service. Every dep is a narrow surface so the service stays
-// testable: point to an in-memory adapter + a secrets stub and every
+// testable: point to a FumaDB handle + a secrets stub and every
 // code path is exercisable.
 // ---------------------------------------------------------------------------
 
 export interface OAuthServiceDeps {
-  /** Typed core-schema adapter. Already scope-wrapped upstream so reads
-   *  fall through the scope stack; writes stamp the scope the caller
-   *  named (`tokenScope` on start input). */
-  readonly adapter: TypedAdapter<CoreSchema>;
-  /** Scoped adapter for opening transactions — the typed one doesn't
-   *  expose `.transaction` directly. */
-  readonly rawAdapter: ScopedDBAdapter;
+  readonly fuma: IFumaClient;
   /** Resolves client-id / client-secret refs at start + refresh time.
    *  A `null` return means "secret row is gone" and aborts the flow. */
   readonly secretsGet: (id: string) => Effect.Effect<string | null, StorageFailure>;
@@ -634,10 +626,9 @@ export const makeOAuth2Service = (
     payload: OAuthSessionPayload;
     strategyKind: string;
   }): Effect.Effect<void, StorageFailure> =>
-    deps.adapter
-      .create({
-        model: "oauth2_session",
-        data: {
+    deps.fuma
+      .use("oauth2_session.create", (db) =>
+        db.create("oauth2_session", {
           id: args.sessionId,
           scope_id: args.input.tokenScope,
           plugin_id: args.input.pluginId,
@@ -648,9 +639,8 @@ export const makeOAuth2Service = (
           payload: encodeSessionPayload(args.payload) as Record<string, unknown>,
           expires_at: now() + OAUTH2_SESSION_TTL_MS,
           created_at: new Date(),
-        },
-        forceAllowId: true,
-      })
+        }),
+      )
       .pipe(Effect.asVoid);
 
   // -------------------------------------------------------------------
@@ -663,10 +653,19 @@ export const makeOAuth2Service = (
     OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure
   > =>
     Effect.gen(function* () {
-      const row = yield* deps.adapter.findOne({
-        model: "oauth2_session",
-        where: [{ field: "id", value: input.state }],
-      });
+      const row = (yield* deps.fuma.use("oauth2_session.findForComplete", (db) =>
+        db.findFirst("oauth2_session", {
+          where: (b) => b("id", "=", input.state),
+        }),
+      )) as {
+        readonly id: string;
+        readonly scope_id: string;
+        readonly connection_id: string;
+        readonly token_scope: string;
+        readonly redirect_url: string;
+        readonly payload: unknown;
+        readonly expires_at: number | bigint | string;
+      } | null;
       if (!row) {
         return yield* new OAuthSessionNotFoundError({ sessionId: input.state });
       }
@@ -674,13 +673,11 @@ export const makeOAuth2Service = (
         return yield* new OAuthSessionNotFoundError({ sessionId: input.state });
       }
 
-      const deleteSession = deps.adapter.delete({
-        model: "oauth2_session",
-        where: [
-          { field: "id", value: input.state },
-          { field: "scope_id", value: row.scope_id },
-        ],
-      });
+      const deleteSession = deps.fuma.use("oauth2_session.deleteForComplete", (db) =>
+        db.deleteMany("oauth2_session", {
+          where: (b) => b.and(b("id", "=", input.state), b("scope_id", "=", row.scope_id)),
+        }),
+      );
 
       if (input.error) {
         yield* deleteSession;
@@ -974,15 +971,13 @@ export const makeOAuth2Service = (
     });
 
   const cancel = (sessionId: string, tokenScope: string): Effect.Effect<void, StorageFailure> =>
-    Effect.gen(function* () {
-      yield* deps.adapter.delete({
-        model: "oauth2_session",
-        where: [
-          { field: "id", value: sessionId },
-          { field: "scope_id", value: tokenScope },
-        ],
-      });
-    });
+    deps.fuma
+      .use("oauth2_session.cancel", (db) =>
+        db.deleteMany("oauth2_session", {
+          where: (b) => b.and(b("id", "=", sessionId), b("scope_id", "=", tokenScope)),
+        }),
+      )
+      .pipe(Effect.asVoid);
 
   // -------------------------------------------------------------------
   // Canonical connection provider — refresh handler

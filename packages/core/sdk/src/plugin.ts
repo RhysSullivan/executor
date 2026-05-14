@@ -3,7 +3,7 @@ import type { Context, Layer } from "effect";
 import type { HttpClient } from "effect/unstable/http";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
-import type { DBSchema, StorageFailure } from "@executor-js/storage-core";
+import type { FumaDb, FumaTables, IFumaClient, StorageFailure } from "./fuma-runtime";
 
 import type { PluginBlobStore } from "./blob";
 import type {
@@ -34,50 +34,37 @@ import type {
 } from "./errors";
 import type { OAuthService } from "./oauth";
 import type { Scope } from "./scope";
-import type { ScopedDBAdapter, ScopedTypedAdapter } from "./scoped-adapter";
 import type { RemoveSecretInput, SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 import type { Usage, UsagesForConnectionInput, UsagesForSecretInput } from "./usages";
 
 // ---------------------------------------------------------------------------
-// StorageDeps — backing passed to a plugin's `storage` factory. The only
-// place a plugin ever sees storage; `PluginCtx` does not carry it. The
-// `adapter` field is a `TypedAdapter<TSchema>` view narrowed by the
-// plugin's own declared `schema` — plugins never import or construct
-// a typed adapter themselves, the executor infers TSchema from the
-// `schema` field on their spec and hands back a typed view.
-//
-// Plugins with no schema (secret-provider-only plugins, etc.) get a
-// bare `DBAdapter` they can ignore.
+// StorageDeps — backing passed to a plugin's `storage` factory. Plugins see
+// FumaDB directly, narrowed to their declared tables. Scope behavior is domain
+// code, not hidden adapter behavior: reads should include `scopedWhere(...)`
+// and writes stamp an explicit `scope_id`.
 // ---------------------------------------------------------------------------
 
-export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
+export interface StorageDeps<_TTables extends FumaTables | undefined = undefined> {
   /**
    * Precedence-ordered scope stack visible to this executor. Innermost
    * first. Reads on scoped tables walk every scope; writes require the
    * plugin to name a target scope explicitly (via `scope_id` on the
-   * adapter payload, via `options.scope` on the blob store).
+   * row payload, via `options.scope` on the blob store).
    */
   readonly scopes: readonly Scope[];
-  /**
-   * Plugin-facing typed adapter. Failures surface as raw `StorageFailure`
-   * (`StorageError` | `UniqueViolationError`). Plugins can
-   * `catchTag("UniqueViolationError", …)` to translate to their own
-   * user-facing errors. `StorageError` bubbles up; the HTTP edge (see
-   * `@executor-js/api` `withCapture`) is the one place that
-   * translates it to the opaque `InternalError({ traceId })`.
-   */
-  readonly adapter: TSchema extends DBSchema ? ScopedTypedAdapter<TSchema> : ScopedDBAdapter;
+  /** Plugin-facing FumaDB query handle. Plugins call FumaDB directly. */
+  readonly db: FumaDb;
+  /** Effect boundary around the same FumaDB handle for stores implemented in Effect. */
+  readonly fuma: IFumaClient;
   readonly blobs: PluginBlobStore;
 }
 
 // ---------------------------------------------------------------------------
-// defineSchema — sugar around `as const satisfies DBSchema`. Preserves
-// literal types via the `const` type parameter modifier so plugins can
-// just write `const mySchema = defineSchema({ ... })` without annotation
-// ceremony.
+// defineSchema — compatibility name for plugin tables. It returns FumaDB table
+// definitions directly; there is no Executor-specific schema DSL anymore.
 // ---------------------------------------------------------------------------
 
-export const defineSchema = <const S extends DBSchema>(schema: S): S => schema;
+export const defineSchema = <const TTables extends FumaTables>(tables: TTables): TTables => tables;
 
 // ---------------------------------------------------------------------------
 // Elicit — suspends the fiber, calls the invoke-time elicitation
@@ -100,8 +87,9 @@ export interface PluginCtx<TStore = unknown> {
   /**
    * Precedence-ordered scope stack visible to this executor. Innermost
    * first. Plugins that write scoped rows must pick an element of
-   * `scopes` as the `scope`/`scope_id` they stamp; reads through the
-   * adapter or `ctx.secrets` automatically fall through the stack.
+   * `scopes` as the `scope`/`scope_id` they stamp; reads should apply
+   * explicit FumaDB scope predicates or use `ctx.secrets` / `ctx.connections`
+   * helpers.
    */
   readonly scopes: readonly Scope[];
   readonly storage: TStore;
@@ -224,8 +212,7 @@ export interface PluginCtx<TStore = unknown> {
    *  flows; invocation should still resolve tokens via `connections.accessToken`. */
   readonly oauth: OAuthService;
 
-  /** Run `effect` inside a database transaction. Wraps the underlying
-   *  adapter's transaction method. Use this in extension methods that
+  /** Run `effect` inside a FumaDB transaction. Use this in extension methods that
    *  need atomicity across plugin storage writes AND core source/tool
    *  registration. */
   readonly transaction: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E | StorageFailure>;
@@ -367,7 +354,7 @@ export interface SourceLifecycleInput<TStore = unknown> {
    * SDK's `sources.remove` / `sources.refresh` via innermost-wins lookup
    * across the executor's scope stack. Plugins that own a side table
    * keyed by (id, scope_id) must pin their own cleanup to this scope;
-   * relying on the scoped adapter's `scope_id IN (stack)` fall-through
+   * relying on stack-wide scope fall-through
    * would widen the mutation across the whole stack and wipe a
    * shadowed outer-scope row.
    */
@@ -394,7 +381,7 @@ export interface PluginSpec<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TStore = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TSchema extends DBSchema | undefined = any,
+  TSchema extends FumaTables | undefined = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TExtensionService extends Context.Service<any, any> | undefined = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -411,12 +398,12 @@ export interface PluginSpec<
    *  plugins (no client bundle = nothing to resolve). */
   readonly packageName?: string;
   /** Plugin-declared schema. Merged with coreSchema and other plugins'
-   *  schemas at executor startup via `collectSchemas`. The type flows
-   *  into the `storage` factory's `deps.adapter` as a `TypedAdapter<TSchema>`
-   *  so plugins get narrowed model names + typed rows for free. */
+   *  tables at executor startup via `collectTables`. The type flows
+   *  into the `storage` factory's `deps.db` as a FumaDB query handle so
+   *  plugins get narrowed table names + typed rows for free. */
   readonly schema?: TSchema;
-  /** Build the plugin's typed store from backing. `deps.adapter` is
-   *  already narrowed to this plugin's schema; `deps.blobs` is already
+  /** Build the plugin's typed store from backing. `deps.db` is
+   *  already narrowed to this plugin's tables; `deps.blobs` is already
    *  scoped to the plugin id so key collisions across plugins are
    *  structurally impossible. */
   readonly storage: (deps: StorageDeps<TSchema>) => TStore;
@@ -599,7 +586,7 @@ export interface Plugin<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TStore = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TSchema extends DBSchema | undefined = any,
+  TSchema extends FumaTables | undefined = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TExtensionService extends Context.Service<any, any> | undefined = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -618,7 +605,7 @@ export type ConfiguredPlugin<
   TExtension extends object,
   TStore,
   TOptions extends object,
-  TSchema extends DBSchema | undefined,
+  TSchema extends FumaTables | undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TExtensionService extends Context.Service<any, any> | undefined = undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -635,7 +622,7 @@ export function definePlugin<
   TId extends string,
   TExtension extends object,
   TStore,
-  TSchema extends DBSchema | undefined = undefined,
+  TSchema extends FumaTables | undefined = undefined,
   TOptions extends object = {},
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TExtensionService extends Context.Service<any, any> | undefined = undefined,

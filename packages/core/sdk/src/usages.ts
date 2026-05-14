@@ -18,10 +18,10 @@ import { ScopeId, SecretId, ConnectionId } from "./ids";
 // binding row. It's nullable because a plugin may have an owner that has
 // no human-readable name (e.g. an unnamed binding row).
 //
-// `scopeId` is the scope the owner row lives in — plugins query through
-// their scoped adapter (which auto-filters by `scope_id IN (stack)`), so
-// usages from outer scopes naturally surface alongside inner ones; the
-// UI uses the scope to render a per-scope label next to each entry.
+// `scopeId` is the scope the owner row lives in. Plugin stores apply explicit
+// FumaDB scope predicates, so usages from visible outer scopes surface
+// alongside inner ones; the UI uses the scope to render a per-scope label next
+// to each entry.
 // ---------------------------------------------------------------------------
 
 export const Usage = Schema.Struct({
