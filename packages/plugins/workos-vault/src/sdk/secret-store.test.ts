@@ -417,6 +417,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
           }),
         ),
       );
+      expect(rows).toHaveLength(2);
       const scopes = rows.map((r) => r.scope_id).sort();
       expect(scopes).toEqual([outerId, innerId].sort());
     }),
@@ -449,6 +450,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
         }),
       );
 
+      expect((yield* execA.secrets.list()).map((row) => row.id)).toContain("api-token");
       expect((yield* execB.secrets.list()).map((row) => row.id)).not.toContain("api-token");
     }),
   );

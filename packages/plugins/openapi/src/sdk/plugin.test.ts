@@ -1014,9 +1014,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       expect(userView?.config.baseUrl).toBe("https://org.example.com");
       expect(
-        queryCalls.some(
-          (call) => call.method === "findMany" && call.table === "openapi_source",
-        ),
+        queryCalls.some((call) => call.method === "findMany" && call.table === "openapi_source"),
       ).toBe(false);
     }),
   );

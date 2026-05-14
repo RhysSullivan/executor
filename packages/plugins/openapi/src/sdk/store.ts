@@ -369,7 +369,12 @@ export interface OpenapiStore {
 // Default store implementation
 // ---------------------------------------------------------------------------
 
-export const makeDefaultOpenapiStore = ({ fuma }: StorageDeps<OpenapiSchema>): OpenapiStore => {
+export const makeDefaultOpenapiStore = ({
+  fuma,
+  scopes,
+}: StorageDeps<OpenapiSchema>): OpenapiStore => {
+  const scopeIds = scopes.map((scope) => String(scope.id));
+
   const loadChildValueMap = (
     tableName: (typeof openapiCredentialChildTables)[number],
     sourceId: string,
@@ -592,7 +597,12 @@ export const makeDefaultOpenapiStore = ({ fuma }: StorageDeps<OpenapiSchema>): O
     listSources: () =>
       Effect.gen(function* () {
         const rows = yield* fuma.use("openapi_source.findMany", (db) =>
-          db.findMany("openapi_source"),
+          db.findMany("openapi_source", {
+            where: (b) =>
+              scopeIds.length === 1
+                ? b("scope_id", "=", scopeIds[0]!)
+                : b("scope_id", "in", [...scopeIds]),
+          }),
         );
         return yield* Effect.forEach(rows, rowToSource, {
           concurrency: "unbounded",

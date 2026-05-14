@@ -10,7 +10,10 @@ import {
   Semaphore,
 } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
+import { fumadb } from "fumadb";
+import { memoryAdapter } from "fumadb/adapters/memory";
 import type { Condition, ConditionBuilder } from "fumadb/query";
+import { schema as fumaSchema, type RelationsMap } from "fumadb/schema";
 import type { AnyColumn } from "fumadb/schema";
 import type { OAuthEndpointUrlPolicy } from "./oauth-helpers";
 import { generateKeyBetween } from "fractional-indexing";
@@ -352,7 +355,7 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
    * Must be non-empty.
    */
   readonly scopes: readonly Scope[];
-  readonly db: ExecutorDbInput | ExecutorDbFactory;
+  readonly db?: ExecutorDbInput | ExecutorDbFactory;
   readonly plugins?: TPlugins;
   /**
    * How to respond when a tool requests user input mid-invocation. Pass
@@ -396,6 +399,24 @@ export const collectTables = (plugins: readonly AnyPlugin[]): FumaTables => {
     }
   }
   return merged;
+};
+
+const createDefaultMemoryDb = (tables: FumaTables): ExecutorDb => {
+  const version = "1.0.0";
+  const latestSchema = fumaSchema<string, FumaTables, RelationsMap<FumaTables>>({
+    version,
+    tables,
+  });
+  const factory = fumadb({
+    namespace: "executor_memory",
+    schemas: [latestSchema],
+  });
+
+  // oxlint-disable-next-line executor/no-double-cast -- boundary: dynamic plugin table map is known only after collectTables()
+  const db = factory.client(memoryAdapter()).orm(version) as unknown as FumaDb;
+  return {
+    db,
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -764,6 +785,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     };
     const { scopes, plugins = defaultPlugins() } = config;
     const dbInput = yield* Effect.suspend(() => {
+      if (!config.db) return Effect.succeed(createDefaultMemoryDb(collectTables(plugins)));
       if (typeof config.db !== "function") return Effect.succeed(config.db);
       const out = config.db({ tables: collectTables(plugins) });
       return Effect.isEffect(out) ? out : Effect.succeed(out);
@@ -2519,7 +2541,6 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
 
       const storageDeps: StorageDeps = {
         scopes,
-        db: rootDbUntyped,
         fuma,
         // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
         // sharing a backing BlobStore can't collide or leak on the

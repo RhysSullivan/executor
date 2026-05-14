@@ -53,3 +53,5 @@ export function createAdapter(
 ): FumaDBAdapter {
   return options;
 }
+
+export { memoryAdapter, type MemoryAdapterOptions, type MemoryDatabase } from "./memory";

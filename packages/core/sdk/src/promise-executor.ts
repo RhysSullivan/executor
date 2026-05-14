@@ -80,7 +80,7 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
    * map after plugins have been applied. Public consumers usually want the
    * factory form so `collectTables(plugins)` stays inside `createExecutor`.
    */
-  readonly db:
+  readonly db?:
     | FumaDb
     | { readonly db: FumaDb; readonly close?: () => Promise<void> | void }
     | ((config: {
@@ -144,7 +144,6 @@ const promisifyDeep = <T>(value: T): Promisified<T> => {
 
 // ---------------------------------------------------------------------------
 // createExecutor — Promise wrapper over the Effect createExecutor.
-// Hosts provide the FumaDB query handle; the SDK does not choose a database.
 // ---------------------------------------------------------------------------
 
 export const createExecutor = async <const TPlugins extends readonly AnyPlugin[] = readonly []>(
@@ -175,9 +174,9 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
 
   const effectConfig = {
     scopes,
-    db,
     plugins,
     onElicitation: config.onElicitation,
+    ...(db ? { db } : {}),
   };
 
   // The SDK has no observability requirement; storage failures surface

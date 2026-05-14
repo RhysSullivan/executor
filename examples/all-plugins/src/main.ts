@@ -9,8 +9,8 @@
 // the new SDK shape — minus the HTTP API layer, runtime lifecycle, and
 // scope persistence that real apps add on top.
 //
-// Runs against in-memory SQLite through FumaDB so you can `bun run src/main.ts`
-// and watch the whole surface exercise itself.
+// Runs against the SDK's ephemeral in-memory FumaDB backend so you can
+// `bun run src/main.ts` and watch the whole surface exercise itself.
 // Plugins that need external infra (keychain prompts, 1Password unlock,
 // MCP transport, WorkOS Vault, Google OAuth) are wired so their secret
 // providers and extensions exist, but the flows that hit their
@@ -20,7 +20,6 @@
 import { Cause, Effect } from "effect";
 
 import { SecretId, Scope, ScopeId, SetSecretInput, createExecutor } from "@executor-js/sdk";
-import { createSqliteTestFumaDb } from "@executor-js/sdk/testing";
 
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
@@ -161,13 +160,6 @@ const program = Effect.gen(function* () {
 
   const executor = yield* createExecutor({
     scopes: [scope],
-    db: ({ tables }) =>
-      Effect.promise(() =>
-        createSqliteTestFumaDb({
-          tables,
-          namespace: "executor_example_all_plugins",
-        }),
-      ),
     plugins,
     onElicitation: "accept-all" as const,
   });

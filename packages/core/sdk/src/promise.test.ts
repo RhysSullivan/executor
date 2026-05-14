@@ -2,7 +2,6 @@ import { describe, expect, it } from "@effect/vitest";
 
 import { createExecutor } from "./promise";
 import { definePlugin, tool } from "./plugin";
-import { createSqliteTestFumaDb } from "./sqlite-test-db";
 import { Effect, Schema } from "effect";
 
 // A minimal static-tool plugin built on the Effect surface, consumed
@@ -38,11 +37,6 @@ describe("promise/createExecutor", () => {
   it("returns Promise-shaped executor and invokes static tools", async () => {
     const plugins = [echoPlugin()] as const;
     const executor = await createExecutor({
-      db: ({ tables }) =>
-        createSqliteTestFumaDb({
-          tables,
-          namespace: "executor_promise_test",
-        }),
       plugins,
       onElicitation: "accept-all",
     });
@@ -59,11 +53,6 @@ describe("promise/createExecutor", () => {
   it("promisifies plugin extension methods", async () => {
     const plugins = [echoPlugin()] as const;
     const executor = await createExecutor({
-      db: ({ tables }) =>
-        createSqliteTestFumaDb({
-          tables,
-          namespace: "executor_promise_test",
-        }),
       plugins,
       onElicitation: "accept-all",
     });
@@ -105,11 +94,6 @@ describe("promise/createExecutor", () => {
 
     const plugins = [approvedPlugin()] as const;
     const executor = await createExecutor({
-      db: ({ tables }) =>
-        createSqliteTestFumaDb({
-          tables,
-          namespace: "executor_promise_test",
-        }),
       plugins,
       onElicitation: "accept-all", // default → auto-approve
     });

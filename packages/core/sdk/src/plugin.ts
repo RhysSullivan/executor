@@ -4,7 +4,6 @@ import type { HttpClient } from "effect/unstable/http";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
 import type {
-  FumaDb,
   FumaTables,
   IFumaClient,
   StorageFailure,
@@ -45,9 +44,9 @@ import type { Usage, UsagesForConnectionInput, UsagesForSecretInput } from "./us
 
 // ---------------------------------------------------------------------------
 // StorageDeps — backing passed to a plugin's `storage` factory. Plugins see
-// FumaDB directly, narrowed to their declared tables. Scope behavior is domain
-// code, not hidden adapter behavior: reads should include `scopedWhere(...)`
-// and writes stamp an explicit `scope_id`.
+// FumaDB through the Effect boundary, narrowed to their declared tables. Scope
+// behavior is domain code, not hidden adapter behavior: reads should include
+// `scopedWhere(...)` and writes stamp an explicit `scope_id`.
 // ---------------------------------------------------------------------------
 
 export interface StorageDeps<TTables extends FumaTables | undefined = undefined> {
@@ -58,9 +57,7 @@ export interface StorageDeps<TTables extends FumaTables | undefined = undefined>
    * row payload, via `options.scope` on the blob store).
    */
   readonly scopes: readonly Scope[];
-  /** Plugin-facing FumaDB query handle. Plugins call FumaDB directly. */
-  readonly db: FumaDb<TablesToFumaSchema<TTables>>;
-  /** Effect boundary around the same FumaDB handle for stores implemented in Effect. */
+  /** Plugin-facing FumaDB query boundary. */
   readonly fuma: IFumaClient<TablesToFumaSchema<TTables>>;
   readonly blobs: PluginBlobStore;
 }
@@ -398,10 +395,10 @@ export interface PluginSpec<
   readonly packageName?: string;
   /** Plugin-declared schema. Merged with coreSchema and other plugins'
    *  tables at executor startup via `collectTables`. The type flows
-   *  into the `storage` factory's `deps.db` as a FumaDB query handle so
+   *  into the `storage` factory's `deps.fuma` as a FumaDB query boundary so
    *  plugins get narrowed table names + typed rows for free. */
   readonly schema?: TSchema;
-  /** Build the plugin's typed store from backing. `deps.db` is
+  /** Build the plugin's typed store from backing. `deps.fuma` is
    *  already narrowed to this plugin's tables; `deps.blobs` is already
    *  scoped to the plugin id so key collisions across plugins are
    *  structurally impossible. */

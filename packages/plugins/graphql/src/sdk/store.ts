@@ -255,7 +255,12 @@ export interface GraphqlStore {
 // Default store implementation
 // ---------------------------------------------------------------------------
 
-export const makeDefaultGraphqlStore = ({ fuma }: StorageDeps<GraphqlSchema>): GraphqlStore => {
+export const makeDefaultGraphqlStore = ({
+  fuma,
+  scopes,
+}: StorageDeps<GraphqlSchema>): GraphqlStore => {
+  const scopeIds = scopes.map((scope) => String(scope.id));
+
   const loadHeaders = (sourceId: string, scope: string) =>
     fuma
       .use("graphql_source_header.findManyBySourceScope", (db) =>
@@ -448,7 +453,12 @@ export const makeDefaultGraphqlStore = ({ fuma }: StorageDeps<GraphqlSchema>): G
     listSources: () =>
       Effect.gen(function* () {
         const rows = yield* fuma.use("graphql_source.findMany", (db) =>
-          db.findMany("graphql_source"),
+          db.findMany("graphql_source", {
+            where: (b) =>
+              scopeIds.length === 1
+                ? b("scope_id", "=", scopeIds[0]!)
+                : b("scope_id", "in", [...scopeIds]),
+          }),
         );
         return yield* Effect.forEach(rows, rowToSourceWithChildren, {
           concurrency: "unbounded",

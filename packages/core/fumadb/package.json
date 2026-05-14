@@ -18,6 +18,7 @@
     "./adapters": "./src/adapters/index.ts",
     "./adapters/drizzle": "./src/adapters/drizzle/index.ts",
     "./adapters/kysely": "./src/adapters/kysely/index.ts",
+    "./adapters/memory": "./src/adapters/memory/index.ts",
     "./cli": "./src/cli/index.ts",
     "./cuid": "./src/cuid.ts",
     "./query": "./src/query/index.ts",
@@ -49,6 +50,12 @@
         "import": {
           "types": "./dist/adapters/kysely/index.d.ts",
           "default": "./dist/adapters/kysely/index.js"
+        }
+      },
+      "./adapters/memory": {
+        "import": {
+          "types": "./dist/adapters/memory/index.d.ts",
+          "default": "./dist/adapters/memory/index.js"
         }
       },
       "./cuid": {
