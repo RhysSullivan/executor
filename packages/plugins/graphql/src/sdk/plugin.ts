@@ -4,15 +4,18 @@ import { HttpClient } from "effect/unstable/http";
 
 import {
   ConnectionId,
-  ConfiguredCredentialBinding,
-  type CredentialBindingRef,
-  type CredentialBindingValue,
   definePlugin,
+  prepareHttpCredentialMap,
+  replacePreparedHttpCredentialBindingsForSource,
+  resolveConfiguredHttpCredentialMap,
+  resolveSourceCredentialBinding,
+  setPreparedHttpCredentialBindings,
   tool,
   ScopeId,
   SecretId,
   SourceDetectionResult,
   StorageError,
+  type PreparedHttpCredentialBinding,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -327,30 +330,6 @@ const scopeRanks = (ctx: PluginCtx<GraphqlStore>): ReadonlyMap<string, number> =
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number =>
   ranks.get(scopeId) ?? Infinity;
 
-const resolveGraphqlCredentialBinding = (
-  ctx: PluginCtx<GraphqlStore>,
-  sourceId: string,
-  sourceScope: string,
-  slot: string,
-): Effect.Effect<CredentialBindingRef | null, StorageFailure> =>
-  Effect.gen(function* () {
-    const ranks = scopeRanks(ctx);
-    const sourceSourceRank = scopeRank(ranks, sourceScope);
-    if (sourceSourceRank === Infinity) return null;
-    const bindings = yield* ctx.credentialBindings.listForSource({
-      pluginId: GRAPHQL_PLUGIN_ID,
-      sourceId,
-      sourceScope: ScopeId.make(sourceScope),
-    });
-    const binding = bindings
-      .filter(
-        (candidate) =>
-          candidate.slotKey === slot && scopeRank(ranks, candidate.scopeId) <= sourceSourceRank,
-      )
-      .sort((a, b) => scopeRank(ranks, a.scopeId) - scopeRank(ranks, b.scopeId))[0];
-    return binding ?? null;
-  });
-
 const validateGraphqlBindingTarget = (
   ctx: PluginCtx<GraphqlStore>,
   input: {
@@ -417,62 +396,11 @@ const targetScopeForBinding = (
   );
 };
 
-const canonicalizeCredentialMap = (
-  values: Record<string, GraphqlCredentialInput> | undefined,
-  slotForName: (name: string) => string,
-): {
-  readonly values: Record<string, ConfiguredGraphqlCredentialValue>;
-  readonly bindings: ReadonlyArray<{
-    readonly slot: string;
-    readonly value: CredentialBindingValue;
-    readonly targetScope?: string;
-  }>;
-} => {
-  const nextValues: Record<string, ConfiguredGraphqlCredentialValue> = {};
-  const bindings: Array<{
-    slot: string;
-    value: CredentialBindingValue;
-    targetScope?: string;
-  }> = [];
-  for (const [name, value] of Object.entries(values ?? {})) {
-    if (typeof value === "string") {
-      nextValues[name] = value;
-      continue;
-    }
-    if ("kind" in value) {
-      nextValues[name] = value;
-      continue;
-    }
-    const slot = slotForName(name);
-    nextValues[name] = ConfiguredCredentialBinding.make({
-      kind: "binding",
-      slot,
-      prefix: value.prefix,
-    });
-    bindings.push({
-      slot,
-      targetScope: "targetScope" in value ? value.targetScope : undefined,
-      value: {
-        kind: "secret",
-        secretId: SecretId.make(value.secretId),
-        ...("secretScopeId" in value && value.secretScopeId
-          ? { secretScopeId: value.secretScopeId }
-          : {}),
-      },
-    });
-  }
-  return { values: nextValues, bindings };
-};
-
 const canonicalizeAuth = (
   auth: GraphqlSourceAuthInput | undefined,
 ): {
   readonly auth: GraphqlSourceAuth;
-  readonly bindings: ReadonlyArray<{
-    readonly slot: string;
-    readonly value: CredentialBindingValue;
-    readonly targetScope?: string;
-  }>;
+  readonly bindings: readonly PreparedHttpCredentialBinding[];
 } => {
   if (!auth || auth.kind === "none") return { auth: { kind: "none" }, bindings: [] };
   if ("connectionSlot" in auth) return { auth, bindings: [] };
@@ -480,7 +408,7 @@ const canonicalizeAuth = (
     auth: { kind: "oauth2", connectionSlot: GRAPHQL_OAUTH_CONNECTION_SLOT },
     bindings: [
       {
-        slot: GRAPHQL_OAUTH_CONNECTION_SLOT,
+        slotKey: GRAPHQL_OAUTH_CONNECTION_SLOT,
         value: {
           kind: "connection",
           connectionId: ConnectionId.make(auth.connectionId),
@@ -490,7 +418,7 @@ const canonicalizeAuth = (
   };
 };
 
-const resolveGraphqlBindingValueMap = <E>(
+const resolveConfiguredGraphqlCredentialMap = <E>(
   ctx: PluginCtx<GraphqlStore>,
   values: Record<string, ConfiguredGraphqlCredentialValue> | undefined,
   params: {
@@ -500,49 +428,26 @@ const resolveGraphqlBindingValueMap = <E>(
     readonly makeError: (message: string) => E;
   },
 ): Effect.Effect<Record<string, string> | undefined, E | StorageFailure> =>
-  Effect.gen(function* () {
-    if (!values) return undefined;
-    const resolved: Record<string, string> = {};
-    for (const [name, value] of Object.entries(values)) {
-      if (typeof value === "string") {
-        resolved[name] = value;
-        continue;
-      }
-      const binding = yield* resolveGraphqlCredentialBinding(
-        ctx,
-        params.sourceId,
-        params.sourceScope,
-        value.slot,
-      );
-      if (binding?.value.kind === "secret") {
-        const secret = yield* ctx.secrets
-          .getAtScope(binding.value.secretId, binding.scopeId)
-          .pipe(
-            Effect.catchTag("SecretOwnedByConnectionError", () =>
-              Effect.fail(
-                params.makeError(`Secret not found for ${params.missingLabel} "${name}"`),
-              ),
-            ),
-          );
-        if (secret === null) {
-          return yield* Effect.fail(
-            params.makeError(
-              `Missing secret "${binding.value.secretId}" for ${params.missingLabel} "${name}"`,
-            ),
-          );
-        }
-        resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
-        continue;
-      }
-      if (binding?.value.kind === "text") {
-        resolved[name] = value.prefix ? `${value.prefix}${binding.value.text}` : binding.value.text;
-        continue;
-      }
-      return yield* Effect.fail(
-        params.makeError(`Missing binding for ${params.missingLabel} "${name}"`),
-      );
-    }
-    return Object.keys(resolved).length > 0 ? resolved : undefined;
+  resolveConfiguredHttpCredentialMap({
+    credentialBindings: ctx.credentialBindings,
+    pluginId: GRAPHQL_PLUGIN_ID,
+    sourceId: params.sourceId,
+    sourceScope: params.sourceScope,
+    values,
+    getSecretAtScope: (secretId, scope, { name }) =>
+      ctx.secrets
+        .getAtScope(secretId, scope)
+        .pipe(
+          Effect.catchTag("SecretOwnedByConnectionError", () =>
+            Effect.fail(params.makeError(`Secret not found for ${params.missingLabel} "${name}"`)),
+          ),
+        ),
+    onMissingBinding: (name) =>
+      params.makeError(`Missing binding for ${params.missingLabel} "${name}"`),
+    onMissingSecret: (name, binding) =>
+      params.makeError(
+        `Missing secret "${binding.value.secretId}" for ${params.missingLabel} "${name}"`,
+      ),
   });
 
 const resolveGraphqlStoredOAuthHeader = (
@@ -553,12 +458,13 @@ const resolveGraphqlStoredOAuthHeader = (
 ) =>
   Effect.gen(function* () {
     if (!auth || auth.kind === "none") return undefined;
-    const binding = yield* resolveGraphqlCredentialBinding(
-      ctx,
+    const binding = yield* resolveSourceCredentialBinding({
+      credentialBindings: ctx.credentialBindings,
+      pluginId: GRAPHQL_PLUGIN_ID,
       sourceId,
       sourceScope,
-      auth.connectionSlot,
-    );
+      slotKey: auth.connectionSlot,
+    });
     if (binding?.value.kind !== "connection") {
       return yield* new GraphqlInvocationError({
         message: `Missing OAuth connection binding for GraphQL source "${sourceId}"`,
@@ -596,7 +502,7 @@ const makeGraphqlExtension = (
           continue;
         }
         if ("kind" in value) {
-          const slotResolved = yield* resolveGraphqlBindingValueMap(
+          const slotResolved = yield* resolveConfiguredGraphqlCredentialMap(
             ctx,
             { [name]: value },
             {
@@ -646,12 +552,13 @@ const makeGraphqlExtension = (
         "connectionId" in auth
           ? { id: auth.connectionId, scope: targetScope ?? sourceScope }
           : yield* Effect.gen(function* () {
-              const binding = yield* resolveGraphqlCredentialBinding(
-                ctx,
+              const binding = yield* resolveSourceCredentialBinding({
+                credentialBindings: ctx.credentialBindings,
+                pluginId: GRAPHQL_PLUGIN_ID,
                 sourceId,
                 sourceScope,
-                auth.connectionSlot,
-              );
+                slotKey: auth.connectionSlot,
+              });
               return binding?.value.kind === "connection"
                 ? { id: binding.value.connectionId, scope: binding.scopeId }
                 : null;
@@ -678,11 +585,14 @@ const makeGraphqlExtension = (
     ctx.transaction(
       Effect.gen(function* () {
         const namespace = config.namespace ?? namespaceFromEndpoint(config.endpoint);
-        const canonicalHeaders = canonicalizeCredentialMap(config.headers, graphqlHeaderSlot);
-        const canonicalQueryParams = canonicalizeCredentialMap(
-          config.queryParams,
-          graphqlQueryParamSlot,
-        );
+        const canonicalHeaders = prepareHttpCredentialMap<GraphqlCredentialInput>({
+          values: config.headers,
+          slotForName: graphqlHeaderSlot,
+        });
+        const canonicalQueryParams = prepareHttpCredentialMap<GraphqlCredentialInput>({
+          values: config.queryParams,
+          slotForName: graphqlQueryParamSlot,
+        });
         const canonicalAuth = canonicalizeAuth(config.auth);
         const directBindings = [
           ...canonicalHeaders.bindings,
@@ -783,22 +693,18 @@ const makeGraphqlExtension = (
           });
         }
 
-        if (directBindings.length > 0) {
-          for (const binding of directBindings) {
-            const bindingTargetScope = yield* targetScopeForBinding(
-              config.credentialTargetScope,
-              binding,
-            );
-            yield* ctx.credentialBindings.set({
-              targetScope: ScopeId.make(bindingTargetScope),
-              pluginId: GRAPHQL_PLUGIN_ID,
-              sourceId: namespace,
-              sourceScope: ScopeId.make(config.scope),
-              slotKey: binding.slot,
-              value: binding.value,
-            });
-          }
-        }
+        yield* setPreparedHttpCredentialBindings({
+          credentialBindings: ctx.credentialBindings,
+          pluginId: GRAPHQL_PLUGIN_ID,
+          sourceId: namespace,
+          sourceScope: config.scope,
+          fallbackTargetScope: config.credentialTargetScope,
+          bindings: directBindings,
+          onMissingTargetScope: () =>
+            new GraphqlIntrospectionError({
+              message: "credentialTargetScope is required when adding direct GraphQL credentials",
+            }),
+        });
 
         return { toolCount: prepared.length, namespace };
       }),
@@ -840,11 +746,17 @@ const makeGraphqlExtension = (
         if (!existing) return;
         const canonicalHeaders =
           input.headers !== undefined
-            ? canonicalizeCredentialMap(input.headers, graphqlHeaderSlot)
+            ? prepareHttpCredentialMap<GraphqlCredentialInput>({
+                values: input.headers,
+                slotForName: graphqlHeaderSlot,
+              })
             : null;
         const canonicalQueryParams =
           input.queryParams !== undefined
-            ? canonicalizeCredentialMap(input.queryParams, graphqlQueryParamSlot)
+            ? prepareHttpCredentialMap<GraphqlCredentialInput>({
+                values: input.queryParams,
+                slotForName: graphqlQueryParamSlot,
+              })
             : null;
         const canonicalAuth = input.auth !== undefined ? canonicalizeAuth(input.auth) : null;
         const directBindings = [
@@ -876,16 +788,14 @@ const makeGraphqlExtension = (
               auth: canonicalAuth?.auth,
             });
             if (affectedPrefixes.length > 0 || directBindings.length > 0) {
-              yield* ctx.credentialBindings.replaceForSource({
-                targetScope: ScopeId.make(replacementTargetScope),
+              yield* replacePreparedHttpCredentialBindingsForSource({
+                credentialBindings: ctx.credentialBindings,
+                targetScope: replacementTargetScope,
                 pluginId: GRAPHQL_PLUGIN_ID,
                 sourceId: namespace,
-                sourceScope: ScopeId.make(scope),
+                sourceScope: scope,
                 slotPrefixes: affectedPrefixes,
-                bindings: directBindings.map((binding) => ({
-                  slotKey: binding.slot,
-                  value: binding.value,
-                })),
+                bindings: directBindings,
               });
             }
           }),
@@ -956,7 +866,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         }
 
         const resolvedHeaders =
-          (yield* resolveGraphqlBindingValueMap(ctx, source.headers, {
+          (yield* resolveConfiguredGraphqlCredentialMap(ctx, source.headers, {
             sourceId: source.namespace,
             sourceScope: source.scope,
             missingLabel: "header",
@@ -964,7 +874,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
               new GraphqlInvocationError({ message, statusCode: Option.none() }),
           })) ?? {};
         const resolvedQueryParams =
-          (yield* resolveGraphqlBindingValueMap(ctx, source.queryParams, {
+          (yield* resolveConfiguredGraphqlCredentialMap(ctx, source.queryParams, {
             sourceId: source.namespace,
             sourceScope: source.scope,
             missingLabel: "query parameter",
