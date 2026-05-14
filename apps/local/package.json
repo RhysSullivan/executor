@@ -19,8 +19,6 @@
   "dependencies": {
     "@effect/atom-react": "catalog:",
     "@effect/platform-node": "catalog:",
-    "@electric-sql/pglite": "^0.4.4",
-    "@electric-sql/pglite-socket": "^0.1.4",
     "@executor-js/api": "workspace:*",
     "@executor-js/app": "workspace:*",
     "@executor-js/config": "workspace:*",
@@ -42,6 +40,7 @@
     "@executor-js/vite-plugin": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tanstack/react-router": "catalog:",
+    "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "fumadb": "workspace:*",
     "jsonc-parser": "^3.3.1",

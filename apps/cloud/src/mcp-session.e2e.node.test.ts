@@ -33,11 +33,11 @@ import {
   createExecutor,
   definePlugin,
 } from "@executor-js/sdk";
-import { createDrizzleFumaDb } from "@executor-js/sdk/drizzle";
 import { FetchHttpClient } from "effect/unstable/http";
 import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 import executorConfig from "../executor.config";
 import { DbService } from "./services/db";
+import { createDrizzleFumaDb } from "./services/fuma";
 
 // ---------------------------------------------------------------------------
 // Test-only plugin: exposes one in-memory tool that elicits once. Lets the

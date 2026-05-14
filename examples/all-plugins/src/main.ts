@@ -9,7 +9,7 @@
 // the new SDK shape — minus the HTTP API layer, runtime lifecycle, and
 // scope persistence that real apps add on top.
 //
-// Runs against in-memory PGlite through FumaDB so you can `bun run src/main.ts`
+// Runs against in-memory SQLite through FumaDB so you can `bun run src/main.ts`
 // and watch the whole surface exercise itself.
 // Plugins that need external infra (keychain prompts, 1Password unlock,
 // MCP transport, WorkOS Vault, Google OAuth) are wired so their secret
@@ -27,7 +27,7 @@ import {
   collectTables,
   createExecutor,
 } from "@executor-js/sdk";
-import { createPgliteFumaDb } from "@executor-js/sdk/pglite";
+import { createSqliteTestFumaDb } from "@executor-js/sdk/testing";
 
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
@@ -166,8 +166,8 @@ const program = Effect.gen(function* () {
   console.log("Building executor with every ported plugin");
   console.log("=".repeat(72));
 
-  const pglite = yield* Effect.promise(() =>
-    createPgliteFumaDb({
+  const sqlite = yield* Effect.promise(() =>
+    createSqliteTestFumaDb({
       tables: collectTables(plugins),
       namespace: "executor_example_all_plugins",
     }),
@@ -175,7 +175,7 @@ const program = Effect.gen(function* () {
 
   const executor = yield* createExecutor({
     scopes: [scope],
-    db: pglite.db,
+    db: sqlite.db,
     plugins,
     onElicitation: "accept-all" as const,
   });
@@ -437,7 +437,7 @@ const program = Effect.gen(function* () {
   console.log("-".repeat(72));
 
   yield* executor.close();
-  yield* Effect.promise(() => pglite.close());
+  yield* Effect.promise(() => sqlite.close());
   console.log("Executor closed. Done.");
 });
 

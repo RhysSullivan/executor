@@ -251,7 +251,7 @@ describe("effectivePolicyFromSorted", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Executor integration — exercises invoke + list + CRUD with FumaDB/PGlite
+// Executor integration — exercises invoke + list + CRUD with FumaDB/SQLite
 // and a tiny test plugin. Mirrors the design choices:
 //   - block  → invisible to list; ToolBlockedError at invoke
 //   - approve → invoke skips approval prompt

@@ -5,8 +5,6 @@ export default defineConfig({
     index: "src/promise.ts",
     core: "src/index.ts",
     client: "src/client.ts",
-    pglite: "src/pglite.ts",
-    drizzle: "src/drizzle.ts",
     testing: "src/testing.ts",
   },
   format: ["esm"],

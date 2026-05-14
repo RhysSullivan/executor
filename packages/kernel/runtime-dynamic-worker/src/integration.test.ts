@@ -21,6 +21,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
+import { fumadb } from "fumadb";
+import { createDrizzleRuntimeSchemaFromTables, drizzleAdapter } from "fumadb/adapters/drizzle";
+import { schema as fumaSchema } from "fumadb/schema";
 import postgres from "postgres";
 
 import {
@@ -31,8 +34,9 @@ import {
   type SecretProvider,
   Scope,
   ScopeId,
+  type FumaDb,
+  type FumaTables,
 } from "@executor-js/sdk";
-import { createDrizzleFumaDb, createPostgresDrizzleSchema } from "@executor-js/sdk/drizzle";
 import { makeExecutorToolInvoker } from "@executor-js/execution";
 import { openApiPlugin } from "@executor-js/plugin-openapi";
 
@@ -155,6 +159,28 @@ const makeSpec = (contentType: string, schema: Record<string, unknown> = { type:
     },
   });
 
+const asFumaDb = (db: unknown): FumaDb => db as FumaDb;
+
+const createPostgresFumaDb = (db: unknown, tables: FumaTables): FumaDb => {
+  const version = "1.0.0";
+  const factory = fumadb({
+    namespace: DATABASE_NAMESPACE,
+    schemas: [
+      fumaSchema({
+        version,
+        tables,
+      }),
+    ],
+  });
+  const fuma = factory.client(
+    drizzleAdapter({
+      db,
+      provider: "postgresql",
+    }),
+  );
+  return asFumaDb(fuma.orm(version));
+};
+
 const buildSandboxBridge = (spec: string, namespace: string, baseUrl = "https://upstream.test") =>
   Effect.acquireRelease(
     Effect.gen(function* () {
@@ -173,16 +199,13 @@ const buildSandboxBridge = (spec: string, namespace: string, baseUrl = "https://
         prepare: true,
         onnotice: () => undefined,
       });
-      const schema = createPostgresDrizzleSchema({
+      const schema = createDrizzleRuntimeSchemaFromTables({
         tables,
         namespace: DATABASE_NAMESPACE,
-      });
-      const db = createDrizzleFumaDb({
-        db: drizzle(sql, { schema }),
-        tables,
-        namespace: DATABASE_NAMESPACE,
+        version: "1.0.0",
         provider: "postgresql",
       });
+      const db = createPostgresFumaDb(drizzle(sql, { schema }), tables);
       const executor = yield* createExecutor({
         scopes: [
           Scope.make({
@@ -191,7 +214,7 @@ const buildSandboxBridge = (spec: string, namespace: string, baseUrl = "https://
             createdAt: new Date(),
           }),
         ],
-        db: db.db,
+        db,
         plugins,
         onElicitation: "accept-all",
       });

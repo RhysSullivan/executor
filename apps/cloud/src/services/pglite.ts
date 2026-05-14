@@ -5,10 +5,14 @@ import {
 } from "@electric-sql/pglite-socket";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import type { FumaDB } from "fumadb";
+import {
+  createDrizzleRuntimeSchemaFromTables,
+  ensureDrizzleRuntimeSchemaFromTables,
+} from "fumadb/adapters/drizzle";
 
-import type { FumaDb, FumaTables } from "./fuma-runtime";
-import { createDrizzleFumaDb } from "./drizzle";
-import { createPostgresDrizzleSchema, ensurePostgresFumaSchema } from "./drizzle-schema";
+import type { FumaDb, FumaTables } from "@executor-js/sdk";
+
+import { createDrizzleFumaDb } from "./fuma";
 
 export interface PgliteFumaDb {
   readonly db: FumaDb;
@@ -22,7 +26,7 @@ export interface PgliteFumaDb {
 
 export interface CreatePgliteFumaDbOptions<TTables extends FumaTables = FumaTables> {
   readonly tables: TTables;
-  readonly namespace?: string;
+  readonly namespace: string;
   readonly version?: string;
   readonly dataDir?: string;
   readonly host?: string;
@@ -33,26 +37,29 @@ export const createPgliteFumaDb = async <const TTables extends FumaTables>(
   options: CreatePgliteFumaDbOptions<TTables>,
 ): Promise<PgliteFumaDb> => {
   const version = options.version ?? "1.0.0";
-  const namespace = options.namespace ?? "executor";
   const pglite = await PGlite.create(options.dataDir ?? "memory://");
-  const drizzleSchema = createPostgresDrizzleSchema({
+  const schema = createDrizzleRuntimeSchemaFromTables({
     tables: options.tables,
-    namespace,
+    namespace: options.namespace,
     version,
+    provider: "postgresql",
   });
   const drizzleDb = drizzle({
     client: pglite,
-    schema: drizzleSchema,
+    schema,
   });
-  await ensurePostgresFumaSchema(drizzleDb, {
+
+  await ensureDrizzleRuntimeSchemaFromTables(drizzleDb, {
     tables: options.tables,
-    namespace,
+    namespace: options.namespace,
     version,
+    provider: "postgresql",
   });
+
   const fuma = createDrizzleFumaDb({
     db: drizzleDb,
     tables: options.tables,
-    namespace,
+    namespace: options.namespace,
     version,
     provider: "postgresql",
   });

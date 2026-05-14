@@ -16,12 +16,11 @@ import { Brand, Effect } from "effect";
 
 import {
   createExecutor as createEffectExecutor,
-  collectTables,
   type Executor as EffectExecutor,
   type OnElicitation,
 } from "./executor";
+import type { FumaDb } from "./fuma-runtime";
 import { ScopeId } from "./ids";
-import { createPgliteFumaDb } from "./pglite";
 import type { AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
 
@@ -74,6 +73,11 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
    * `{ id, name }` partials to build a multi-scope executor.
    */
   readonly scopes?: readonly { readonly id?: string; readonly name?: string }[];
+  /**
+   * FumaDB ORM handle for the configured Executor schema. Hosts choose
+   * their database engine and FumaDB adapter, then pass the query handle here.
+   */
+  readonly db: FumaDb;
   readonly plugins?: TPlugins;
   /**
    * How to respond when a tool requests user input mid-invocation. Pass
@@ -130,15 +134,13 @@ const promisifyDeep = <T>(value: T): Promisified<T> => {
 
 // ---------------------------------------------------------------------------
 // createExecutor — Promise wrapper over the Effect createExecutor.
-// Defaults to in-memory PGlite/FumaDB, so a consumer can construct an
-// executor with just `{ plugins: [...] }`.
+// Hosts provide the FumaDB query handle; the SDK does not choose a database.
 // ---------------------------------------------------------------------------
 
 export const createExecutor = async <const TPlugins extends readonly AnyPlugin[] = readonly []>(
   config: ExecutorConfig<TPlugins>,
 ): Promise<Executor<TPlugins>> => {
   const plugins = (config?.plugins ?? []) as TPlugins;
-  const tables = collectTables(plugins);
 
   const scopes =
     config.scopes && config.scopes.length > 0
@@ -157,14 +159,9 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
           }),
         ];
 
-  const pglite = await createPgliteFumaDb({
-    tables,
-    namespace: "executor_promise",
-  });
-
   const effectConfig = {
     scopes,
-    db: pglite.db,
+    db: config.db,
     plugins,
     onElicitation: config.onElicitation,
   };
@@ -182,7 +179,6 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
     ...executor,
     close: async () => {
       await Effect.runPromise(effectExecutor.close());
-      await pglite.close();
     },
   } as Executor<TPlugins>;
 };

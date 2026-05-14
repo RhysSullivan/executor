@@ -5,9 +5,9 @@
 // ---------------------------------------------------------------------------
 
 import { collectTables } from "@executor-js/sdk";
-import { createPgliteFumaDb, type PgliteFumaDb } from "@executor-js/sdk/pglite";
 import executorConfig from "../executor.config";
 import { ensureCloudSchema } from "../src/services/schema-init";
+import { createPgliteFumaDb, type PgliteFumaDb } from "../src/services/pglite";
 
 const PORT = 5434;
 

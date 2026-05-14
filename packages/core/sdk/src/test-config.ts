@@ -6,7 +6,7 @@ import { ScopeId } from "./ids";
 import { definePlugin, type AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
 import type { SecretProvider } from "./secrets";
-import type { PgliteFumaDb } from "./pglite";
+import type { SqliteTestFumaDb } from "./sqlite-test-db";
 
 // ---------------------------------------------------------------------------
 // makeTestConfig — build an ExecutorConfig backed by an in-memory FumaDB.
@@ -17,9 +17,9 @@ import type { PgliteFumaDb } from "./pglite";
 // need multi-scope behavior can pass `scopes` explicitly.
 // ---------------------------------------------------------------------------
 
-export type TestDatabaseBackend = "pglite";
+export type TestDatabaseBackend = "sqlite";
 
-export type TestFumaDb = Pick<PgliteFumaDb, "db" | "close"> & {
+export type TestFumaDb = Pick<SqliteTestFumaDb, "db" | "close"> & {
   readonly warm: () => Promise<void>;
 };
 
@@ -28,15 +28,15 @@ const makeLazyTestFumaDb = (options: {
   readonly backend: TestDatabaseBackend;
   readonly dataDir?: string;
 }): TestFumaDb => {
-  let started: Promise<PgliteFumaDb> | undefined;
+  let started: Promise<SqliteTestFumaDb> | undefined;
   const asFumaDb = (db: unknown): FumaDb => db as FumaDb;
   const start = () => {
     if (!started) {
-      started = import("./pglite").then(({ createPgliteFumaDb }) =>
-        createPgliteFumaDb({
+      started = import("./sqlite-test-db").then(({ createSqliteTestFumaDb }) =>
+        createSqliteTestFumaDb({
           tables: options.tables,
           namespace: "executor_test",
-          dataDir: options.dataDir,
+          path: options.dataDir ? `${options.dataDir}/test.db` : undefined,
         }),
       );
     }
@@ -93,7 +93,7 @@ export const makeTestConfig = <const TPlugins extends readonly AnyPlugin[] = rea
   const tables = collectTables(options?.plugins ?? []);
   const testDb = makeLazyTestFumaDb({
     tables,
-    backend: options?.backend ?? "pglite",
+    backend: options?.backend ?? "sqlite",
     dataDir: options?.dataDir,
   });
 

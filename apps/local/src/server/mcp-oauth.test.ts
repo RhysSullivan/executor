@@ -35,12 +35,12 @@ import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { Scope, ScopeId, collectTables, createExecutor } from "@executor-js/sdk";
-import { createPgliteFumaDb } from "@executor-js/sdk/pglite";
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 import { mcpPlugin } from "@executor-js/plugin-mcp";
 import { McpExtensionService, McpGroup, McpHandlers } from "@executor-js/plugin-mcp/api";
 
 import { ErrorCaptureLive } from "./observability";
+import { createSqliteFumaDb } from "./sqlite-fumadb";
 
 // Shape of the test API: core + mcp group, with InternalError surfaced at
 // the top level so `observabilityMiddleware` can land its typed-error
@@ -215,7 +215,7 @@ const startFakeServer = async (): Promise<FakeServer> => {
 };
 
 // ---------------------------------------------------------------------------
-// In-process local API harness — tmpdir PGlite + minimal plugin set.
+// In-process local API harness — tmpdir SQLite + minimal plugin set.
 // ---------------------------------------------------------------------------
 
 const TEST_BASE_URL = "http://local.test";
@@ -232,10 +232,10 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
     mcpPlugin({ dangerouslyAllowStdioMCP: false }),
     fileSecretsPlugin({ directory: tmpDir }),
   ] as const;
-  const pglite = await createPgliteFumaDb({
+  const sqlite = await createSqliteFumaDb({
     tables: collectTables(plugins),
     namespace: "executor_local_test",
-    dataDir: join(tmpDir, "pglite"),
+    path: join(tmpDir, "data.db"),
   });
 
   const scope = Scope.make({
@@ -247,7 +247,7 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
   const executor = await Effect.runPromise(
     createExecutor<typeof plugins>({
       scopes: [scope],
-      db: pglite.db,
+      db: sqlite.db,
       plugins,
       onElicitation: "accept-all",
       oauthEndpointUrlPolicy: { allowHttp: true },
@@ -291,7 +291,7 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
       await Effect.runPromise(
         Effect.ignore(Effect.tryPromise(() => Effect.runPromise(executor.close()))),
       );
-      await pglite.close();
+      await sqlite.close();
     },
   };
 };

@@ -5,20 +5,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { collectTables } from "@executor-js/sdk";
-import { createPgliteFumaDb, type PgliteFumaDb } from "@executor-js/sdk/pglite";
 
 import { importSqliteDataToFuma } from "./sqlite-import";
+import { createSqliteFumaDb, type SqliteFumaDb } from "./sqlite-fumadb";
 
 let workDir: string;
-let pglite: PgliteFumaDb | null;
+let sqlite: SqliteFumaDb | null;
 
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "executor-sqlite-import-"));
-  pglite = null;
+  sqlite = null;
 });
 
 afterEach(async () => {
-  await pglite?.close();
+  await sqlite?.close();
   rmSync(workDir, { recursive: true, force: true });
 });
 
@@ -69,22 +69,22 @@ const seedSqlite = (path: string) => {
 };
 
 describe("importSqliteDataToFuma", () => {
-  it("imports current SQLite rows into FumaDB/PGlite and moves the old DB aside", async () => {
+  it("imports current SQLite rows into FumaDB SQLite and moves the old DB aside", async () => {
     const sqlitePath = join(workDir, "data.db");
-    const markerPath = join(workDir, "pglite-sqlite-imported");
+    const markerPath = join(workDir, "fumadb-sqlite-imported");
     seedSqlite(sqlitePath);
 
     const tables = collectTables([]);
-    pglite = await createPgliteFumaDb({
+    sqlite = await createSqliteFumaDb({
       tables,
       namespace: "executor_local_test",
-      dataDir: join(workDir, "pglite"),
+      path: join(workDir, "target.db"),
     });
 
     const result = await importSqliteDataToFuma({
       sqlitePath,
       markerPath,
-      db: pglite.db,
+      db: sqlite.db,
       tables,
       scopeId: "scope_a",
     });
@@ -96,7 +96,7 @@ describe("importSqliteDataToFuma", () => {
     expect(existsSync(sqlitePath)).toBe(false);
     expect(result.backupPath && existsSync(result.backupPath)).toBe(true);
 
-    const source = (await pglite.db.findFirst("source", {
+    const source = (await sqlite.db.findFirst("source", {
       where: (b) => b("id", "=", "src_1"),
     })) as Record<string, unknown>;
     expect(source.scope_id).toBe("scope_a");
@@ -105,7 +105,7 @@ describe("importSqliteDataToFuma", () => {
     expect(source.can_edit).toBe(true);
     expect(source.created_at).toBeInstanceOf(Date);
 
-    const blob = (await pglite.db.findFirst("blob", {
+    const blob = (await sqlite.db.findFirst("blob", {
       where: (b) => b("id", "=", JSON.stringify(["scope_a/plugin", "spec"])),
     })) as Record<string, unknown>;
     expect(blob.value).toBe("{}");

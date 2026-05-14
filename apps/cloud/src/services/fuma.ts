@@ -2,15 +2,7 @@ import { fumadb, type FumaDB } from "fumadb";
 import { drizzleAdapter, type DrizzleConfig } from "fumadb/adapters/drizzle";
 import { schema as fumaSchema } from "fumadb/schema";
 
-import type { FumaDb, FumaTables } from "./fuma-runtime";
-
-export {
-  createPostgresDrizzleSchema,
-  ensurePostgresFumaSchema,
-  type ExecutableDrizzleDb,
-  type PostgresDrizzleSchema,
-  type PostgresDrizzleSchemaOptions,
-} from "./drizzle-schema";
+import type { FumaDb, FumaTables } from "@executor-js/sdk";
 
 export interface DrizzleFumaDb {
   readonly db: FumaDb;
@@ -20,9 +12,9 @@ export interface DrizzleFumaDb {
 export interface CreateDrizzleFumaDbOptions<TTables extends FumaTables = FumaTables> {
   readonly db: DrizzleConfig["db"];
   readonly tables: TTables;
-  readonly namespace?: string;
+  readonly namespace: string;
   readonly version?: string;
-  readonly provider?: DrizzleConfig["provider"];
+  readonly provider: DrizzleConfig["provider"];
 }
 
 const asFumaDb = (db: unknown): FumaDb => db as FumaDb;
@@ -37,13 +29,13 @@ export const createDrizzleFumaDb = <const TTables extends FumaTables>(
     tables: options.tables,
   });
   const factory = fumadb({
-    namespace: options.namespace ?? "executor",
+    namespace: options.namespace,
     schemas: [latestSchema],
   });
   const fuma = factory.client(
     drizzleAdapter({
       db: options.db,
-      provider: options.provider ?? "postgresql",
+      provider: options.provider,
     }),
   );
 

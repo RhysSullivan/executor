@@ -87,7 +87,7 @@ const getDirectPgliteRuntime = async (): Promise<DirectPgliteRuntime> => {
       { ensureCloudSchema },
     ] = await Promise.all([
       import("@executor-js/sdk"),
-      import("@executor-js/sdk/pglite"),
+      import("./pglite"),
       import("../../executor.config"),
       import("./schema-init"),
     ]);

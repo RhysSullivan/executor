@@ -1,7 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import { createExecutor } from "./promise";
+import { collectTables } from "./executor";
 import { definePlugin, defineSchema, tool } from "./plugin";
+import { createSqliteTestFumaDb } from "./sqlite-test-db";
 import { Effect, Schema } from "effect";
 
 // A minimal static-tool plugin built on the Effect surface, consumed
@@ -35,8 +37,14 @@ const echoPlugin = definePlugin(() => ({
 
 describe("promise/createExecutor", () => {
   it("returns Promise-shaped executor and invokes static tools", async () => {
+    const plugins = [echoPlugin()] as const;
+    const db = await createSqliteTestFumaDb({
+      tables: collectTables(plugins),
+      namespace: "executor_promise_test",
+    });
     const executor = await createExecutor({
-      plugins: [echoPlugin()] as const,
+      db: db.db,
+      plugins,
       onElicitation: "accept-all",
     });
 
@@ -47,11 +55,18 @@ describe("promise/createExecutor", () => {
     expect(out).toBe("hi");
 
     await executor.close();
+    await db.close();
   });
 
   it("promisifies plugin extension methods", async () => {
+    const plugins = [echoPlugin()] as const;
+    const db = await createSqliteTestFumaDb({
+      tables: collectTables(plugins),
+      namespace: "executor_promise_test",
+    });
     const executor = await createExecutor({
-      plugins: [echoPlugin()] as const,
+      db: db.db,
+      plugins,
       onElicitation: "accept-all",
     });
 
@@ -59,6 +74,7 @@ describe("promise/createExecutor", () => {
     expect(greeting).toBe("hello, world");
 
     await executor.close();
+    await db.close();
   });
 
   it("per-invoke onElicitation override wins over the executor-level default", async () => {
@@ -90,8 +106,14 @@ describe("promise/createExecutor", () => {
       ],
     }));
 
+    const plugins = [approvedPlugin()] as const;
+    const db = await createSqliteTestFumaDb({
+      tables: collectTables(plugins),
+      namespace: "executor_promise_test",
+    });
     const executor = await createExecutor({
-      plugins: [approvedPlugin()] as const,
+      db: db.db,
+      plugins,
       onElicitation: "accept-all", // default → auto-approve
     });
 
@@ -115,5 +137,6 @@ describe("promise/createExecutor", () => {
     });
 
     await executor.close();
+    await db.close();
   });
 });

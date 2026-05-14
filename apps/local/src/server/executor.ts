@@ -1,31 +1,32 @@
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { Scope, ScopeId, collectTables, createExecutor, type AnyPlugin } from "@executor-js/sdk";
-import { createPgliteFumaDb } from "@executor-js/sdk/pglite";
 import { loadPluginsFromJsonc } from "@executor-js/config";
 
 import executorConfig from "../../executor.config";
 import { importSqliteDataToFuma } from "./sqlite-import";
+import { createSqliteFumaDb } from "./sqlite-fumadb";
 
 interface ResolvedStorage {
   readonly dataDir: string;
-  readonly pgliteDir: string;
   readonly sqlitePath: string;
   readonly importMarkerPath: string;
 }
+
+const localNamespace = "executor_local";
 
 const resolveStorage = (): ResolvedStorage => {
   const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
   fs.mkdirSync(dataDir, { recursive: true });
   return {
     dataDir,
-    pgliteDir: join(dataDir, "pglite"),
     sqlitePath: join(dataDir, "data.db"),
-    importMarkerPath: join(dataDir, "pglite-sqlite-imported"),
+    importMarkerPath: join(dataDir, "fumadb-sqlite-imported"),
   };
 };
 
@@ -85,7 +86,7 @@ class LocalExecutorTag extends Context.Service<LocalExecutorTag, LocalExecutorBu
 export type LocalExecutor = LocalExecutorBundle["executor"];
 
 class LocalExecutorCreateError extends Data.TaggedError("LocalExecutorCreateError")<{
-  readonly operation: "createPglite" | "importSqlite";
+  readonly operation: "createSqlite" | "importSqlite";
   readonly cause: unknown;
 }> {}
 
@@ -119,6 +120,96 @@ const handleOrNull = (promise: ReturnType<typeof createExecutorHandle>) =>
     ),
   );
 
+const sqliteTableHasColumn = (db: Database, table: string, column: string): boolean =>
+  db
+    .query<{ name: string }, []>(`PRAGMA table_info('${table.replaceAll("'", "''")}')`)
+    .all()
+    .some((row) => row.name === column);
+
+const isFumaSqliteDatabase = (path: string): boolean => {
+  if (!fs.existsSync(path)) return false;
+
+  let db: Database | null = null;
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: native SQLite probe treats unreadable legacy files as non-FumaDB databases
+  try {
+    db = new Database(path, { readonly: true });
+    const settings = db
+      .query<{ name: string }, [string]>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      )
+      .get(`private_${localNamespace}_settings`);
+    return settings !== null || sqliteTableHasColumn(db, "source", "row_id");
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
+};
+
+const removeSqliteFileSet = (path: string) => {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    fs.rmSync(`${path}${suffix}`, { force: true });
+  }
+};
+
+const moveSqliteFileSet = (source: string, target: string) => {
+  fs.renameSync(source, target);
+  for (const suffix of ["-wal", "-shm"]) {
+    if (fs.existsSync(`${source}${suffix}`)) {
+      fs.renameSync(`${source}${suffix}`, `${target}${suffix}`);
+    }
+  }
+};
+
+const importLegacySqliteIfNeeded = async (options: {
+  readonly storage: ResolvedStorage;
+  readonly tables: ReturnType<typeof collectTables>;
+  readonly scopeId: string;
+}) => {
+  const { storage, tables, scopeId } = options;
+  if (
+    !fs.existsSync(storage.sqlitePath) ||
+    fs.existsSync(storage.importMarkerPath) ||
+    isFumaSqliteDatabase(storage.sqlitePath)
+  ) {
+    return { imported: false, importedRows: 0, importedTables: [] };
+  }
+
+  const targetPath = `${storage.sqlitePath}.fumadb-next-${process.pid}-${Date.now()}`;
+  removeSqliteFileSet(targetPath);
+
+  const target = await createSqliteFumaDb({
+    tables,
+    namespace: localNamespace,
+    path: targetPath,
+  });
+
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: local SQLite cutover must close and remove the temporary target database on import failure
+  try {
+    const result = await importSqliteDataToFuma({
+      sqlitePath: storage.sqlitePath,
+      markerPath: storage.importMarkerPath,
+      db: target.db,
+      tables,
+      scopeId,
+    });
+    target.sqlite.exec("PRAGMA wal_checkpoint(FULL)");
+    await target.close();
+
+    if (result.imported) {
+      moveSqliteFileSet(targetPath, storage.sqlitePath);
+    } else {
+      removeSqliteFileSet(targetPath);
+    }
+    return result;
+  } catch (cause) {
+    await target.close();
+    removeSqliteFileSet(targetPath);
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: preserve the original import failure after temp-file cleanup
+    throw cause;
+  }
+};
+
 const createLocalExecutorLayer = () => {
   const storage = resolveStorage();
 
@@ -128,34 +219,32 @@ const createLocalExecutorLayer = () => {
       const scopeId = makeScopeId(cwd);
       const tables = collectTables(plugins);
 
-      const pglite = yield* Effect.acquireRelease(
-        Effect.tryPromise({
-          try: () =>
-            createPgliteFumaDb({
-              tables,
-              namespace: "executor_local",
-              dataDir: storage.pgliteDir,
-            }),
-          catch: (cause) => new LocalExecutorCreateError({ operation: "createPglite", cause }),
-        }),
-        (db) => Effect.promise(() => db.close()).pipe(Effect.ignore),
-      );
-
       const importResult = yield* Effect.tryPromise({
         try: () =>
-          importSqliteDataToFuma({
-            sqlitePath: storage.sqlitePath,
-            markerPath: storage.importMarkerPath,
-            db: pglite.db,
+          importLegacySqliteIfNeeded({
+            storage,
             tables,
             scopeId,
           }),
         catch: (cause) => new LocalExecutorCreateError({ operation: "importSqlite", cause }),
       });
 
+      const sqlite = yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: () =>
+            createSqliteFumaDb({
+              tables,
+              namespace: localNamespace,
+              path: storage.sqlitePath,
+            }),
+          catch: (cause) => new LocalExecutorCreateError({ operation: "createSqlite", cause }),
+        }),
+        (db) => Effect.promise(() => db.close()).pipe(Effect.ignore),
+      );
+
       if (importResult.imported) {
         console.warn(
-          `[executor] Imported ${importResult.importedRows} row(s) from SQLite into PGlite` +
+          `[executor] Imported ${importResult.importedRows} row(s) into FumaDB SQLite storage` +
             (importResult.backupPath ? `; moved old DB to ${importResult.backupPath}.` : "."),
         );
       }
@@ -168,7 +257,7 @@ const createLocalExecutorLayer = () => {
 
       const executor = yield* createExecutor({
         scopes: [scope],
-        db: pglite.db,
+        db: sqlite.db,
         plugins,
         onElicitation: "accept-all",
         oauthEndpointUrlPolicy: { allowHttp: true },

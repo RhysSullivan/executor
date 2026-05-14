@@ -17,11 +17,11 @@ import {
   createExecutor,
   makeHostedHttpClientLayer,
 } from "@executor-js/sdk";
-import { createDrizzleFumaDb } from "@executor-js/sdk/drizzle";
 
 import { env } from "cloudflare:workers";
 import executorConfig from "../../executor.config";
 import { DbService } from "./db";
+import { createDrizzleFumaDb } from "./fuma";
 
 // ---------------------------------------------------------------------------
 // Plugin list lives in `executor.config.ts` — that file is the single source

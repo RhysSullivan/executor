@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
-import type { ExecutableDrizzleDb } from "@executor-js/sdk/drizzle";
+
+interface ExecutableDrizzleDb {
+  readonly execute: (query: ReturnType<typeof sql.raw>) => Promise<unknown>;
+}
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS "accounts" (

@@ -5,6 +5,19 @@ import { generateSchema } from "./generate";
 import { fromDrizzle } from "./query";
 import { parseDrizzle } from "./shared";
 
+export {
+  createDrizzleRuntimeSchema,
+  createDrizzleRuntimeSchemaFromTables,
+  createDrizzleRuntimeSchemaSql,
+  createDrizzleRuntimeSchemaSqlFromTables,
+  ensureDrizzleRuntimeSchema,
+  ensureDrizzleRuntimeSchemaFromTables,
+  type DrizzleRuntimeProvider,
+  type DrizzleRuntimeSchemaOptions,
+  type DrizzleRuntimeTablesOptions,
+  type ExecutableDrizzleDb,
+} from "./runtime";
+
 export interface DrizzleConfig {
   /**
    * Drizzle instance, must have query mode configured: https://orm.drizzle.team/docs/rqb.

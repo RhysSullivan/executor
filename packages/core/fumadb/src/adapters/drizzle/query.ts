@@ -173,6 +173,26 @@ export function fromDrizzle(
 ): AbstractQuery<AnySchema> {
   const [db, drizzleTables] = parseDrizzle(_db);
 
+  async function executeRaw(statement: string) {
+    const target = db as unknown as {
+      run?: (query: Drizzle.SQL) => unknown;
+      execute?: (query: Drizzle.SQL) => Promise<unknown>;
+    };
+    const query = Drizzle.sql.raw(statement);
+
+    if (target.run) {
+      await target.run(query);
+      return;
+    }
+
+    if (target.execute) {
+      await target.execute(query);
+      return;
+    }
+
+    throw new Error("[FumaDB Drizzle] Database cannot execute raw transaction statements.");
+  }
+
   function toDrizzle(v: AnyTable): TableType {
     const out = drizzleTables[v.names.drizzle];
     if (out) return out;
@@ -371,7 +391,19 @@ export function fromDrizzle(
 
       await query;
     },
-    transaction(run) {
+    async transaction(run) {
+      if (provider === "sqlite") {
+        await executeRaw("BEGIN");
+        try {
+          const result = await run(fromDrizzle(schema, _db, provider));
+          await executeRaw("COMMIT");
+          return result;
+        } catch (e) {
+          await executeRaw("ROLLBACK");
+          throw e;
+        }
+      }
+
       return db.transaction((tx) => run(fromDrizzle(schema, tx, provider)));
     },
   });

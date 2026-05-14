@@ -20,7 +20,7 @@ export {
   type TestExecutorHarness,
   type TestFumaDb,
 } from "./test-config";
-export { createPgliteFumaDb, type PgliteFumaDb } from "./pglite";
+export { createSqliteTestFumaDb, type SqliteTestFumaDb } from "./sqlite-test-db";
 
 export class TestHttpServerAddressError extends Data.TaggedError("TestHttpServerAddressError")<{
   readonly address: unknown;

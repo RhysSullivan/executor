@@ -27,7 +27,6 @@ import {
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { Scope, ScopeId, collectTables, createExecutor } from "@executor-js/sdk";
-import { createDrizzleFumaDb } from "@executor-js/sdk/drizzle";
 import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 
 import executorConfig from "../../../executor.config";
@@ -38,6 +37,7 @@ import {
   RouterConfig,
 } from "../../api/protected-layers";
 import { DbService } from "../db";
+import { createDrizzleFumaDb } from "../fuma";
 
 export const TEST_BASE_URL = "http://test.local";
 export const TEST_ORG_HEADER = "x-test-org-id";

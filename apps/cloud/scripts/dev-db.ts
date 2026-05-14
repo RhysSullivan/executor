@@ -11,9 +11,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectTables } from "@executor-js/sdk";
-import { createPgliteFumaDb } from "@executor-js/sdk/pglite";
 import executorConfig from "../executor.config";
 import { ensureCloudSchema } from "../src/services/schema-init";
+import { createPgliteFumaDb } from "../src/services/pglite";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = 5433;
