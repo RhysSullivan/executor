@@ -2,7 +2,7 @@
  * End-to-end smoke test for the compiled sidecar binary.
  *
  * Catches "works in dev, breaks in --compile" regressions: bunfs asset
- * loading (QuickJS WASM, embedded migrations, embedded web UI), native
+ * loading (QuickJS WASM, staged web UI), native
  * .node loaders (keychain), and the MCP → engine → QuickJS → tool path.
  *
  * Flow:
