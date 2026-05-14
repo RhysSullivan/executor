@@ -15,15 +15,20 @@ import type { HttpClient } from "effect/unstable/http";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 
 import {
-  ConfiguredCredentialBinding,
   ConnectionId,
   type CredentialBindingRef,
   type CredentialBindingValue,
+  prepareHttpCredentialMap,
+  replacePreparedHttpCredentialBindingsForSource,
+  resolveConfiguredHttpCredentialMap,
+  resolveSourceCredentialBinding,
   ScopeId,
   SecretId,
+  setPreparedHttpCredentialBindings,
   SourceDetectionResult,
   definePlugin,
   resolveSecretBackedMap as resolveSharedSecretBackedMap,
+  type PreparedHttpCredentialBinding,
   type PluginCtx,
   type StorageFailure,
   StorageError,
@@ -232,30 +237,6 @@ const scopeRanks = (ctx: PluginCtx<McpBindingStore>): ReadonlyMap<string, number
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number =>
   ranks.get(scopeId) ?? Infinity;
 
-const resolveMcpCredentialBinding = (
-  ctx: PluginCtx<McpBindingStore>,
-  sourceId: string,
-  sourceScope: string,
-  slot: string,
-): Effect.Effect<CredentialBindingRef | null, StorageFailure> =>
-  Effect.gen(function* () {
-    const ranks = scopeRanks(ctx);
-    const sourceSourceRank = scopeRank(ranks, sourceScope);
-    if (sourceSourceRank === Infinity) return null;
-    const bindings = yield* ctx.credentialBindings.listForSource({
-      pluginId: MCP_PLUGIN_ID,
-      sourceId,
-      sourceScope: ScopeId.make(sourceScope),
-    });
-    const binding = bindings
-      .filter(
-        (candidate) =>
-          candidate.slotKey === slot && scopeRank(ranks, candidate.scopeId) <= sourceSourceRank,
-      )
-      .sort((a, b) => scopeRank(ranks, a.scopeId) - scopeRank(ranks, b.scopeId))[0];
-    return binding ?? null;
-  });
-
 const validateMcpBindingTarget = (
   ctx: PluginCtx<McpBindingStore>,
   input: {
@@ -312,10 +293,10 @@ const bindingTargetScope = (
 
 const targetScopeForBinding = (
   fallbackTargetScope: string | undefined,
-  binding: { readonly targetScope?: string },
+  binding: PreparedHttpCredentialBinding,
 ): Effect.Effect<string, McpConnectionError> => {
   const targetScope = binding.targetScope ?? fallbackTargetScope;
-  if (targetScope) return Effect.succeed(targetScope);
+  if (targetScope) return Effect.succeed(String(targetScope));
   return Effect.fail(
     new McpConnectionError({
       transport: "remote",
@@ -324,58 +305,11 @@ const targetScopeForBinding = (
   );
 };
 
-const canonicalizeCredentialMap = (
-  values: Record<string, McpCredentialInput> | undefined,
-  slotForName: (name: string) => string,
-): {
-  readonly values: Record<string, ConfiguredMcpCredentialValue>;
-  readonly bindings: ReadonlyArray<{
-    readonly slot: string;
-    readonly value: CredentialBindingValue;
-    readonly targetScope?: string;
-  }>;
-} => {
-  const nextValues: Record<string, ConfiguredMcpCredentialValue> = {};
-  const bindings: Array<{ slot: string; value: CredentialBindingValue; targetScope?: string }> = [];
-  for (const [name, value] of Object.entries(values ?? {})) {
-    if (typeof value === "string") {
-      nextValues[name] = value;
-      continue;
-    }
-    if ("kind" in value) {
-      nextValues[name] = value;
-      continue;
-    }
-    const slot = slotForName(name);
-    nextValues[name] = ConfiguredCredentialBinding.make({
-      kind: "binding",
-      slot,
-      prefix: value.prefix,
-    });
-    bindings.push({
-      slot,
-      targetScope: "targetScope" in value ? value.targetScope : undefined,
-      value: {
-        kind: "secret",
-        secretId: SecretId.make(value.secretId),
-        ...("secretScopeId" in value && value.secretScopeId
-          ? { secretScopeId: value.secretScopeId }
-          : {}),
-      },
-    });
-  }
-  return { values: nextValues, bindings };
-};
-
 const canonicalizeAuth = (
   auth: McpConnectionAuthInput | undefined,
 ): {
   readonly auth: McpConnectionAuth;
-  readonly bindings: ReadonlyArray<{
-    readonly slot: string;
-    readonly value: CredentialBindingValue;
-    readonly targetScope?: string;
-  }>;
+  readonly bindings: readonly PreparedHttpCredentialBinding[];
 } => {
   if (!auth || auth.kind === "none") return { auth: { kind: "none" }, bindings: [] };
   if (auth.kind === "header") {
@@ -389,7 +323,7 @@ const canonicalizeAuth = (
       },
       bindings: [
         {
-          slot: MCP_HEADER_AUTH_SLOT,
+          slotKey: MCP_HEADER_AUTH_SLOT,
           targetScope: auth.targetScope,
           value: {
             kind: "secret",
@@ -401,9 +335,9 @@ const canonicalizeAuth = (
     };
   }
   if ("connectionSlot" in auth) return { auth, bindings: [] };
-  const bindings: Array<{ slot: string; value: CredentialBindingValue; targetScope?: string }> = [
+  const bindings: PreparedHttpCredentialBinding[] = [
     {
-      slot: MCP_OAUTH_CONNECTION_SLOT,
+      slotKey: MCP_OAUTH_CONNECTION_SLOT,
       value: {
         kind: "connection",
         connectionId: ConnectionId.make(auth.connectionId),
@@ -412,13 +346,13 @@ const canonicalizeAuth = (
   ];
   if (auth.clientIdSecretId) {
     bindings.push({
-      slot: MCP_OAUTH_CLIENT_ID_SLOT,
+      slotKey: MCP_OAUTH_CLIENT_ID_SLOT,
       value: { kind: "secret", secretId: SecretId.make(auth.clientIdSecretId) },
     });
   }
   if (auth.clientSecretSecretId) {
     bindings.push({
-      slot: MCP_OAUTH_CLIENT_SECRET_SLOT,
+      slotKey: MCP_OAUTH_CLIENT_SECRET_SLOT,
       value: { kind: "secret", secretId: SecretId.make(auth.clientSecretSecretId) },
     });
   }
@@ -512,60 +446,42 @@ const plainStringMap = (
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 };
 
-const resolveMcpBindingValueMap = (
+const resolveConfiguredMcpCredentialMap = (
   ctx: PluginCtx<McpBindingStore>,
   values: Record<string, ConfiguredMcpCredentialValue> | undefined,
   params: {
     readonly sourceId: string;
     readonly sourceScope: string;
-    readonly targetScope?: string;
     readonly missingLabel: string;
   },
 ): Effect.Effect<Record<string, string> | undefined, McpConnectionError | StorageFailure> =>
-  Effect.gen(function* () {
-    if (!values) return undefined;
-    const resolved: Record<string, string> = {};
-    for (const [name, value] of Object.entries(values)) {
-      if (typeof value === "string") {
-        resolved[name] = value;
-        continue;
-      }
-      const binding = yield* resolveMcpCredentialBinding(
-        ctx,
-        params.sourceId,
-        params.sourceScope,
-        value.slot,
-      );
-      if (binding?.value.kind === "secret") {
-        const secret = yield* ctx.secrets.getAtScope(binding.value.secretId, binding.scopeId).pipe(
-          Effect.catchTag("SecretOwnedByConnectionError", () =>
-            Effect.fail(
-              new McpConnectionError({
-                transport: "remote",
-                message: `Failed to resolve secret for ${params.missingLabel} "${name}"`,
-              }),
-            ),
+  resolveConfiguredHttpCredentialMap({
+    credentialBindings: ctx.credentialBindings,
+    pluginId: MCP_PLUGIN_ID,
+    sourceId: params.sourceId,
+    sourceScope: params.sourceScope,
+    values,
+    getSecretAtScope: (secretId, scope, { name }) =>
+      ctx.secrets.getAtScope(secretId, scope).pipe(
+        Effect.catchTag("SecretOwnedByConnectionError", () =>
+          Effect.fail(
+            new McpConnectionError({
+              transport: "remote",
+              message: `Failed to resolve secret for ${params.missingLabel} "${name}"`,
+            }),
           ),
-        );
-        if (secret === null) {
-          return yield* new McpConnectionError({
-            transport: "remote",
-            message: `Missing secret "${binding.value.secretId}" for ${params.missingLabel} "${name}"`,
-          });
-        }
-        resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
-        continue;
-      }
-      if (binding?.value.kind === "text") {
-        resolved[name] = value.prefix ? `${value.prefix}${binding.value.text}` : binding.value.text;
-        continue;
-      }
-      return yield* new McpConnectionError({
+        ),
+      ),
+    onMissingBinding: (name) =>
+      new McpConnectionError({
         transport: "remote",
         message: `Missing binding for ${params.missingLabel} "${name}"`,
-      });
-    }
-    return Object.keys(resolved).length > 0 ? resolved : undefined;
+      }),
+    onMissingSecret: (name, binding) =>
+      new McpConnectionError({
+        transport: "remote",
+        message: `Missing secret "${binding.value.secretId}" for ${params.missingLabel} "${name}"`,
+      }),
   });
 
 const resolveMcpCredentialInputMap = (
@@ -587,7 +503,7 @@ const resolveMcpCredentialInputMap = (
         continue;
       }
       if ("kind" in value) {
-        const slotResolved = yield* resolveMcpBindingValueMap(
+        const slotResolved = yield* resolveConfiguredMcpCredentialMap(
           ctx,
           { [name]: value },
           {
@@ -632,18 +548,26 @@ const resolveMcpHeaderAuth = (
 ): Effect.Effect<Record<string, string>, McpConnectionError | StorageFailure> =>
   Effect.gen(function* () {
     if (auth.kind !== "header") return {};
-    const binding = yield* resolveMcpCredentialBinding(ctx, sourceId, sourceScope, auth.secretSlot);
+    const binding = yield* resolveSourceCredentialBinding({
+      credentialBindings: ctx.credentialBindings,
+      pluginId: MCP_PLUGIN_ID,
+      sourceId,
+      sourceScope,
+      slotKey: auth.secretSlot,
+    });
     if (binding?.value.kind === "secret") {
-      const secret = yield* ctx.secrets.getAtScope(binding.value.secretId, binding.scopeId).pipe(
-        Effect.catchTag("SecretOwnedByConnectionError", () =>
-          Effect.fail(
-            new McpConnectionError({
-              transport: "remote",
-              message: `Failed to resolve header auth binding "${auth.secretSlot}"`,
-            }),
+      const secret = yield* ctx.secrets
+        .getAtScope(binding.value.secretId, binding.value.secretScopeId ?? binding.scopeId)
+        .pipe(
+          Effect.catchTag("SecretOwnedByConnectionError", () =>
+            Effect.fail(
+              new McpConnectionError({
+                transport: "remote",
+                message: `Failed to resolve header auth binding "${auth.secretSlot}"`,
+              }),
+            ),
           ),
-        ),
-      );
+        );
       if (secret === null) {
         return yield* new McpConnectionError({
           transport: "remote",
@@ -671,12 +595,13 @@ const resolveMcpStoredOauthProvider = (
 ): Effect.Effect<OAuthClientProvider | undefined, McpConnectionError | StorageFailure> =>
   Effect.gen(function* () {
     if (auth.kind !== "oauth2") return undefined;
-    const binding = yield* resolveMcpCredentialBinding(
-      ctx,
+    const binding = yield* resolveSourceCredentialBinding({
+      credentialBindings: ctx.credentialBindings,
+      pluginId: MCP_PLUGIN_ID,
       sourceId,
       sourceScope,
-      auth.connectionSlot,
-    );
+      slotKey: auth.connectionSlot,
+    });
     if (binding?.value.kind !== "connection") {
       return yield* new McpConnectionError({
         transport: "remote",
@@ -740,12 +665,13 @@ const resolveMcpInputAuth = (
       "connectionId" in auth
         ? { id: ConnectionId.make(auth.connectionId), scope: targetScope ?? sourceScope }
         : yield* Effect.gen(function* () {
-            const binding = yield* resolveMcpCredentialBinding(
-              ctx,
+            const binding = yield* resolveSourceCredentialBinding({
+              credentialBindings: ctx.credentialBindings,
+              pluginId: MCP_PLUGIN_ID,
               sourceId,
               sourceScope,
-              auth.connectionSlot,
-            );
+              slotKey: auth.connectionSlot,
+            });
             return binding?.value.kind === "connection"
               ? { id: binding.value.connectionId, scope: binding.scopeId }
               : null;
@@ -801,12 +727,12 @@ const resolveConnectorInput = (
   }
 
   return Effect.gen(function* () {
-    const resolvedHeaders = yield* resolveMcpBindingValueMap(ctx, sd.headers, {
+    const resolvedHeaders = yield* resolveConfiguredMcpCredentialMap(ctx, sd.headers, {
       sourceId,
       sourceScope,
       missingLabel: "header",
     });
-    const resolvedQueryParams = yield* resolveMcpBindingValueMap(ctx, sd.queryParams, {
+    const resolvedQueryParams = yield* resolveConfiguredMcpCredentialMap(ctx, sd.queryParams, {
       sourceId,
       sourceScope,
       missingLabel: "query parameter",
@@ -1191,8 +1117,14 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           const canonicalRemote =
             config.transport === "remote"
               ? {
-                  headers: canonicalizeCredentialMap(config.headers, mcpHeaderSlot),
-                  queryParams: canonicalizeCredentialMap(config.queryParams, mcpQueryParamSlot),
+                  headers: prepareHttpCredentialMap<McpCredentialInput>({
+                    values: config.headers,
+                    slotForName: mcpHeaderSlot,
+                  }),
+                  queryParams: prepareHttpCredentialMap<McpCredentialInput>({
+                    values: config.queryParams,
+                    slotForName: mcpQueryParamSlot,
+                  }),
                   auth: canonicalizeAuth(config.auth),
                 }
               : null;
@@ -1360,22 +1292,21 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                   })),
                 });
 
-                if (directBindings.length > 0) {
-                  for (const binding of directBindings) {
-                    const bindingTargetScope = yield* targetScopeForBinding(
-                      config.transport === "remote" ? config.credentialTargetScope : undefined,
-                      binding,
-                    );
-                    yield* ctx.credentialBindings.set({
-                      targetScope: ScopeId.make(bindingTargetScope),
-                      pluginId: MCP_PLUGIN_ID,
-                      sourceId: namespace,
-                      sourceScope: ScopeId.make(config.scope),
-                      slotKey: binding.slot,
-                      value: binding.value,
-                    });
-                  }
-                }
+                yield* setPreparedHttpCredentialBindings({
+                  credentialBindings: ctx.credentialBindings,
+                  pluginId: MCP_PLUGIN_ID,
+                  sourceId: namespace,
+                  sourceScope: config.scope,
+                  fallbackTargetScope:
+                    config.transport === "remote" ? config.credentialTargetScope : undefined,
+                  bindings: directBindings,
+                  onMissingTargetScope: () =>
+                    new McpConnectionError({
+                      transport: "remote",
+                      message:
+                        "credentialTargetScope is required when adding direct MCP credentials",
+                    }),
+                });
               }),
             )
             .pipe(
@@ -1526,11 +1457,17 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
 
           const canonicalHeaders =
             input.headers !== undefined
-              ? canonicalizeCredentialMap(input.headers, mcpHeaderSlot)
+              ? prepareHttpCredentialMap<McpCredentialInput>({
+                  values: input.headers,
+                  slotForName: mcpHeaderSlot,
+                })
               : null;
           const canonicalQueryParams =
             input.queryParams !== undefined
-              ? canonicalizeCredentialMap(input.queryParams, mcpQueryParamSlot)
+              ? prepareHttpCredentialMap<McpCredentialInput>({
+                  values: input.queryParams,
+                  slotForName: mcpQueryParamSlot,
+                })
               : null;
           const canonicalAuth = input.auth !== undefined ? canonicalizeAuth(input.auth) : null;
           const directBindings = [
@@ -1575,16 +1512,14 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                 config: updatedConfig,
               });
               if (affectedPrefixes.length > 0 || directBindings.length > 0) {
-                yield* ctx.credentialBindings.replaceForSource({
-                  targetScope: ScopeId.make(replacementTargetScope),
+                yield* replacePreparedHttpCredentialBindingsForSource({
+                  credentialBindings: ctx.credentialBindings,
+                  targetScope: replacementTargetScope,
                   pluginId: MCP_PLUGIN_ID,
                   sourceId: namespace,
-                  sourceScope: ScopeId.make(scope),
+                  sourceScope: scope,
                   slotPrefixes: affectedPrefixes,
-                  bindings: directBindings.map((binding) => ({
-                    slotKey: binding.slot,
-                    value: binding.value,
-                  })),
+                  bindings: directBindings,
                 });
               }
             }),

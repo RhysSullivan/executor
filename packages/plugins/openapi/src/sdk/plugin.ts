@@ -4,14 +4,17 @@ import { HttpClient } from "effect/unstable/http";
 
 import {
   ScopeId,
-  SecretId,
   SourceDetectionResult,
   StorageError,
   definePlugin,
+  prepareHttpCredentialMap,
+  replacePreparedHttpCredentialBindingsForSource,
+  resolveConfiguredHttpCredentialMap,
   tool,
+  resolveSourceCredentialBinding,
   resolveSecretBackedMap,
-  type CredentialBindingRef,
-  type CredentialBindingValue,
+  setPreparedHttpCredentialBindings,
+  type PreparedHttpCredentialBinding,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -42,7 +45,6 @@ import {
 import {
   HeaderValue as HeaderValueSchema,
   ConfiguredHeaderValue as ConfiguredHeaderValueSchema,
-  ConfiguredHeaderBinding,
   OAuth2SourceConfig,
   OpenApiCredentialInput as OpenApiCredentialInputSchema,
   type OpenApiCredentialInput as OpenApiCredentialInputValue,
@@ -262,46 +264,13 @@ const canonicalizeHeaders = (
   headers: Record<string, OpenApiCredentialInput> | undefined,
 ): {
   readonly headers: Record<string, ConfiguredHeaderValue>;
-  readonly bindings: ReadonlyArray<{
-    readonly slot: string;
-    readonly value: CredentialBindingValue;
-    readonly targetScope?: string;
-  }>;
+  readonly bindings: readonly PreparedHttpCredentialBinding[];
 } => {
-  const nextHeaders: Record<string, ConfiguredHeaderValue> = {};
-  const bindings: Array<{
-    slot: string;
-    value: CredentialBindingValue;
-    targetScope?: string;
-  }> = [];
-  for (const [name, value] of Object.entries(headers ?? {})) {
-    if (typeof value === "string") {
-      nextHeaders[name] = value;
-      continue;
-    }
-    if ("kind" in value) {
-      nextHeaders[name] = value;
-      continue;
-    }
-    const slot = headerSlotFromName(name);
-    nextHeaders[name] = ConfiguredHeaderBinding.make({
-      kind: "binding",
-      slot,
-      prefix: value.prefix,
-    });
-    bindings.push({
-      slot,
-      targetScope: "targetScope" in value ? value.targetScope : undefined,
-      value: {
-        kind: "secret",
-        secretId: SecretId.make(value.secretId),
-        ...("secretScopeId" in value && value.secretScopeId
-          ? { secretScopeId: value.secretScopeId }
-          : {}),
-      },
-    });
-  }
-  return { headers: nextHeaders, bindings };
+  const prepared = prepareHttpCredentialMap<OpenApiCredentialInput>({
+    values: headers,
+    slotForName: headerSlotFromName,
+  });
+  return { headers: prepared.values, bindings: prepared.bindings };
 };
 
 const canonicalizeCredentialMap = (
@@ -309,47 +278,12 @@ const canonicalizeCredentialMap = (
   slotForName: (name: string) => string,
 ): {
   readonly values: Record<string, ConfiguredHeaderValue>;
-  readonly bindings: ReadonlyArray<{
-    readonly slot: string;
-    readonly value: CredentialBindingValue;
-    readonly targetScope?: string;
-  }>;
-} => {
-  const nextValues: Record<string, ConfiguredHeaderValue> = {};
-  const bindings: Array<{
-    slot: string;
-    value: CredentialBindingValue;
-    targetScope?: string;
-  }> = [];
-  for (const [name, value] of Object.entries(values ?? {})) {
-    if (typeof value === "string") {
-      nextValues[name] = value;
-      continue;
-    }
-    if ("kind" in value) {
-      nextValues[name] = value;
-      continue;
-    }
-    const slot = slotForName(name);
-    nextValues[name] = ConfiguredHeaderBinding.make({
-      kind: "binding",
-      slot,
-      prefix: value.prefix,
-    });
-    bindings.push({
-      slot,
-      targetScope: "targetScope" in value ? value.targetScope : undefined,
-      value: {
-        kind: "secret",
-        secretId: SecretId.make(value.secretId),
-        ...("secretScopeId" in value && value.secretScopeId
-          ? { secretScopeId: value.secretScopeId }
-          : {}),
-      },
-    });
-  }
-  return { values: nextValues, bindings };
-};
+  readonly bindings: readonly PreparedHttpCredentialBinding[];
+} =>
+  prepareHttpCredentialMap<OpenApiCredentialInput>({
+    values,
+    slotForName,
+  });
 
 const canonicalizeSpecFetchCredentials = (
   credentials:
@@ -360,11 +294,7 @@ const canonicalizeSpecFetchCredentials = (
     | undefined,
 ): {
   readonly credentials?: SourceConfig["specFetchCredentials"];
-  readonly bindings: ReadonlyArray<{
-    readonly slot: string;
-    readonly value: CredentialBindingValue;
-    readonly targetScope?: string;
-  }>;
+  readonly bindings: readonly PreparedHttpCredentialBinding[];
 } => {
   const headers = canonicalizeCredentialMap(credentials?.headers, specFetchHeaderSlotFromName);
   const queryParams = canonicalizeCredentialMap(
@@ -390,10 +320,7 @@ const canonicalizeOAuth2 = (
   oauth2: OpenApiOAuthInput | undefined,
 ): {
   readonly oauth2?: OAuth2SourceConfig;
-  readonly bindings: ReadonlyArray<{
-    readonly slot: string;
-    readonly value: CredentialBindingValue;
-  }>;
+  readonly bindings: readonly PreparedHttpCredentialBinding[];
 } => {
   if (!oauth2) return { bindings: [] };
   return {
@@ -417,30 +344,6 @@ const scopeRanks = (ctx: PluginCtx<OpenapiStore>): ReadonlyMap<string, number> =
 
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number =>
   ranks.get(scopeId) ?? Infinity;
-
-const resolveOpenApiCredentialBinding = (
-  ctx: PluginCtx<OpenapiStore>,
-  sourceId: string,
-  sourceScope: string,
-  slot: string,
-): Effect.Effect<CredentialBindingRef | null, StorageFailure> =>
-  Effect.gen(function* () {
-    const ranks = scopeRanks(ctx);
-    const sourceSourceRank = scopeRank(ranks, sourceScope);
-    if (sourceSourceRank === Infinity) return null;
-    const bindings = yield* ctx.credentialBindings.listForSource({
-      pluginId: OPENAPI_PLUGIN_ID,
-      sourceId,
-      sourceScope: ScopeId.make(sourceScope),
-    });
-    const binding = bindings
-      .filter(
-        (candidate) =>
-          candidate.slotKey === slot && scopeRank(ranks, candidate.scopeId) <= sourceSourceRank,
-      )
-      .sort((a, b) => scopeRank(ranks, a.scopeId) - scopeRank(ranks, b.scopeId))[0];
-    return binding ?? null;
-  });
 
 const validateOpenApiBindingTarget = (
   ctx: PluginCtx<OpenapiStore>,
@@ -484,7 +387,7 @@ const validateOpenApiBindingTarget = (
 
 const targetScopeForBinding = (
   fallbackTargetScope: string | undefined,
-  binding: { readonly slot: string; readonly targetScope?: string },
+  binding: PreparedHttpCredentialBinding,
 ): Effect.Effect<string, OpenApiOAuthError> => {
   const targetScope = binding.targetScope ?? fallbackTargetScope;
   if (targetScope) return Effect.succeed(targetScope);
@@ -560,49 +463,32 @@ const resolveConfiguredValueMap = (
     readonly missingLabel: string;
   },
 ): Effect.Effect<Record<string, string>, OpenApiOAuthError | StorageFailure> =>
-  Effect.gen(function* () {
-    const resolved: Record<string, string> = {};
-    for (const [name, value] of Object.entries(params.values)) {
-      if (typeof value === "string") {
-        resolved[name] = value;
-        continue;
-      }
-      const binding = yield* resolveOpenApiCredentialBinding(
-        ctx,
-        params.sourceId,
-        params.sourceScope,
-        value.slot,
-      );
-      if (binding?.value.kind === "secret") {
-        const secret = yield* ctx.secrets
-          .getAtScope(binding.value.secretId, binding.value.secretScopeId ?? binding.scopeId)
-          .pipe(
-            Effect.catchTag("SecretOwnedByConnectionError", () =>
-              Effect.fail(
-                new OpenApiOAuthError({
-                  message: `Secret not found for header "${name}"`,
-                }),
-              ),
-            ),
-          );
-        if (secret === null) {
-          return yield* new OpenApiOAuthError({
-            message: `Missing secret "${binding.value.secretId}" for ${params.missingLabel} "${name}"`,
-          });
-        }
-        resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
-        continue;
-      }
-      if (binding?.value.kind === "text") {
-        resolved[name] = value.prefix ? `${value.prefix}${binding.value.text}` : binding.value.text;
-        continue;
-      }
-      return yield* new OpenApiOAuthError({
+  resolveConfiguredHttpCredentialMap({
+    credentialBindings: ctx.credentialBindings,
+    pluginId: OPENAPI_PLUGIN_ID,
+    sourceId: params.sourceId,
+    sourceScope: params.sourceScope,
+    values: params.values,
+    empty: "record",
+    getSecretAtScope: (secretId, scope, { name }) =>
+      ctx.secrets.getAtScope(secretId, scope).pipe(
+        Effect.catchTag("SecretOwnedByConnectionError", () =>
+          Effect.fail(
+            new OpenApiOAuthError({
+              message: `Secret not found for ${params.missingLabel} "${name}"`,
+            }),
+          ),
+        ),
+      ),
+    onMissingBinding: (name) =>
+      new OpenApiOAuthError({
         message: `Missing binding for ${params.missingLabel} "${name}"`,
-      });
-    }
-    return resolved;
-  });
+      }),
+    onMissingSecret: (name, binding) =>
+      new OpenApiOAuthError({
+        message: `Missing secret "${binding.value.secretId}" for ${params.missingLabel} "${name}"`,
+      }),
+  }).pipe(Effect.map((resolved) => resolved ?? {}));
 
 const resolveConfiguredHeaders = (
   ctx: PluginCtx<OpenapiStore>,
@@ -657,12 +543,13 @@ const resolveOAuthConnectionId = (
   StorageFailure
 > =>
   Effect.gen(function* () {
-    const binding = yield* resolveOpenApiCredentialBinding(
-      ctx,
-      params.sourceId,
-      params.sourceScope,
-      params.oauth2.connectionSlot,
-    );
+    const binding = yield* resolveSourceCredentialBinding({
+      credentialBindings: ctx.credentialBindings,
+      pluginId: OPENAPI_PLUGIN_ID,
+      sourceId: params.sourceId,
+      sourceScope: params.sourceScope,
+      slotKey: params.oauth2.connectionSlot,
+    });
     if (binding?.value.kind === "connection") {
       const connectionId = binding.value.connectionId;
       const connection = yield* ctx.connections.getAtScope(connectionId, binding.scopeId);
@@ -872,22 +759,18 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
             })),
           });
 
-          if (directBindings.length > 0) {
-            for (const binding of directBindings) {
-              const bindingTargetScope = yield* targetScopeForBinding(
-                input.credentialTargetScope,
-                binding,
-              );
-              yield* ctx.credentialBindings.set({
-                targetScope: ScopeId.make(bindingTargetScope),
-                pluginId: OPENAPI_PLUGIN_ID,
-                sourceId: namespace,
-                sourceScope: ScopeId.make(input.scope),
-                slotKey: binding.slot,
-                value: binding.value,
-              });
-            }
-          }
+          yield* setPreparedHttpCredentialBindings({
+            credentialBindings: ctx.credentialBindings,
+            pluginId: OPENAPI_PLUGIN_ID,
+            sourceId: namespace,
+            sourceScope: input.scope,
+            fallbackTargetScope: input.credentialTargetScope,
+            bindings: directBindings,
+            onMissingTargetScope: () =>
+              new OpenApiOAuthError({
+                message: "credentialTargetScope is required when adding direct OpenAPI credentials",
+              }),
+          });
 
           if (Object.keys(hoistedDefs).length > 0) {
             yield* ctx.core.definitions.register({
@@ -1083,16 +966,14 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
                   oauth2: canonicalOAuth2?.oauth2,
                 });
                 if (affectedPrefixes.length > 0 || directBindings.length > 0) {
-                  yield* ctx.credentialBindings.replaceForSource({
-                    targetScope: ScopeId.make(targetScope),
+                  yield* replacePreparedHttpCredentialBindingsForSource({
+                    credentialBindings: ctx.credentialBindings,
+                    targetScope,
                     pluginId: OPENAPI_PLUGIN_ID,
                     sourceId: namespace,
-                    sourceScope: ScopeId.make(scope),
+                    sourceScope: scope,
                     slotPrefixes: affectedPrefixes,
-                    bindings: directBindings.map((binding) => ({
-                      slotKey: binding.slot,
-                      value: binding.value,
-                    })),
+                    bindings: directBindings,
                   });
                 }
               }),

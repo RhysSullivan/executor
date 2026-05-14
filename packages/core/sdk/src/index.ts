@@ -147,6 +147,20 @@ export {
   type CredentialBindingsFacade,
 } from "./credential-bindings";
 
+export {
+  prepareHttpCredentialMap,
+  replacePreparedHttpCredentialBindingsForSource,
+  resolveConfiguredHttpCredentialMap,
+  resolveSourceCredentialBinding,
+  setPreparedHttpCredentialBindings,
+  targetScopeForPreparedHttpCredentialBinding,
+  type DirectHttpSecretCredentialInput,
+  type HttpCredentialInput,
+  type PreparedHttpCredentialBinding,
+  type PreparedHttpCredentialMap,
+  type SecretCredentialBindingRef,
+} from "./http-credentials";
+
 // Usage tracking — secret/connection refs across plugins
 export { Usage, type UsagesForSecretInput, type UsagesForConnectionInput } from "./usages";
 
