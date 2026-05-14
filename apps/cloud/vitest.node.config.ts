@@ -16,12 +16,10 @@ export default defineConfig({
   test: {
     include: ["src/**/*.node.test.ts"],
     globalSetup: ["./scripts/test-globalsetup.ts"],
-    setupFiles: ["./scripts/test-node-setup.ts"],
     // Keep files serialized so tests share one deterministic PGlite state.
     fileParallelism: false,
     env: {
       DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5434/postgres",
-      EXECUTOR_TEST_DIRECT_PGLITE: "true",
       WORKOS_API_KEY: "test_api_key",
       WORKOS_CLIENT_ID: "test_client_id",
       WORKOS_COOKIE_PASSWORD: "test_cookie_password_at_least_32_chars!",

@@ -8,9 +8,8 @@
 // fresh TCP socket per Effect scope, which aligns with Workers' per-request
 // I/O model. See personal-notes/pg-cloudflare-sockets-dev.md.
 //
-// Node integration tests use Drizzle's PGlite driver directly. Workerd still
-// uses postgres.js over the PGlite socket, which is the path production uses
-// through Hyperdrive.
+// Tests point DATABASE_URL at a PGlite Postgres-compatible socket, so they use
+// the same postgres.js path as production.
 //
 // Migrations are run out-of-band (e.g. via a separate script or CI step),
 // not at request time — Cloudflare Workers cannot read the filesystem.
@@ -20,12 +19,8 @@ import { Context, Effect, Layer } from "effect";
 import { drizzle } from "drizzle-orm/postgres-js";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import postgres, { type Sql } from "postgres";
-import { collectTables } from "@executor-js/sdk";
-import executorConfig from "../../executor.config";
 import * as cloudSchema from "./schema";
 import * as executorSchema from "./executor-schema";
-import { createPgliteFumaDb } from "./pglite";
-import { ensureCloudSchema } from "./schema-init";
 
 // Exported so every drizzle() call in the cloud app shares one schema
 // object. Historically `mcp-session.ts` built its own and forgot to spread
@@ -44,12 +39,6 @@ export type DbServiceShape = {
 type DbResource = DbServiceShape & {
   readonly close: () => Effect.Effect<void>;
 };
-
-type DirectPgliteRuntime = {
-  readonly db: DrizzleDb;
-};
-
-let directPgliteRuntime: Promise<DirectPgliteRuntime> | undefined;
 
 export const resolveConnectionString = () => {
   // Production should always use Hyperdrive when the binding exists. Keeping
@@ -78,30 +67,6 @@ const makeSql = (): Sql =>
     onnotice: () => undefined,
   });
 
-const getDirectPgliteRuntime = async (): Promise<DirectPgliteRuntime> => {
-  directPgliteRuntime ??= (async () => {
-    const runtime = await createPgliteFumaDb({
-      tables: collectTables(executorConfig.plugins({})),
-      namespace: "executor_cloud",
-    });
-    await ensureCloudSchema(runtime.drizzle);
-    return { db: runtime.drizzle as DrizzleDb };
-  })();
-  return directPgliteRuntime;
-};
-
-const makeDirectPgliteResource = async (): Promise<DbResource> => {
-  const runtime = await getDirectPgliteRuntime();
-  return {
-    db: runtime.db,
-    close: () => Effect.void,
-  };
-};
-
-export const warmDirectPgliteDb = async (): Promise<void> => {
-  await getDirectPgliteRuntime();
-};
-
 const makePostgresResource = (): DbResource => {
   const sql = makeSql();
   return {
@@ -124,13 +89,7 @@ const makePostgresResource = (): DbResource => {
 export class DbService extends Context.Service<DbService, DbServiceShape>()(
   "@executor-js/cloud/DbService",
 ) {
-  static Production = Layer.effect(this)(
+  static Live = Layer.effect(this)(
     Effect.acquireRelease(Effect.sync(makePostgresResource), (resource) => resource.close()),
   );
-
-  static TestDirectPglite = Layer.effect(this)(
-    Effect.acquireRelease(Effect.promise(makeDirectPgliteResource), (resource) => resource.close()),
-  );
-
-  static Live = this.Production;
 }

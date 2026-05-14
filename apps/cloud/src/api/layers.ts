@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpServer } from "effect/unstable/http";
 import { Layer } from "effect";
@@ -22,14 +21,7 @@ import { requestScopedMiddleware } from "./request-scoped";
 
 export { CoreSharedServices, ProtectedCloudApi, RouterConfig };
 
-type TestEnv = typeof env & {
-  readonly EXECUTOR_TEST_DIRECT_PGLITE?: string;
-};
-
-export const DbLive =
-  (env as TestEnv).EXECUTOR_TEST_DIRECT_PGLITE === "true"
-    ? DbService.TestDirectPglite
-    : DbService.Production;
+const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 
 // Per-request layer. Anything that opens an I/O object (postgres.js socket,

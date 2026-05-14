@@ -161,7 +161,7 @@ const TestApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
   Layer.provide(TestExecutionStackMiddleware),
   Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
   Layer.provideMerge(RouterConfig),
-  Layer.provideMerge(DbService.TestDirectPglite),
+  Layer.provideMerge(DbService.Live),
   Layer.provideMerge(HttpServer.layerServices),
 );
 

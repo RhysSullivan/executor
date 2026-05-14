@@ -137,14 +137,7 @@ const verifyJwt = (token: string) =>
     audience: WORKOS_CLIENT_ID,
   });
 
-type TestEnv = typeof env & {
-  readonly EXECUTOR_TEST_DIRECT_PGLITE?: string;
-};
-
-const DbLive =
-  (env as TestEnv).EXECUTOR_TEST_DIRECT_PGLITE === "true"
-    ? DbService.TestDirectPglite
-    : DbService.Production;
+const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 const McpOrganizationAuthServices = Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
 

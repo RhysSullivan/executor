@@ -3,7 +3,6 @@
 // non-protected/org handlers (which transitively import
 // `@tanstack/react-start`, unresolvable in the Workers test runtime).
 
-import { env } from "cloudflare:workers";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { Layer } from "effect";
@@ -36,14 +35,7 @@ export const ProtectedCloudApi = composePluginApi(cloudPlugins);
 
 const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
 
-type TestEnv = typeof env & {
-  readonly EXECUTOR_TEST_DIRECT_PGLITE?: string;
-};
-
-const DbLive =
-  (env as TestEnv).EXECUTOR_TEST_DIRECT_PGLITE === "true"
-    ? DbService.TestDirectPglite
-    : DbService.Production;
+const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 
 export const SharedServices = Layer.mergeAll(
