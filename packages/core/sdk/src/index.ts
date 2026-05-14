@@ -176,6 +176,28 @@ export {
   type ElicitationContext,
 } from "./elicitation";
 
+// Execution observer
+export {
+  ExecutionId,
+  ExecutionToolCallId,
+  ExecutionInteractionId,
+  ExecutionStarted,
+  ToolCallStarted,
+  ToolCallFinished,
+  InteractionStarted,
+  InteractionResolved,
+  ExecutionFinished,
+  noopExecutionObserver,
+  ignoreExecutionObserverErrors,
+  composeExecutionObservers,
+  type ExecutionTrigger,
+  type ToolCallStatus,
+  type InteractionStatus,
+  type ExecutionStatus,
+  type ExecutionEvent,
+  type ExecutionObserver,
+} from "./execution-observer";
+
 // Blob store
 export {
   type BlobStore,
