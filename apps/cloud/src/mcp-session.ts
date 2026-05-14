@@ -668,7 +668,8 @@ export class McpSessionDO extends DurableObject {
     const lastActivityMs = await this.loadLastActivity();
     const idleMs = Date.now() - lastActivityMs;
     if (idleMs >= SESSION_TIMEOUT_MS) {
-      await this.cleanup();
+      await Effect.runPromise(this.closeRuntime());
+      await this.ctx.storage.deleteAlarm();
       return;
     }
     await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_MS);

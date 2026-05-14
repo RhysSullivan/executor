@@ -417,6 +417,44 @@ describe("/mcp session restore", () => {
     expect(body.result?.tools?.some((tool) => tool.name === "execute")).toBe(true);
   }, 15_000);
 
+  it("restores an initialized session after the idle alarm suspends the runtime", async () => {
+    const orgId = nextOrgId();
+    const accountId = nextAccountId();
+    const bearer = makeTestBearer(accountId, orgId);
+    await seedOrg(orgId);
+
+    const initializeResponse = await mcpPost({
+      bearer,
+      body: INITIALIZE_REQUEST,
+    });
+    expect(initializeResponse.status).toBe(200);
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    const ns = env.MCP_SESSION;
+    const stub = ns.get(ns.idFromString(sessionId!));
+    await runInDurableObject(stub, async (instance, state) => {
+      doActivityState(instance).lastActivityMs = 0;
+      await state.storage.put(LAST_ACTIVITY_KEY, Date.now() - SESSION_TIMEOUT_MS - 1_000);
+      await state.storage.setAlarm(Date.now() - 1);
+    });
+
+    await runDurableObjectAlarm(stub);
+
+    const response = await mcpPost({
+      bearer,
+      sessionId,
+      body: TOOLS_LIST_REQUEST,
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      readonly jsonrpc: string;
+      readonly result?: { readonly tools?: ReadonlyArray<{ readonly name: string }> };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.result?.tools?.some((tool) => tool.name === "execute")).toBe(true);
+  }, 15_000);
+
   it("reproduces cross-account session reuse via leaked mcp-session-id", async () => {
     const victimOrgId = nextOrgId();
     const attackerOrgId = nextOrgId();
@@ -528,18 +566,19 @@ describe("McpSessionDO alarm lifecycle", () => {
     expect(stored.alarm).toBeLessThanOrEqual(Date.now() + HEARTBEAT_MS + 1_000);
   });
 
-  it("clears an expired session after a cold-started alarm", async () => {
+  it("suspends an expired session after a cold-started alarm", async () => {
     const stub = env.MCP_SESSION.get(env.MCP_SESSION.newUniqueId());
+    const sessionMeta = {
+      organizationId: "org_alarm_expired",
+      organizationName: "Alarm Expired",
+      userId: "user_alarm_expired",
+    };
+    const lastActivity = Date.now() - SESSION_TIMEOUT_MS - 1_000;
 
     await runInDurableObject(stub, async (_instance, state) => {
-      const now = Date.now();
-      await state.storage.put(SESSION_META_KEY, {
-        organizationId: "org_alarm_expired",
-        organizationName: "Alarm Expired",
-        userId: "user_alarm_expired",
-      });
-      await state.storage.put(LAST_ACTIVITY_KEY, now - SESSION_TIMEOUT_MS - 1_000);
-      await state.storage.setAlarm(now - 1);
+      await state.storage.put(SESSION_META_KEY, sessionMeta);
+      await state.storage.put(LAST_ACTIVITY_KEY, lastActivity);
+      await state.storage.setAlarm(Date.now() - 1);
     });
     await runInDurableObject(stub, (instance) => {
       doActivityState(instance).lastActivityMs = 0;
@@ -553,8 +592,8 @@ describe("McpSessionDO alarm lifecycle", () => {
       alarm: await state.storage.getAlarm(),
     }));
 
-    expect(stored.sessionMeta).toBeUndefined();
-    expect(stored.lastActivity).toBeUndefined();
+    expect(stored.sessionMeta).toEqual(sessionMeta);
+    expect(stored.lastActivity).toBe(lastActivity);
     expect(stored.alarm).toBeNull();
   });
 });
