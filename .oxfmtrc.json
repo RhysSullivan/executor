@@ -11,6 +11,7 @@
     "bun.lock",
     "*.tsbuildinfo",
     "executor-*.tgz",
-    "**/routeTree.gen.ts"
+    "**/routeTree.gen.ts",
+    "apps/cloud/src/services/executor-schema.ts"
   ]
 }
