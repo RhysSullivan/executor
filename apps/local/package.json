@@ -12,6 +12,8 @@
     "dev:vite": "portless --name executor-local bunx --bun vite dev",
     "build": "turbo run build --filter @executor-js/vite-plugin && bunx --bun vite build",
     "start": "bun run src/serve.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
     "test": "bunx --bun vitest run",
     "typecheck": "tsgo --noEmit",
     "typecheck:slow": "tsc --noEmit"
@@ -56,6 +58,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "bun-types": "catalog:",
+    "drizzle-kit": "catalog:",
     "jiti": "^2.6.1",
     "react-grab": "^0.1.31",
     "typescript": "catalog:",

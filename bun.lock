@@ -191,6 +191,7 @@
         "@types/react-dom": "catalog:",
         "@vitejs/plugin-react": "catalog:",
         "bun-types": "catalog:",
+        "drizzle-kit": "catalog:",
         "jiti": "^2.6.1",
         "react-grab": "^0.1.31",
         "typescript": "catalog:",

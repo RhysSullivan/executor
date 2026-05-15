@@ -108,6 +108,57 @@ const isOAuthErrorBody = (body: string): boolean => {
   return typeof obj.error === "string";
 };
 
+/** RFC 9728 protected-resource-metadata document. We only need the two
+ *  fields that prove the document genuinely describes an OAuth-protected
+ *  resource: `resource` and a non-empty `authorization_servers` list. */
+const ProtectedResourceMetadata = Schema.Struct({
+  resource: Schema.String,
+  authorization_servers: Schema.Array(Schema.String),
+});
+const decodeProtectedResourceMetadata = Schema.decodeUnknownOption(
+  Schema.fromJsonString(ProtectedResourceMetadata),
+);
+
+/** RFC 9728 §3.1 path-scoped well-known URL: insert
+ *  `/.well-known/oauth-protected-resource` before the resource path. */
+const protectedResourceMetadataUrl = (endpoint: URL): string => {
+  const path = endpoint.pathname === "/" ? "" : endpoint.pathname;
+  return `${endpoint.origin}/.well-known/oauth-protected-resource${path}`;
+};
+
+const resourceMatchesEndpoint = (resource: string, endpoint: URL): boolean => {
+  if (!URL.canParse(resource)) return false;
+  const parsed = new URL(resource);
+  if (parsed.origin !== endpoint.origin) return false;
+  const resourcePath = parsed.pathname.replace(/\/+$/, "");
+  const endpointPath = endpoint.pathname.replace(/\/+$/, "");
+  return endpointPath === resourcePath || endpointPath.startsWith(`${resourcePath}/`);
+};
+
+const probeProtectedResourceMetadata = (
+  client: HttpClient.HttpClient,
+  endpoint: URL,
+  timeoutMs: number,
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    const response = yield* client
+      .execute(
+        HttpClientRequest.get(protectedResourceMetadataUrl(endpoint)).pipe(
+          HttpClientRequest.setHeader("accept", "application/json"),
+        ),
+      )
+      .pipe(Effect.timeout(Duration.millis(timeoutMs)));
+    if (response.status < 200 || response.status >= 300) return false;
+    const body = yield* response.text.pipe(
+      Effect.timeout(Duration.millis(timeoutMs)),
+      Effect.catch(() => Effect.succeed("")),
+    );
+    const metadata = decodeProtectedResourceMetadata(body);
+    if (Option.isNone(metadata)) return false;
+    if (metadata.value.authorization_servers.length === 0) return false;
+    return resourceMatchesEndpoint(metadata.value.resource, endpoint);
+  }).pipe(Effect.catch(() => Effect.succeed(false)));
+
 const ErrorMessageShape = Schema.Struct({ message: Schema.String });
 const decodeErrorMessageShape = Schema.decodeUnknownOption(ErrorMessageShape);
 
@@ -203,6 +254,9 @@ export const probeMcpEndpointShape = (
           if (response.status === 401) {
             const wwwAuth = readHeader(response.headers, "www-authenticate");
             if (!wwwAuth || !/^\s*bearer\b/i.test(wwwAuth)) {
+              if (yield* probeProtectedResourceMetadata(client, url, timeoutMs)) {
+                return { kind: "mcp", requiresAuth: true } as const;
+              }
               return {
                 kind: "not-mcp",
                 category: "auth-required",
@@ -245,6 +299,9 @@ export const probeMcpEndpointShape = (
             // arrays or other shapes that fail both checks.
             const body = yield* readBody(response);
             if (!isJsonRpcEnvelope(body) && !isOAuthErrorBody(body)) {
+              if (yield* probeProtectedResourceMetadata(client, url, timeoutMs)) {
+                return { kind: "mcp", requiresAuth: true } as const;
+              }
               return {
                 kind: "not-mcp",
                 category: "auth-required",

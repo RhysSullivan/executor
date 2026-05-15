@@ -4,7 +4,17 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { collectTables, definePlugin, scopedExecutorTable, textColumn } from "@executor-js/sdk";
+import {
+  boolColumn,
+  collectTables,
+  dateColumn,
+  definePlugin,
+  jsonColumn,
+  nullableBigintColumn,
+  nullableTextColumn,
+  scopedExecutorTable,
+  textColumn,
+} from "@executor-js/sdk";
 import { withQueryContext } from "fumadb/query";
 
 import { importLegacySqliteIfNeeded, readBundledDrizzleMigrationHashes } from "./executor";
@@ -156,6 +166,22 @@ const latePlugin = definePlugin(() => ({
   storage: () => ({}),
 }))();
 
+const legacyShapeSchema = {
+  legacy_shape: scopedExecutorTable("legacy_shape", {
+    payload: jsonColumn("payload"),
+    enabled: boolColumn("enabled", false),
+    retry_after_ms: nullableBigintColumn("retry_after_ms"),
+    discovered_at: dateColumn("discovered_at"),
+    note: nullableTextColumn("note"),
+  }),
+};
+
+const legacyShapePlugin = definePlugin(() => ({
+  id: "legacy-shape" as const,
+  schema: legacyShapeSchema,
+  storage: () => ({}),
+}))();
+
 describe("importSqliteDataToFuma", () => {
   it("imports current SQLite rows into FumaDB SQLite without replacing source files", async () => {
     const sqlitePath = join(workDir, "data.db");
@@ -283,6 +309,68 @@ describe("importSqliteDataToFuma", () => {
         orderBy: ["id", "asc"],
       }),
     ).resolves.toEqual([{ id: "src_b", scope_id: "scope_b", name: "Scope B" }]);
+  });
+
+  it("normalizes plugin table values when importing legacy SQLite rows", async () => {
+    const sqlitePath = join(workDir, "data.db");
+    const db = new Database(sqlitePath);
+    db.exec(`
+      CREATE TABLE legacy_shape (
+        scope_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        retry_after_ms TEXT,
+        discovered_at INTEGER NOT NULL,
+        note TEXT,
+        PRIMARY KEY (scope_id, id)
+      );
+    `);
+    db.prepare(
+      `INSERT INTO legacy_shape (
+        scope_id, id, payload, enabled, retry_after_ms, discovered_at, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "scope_a",
+      "shape_1",
+      JSON.stringify({ auth: { type: "oauth2" }, paths: ["/v1/items"] }),
+      1,
+      "9007199254740993",
+      1_700_000_000_000,
+      null,
+    );
+    db.close();
+
+    const tables = collectTables([legacyShapePlugin]);
+    sqlite = await createSqliteFumaDb({
+      tables,
+      namespace: "executor_local_test",
+      path: join(workDir, "target.db"),
+    });
+
+    const scopedDb = withQueryContext(sqlite.db, { allowedScopeIds: new Set(["scope_a"]) });
+    const result = await importSqliteDataToFuma({
+      sqlitePath,
+      target: scopedDb,
+      tables,
+      scopeId: "scope_a",
+    });
+
+    expect(result.importedTables).toEqual(["legacy_shape"]);
+    expect(result.importedRows).toBe(1);
+
+    const row = await scopedDb.findFirst("legacy_shape", {
+      where: (b) => b("id", "=", "shape_1"),
+    });
+    expect(row).toMatchObject({
+      id: "shape_1",
+      scope_id: "scope_a",
+      payload: { auth: { type: "oauth2" }, paths: ["/v1/items"] },
+      enabled: true,
+      note: null,
+    });
+    expect(row?.retry_after_ms).toBe(9_007_199_254_740_993n);
+    expect(row?.discovered_at).toEqual(new Date(1_700_000_000_000));
   });
 
   it("writes the import marker only after the replacement database is in place", async () => {

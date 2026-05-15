@@ -13,6 +13,7 @@ import {
   collectTables,
   createExecutor,
   type AnyPlugin,
+  type Executor,
   type FumaTables,
 } from "@executor-js/sdk";
 import { withQueryContext } from "fumadb/query";
@@ -116,7 +117,7 @@ const loadLocalPlugins = Effect.gen(function* () {
 });
 
 interface LocalExecutorBundle {
-  readonly executor: Effect.Success<ReturnType<typeof createExecutor<LocalPlugins>>>;
+  readonly executor: Executor<LocalPlugins>;
   readonly plugins: LocalPlugins;
 }
 
@@ -129,23 +130,6 @@ export type LocalExecutor = LocalExecutorBundle["executor"];
 class LocalExecutorCreateError extends Data.TaggedError("LocalExecutorCreateError")<{
   readonly operation: "createSqlite" | "importSqlite";
   readonly cause: unknown;
-}> {}
-
-export class LocalDatabaseSchemaTooNew extends Data.TaggedError("LocalDatabaseSchemaTooNew")<{
-  readonly message: string;
-  readonly dbPath: string;
-  readonly appliedMigrationCount: number;
-  readonly knownMigrationCount: number;
-}> {}
-
-export class LocalDatabaseMigrationHistoryMismatch extends Data.TaggedError(
-  "LocalDatabaseMigrationHistoryMismatch",
-)<{
-  readonly message: string;
-  readonly dbPath: string;
-  readonly migrationIndex: number;
-  readonly appliedHash: string | undefined;
-  readonly knownHash: string | undefined;
 }> {}
 
 class LocalExecutorDisposeError extends Data.TaggedError("LocalExecutorDisposeError")<{
@@ -228,54 +212,6 @@ export const readBundledDrizzleMigrationHashes = (
       return createHash("sha256").update(query).digest("hex");
     });
 };
-
-const schemaTooNewMessage = (dataDir: string): string =>
-  [
-    `This Executor binary is older than the schema in ${dataDir}.`,
-    "The database was likely opened by a newer Executor build.",
-    "Use a newer Executor binary or set EXECUTOR_DATA_DIR to a different data directory.",
-  ].join("\n");
-
-const migrationHistoryMismatchMessage = (dataDir: string): string =>
-  [
-    `The migration history in ${dataDir} does not match this Executor build.`,
-    "The database may have been created by a different development branch, manually modified, or corrupted.",
-    "Use the matching Executor build, set EXECUTOR_DATA_DIR to a different data directory, or restore a backup.",
-  ].join("\n");
-
-export const checkDrizzleMigrationCompatibility = (input: {
-  readonly sqlite: Database;
-  readonly dbPath: string;
-  readonly dataDir: string;
-  readonly migrationsFolder: string;
-}): Effect.Effect<void, LocalDatabaseSchemaTooNew | LocalDatabaseMigrationHistoryMismatch> =>
-  Effect.gen(function* () {
-    if (!drizzleMigrationsTableExists(input.sqlite)) return;
-
-    const applied = readAppliedDrizzleMigrationHashes(input.sqlite);
-    const bundled = readBundledDrizzleMigrationHashes(input.migrationsFolder);
-
-    if (applied.length > bundled.length) {
-      return yield* new LocalDatabaseSchemaTooNew({
-        message: schemaTooNewMessage(input.dataDir),
-        dbPath: input.dbPath,
-        appliedMigrationCount: applied.length,
-        knownMigrationCount: bundled.length,
-      });
-    }
-
-    for (let index = 0; index < applied.length; index += 1) {
-      if (applied[index] !== bundled[index]) {
-        return yield* new LocalDatabaseMigrationHistoryMismatch({
-          message: migrationHistoryMismatchMessage(input.dataDir),
-          dbPath: input.dbPath,
-          migrationIndex: index,
-          appliedHash: applied[index],
-          knownHash: bundled[index],
-        });
-      }
-    }
-  });
 
 const hasBundledDrizzleMigrationPrefix = (input: {
   readonly sqlite: Database;

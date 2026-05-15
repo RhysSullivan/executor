@@ -245,7 +245,7 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
   });
 
   const executor = await Effect.runPromise(
-    createExecutor<typeof plugins>({
+    createExecutor({
       scopes: [scope],
       db: sqlite.db,
       plugins,
