@@ -7,7 +7,7 @@ import {
   ScopeId,
   SecretBackedMap,
   SecretBackedValue,
-} from "@executor-js/sdk/core";
+} from "@executor-js/sdk/shared";
 
 export { SecretBackedMap, SecretBackedValue };
 

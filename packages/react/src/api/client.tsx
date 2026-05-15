@@ -1,7 +1,7 @@
 import * as AtomHttpApi from "effect/unstable/reactivity/AtomHttpApi";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
-import { ExecutorApi } from "@executor-js/api";
+import { ExecutorApi } from "@executor-js/api/client";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";

@@ -5,11 +5,11 @@ import {
   ScopeId,
   ScopedSecretCredentialInput,
   SecretBackedValue,
-} from "@executor-js/sdk/core";
+} from "@executor-js/sdk/shared";
 
 import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
-import { StoredSourceSchema } from "../sdk/store";
+import { StoredSourceSchema } from "../sdk/source-contracts";
 import {
   OAuth2SourceConfig,
   OpenApiSourceBindingInput,

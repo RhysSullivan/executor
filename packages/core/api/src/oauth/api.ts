@@ -11,6 +11,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/ht
 import { Schema } from "effect";
 
 import {
+  InternalError,
   OAuthCompleteError,
   OAuthProbeError,
   OAuthSessionNotFoundError,
@@ -18,9 +19,7 @@ import {
   OAuthStrategySchema,
   ScopeId,
   SecretBackedMap,
-} from "@executor-js/sdk";
-
-import { InternalError } from "../observability";
+} from "@executor-js/sdk/shared";
 
 const ScopeParams = { scopeId: ScopeId };
 // ---------------------------------------------------------------------------

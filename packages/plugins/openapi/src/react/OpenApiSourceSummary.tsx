@@ -14,7 +14,7 @@ import {
 
 import { openApiSourceAtom, openApiSourceBindingsAtom } from "./atoms";
 import { effectiveBindingForScope } from "../sdk/credential-status";
-import { oauth2ClientSecretSlot, type StoredSourceSchemaType } from "../sdk/store";
+import { oauth2ClientSecretSlot, type StoredSourceSchemaType } from "../sdk/source-contracts";
 
 function OAuthBadge() {
   return <Badge variant="secondary">OAuth</Badge>;

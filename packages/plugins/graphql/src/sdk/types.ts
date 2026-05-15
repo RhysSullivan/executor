@@ -6,7 +6,7 @@ import {
   ScopedSecretCredentialInput,
   SecretBackedValue,
   ScopeId,
-} from "@executor-js/sdk/core";
+} from "@executor-js/sdk/shared";
 
 // ---------------------------------------------------------------------------
 // GraphQL operation kind

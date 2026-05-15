@@ -1,8 +1,11 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId, SourceRemovalNotAllowedError, ToolId } from "@executor-js/sdk";
-
-import { InternalError } from "../observability";
+import {
+  InternalError,
+  ScopeId,
+  SourceRemovalNotAllowedError,
+  ToolId,
+} from "@executor-js/sdk/shared";
 
 // ---------------------------------------------------------------------------
 // Params

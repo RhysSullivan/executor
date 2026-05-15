@@ -1,9 +1,13 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 
-import { ConnectionId, ConnectionInUseError, ScopeId, Usage } from "@executor-js/sdk";
-
-import { InternalError } from "../observability";
+import {
+  ConnectionId,
+  ConnectionInUseError,
+  InternalError,
+  ScopeId,
+  Usage,
+} from "@executor-js/sdk/shared";
 
 // ---------------------------------------------------------------------------
 // Params

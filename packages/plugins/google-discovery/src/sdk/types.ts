@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { SecretBackedValue } from "@executor-js/sdk/core";
+import { SecretBackedValue } from "@executor-js/sdk/shared";
 
 export const GoogleDiscoveryHttpMethod = Schema.Literals([
   "get",

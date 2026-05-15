@@ -1,6 +1,6 @@
-import type { ConnectionId, ScopeId } from "@executor-js/sdk/core";
+import type { ConnectionId, ScopeId } from "@executor-js/sdk/shared";
 
-import { oauth2ClientSecretSlot } from "./store";
+import { oauth2ClientSecretSlot } from "./source-contracts";
 import type { ConfiguredHeaderValue, OpenApiSourceBindingValue } from "./types";
 
 export type BindingRowForCredentialStatus = {

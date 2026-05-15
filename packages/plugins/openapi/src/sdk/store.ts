@@ -18,6 +18,15 @@ import {
   OAuth2SourceConfig,
   OperationBinding,
 } from "./types";
+export {
+  StoredSourceSchema,
+  type StoredSourceSchemaType,
+  headerBindingSlot,
+  oauth2ClientIdSlot,
+  oauth2ClientSecretSlot,
+  oauth2ConnectionSlot,
+  queryParamBindingSlot,
+} from "./source-contracts";
 
 // ---------------------------------------------------------------------------
 // Schema:
@@ -122,37 +131,6 @@ export interface StoredSource {
   readonly name: string;
   readonly config: SourceConfig;
 }
-
-// ---------------------------------------------------------------------------
-// Schema-class mirror of StoredSource for the API layer, where we need
-// an encodable/decodable shape for HTTP responses.
-// ---------------------------------------------------------------------------
-
-export const StoredSourceSchema = Schema.Struct({
-  namespace: Schema.String,
-  scope: Schema.String,
-  name: Schema.String,
-  config: Schema.Struct({
-    spec: Schema.optional(Schema.String),
-    sourceUrl: Schema.optional(Schema.String),
-    baseUrl: Schema.optional(Schema.String),
-    namespace: Schema.optional(Schema.String),
-    headers: Schema.optional(Schema.Record(Schema.String, ConfiguredHeaderValue)),
-    queryParams: Schema.optional(Schema.Record(Schema.String, ConfiguredHeaderValue)),
-    specFetchCredentials: Schema.optional(
-      Schema.Struct({
-        headers: Schema.optional(Schema.Record(Schema.String, ConfiguredHeaderValue)),
-        queryParams: Schema.optional(Schema.Record(Schema.String, ConfiguredHeaderValue)),
-      }),
-    ),
-    // Canonical source-owned OAuth config. Concrete client credentials
-    // and connection ids live in OpenAPI-owned scoped binding rows.
-    oauth2: Schema.optional(OAuth2SourceConfig),
-  }),
-}).annotate({ identifier: "OpenApiStoredSource" });
-export type StoredSourceSchema = typeof StoredSourceSchema.Type;
-
-export type StoredSourceSchemaType = typeof StoredSourceSchema.Type;
 
 export interface StoredOperation {
   readonly toolId: string;
@@ -280,28 +258,6 @@ const childRowsToValueMap = (
 };
 
 const toJsonRecord = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
-
-const slugifySlotPart = (value: string): string =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "default";
-
-export const headerBindingSlot = (headerName: string): string =>
-  `header:${slugifySlotPart(headerName)}`;
-
-export const queryParamBindingSlot = (name: string): string =>
-  `query_param:${slugifySlotPart(name)}`;
-
-export const oauth2ClientIdSlot = (securitySchemeName: string): string =>
-  `oauth2:${slugifySlotPart(securitySchemeName)}:client-id`;
-
-export const oauth2ClientSecretSlot = (securitySchemeName: string): string =>
-  `oauth2:${slugifySlotPart(securitySchemeName)}:client-secret`;
-
-export const oauth2ConnectionSlot = (securitySchemeName: string): string =>
-  `oauth2:${slugifySlotPart(securitySchemeName)}:connection`;
 
 const normalizeStoredOAuth2 = (value: unknown): OAuth2SourceConfig | undefined => {
   if (value == null) return undefined;

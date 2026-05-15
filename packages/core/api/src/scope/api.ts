@@ -1,8 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId } from "@executor-js/sdk";
-
-import { InternalError } from "../observability";
+import { InternalError, ScopeId } from "@executor-js/sdk/shared";
 
 // ---------------------------------------------------------------------------
 // Response schemas

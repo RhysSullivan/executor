@@ -25,7 +25,7 @@ const DEFAULT_COMPILER_OPTIONS = {
   additionalProperties: false,
   bannerComment: "",
   enableConstEnums: false,
-  format: true,
+  format: false,
   unknownAny: true,
   unreachableDefinitions: false,
   style: {
@@ -211,7 +211,7 @@ const compilerOptionsFrom = (
   ...DEFAULT_COMPILER_OPTIONS,
   ...options.compilerOptions,
   bannerComment: "",
-  format: true,
+  format: false,
   style: {
     ...DEFAULT_COMPILER_OPTIONS.style,
     ...options.compilerOptions?.style,
@@ -317,11 +317,41 @@ const findMatchingBrace = (source: string, start: number): number => {
   return -1;
 };
 
+const findMatchingParen = (source: string, start: number): number => {
+  const state = emptyScanState();
+  let depth = 0;
+
+  for (let index = start; index < source.length; index += 1) {
+    const current = source[index] ?? "";
+    const next = source[index + 1] ?? "";
+    const wasCode = !state.quote && !state.lineComment && !state.blockComment;
+    const { skipNext } = stepScanState(state, current, next);
+
+    if (wasCode && !state.quote && !state.lineComment && !state.blockComment) {
+      if (current === "(") {
+        depth += 1;
+      } else if (current === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          return index;
+        }
+      }
+    }
+
+    if (skipNext) {
+      index += 1;
+    }
+  }
+
+  return -1;
+};
+
 const findTypeAliasEnd = (source: string, start: number): number => {
   const state = emptyScanState();
   let braceDepth = 0;
   let bracketDepth = 0;
   let parenDepth = 0;
+  let seenToken = false;
 
   for (let index = start; index < source.length; index += 1) {
     const current = source[index] ?? "";
@@ -342,7 +372,19 @@ const findTypeAliasEnd = (source: string, start: number): number => {
         parenDepth += 1;
       } else if (current === ")") {
         parenDepth = Math.max(0, parenDepth - 1);
-      } else if (current === ";" && braceDepth === 0 && bracketDepth === 0 && parenDepth === 0) {
+      }
+
+      if (!/\s/.test(current)) {
+        seenToken = true;
+      }
+
+      if (
+        seenToken &&
+        (current === ";" || current === "\n" || current === "\r") &&
+        braceDepth === 0 &&
+        bracketDepth === 0 &&
+        parenDepth === 0
+      ) {
         return index;
       }
     }
@@ -427,15 +469,147 @@ const extractPropertyType = (interfaceBody: string, propertyName: string): strin
   return interfaceBody.slice(colonIndex + 1, end).trim();
 };
 
+const containsTopLevelUnion = (source: string): boolean => {
+  const state = emptyScanState();
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index] ?? "";
+    const next = source[index + 1] ?? "";
+    const wasCode = !state.quote && !state.lineComment && !state.blockComment;
+    const { skipNext } = stepScanState(state, current, next);
+
+    if (wasCode && !state.quote && !state.lineComment && !state.blockComment) {
+      if (current === "{") {
+        braceDepth += 1;
+      } else if (current === "}") {
+        braceDepth = Math.max(0, braceDepth - 1);
+      } else if (current === "[") {
+        bracketDepth += 1;
+      } else if (current === "]") {
+        bracketDepth = Math.max(0, bracketDepth - 1);
+      } else if (current === "(") {
+        parenDepth += 1;
+      } else if (current === ")") {
+        parenDepth = Math.max(0, parenDepth - 1);
+      } else if (
+        current === "|" &&
+        braceDepth === 0 &&
+        bracketDepth === 0 &&
+        parenDepth === 0
+      ) {
+        return true;
+      }
+    }
+
+    if (skipNext) {
+      index += 1;
+    }
+  }
+
+  return false;
+};
+
+const significantBefore = (source: string, start: number): string => {
+  for (let index = start; index >= 0; index -= 1) {
+    const char = source[index] ?? "";
+    if (!/\s/.test(char)) {
+      return char;
+    }
+  }
+  return "";
+};
+
+const significantAfter = (source: string, start: number): string => {
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index] ?? "";
+    if (!/\s/.test(char)) {
+      return char;
+    }
+  }
+  return "";
+};
+
+const stripRedundantUnionParens = (source: string): string => {
+  let output = "";
+
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index] ?? "";
+    if (current !== "(") {
+      output += current;
+      continue;
+    }
+
+    const end = findMatchingParen(source, index);
+    if (end < 0) {
+      output += current;
+      continue;
+    }
+
+    const previous = significantBefore(source, index - 1);
+    const next = significantAfter(source, end + 1);
+    const inner = source.slice(index + 1, end);
+    const keepParens =
+      !containsTopLevelUnion(inner) ||
+      /[A-Za-z0-9_$]/.test(previous) ||
+      next === "[" ||
+      next === "." ||
+      next === "<";
+
+    if (keepParens) {
+      output += source.slice(index, end + 1);
+    } else {
+      output += stripRedundantUnionParens(inner);
+    }
+    index = end;
+  }
+
+  return output;
+};
+
 const compactTypeScript = (value: string): string => {
   const state = emptyScanState();
   let output = "";
   let pendingWhitespace = false;
+  let braceDepth = 0;
 
   const emitWhitespace = () => {
     if (output.length > 0) {
       pendingWhitespace = true;
     }
+  };
+
+  const previousSignificant = (): string => output.trimEnd().at(-1) ?? "";
+
+  const nextSignificant = (start: number): string => {
+    for (let index = start; index < value.length; index += 1) {
+      const char = value[index] ?? "";
+      if (!/\s/.test(char)) {
+        return char;
+      }
+    }
+    return "";
+  };
+
+  const terminateMemberAtNewline = (index: number): void => {
+    if (braceDepth <= 0) {
+      return;
+    }
+
+    const previous = previousSignificant();
+    if (!previous || previous === "{" || previous === ";" || previous === "|" || previous === "&") {
+      return;
+    }
+
+    const next = nextSignificant(index + 1);
+    if (!next || next === "|" || next === "&" || next === ")" || next === "]" || next === ",") {
+      return;
+    }
+
+    output = output.trimEnd() + ";";
+    pendingWhitespace = true;
   };
 
   for (let index = 0; index < value.length; index += 1) {
@@ -458,6 +632,9 @@ const compactTypeScript = (value: string): string => {
       }
 
       if (/\s/.test(current)) {
+        if (current === "\n" || current === "\r") {
+          terminateMemberAtNewline(index);
+        }
         emitWhitespace();
         continue;
       }
@@ -497,10 +674,17 @@ const compactTypeScript = (value: string): string => {
 
     if (current === '"' || current === "'" || current === "`") {
       state.quote = current;
+      continue;
+    }
+
+    if (current === "{") {
+      braceDepth += 1;
+    } else if (current === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
     }
   }
 
-  return output.trim();
+  return stripRedundantUnionParens(output.trim());
 };
 
 const getDefinitionsFromDeclarations = (

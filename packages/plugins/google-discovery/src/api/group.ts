@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { InternalError, ScopeId, SecretBackedValue } from "@executor-js/sdk/core";
+import { InternalError, ScopeId, SecretBackedValue } from "@executor-js/sdk/shared";
 import { GoogleDiscoveryParseError, GoogleDiscoverySourceError } from "../sdk/errors";
 import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
 

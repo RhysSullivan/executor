@@ -1,7 +1,7 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 
-import { InternalError } from "../observability";
+import { InternalError } from "@executor-js/sdk/shared";
 
 // ---------------------------------------------------------------------------
 // Schemas

@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { ScopeId } from "@executor-js/sdk/core";
+import { ScopeId } from "@executor-js/sdk/shared";
 
 import { McpStoredSourceData } from "./types";
 

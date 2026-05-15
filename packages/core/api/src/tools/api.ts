@@ -1,8 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId, ToolId, ToolNotFoundError } from "@executor-js/sdk";
-
-import { InternalError } from "../observability";
+import { InternalError, ScopeId, ToolId, ToolNotFoundError } from "@executor-js/sdk/shared";
 
 // ---------------------------------------------------------------------------
 // Params

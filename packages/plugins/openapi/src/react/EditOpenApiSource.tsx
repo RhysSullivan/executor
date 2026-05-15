@@ -51,7 +51,7 @@ import {
   inferOAuthIssuerUrl,
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
-import { oauth2ClientSecretSlot } from "../sdk/store";
+import { oauth2ClientSecretSlot } from "../sdk/source-contracts";
 import {
   OAuth2SourceConfig,
   OpenApiSourceBindingInput,

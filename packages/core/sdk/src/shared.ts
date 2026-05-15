@@ -8,7 +8,17 @@
 
 export { ScopeId, ToolId, SecretId, PolicyId, ConnectionId, CredentialBindingId } from "./ids";
 
-export { SecretInUseError, ConnectionInUseError } from "./errors";
+export {
+  ToolNotFoundError,
+  SourceRemovalNotAllowedError,
+  SecretNotFoundError,
+  SecretResolutionError,
+  SecretOwnedByConnectionError,
+  SecretInUseError,
+  ConnectionInUseError,
+} from "./errors";
+
+export { InternalError } from "./api-errors";
 
 export {
   effectivePolicyFromSorted,
@@ -20,14 +30,23 @@ export {
 export type { ToolPolicyAction } from "./core-schema";
 
 export {
+  SecretBackedMap,
   SecretBackedValue,
   isSecretBackedRef,
   type ResolveSecretBackedMapOptions,
 } from "./secret-backed-value";
 
-export { CredentialBindingValue, ScopedSecretCredentialInput } from "./credential-bindings";
+export {
+  ConfiguredCredentialBinding,
+  ConfiguredCredentialValue,
+  CredentialBindingValue,
+  ScopedSecretCredentialInput,
+  credentialSlotKey,
+} from "./credential-bindings";
 
 export { SourceDetectionResult, type Source } from "./types";
+
+export { Usage } from "./usages";
 
 export {
   OAUTH_POPUP_MESSAGE_TYPE,
@@ -35,4 +54,11 @@ export {
   type OAuthPopupResult,
 } from "./oauth-popup-types";
 
-export type { OAuthStrategy } from "./oauth";
+export {
+  OAuthProbeError,
+  OAuthStartError,
+  OAuthCompleteError,
+  OAuthSessionNotFoundError,
+  OAuthStrategy as OAuthStrategySchema,
+  type OAuthStrategy,
+} from "./oauth";

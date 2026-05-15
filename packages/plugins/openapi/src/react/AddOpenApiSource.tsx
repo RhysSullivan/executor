@@ -66,7 +66,7 @@ import {
   oauth2ClientSecretSlot,
   oauth2ConnectionSlot,
   queryParamBindingSlot,
-} from "../sdk/store";
+} from "../sdk/source-contracts";
 import {
   ConfiguredHeaderBinding,
   OAuth2SourceConfig,

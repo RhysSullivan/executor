@@ -5,7 +5,7 @@ import {
   ScopedSecretCredentialInput,
   SecretBackedValue,
   SecretId,
-} from "@executor-js/sdk/core";
+} from "@executor-js/sdk/shared";
 
 // ---------------------------------------------------------------------------
 // Branded IDs
