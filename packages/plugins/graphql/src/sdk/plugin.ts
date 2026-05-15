@@ -12,6 +12,7 @@ import {
   SecretId,
   SourceDetectionResult,
   StorageError,
+  ToolResult,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -994,7 +995,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
             },
             inputSchema: StaticAddSourceInputStandardSchema,
             outputSchema: StaticAddSourceOutputStandardSchema,
-            execute: (input) => self.addSource(input),
+            execute: (input) => Effect.map(self.addSource(input), ToolResult.ok),
           }),
         ],
       },
@@ -1057,7 +1058,23 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
           httpClientLayer,
         );
 
-        return result;
+        const errors = result.errors;
+        if (Array.isArray(errors) && errors.length > 0) {
+          const first = errors[0];
+          const firstMessage =
+            first !== null && typeof first === "object" && "message" in first
+              ? (first as { message: unknown }).message
+              : undefined;
+          return ToolResult.fail({
+            code: "graphql_errors",
+            message:
+              typeof firstMessage === "string" && firstMessage.length > 0
+                ? firstMessage
+                : "GraphQL request returned errors",
+            details: { errors },
+          });
+        }
+        return ToolResult.ok(result.data);
       }),
 
     resolveAnnotations: ({ ctx, sourceId, toolRows }) =>

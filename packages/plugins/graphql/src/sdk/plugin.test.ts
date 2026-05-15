@@ -196,9 +196,8 @@ describe("graphqlPlugin real protocol server", () => {
       });
 
       expect(result).toEqual({
-        status: 200,
+        ok: true,
         data: { hello: "Hello Ada" },
-        errors: null,
       });
 
       const requests = yield* server.requests;
@@ -251,9 +250,8 @@ describe("graphqlPlugin real protocol server", () => {
       });
 
       expect(result).toEqual({
-        status: 200,
+        ok: true,
         data: { hello: "Hello Ada" },
-        errors: null,
       });
 
       const requests = yield* server.requests;
@@ -425,7 +423,7 @@ describe("graphqlPlugin", () => {
         },
         { onElicitation: "accept-all" },
       );
-      expect(result).toEqual({ toolCount: 2, namespace: "via_static" });
+      expect(result).toEqual({ ok: true, data: { toolCount: 2, namespace: "via_static" } });
       expect(yield* executor.graphql.getSource("via_static", String(userScope))).toBeNull();
       expect((yield* executor.graphql.getSource("via_static", String(orgScope)))?.scope).toBe(
         orgScope,
@@ -729,7 +727,7 @@ describe("graphqlPlugin", () => {
       });
 
       expect(result).toMatchObject({
-        status: 200,
+        ok: true,
         data: { hello: "Hello Ada" },
       });
       const requests = yield* server.requests;
@@ -843,7 +841,7 @@ describe("graphqlPlugin", () => {
       });
 
       expect(result).toMatchObject({
-        status: 200,
+        ok: true,
         data: { hello: "Hello Ada" },
       });
       const requests = yield* server.requests;
@@ -915,7 +913,7 @@ describe("graphqlPlugin", () => {
         });
 
         expect(result).toMatchObject({
-          status: 200,
+          ok: true,
           data: { hello: "Hello Ada" },
         });
         const requests = yield* server.requests;

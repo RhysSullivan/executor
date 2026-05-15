@@ -25,6 +25,7 @@ import {
   addOpenApiTestSource,
   makeOpenApiHttpApiTestSourceConfig,
   serveOpenApiHttpApiTestServer,
+  unwrapInvocation,
 } from "../testing";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
@@ -267,13 +268,13 @@ describe("OpenAPI Plugin", () => {
         }),
       );
 
-      const result = (yield* executor.tools.invoke(
+      const preview = unwrapInvocation(yield* executor.tools.invoke(
         "executor.openapi.previewSpec",
         { spec: testApiSpec() },
         autoApprove,
-      )) as { operationCount: number };
+      )).data as { operationCount: number };
 
-      expect(result.operationCount).toBeGreaterThanOrEqual(2);
+      expect(preview.operationCount).toBeGreaterThanOrEqual(2);
     }),
   );
 
@@ -316,11 +317,11 @@ describe("OpenAPI Plugin", () => {
         }),
       );
 
-      const result = (yield* executor.tools.invoke(
+      const result = unwrapInvocation(yield* executor.tools.invoke(
         "executor.openapi.addSource",
         testApiSourceConfig({ scope: String(orgScope), namespace: "runtime" }),
         autoApprove,
-      )) as { sourceId: string; toolCount: number };
+      )).data as { sourceId: string; toolCount: number };
 
       expect(result).toEqual({ sourceId: "runtime", toolCount: 4 });
       expect(yield* executor.openapi.getSource("runtime", String(userScope))).toBeNull();
@@ -557,17 +558,14 @@ describe("OpenAPI Plugin", () => {
           },
         });
 
-        const result = (yield* executor.tools.invoke(
+        const result = unwrapInvocation(yield* executor.tools.invoke(
           "authed.items.echoHeaders",
           {},
           autoApprove,
-        )) as {
-          data: { authorization?: string; "x-static"?: string } | null;
-          error: unknown;
-        };
+        ));
 
         expect(result.error).toBeNull();
-        const data = result.data!;
+        const data = result.data as { authorization?: string; "x-static"?: string };
         expect(data.authorization).toBe("Bearer secret-value-123");
         expect(data["x-static"]).toBe("hello");
       }),
@@ -751,10 +749,9 @@ describe("OpenAPI Plugin", () => {
           namespace: "test",
         });
 
-        const result = (yield* executor.tools.invoke("test.items.listItems", {}, autoApprove)) as {
-          data: unknown;
-          error: unknown;
-        };
+        const result = unwrapInvocation(
+          yield* executor.tools.invoke("test.items.listItems", {}, autoApprove),
+        );
         expect(result.error).toBeNull();
         expect(result.data).toEqual(ITEMS);
       }),
@@ -780,11 +777,11 @@ describe("OpenAPI Plugin", () => {
           namespace: "test",
         });
 
-        const result = (yield* executor.tools.invoke(
+        const result = unwrapInvocation(yield* executor.tools.invoke(
           "test.items.getItem",
           { itemId: "2" },
           autoApprove,
-        )) as { data: unknown; error: unknown };
+        ));
         expect(result.error).toBeNull();
         expect(result.data).toEqual({ id: 2, name: "Gadget" });
       }),
@@ -810,7 +807,7 @@ describe("OpenAPI Plugin", () => {
           namespace: "records",
         });
 
-        const result = (yield* executor.tools.invoke(
+        const result = unwrapInvocation(yield* executor.tools.invoke(
           "records.items.queryRows",
           {
             entryTypeId: "18538",
@@ -819,7 +816,7 @@ describe("OpenAPI Plugin", () => {
             skip: 0,
           },
           autoApprove,
-        )) as { data: unknown; error: unknown };
+        ));
 
         expect(result.data).toBeNull();
         expect(result.error).toEqual(

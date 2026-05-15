@@ -35,6 +35,7 @@ import { makeTestConfig, serveOAuthTestServer } from "@executor-js/sdk/testing";
 import {
   addOpenApiTestSource,
   serveOpenApiHttpApiTestServer,
+  unwrapInvocation,
 } from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
@@ -253,17 +254,18 @@ describe("OpenAPI oauth refresh", () => {
       });
       yield* bindOAuthConnection(executor, scopeId, "conn-refresh-ok", auth);
 
-      const result = (yield* executor.tools.invoke(
+      const result = unwrapInvocation(yield* executor.tools.invoke(
         "petstore.items.echoHeaders",
         {},
         autoApprove,
-      )) as { data: { authorization?: string } | null; error: unknown };
+      ));
 
       expect(result.error).toBeNull();
+      const data = result.data as EchoHeaders | null;
       // Proves the refresh landed: invoke carried the fresh token,
       // not the expired one we seeded.
-      expect(result.data?.authorization).not.toBe("Bearer expired-access-v1");
-      const bearer = result.data?.authorization?.replace(/^Bearer\s+/i, "");
+      expect(data?.authorization).not.toBe("Bearer expired-access-v1");
+      const bearer = data?.authorization?.replace(/^Bearer\s+/i, "");
       expect(bearer).toBeDefined();
       expect(yield* oauth.acceptsAccessToken(bearer!)).toBe(true);
       const calls = refreshTokenRequests(yield* oauth.requests);
@@ -313,12 +315,12 @@ describe("OpenAPI oauth refresh", () => {
       );
 
       for (const r of invokes) {
-        const res = r as {
-          data: { authorization?: string } | null;
-          error: unknown;
-        };
+        const res = unwrapInvocation(r);
         expect(res.error).toBeNull();
-        const bearer = res.data?.authorization?.replace(/^Bearer\s+/i, "");
+        const bearer = (res.data as EchoHeaders | null)?.authorization?.replace(
+          /^Bearer\s+/i,
+          "",
+        );
         expect(bearer).toBeDefined();
         expect(yield* oauth.acceptsAccessToken(bearer!)).toBe(true);
       }

@@ -69,7 +69,8 @@ describe("MCP elicitation (end-to-end)", () => {
       const result = yield* executor.tools.invoke(gatedEcho!.id, { value: "hello" }, options);
 
       expect(result).toMatchObject({
-        content: [{ type: "text", text: "approved:hello" }],
+        ok: true,
+        data: [{ type: "text", text: "approved:hello" }],
       });
       // At least one elicitation should be the MCP server's form
       expect(elicitationMessages.length).toBeGreaterThanOrEqual(1);
@@ -95,7 +96,8 @@ describe("MCP elicitation (end-to-end)", () => {
       );
 
       expect(result).toMatchObject({
-        content: [{ type: "text", text: "denied:nope" }],
+        ok: true,
+        data: [{ type: "text", text: "denied:nope" }],
       });
     }),
   );
@@ -114,7 +116,8 @@ describe("MCP elicitation (end-to-end)", () => {
       );
 
       expect(result).toMatchObject({
-        content: [{ type: "text", text: "plain" }],
+        ok: true,
+        data: [{ type: "text", text: "plain" }],
       });
     }),
   );

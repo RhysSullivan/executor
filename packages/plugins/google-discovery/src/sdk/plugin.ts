@@ -3,6 +3,7 @@ import { Effect, Option, Predicate, Schema } from "effect";
 import {
   ScopeId,
   SourceDetectionResult,
+  ToolResult,
   Usage,
   definePlugin,
   resolveSecretBackedMap,
@@ -28,6 +29,51 @@ import type {
   GoogleDiscoveryStoredSourceData,
 } from "./types";
 import { GoogleDiscoveryStoredSourceData as GoogleDiscoveryStoredSourceDataSchema } from "./types";
+
+// ---------------------------------------------------------------------------
+// Upstream-error message extraction
+// ---------------------------------------------------------------------------
+
+const GOOGLE_BODY_CAP = 1024;
+
+const googleClampedStringify = (value: unknown): string => {
+  let s: string;
+  try {
+    s = JSON.stringify(value);
+  } catch {
+    s = String(value);
+  }
+  return s.length > GOOGLE_BODY_CAP ? `${s.slice(0, GOOGLE_BODY_CAP)}…` : s;
+};
+
+const googleExtractUpstreamMessage = (body: unknown, status: number): string => {
+  if (typeof body === "string") {
+    return body.length > 0 ? body : `Upstream returned HTTP ${status}`;
+  }
+  if (body !== null && typeof body === "object") {
+    const obj = body as Record<string, unknown>;
+    const nested = obj.error;
+    if (nested !== null && typeof nested === "object" && "message" in nested) {
+      const m = (nested as { message: unknown }).message;
+      if (typeof m === "string" && m.length > 0) return m;
+    }
+    if (typeof obj.message === "string" && obj.message.length > 0) return obj.message;
+    if (typeof obj.errorMessage === "string" && obj.errorMessage.length > 0)
+      return obj.errorMessage;
+    if (Array.isArray(obj.errors) && obj.errors.length > 0) {
+      const first = obj.errors[0];
+      if (first !== null && typeof first === "object") {
+        const f = first as Record<string, unknown>;
+        for (const key of ["detail", "message", "title"]) {
+          const v = f[key];
+          if (typeof v === "string" && v.length > 0) return v;
+        }
+      }
+    }
+    return googleClampedStringify(body);
+  }
+  return `Upstream returned HTTP ${status}`;
+};
 
 // ---------------------------------------------------------------------------
 // Public input / output shapes
@@ -381,11 +427,27 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
   extension: makeGoogleDiscoveryPluginExtension,
 
   invokeTool: ({ ctx, toolRow, args }) =>
-    invokeGoogleDiscoveryTool({
-      ctx: ctx as PluginCtx<GoogleDiscoveryStore>,
-      toolId: toolRow.id,
-      toolScope: decodeString(toolRow.scope_id),
-      args,
+    Effect.gen(function* () {
+      const result = yield* invokeGoogleDiscoveryTool({
+        ctx: ctx as PluginCtx<GoogleDiscoveryStore>,
+        toolId: toolRow.id,
+        toolScope: decodeString(toolRow.scope_id),
+        args,
+      });
+      const ok = result.status >= 200 && result.status < 300;
+      if (!ok) {
+        return ToolResult.fail({
+          code: "upstream_http_error",
+          status: result.status,
+          message: googleExtractUpstreamMessage(result.error, result.status),
+          details: result.error,
+        });
+      }
+      return ToolResult.ok({
+        status: result.status,
+        headers: result.headers,
+        data: result.data,
+      });
     }),
 
   resolveAnnotations: ({ ctx, sourceId, toolRows }) =>

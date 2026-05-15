@@ -26,6 +26,7 @@ import { makeTestConfig, serveOAuthTestServer } from "@executor-js/sdk/testing";
 import {
   addOpenApiTestSource,
   serveOpenApiHttpApiTestServer,
+  unwrapInvocation,
 } from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
@@ -226,16 +227,14 @@ describe("OpenAPI client_credentials OAuth", () => {
       );
       // Invoking the tool injects the freshly-minted bearer via
       // ctx.connections.accessToken.
-      const result = (yield* userExec.tools.invoke(
+      const result = unwrapInvocation(yield* userExec.tools.invoke(
         "petstore.items.echoHeaders",
         {},
         autoApprove,
-      )) as {
-        data: { authorization?: string } | null;
-        error: unknown;
-      };
+      ));
       expect(result.error).toBeNull();
-      const bearer = result.data?.authorization?.replace(/^Bearer\s+/i, "");
+      const data = result.data as EchoHeaders | null;
+      const bearer = data?.authorization?.replace(/^Bearer\s+/i, "");
       expect(bearer).toBeDefined();
       expect(yield* oauth.acceptsAccessToken(bearer!)).toBe(true);
 

@@ -618,3 +618,68 @@ export const TestLayers = {
   echo: OpenApiEchoTestServer.layer,
   echoWithOAuth: OpenApiEchoTestServer.layerWithOAuth,
 };
+
+// ---------------------------------------------------------------------------
+// Result unwrapping helper for tests written against the legacy
+// `{ status, headers, data, error }` envelope. Translates a ToolResult
+// emitted by the OpenAPI plugin's `invokeTool` back into that envelope
+// so assertions like `result.data?.X` / `expect(result.error).toBeNull()`
+// keep working.
+// ---------------------------------------------------------------------------
+
+export interface LegacyInvocationEnvelope {
+  readonly status: number | null;
+  readonly headers: Record<string, string> | null;
+  readonly data: unknown;
+  readonly error: unknown;
+}
+
+export const unwrapInvocation = (raw: unknown): LegacyInvocationEnvelope => {
+  if (raw === null || typeof raw !== "object" || !("ok" in raw)) {
+    return {
+      status: null,
+      headers: null,
+      data: raw,
+      error: null,
+    };
+  }
+  const r = raw as
+    | { readonly ok: true; readonly data: unknown }
+    | { readonly ok: false; readonly error: { readonly status?: number; readonly details?: unknown } };
+  if (r.ok) {
+    const inner = r.data;
+    if (
+      inner !== null &&
+      typeof inner === "object" &&
+      "status" in inner &&
+      "headers" in inner &&
+      "data" in inner
+    ) {
+      const wrapped = inner as {
+        readonly status: number;
+        readonly headers: Record<string, string>;
+        readonly data: unknown;
+      };
+      return {
+        status: wrapped.status,
+        headers: wrapped.headers,
+        data: wrapped.data,
+        error: null,
+      };
+    }
+    // Plain `Tool.ok(value)` (no status/headers wrapper). Expose the
+    // value through `.data`.
+    return {
+      status: null,
+      headers: null,
+      data: inner,
+      error: null,
+    };
+  }
+  return {
+    status: r.error.status ?? null,
+    headers: null,
+    data: null,
+    error: r.error.details ?? r.error,
+  };
+};

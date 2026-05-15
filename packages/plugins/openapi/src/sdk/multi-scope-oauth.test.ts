@@ -28,6 +28,7 @@ import { makeTestConfig, serveOAuthTestServer } from "@executor-js/sdk/testing";
 import {
   addOpenApiTestSource,
   serveOpenApiHttpApiTestServer,
+  unwrapInvocation,
 } from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
@@ -307,23 +308,29 @@ describe("OpenAPI multi-scope OAuth", () => {
       // 4. Invoke through each exec — Authorization must carry that
       //    user's token.
       // -------------------------------------------------------------
-      const aliceResult = (yield* aliceExec.tools.invoke(
+      const aliceResult = unwrapInvocation(yield* aliceExec.tools.invoke(
         "petstore.items.echoHeaders",
         {},
         autoApprove,
-      )) as { data: { authorization?: string } | null; error: unknown };
+      ));
       expect(aliceResult.error).toBeNull();
-      const aliceBearer = aliceResult.data?.authorization?.replace(/^Bearer\s+/i, "");
+      const aliceBearer = (aliceResult.data as EchoHeaders | null)?.authorization?.replace(
+        /^Bearer\s+/i,
+        "",
+      );
       expect(aliceBearer).toBeDefined();
       expect(yield* oauth.acceptsAccessToken(aliceBearer!)).toBe(true);
 
-      const bobResult = (yield* bobExec.tools.invoke(
+      const bobResult = unwrapInvocation(yield* bobExec.tools.invoke(
         "petstore.items.echoHeaders",
         {},
         autoApprove,
-      )) as { data: { authorization?: string } | null; error: unknown };
+      ));
       expect(bobResult.error).toBeNull();
-      const bobBearer = bobResult.data?.authorization?.replace(/^Bearer\s+/i, "");
+      const bobBearer = (bobResult.data as EchoHeaders | null)?.authorization?.replace(
+        /^Bearer\s+/i,
+        "",
+      );
       expect(bobBearer).toBeDefined();
       expect(yield* oauth.acceptsAccessToken(bobBearer!)).toBe(true);
       expect(bobBearer).not.toBe(aliceBearer);
@@ -610,23 +617,29 @@ describe("OpenAPI multi-scope OAuth", () => {
       // (4) Each user's invocation resolves their OWN row and gets
       // their OWN token — not whatever the last signer happened to
       // mint. This is the core multi-user regression.
-      const aliceResult = (yield* aliceExec.tools.invoke(
+      const aliceResult = unwrapInvocation(yield* aliceExec.tools.invoke(
         "petstore.items.echoHeaders",
         {},
         autoApprove,
-      )) as { data: { authorization?: string } | null; error: unknown };
+      ));
       expect(aliceResult.error).toBeNull();
-      const aliceBearer = aliceResult.data?.authorization?.replace(/^Bearer\s+/i, "");
+      const aliceBearer = (aliceResult.data as EchoHeaders | null)?.authorization?.replace(
+        /^Bearer\s+/i,
+        "",
+      );
       expect(aliceBearer).toBeDefined();
       expect(yield* oauth.acceptsAccessToken(aliceBearer!)).toBe(true);
 
-      const bobResult = (yield* bobExec.tools.invoke(
+      const bobResult = unwrapInvocation(yield* bobExec.tools.invoke(
         "petstore.items.echoHeaders",
         {},
         autoApprove,
-      )) as { data: { authorization?: string } | null; error: unknown };
+      ));
       expect(bobResult.error).toBeNull();
-      const bobBearer = bobResult.data?.authorization?.replace(/^Bearer\s+/i, "");
+      const bobBearer = (bobResult.data as EchoHeaders | null)?.authorization?.replace(
+        /^Bearer\s+/i,
+        "",
+      );
       expect(bobBearer).toBeDefined();
       expect(yield* oauth.acceptsAccessToken(bobBearer!)).toBe(true);
       expect(bobBearer).not.toBe(aliceBearer);

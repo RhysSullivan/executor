@@ -22,6 +22,7 @@ import {
   ScopeId,
   SecretId,
   SourceDetectionResult,
+  ToolResult,
   definePlugin,
   resolveSecretBackedMap as resolveSharedSecretBackedMap,
   type PluginCtx,
@@ -193,6 +194,25 @@ const toBinding = (entry: McpToolManifestEntry): McpToolBinding =>
   });
 
 const MCP_PLUGIN_ID = "mcp";
+
+const extractMcpErrorMessage = (content: unknown): string => {
+  if (Array.isArray(content)) {
+    for (const item of content) {
+      if (
+        item !== null &&
+        typeof item === "object" &&
+        "type" in item &&
+        (item as { type: unknown }).type === "text" &&
+        "text" in item &&
+        typeof (item as { text: unknown }).text === "string" &&
+        (item as { text: string }).text.length > 0
+      ) {
+        return (item as { text: string }).text;
+      }
+    }
+  }
+  return "MCP tool returned an error";
+};
 
 /** Match `token` as a separator-bounded run inside a URL hostname or path,
  *  used as a low-confidence detection hint when wire-shape detection fails.
@@ -1726,7 +1746,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           });
         }
 
-        return yield* invokeMcpTool({
+        const raw = yield* invokeMcpTool({
           toolId: toolRow.id,
           toolName: entry.binding.toolName,
           args,
@@ -1764,6 +1784,19 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           pendingConnectors: runtime.pendingConnectors,
           elicit,
         });
+
+        const rawObj =
+          raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
+        const isError = rawObj?.isError === true;
+        const content = rawObj?.content;
+        if (isError) {
+          return ToolResult.fail({
+            code: "mcp_tool_error",
+            message: extractMcpErrorMessage(content),
+            details: { content },
+          });
+        }
+        return ToolResult.ok(content ?? raw);
       }).pipe(
         Effect.withSpan("mcp.plugin.invoke_tool", {
           attributes: {
