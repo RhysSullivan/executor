@@ -308,11 +308,9 @@ describe("OpenAPI multi-scope OAuth", () => {
       // 4. Invoke through each exec — Authorization must carry that
       //    user's token.
       // -------------------------------------------------------------
-      const aliceResult = unwrapInvocation(yield* aliceExec.tools.invoke(
-        "petstore.items.echoHeaders",
-        {},
-        autoApprove,
-      ));
+      const aliceResult = unwrapInvocation(
+        yield* aliceExec.tools.invoke("petstore.items.echoHeaders", {}, autoApprove),
+      );
       expect(aliceResult.error).toBeNull();
       const aliceBearer = (aliceResult.data as EchoHeaders | null)?.authorization?.replace(
         /^Bearer\s+/i,
@@ -321,11 +319,9 @@ describe("OpenAPI multi-scope OAuth", () => {
       expect(aliceBearer).toBeDefined();
       expect(yield* oauth.acceptsAccessToken(aliceBearer!)).toBe(true);
 
-      const bobResult = unwrapInvocation(yield* bobExec.tools.invoke(
-        "petstore.items.echoHeaders",
-        {},
-        autoApprove,
-      ));
+      const bobResult = unwrapInvocation(
+        yield* bobExec.tools.invoke("petstore.items.echoHeaders", {}, autoApprove),
+      );
       expect(bobResult.error).toBeNull();
       const bobBearer = (bobResult.data as EchoHeaders | null)?.authorization?.replace(
         /^Bearer\s+/i,
@@ -617,11 +613,9 @@ describe("OpenAPI multi-scope OAuth", () => {
       // (4) Each user's invocation resolves their OWN row and gets
       // their OWN token — not whatever the last signer happened to
       // mint. This is the core multi-user regression.
-      const aliceResult = unwrapInvocation(yield* aliceExec.tools.invoke(
-        "petstore.items.echoHeaders",
-        {},
-        autoApprove,
-      ));
+      const aliceResult = unwrapInvocation(
+        yield* aliceExec.tools.invoke("petstore.items.echoHeaders", {}, autoApprove),
+      );
       expect(aliceResult.error).toBeNull();
       const aliceBearer = (aliceResult.data as EchoHeaders | null)?.authorization?.replace(
         /^Bearer\s+/i,
@@ -630,11 +624,9 @@ describe("OpenAPI multi-scope OAuth", () => {
       expect(aliceBearer).toBeDefined();
       expect(yield* oauth.acceptsAccessToken(aliceBearer!)).toBe(true);
 
-      const bobResult = unwrapInvocation(yield* bobExec.tools.invoke(
-        "petstore.items.echoHeaders",
-        {},
-        autoApprove,
-      ));
+      const bobResult = unwrapInvocation(
+        yield* bobExec.tools.invoke("petstore.items.echoHeaders", {}, autoApprove),
+      );
       expect(bobResult.error).toBeNull();
       const bobBearer = (bobResult.data as EchoHeaders | null)?.authorization?.replace(
         /^Bearer\s+/i,

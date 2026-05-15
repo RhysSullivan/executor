@@ -207,9 +207,15 @@ describe("sources api (HTTP)", () => {
       expect(execution.structured).toMatchObject({
         status: "completed",
         result: {
-          message: "hello",
-          suffix: "world",
-          path: "/echo/hello",
+          ok: true,
+          data: {
+            status: 200,
+            data: {
+              message: "hello",
+              suffix: "world",
+              path: "/echo/hello",
+            },
+          },
         },
         logs: [],
       });
@@ -315,7 +321,7 @@ describe("sources api (HTTP)", () => {
       expect(execution.isError).toBe(false);
       expect(execution.structured).toMatchObject({
         status: "completed",
-        result: { hello: "Hello Ada" },
+        result: { ok: true, data: { hello: "Hello Ada" } },
       });
       const requests = yield* server.requests;
       expect(requests.some((request) => request.payload.query?.includes("__schema"))).toBe(true);
@@ -391,7 +397,8 @@ describe("sources api (HTTP)", () => {
       expect(execution.structured).toMatchObject({
         status: "completed",
         result: {
-          content: [{ type: "text", text: "cloud-mcp-ok" }],
+          ok: true,
+          data: [{ type: "text", text: "cloud-mcp-ok" }],
         },
       });
       expect((yield* server.requests).length).toBeGreaterThanOrEqual(2);

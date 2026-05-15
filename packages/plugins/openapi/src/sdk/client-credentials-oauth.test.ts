@@ -227,11 +227,9 @@ describe("OpenAPI client_credentials OAuth", () => {
       );
       // Invoking the tool injects the freshly-minted bearer via
       // ctx.connections.accessToken.
-      const result = unwrapInvocation(yield* userExec.tools.invoke(
-        "petstore.items.echoHeaders",
-        {},
-        autoApprove,
-      ));
+      const result = unwrapInvocation(
+        yield* userExec.tools.invoke("petstore.items.echoHeaders", {}, autoApprove),
+      );
       expect(result.error).toBeNull();
       const data = result.data as EchoHeaders | null;
       const bearer = data?.authorization?.replace(/^Bearer\s+/i, "");

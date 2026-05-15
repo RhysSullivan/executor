@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { ElicitationResponse, createExecutor, definePlugin } from "@executor-js/sdk";
+import { ElicitationResponse, ToolResult, createExecutor, definePlugin } from "@executor-js/sdk";
 import { makeTestConfig } from "@executor-js/sdk/testing";
 import { makeExecutorToolInvoker } from "./tool-invoker";
 
@@ -11,8 +11,11 @@ const EmptyInputSchema = Schema.toStandardSchemaV1(
 
 const acceptAll = () => Effect.succeed(ElicitationResponse.make({ action: "accept" }));
 
-// Simulate the kind of error envelopes real upstreams (SharePoint, DealCloud,
-// Microsoft Graph, etc.) actually return.
+// Plugins now emit ToolResult directly. Mirrors the structured upstream
+// payloads each real plugin extracts a top-line message from — the
+// invoker passes the whole ToolResult through unchanged so the model
+// in the sandbox sees `r.ok === false` and `r.error.details` carrying
+// the full body.
 const upstreamErrorPlugin = definePlugin(() => ({
   id: "upstream-error-test" as const,
   storage: () => ({}),
@@ -28,16 +31,19 @@ const upstreamErrorPlugin = definePlugin(() => ({
           description: "",
           inputSchema: EmptyInputSchema,
           handler: () =>
-            Effect.succeed({
-              data: null,
-              error: {
-                error: {
-                  code: "invalidRequest",
-                  message:
-                    "The expression \"foo\" is not valid. Provide a valid expression.",
+            Effect.succeed(
+              ToolResult.fail({
+                code: "upstream_http_error",
+                status: 400,
+                message: 'The expression "foo" is not valid. Provide a valid expression.',
+                details: {
+                  error: {
+                    code: "invalidRequest",
+                    message: 'The expression "foo" is not valid. Provide a valid expression.',
+                  },
                 },
-              },
-            }),
+              }),
+            ),
         },
         {
           // DealCloud-ish shape: errorCode + errorMessage
@@ -45,13 +51,17 @@ const upstreamErrorPlugin = definePlugin(() => ({
           description: "",
           inputSchema: EmptyInputSchema,
           handler: () =>
-            Effect.succeed({
-              data: null,
-              error: {
-                errorCode: 400,
-                errorMessage: "Entity 'Deals' has no field 'XYZ'",
-              },
-            }),
+            Effect.succeed(
+              ToolResult.fail({
+                code: "upstream_http_error",
+                status: 400,
+                message: "Entity 'Deals' has no field 'XYZ'",
+                details: {
+                  errorCode: 400,
+                  errorMessage: "Entity 'Deals' has no field 'XYZ'",
+                },
+              }),
+            ),
         },
         {
           // JSON:API / multi-errors shape
@@ -59,33 +69,35 @@ const upstreamErrorPlugin = definePlugin(() => ({
           description: "",
           inputSchema: EmptyInputSchema,
           handler: () =>
-            Effect.succeed({
-              data: null,
-              error: {
-                errors: [
-                  { status: "403", title: "Forbidden", detail: "Insufficient scope" },
-                ],
-              },
-            }),
-        },
-        {
-          // Plain string body
-          name: "stringShape",
-          description: "",
-          inputSchema: EmptyInputSchema,
-          handler: () =>
-            Effect.succeed({
-              data: null,
-              error: "Internal Server Error",
-            }),
+            Effect.succeed(
+              ToolResult.fail({
+                code: "upstream_http_error",
+                status: 403,
+                message: "Insufficient scope",
+                details: {
+                  errors: [{ status: "403", title: "Forbidden", detail: "Insufficient scope" }],
+                },
+              }),
+            ),
         },
       ],
     },
   ],
 }));
 
-describe("repro: opaque tool execution failures", () => {
-  it.effect("SharePoint/Graph nested error.message is LOST -> 'Tool execution failed'", () =>
+const isFailedToolResult = (
+  value: unknown,
+): value is {
+  readonly ok: false;
+  readonly error: { readonly code: string; readonly message: string; readonly details?: unknown };
+} =>
+  value !== null &&
+  typeof value === "object" &&
+  "ok" in value &&
+  (value as { ok: unknown }).ok === false;
+
+describe("regression: structured upstream failures surface through ToolResult", () => {
+  it.effect("SharePoint/Graph nested error.message reaches the sandbox via ToolResult.fail", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({ plugins: [upstreamErrorPlugin()] as const }),
@@ -94,16 +106,23 @@ describe("repro: opaque tool execution failures", () => {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const err = yield* Effect.flip(
-        invoker.invoke({ path: "upstream.sharepointShape", args: {} }),
+      const result = yield* invoker.invoke({ path: "upstream.sharepointShape", args: {} });
+      expect(isFailedToolResult(result)).toBe(true);
+      if (!isFailedToolResult(result)) return;
+      expect(result.error.code).toBe("upstream_http_error");
+      expect(result.error.message).toBe(
+        'The expression "foo" is not valid. Provide a valid expression.',
       );
-      // eslint-disable-next-line no-console
-      console.log("[repro sharepoint]", (err as { message: string }).message);
-      expect((err as { message: string }).message).toBe("Tool execution failed");
+      expect(result.error.details).toEqual({
+        error: {
+          code: "invalidRequest",
+          message: 'The expression "foo" is not valid. Provide a valid expression.',
+        },
+      });
     }),
   );
 
-  it.effect("DealCloud errorMessage is LOST -> 'Tool execution failed'", () =>
+  it.effect("DealCloud errorMessage reaches the sandbox via ToolResult.fail", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({ plugins: [upstreamErrorPlugin()] as const }),
@@ -112,16 +131,18 @@ describe("repro: opaque tool execution failures", () => {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const err = yield* Effect.flip(
-        invoker.invoke({ path: "upstream.dealcloudShape", args: {} }),
-      );
-      // eslint-disable-next-line no-console
-      console.log("[repro dealcloud]", (err as { message: string }).message);
-      expect((err as { message: string }).message).toBe("Tool execution failed");
+      const result = yield* invoker.invoke({ path: "upstream.dealcloudShape", args: {} });
+      expect(isFailedToolResult(result)).toBe(true);
+      if (!isFailedToolResult(result)) return;
+      expect(result.error.message).toBe("Entity 'Deals' has no field 'XYZ'");
+      expect(result.error.details).toMatchObject({
+        errorCode: 400,
+        errorMessage: "Entity 'Deals' has no field 'XYZ'",
+      });
     }),
   );
 
-  it.effect("JSON:API errors[] is LOST -> 'Tool execution failed'", () =>
+  it.effect("JSON:API errors[] reaches the sandbox via ToolResult.fail", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({ plugins: [upstreamErrorPlugin()] as const }),
@@ -130,30 +151,13 @@ describe("repro: opaque tool execution failures", () => {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const err = yield* Effect.flip(
-        invoker.invoke({ path: "upstream.errorsArrayShape", args: {} }),
-      );
-      // eslint-disable-next-line no-console
-      console.log("[repro errors-array]", (err as { message: string }).message);
-      expect((err as { message: string }).message).toBe("Tool execution failed");
-    }),
-  );
-
-  it.effect("plain string error body is preserved", () =>
-    Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [upstreamErrorPlugin()] as const }),
-      );
-      const invoker = makeExecutorToolInvoker(executor, {
-        invokeOptions: { onElicitation: acceptAll },
+      const result = yield* invoker.invoke({ path: "upstream.errorsArrayShape", args: {} });
+      expect(isFailedToolResult(result)).toBe(true);
+      if (!isFailedToolResult(result)) return;
+      expect(result.error.message).toBe("Insufficient scope");
+      expect(result.error.details).toMatchObject({
+        errors: [{ detail: "Insufficient scope" }],
       });
-
-      const err = yield* Effect.flip(
-        invoker.invoke({ path: "upstream.stringShape", args: {} }),
-      );
-      // eslint-disable-next-line no-console
-      console.log("[repro string]", (err as { message: string }).message);
-      expect((err as { message: string }).message).toBe("Internal Server Error");
     }),
   );
 });

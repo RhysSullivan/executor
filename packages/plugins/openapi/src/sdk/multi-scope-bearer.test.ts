@@ -278,11 +278,9 @@ describe("OpenAPI multi-scope bearer (Vercel-style)", () => {
       //    yields her token; bob's scope yields his. Same source, same
       //    tool, different injected bearer.
       // -------------------------------------------------------------
-      const aliceResult = unwrapInvocation(yield* aliceExec.tools.invoke(
-        "vercel.projects.list",
-        {},
-        autoApprove,
-      ));
+      const aliceResult = unwrapInvocation(
+        yield* aliceExec.tools.invoke("vercel.projects.list", {}, autoApprove),
+      );
       expect(aliceResult.error).toBeNull();
       const aliceData = aliceResult.data as EchoHeaders | null;
       expect(aliceData?.authorization).toBe("Bearer alice-vercel-token");
@@ -449,11 +447,9 @@ describe("OpenAPI multi-scope bearer (Vercel-style)", () => {
         }),
       );
 
-      const aliceResult = unwrapInvocation(yield* aliceExec.tools.invoke(
-        "vercel.projects.list",
-        {},
-        autoApprove,
-      ));
+      const aliceResult = unwrapInvocation(
+        yield* aliceExec.tools.invoke("vercel.projects.list", {}, autoApprove),
+      );
       expect(aliceResult.error).toBeNull();
       expect((aliceResult.data as EchoHeaders | null)?.authorization).toBe(
         "Bearer alice-vercel-token",
@@ -560,11 +556,9 @@ describe("OpenAPI multi-scope bearer (Vercel-style)", () => {
           }),
         );
 
-        const sharedResult = unwrapInvocation(yield* aliceExec.tools.invoke(
-          "vercel.projects.list",
-          {},
-          autoApprove,
-        ));
+        const sharedResult = unwrapInvocation(
+          yield* aliceExec.tools.invoke("vercel.projects.list", {}, autoApprove),
+        );
         expect(sharedResult.error).toBeNull();
         expect((sharedResult.data as EchoHeaders | null)?.authorization).toBe("Bearer org-token");
 
@@ -589,11 +583,9 @@ describe("OpenAPI multi-scope bearer (Vercel-style)", () => {
           }),
         );
 
-        const overrideResult = unwrapInvocation(yield* aliceExec.tools.invoke(
-          "vercel.projects.list",
-          {},
-          autoApprove,
-        ));
+        const overrideResult = unwrapInvocation(
+          yield* aliceExec.tools.invoke("vercel.projects.list", {}, autoApprove),
+        );
         expect(overrideResult.error).toBeNull();
         expect((overrideResult.data as EchoHeaders | null)?.authorization).toBe(
           "Bearer alice-token",
@@ -606,11 +598,9 @@ describe("OpenAPI multi-scope bearer (Vercel-style)", () => {
           String(aliceScope.id),
         );
 
-        const fallbackResult = unwrapInvocation(yield* aliceExec.tools.invoke(
-          "vercel.projects.list",
-          {},
-          autoApprove,
-        ));
+        const fallbackResult = unwrapInvocation(
+          yield* aliceExec.tools.invoke("vercel.projects.list", {}, autoApprove),
+        );
         expect(fallbackResult.error).toBeNull();
         expect((fallbackResult.data as EchoHeaders | null)?.authorization).toBe(
           "Bearer org-token",

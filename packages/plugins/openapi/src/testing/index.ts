@@ -627,25 +627,30 @@ export const TestLayers = {
 // keep working.
 // ---------------------------------------------------------------------------
 
-export interface LegacyInvocationEnvelope {
+export interface LegacyInvocationEnvelope<TData = Record<string, unknown> | unknown[] | null> {
   readonly status: number | null;
   readonly headers: Record<string, string> | null;
-  readonly data: unknown;
+  readonly data: TData;
   readonly error: unknown;
 }
 
-export const unwrapInvocation = (raw: unknown): LegacyInvocationEnvelope => {
+export const unwrapInvocation = <TData = Record<string, unknown> | null>(
+  raw: unknown,
+): LegacyInvocationEnvelope<TData> => {
   if (raw === null || typeof raw !== "object" || !("ok" in raw)) {
     return {
       status: null,
       headers: null,
-      data: raw,
+      data: raw as TData,
       error: null,
     };
   }
   const r = raw as
     | { readonly ok: true; readonly data: unknown }
-    | { readonly ok: false; readonly error: { readonly status?: number; readonly details?: unknown } };
+    | {
+        readonly ok: false;
+        readonly error: { readonly status?: number; readonly details?: unknown };
+      };
   if (r.ok) {
     const inner = r.data;
     if (
@@ -663,7 +668,7 @@ export const unwrapInvocation = (raw: unknown): LegacyInvocationEnvelope => {
       return {
         status: wrapped.status,
         headers: wrapped.headers,
-        data: wrapped.data,
+        data: wrapped.data as TData,
         error: null,
       };
     }
@@ -672,14 +677,14 @@ export const unwrapInvocation = (raw: unknown): LegacyInvocationEnvelope => {
     return {
       status: null,
       headers: null,
-      data: inner,
+      data: inner as TData,
       error: null,
     };
   }
   return {
     status: r.error.status ?? null,
     headers: null,
-    data: null,
+    data: null as TData,
     error: r.error.details ?? r.error,
   };
 };

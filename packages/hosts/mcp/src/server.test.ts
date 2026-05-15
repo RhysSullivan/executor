@@ -116,7 +116,7 @@ describe("MCP host server — client with elicitation", () => {
     });
   });
 
-  it("execute tool resolves failed engine effects as MCP error results", async () => {
+  it("execute tool surfaces failed engine effects as an opaque generic with correlation id", async () => {
     const engine = makeStubEngine({
       execute: () => Effect.fail(new TestExecutionError({ message: "Unexpected token ':'" })),
     });
@@ -126,11 +126,11 @@ describe("MCP host server — client with elicitation", () => {
         name: "execute",
         arguments: { code: "const x: any = 1;" },
       });
-      expect(textOf(result)).toBe("Error: Unexpected token ':'");
-      expect(result.structuredContent).toEqual({
-        status: "error",
-        error: "Unexpected token ':'",
-      });
+      const text = textOf(result);
+      expect(text).toMatch(/^Error: Internal tool error \[[0-9a-f]{8}\]$/);
+      expect(text).not.toContain("Unexpected token");
+      const structured = (result.structuredContent as { readonly error?: string }).error ?? "";
+      expect(structured).toMatch(/^Internal tool error \[[0-9a-f]{8}\]$/);
       expect(result.isError).toBe(true);
     });
   });
@@ -146,11 +146,16 @@ describe("MCP host server — client with elicitation", () => {
         name: "execute",
         arguments: { code: "run" },
       });
-      expect(textOf(result)).toBe("Error: Tool execution failed");
-      expect(result.structuredContent).toEqual({
+      const text = textOf(result);
+      expect(text).toMatch(/^Error: Internal tool error \[[0-9a-f]{8}\]$/);
+      // Sensitive internal context must NOT leak through the MCP error path.
+      expect(text).not.toContain("secret internal detail");
+      expect(result.structuredContent).toMatchObject({
         status: "error",
-        error: "Tool execution failed",
       });
+      const structuredError = (result.structuredContent as { readonly error?: string }).error ?? "";
+      expect(structuredError).toMatch(/^Internal tool error \[[0-9a-f]{8}\]$/);
+      expect(structuredError).not.toContain("secret internal detail");
       expect(result.isError).toBe(true);
     });
   });

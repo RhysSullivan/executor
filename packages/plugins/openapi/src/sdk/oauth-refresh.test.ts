@@ -254,11 +254,9 @@ describe("OpenAPI oauth refresh", () => {
       });
       yield* bindOAuthConnection(executor, scopeId, "conn-refresh-ok", auth);
 
-      const result = unwrapInvocation(yield* executor.tools.invoke(
-        "petstore.items.echoHeaders",
-        {},
-        autoApprove,
-      ));
+      const result = unwrapInvocation(
+        yield* executor.tools.invoke("petstore.items.echoHeaders", {}, autoApprove),
+      );
 
       expect(result.error).toBeNull();
       const data = result.data as EchoHeaders | null;

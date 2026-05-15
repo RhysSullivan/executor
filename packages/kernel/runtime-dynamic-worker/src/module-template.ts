@@ -138,7 +138,7 @@ export const buildExecutorModule = (body: string, timeoutMs: number): string =>
     "        return (async () => {",
     "          const encoded = await __encodeBinary(args[0]);",
     "          const data = await __dispatcher.call(toolPath, encoded);",
-    "          if (!data.ok) throw new Error(data.error && data.error.message ? data.error.message : 'Tool execution failed');",
+    "          if (!data.ok) throw new Error(data.error && typeof data.error.message === 'string' && data.error.message.startsWith('Internal tool error') ? data.error.message : 'Internal tool error');",
     "          return __decodeBinary(data.result);",
     "        })();",
     "      },",

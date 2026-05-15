@@ -558,11 +558,9 @@ describe("OpenAPI Plugin", () => {
           },
         });
 
-        const result = unwrapInvocation(yield* executor.tools.invoke(
-          "authed.items.echoHeaders",
-          {},
-          autoApprove,
-        ));
+        const result = unwrapInvocation(
+          yield* executor.tools.invoke("authed.items.echoHeaders", {}, autoApprove),
+        );
 
         expect(result.error).toBeNull();
         const data = result.data as { authorization?: string; "x-static"?: string };
@@ -777,11 +775,9 @@ describe("OpenAPI Plugin", () => {
           namespace: "test",
         });
 
-        const result = unwrapInvocation(yield* executor.tools.invoke(
-          "test.items.getItem",
-          { itemId: "2" },
-          autoApprove,
-        ));
+        const result = unwrapInvocation(
+          yield* executor.tools.invoke("test.items.getItem", { itemId: "2" }, autoApprove),
+        );
         expect(result.error).toBeNull();
         expect(result.data).toEqual({ id: 2, name: "Gadget" });
       }),
@@ -807,16 +803,18 @@ describe("OpenAPI Plugin", () => {
           namespace: "records",
         });
 
-        const result = unwrapInvocation(yield* executor.tools.invoke(
-          "records.items.queryRows",
-          {
-            entryTypeId: "18538",
-            query: JSON.stringify([{ DisplayName: "Example" }]),
-            limit: 10,
-            skip: 0,
-          },
-          autoApprove,
-        ));
+        const result = unwrapInvocation(
+          yield* executor.tools.invoke(
+            "records.items.queryRows",
+            {
+              entryTypeId: "18538",
+              query: JSON.stringify([{ DisplayName: "Example" }]),
+              limit: 10,
+              skip: 0,
+            },
+            autoApprove,
+          ),
+        );
 
         expect(result.data).toBeNull();
         expect(result.error).toEqual(

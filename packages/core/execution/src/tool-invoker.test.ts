@@ -4,6 +4,7 @@ import { Effect, Fiber, Schema } from "effect";
 import {
   ElicitationResponse,
   FormElicitation,
+  ToolResult,
   createExecutor,
   definePlugin,
 } from "@executor-js/sdk";
@@ -106,13 +107,12 @@ const errorPlugin = definePlugin(() => ({
           description: "Query rows",
           inputSchema: EmptyInputSchema,
           handler: () =>
-            Effect.succeed({
-              data: null,
-              error: {
-                message: 'Field with name "DisplayName" does not exist',
+            Effect.succeed(
+              ToolResult.fail({
                 code: "invalid_query",
-              },
-            }),
+                message: 'Field with name "DisplayName" does not exist',
+              }),
+            ),
         },
       ],
     },
@@ -405,20 +405,21 @@ describe("tool discovery", () => {
     }),
   );
 
-  it.effect("converts message-bearing tool error results into execution errors", () =>
+  it.effect("passes ToolResult.fail through to the sandbox as a value (no throw)", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(makeTestConfig({ plugins: [errorPlugin()] as const }));
       const invoker = makeExecutorToolInvoker(executor, {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const error = yield* Effect.flip(invoker.invoke({ path: "records.queryRows", args: {} }));
-
-      expect(error).toEqual(
-        expect.objectContaining({
+      const result = yield* invoker.invoke({ path: "records.queryRows", args: {} });
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: "invalid_query",
           message: 'Field with name "DisplayName" does not exist',
-        }),
-      );
+        },
+      });
     }),
   );
 });

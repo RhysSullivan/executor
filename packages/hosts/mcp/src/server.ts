@@ -260,20 +260,28 @@ const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>):
   structuredContent: formatted.structured,
 });
 
-const formatFailureMessage = (value: unknown): string | null => {
-  if (typeof value === "object" && value !== null && "message" in value) {
-    const message = (value as { readonly message?: unknown }).message;
-    if (typeof message === "string" && message.length > 0) return message;
-  }
-  if (typeof value === "string" && value.length > 0) return value;
-  return null;
-};
+// `execute` failures reaching the MCP host are infra defects — domain
+// failures from tools are now expressed as `ToolResult` values (success
+// channel) and flow through `formatExecuteResult`. Emit an opaque
+// generic plus a fresh correlation id and log the cause out-of-band so
+// the model can't read internal context off `.message`.
+const newCorrelationId = (): string =>
+  Math.floor(Math.random() * 0x1_0000_0000)
+    .toString(16)
+    .padStart(8, "0");
 
 const toMcpFailureResult = (cause: Cause.Cause<unknown>): McpToolResult => {
-  const failure = cause.reasons.find(Cause.isFailReason);
-  const text = failure
-    ? (formatFailureMessage(failure.error) ?? "Tool execution failed")
-    : "Tool execution failed";
+  const correlationId = newCorrelationId();
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: best-effort defect logging must tolerate non-serializable causes
+  try {
+    console.error(
+      `[executor:mcp] execute defect correlation_id=${correlationId}`,
+      Cause.pretty(cause),
+    );
+  } catch {
+    /* ignore logger failures */
+  }
+  const text = `Internal tool error [${correlationId}]`;
   return {
     content: [{ type: "text", text: `Error: ${text}` }],
     structuredContent: { status: "error", error: text },

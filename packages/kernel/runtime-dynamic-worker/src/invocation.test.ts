@@ -246,7 +246,7 @@ describe("makeDynamicWorkerExecutor", () => {
     expect(result.result).toBe(7);
   });
 
-  it("surfaces tool errors in execution result", async () => {
+  it("surfaces infra defects through the worker bridge as an opaque generic", async () => {
     const executor = makeDynamicWorkerExecutor({ loader });
     const invoker = failingInvoker("not authorized");
 
@@ -254,7 +254,7 @@ describe("makeDynamicWorkerExecutor", () => {
       executor.execute("async () => { return await tools.secret.read({}); }", invoker),
     );
 
-    expect(result.error).toBe("not authorized");
+    expect(result.error).toBe("Internal tool error");
   });
 
   it("does not expose host error stack details to sandbox error handlers", async () => {
@@ -284,11 +284,12 @@ describe("makeDynamicWorkerExecutor", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({ message: "not authorized" });
+    expect(result.result).toMatchObject({ message: "Internal tool error" });
     expect((result.result as { stack?: string }).stack).not.toContain("secret host stack");
+    expect((result.result as { message?: string }).message).not.toContain("not authorized");
   });
 
-  it("surfaces object-shaped tool errors in execution result", async () => {
+  it("collapses object-shaped tool defects to an opaque generic", async () => {
     const executor = makeDynamicWorkerExecutor({ loader });
     const invoker = {
       invoke: () =>
@@ -302,11 +303,11 @@ describe("makeDynamicWorkerExecutor", () => {
       executor.execute("async () => { return await tools.secret.read({}); }", invoker),
     );
 
-    expect(result.error).toBe('{"code":"forbidden","detail":"missing team access"}');
+    expect(result.error).toBe("Internal tool error");
     expect(result.result).toBeNull();
   });
 
-  it("surfaces message-bearing object tool errors in execution result", async () => {
+  it("collapses message-bearing object tool defects to an opaque generic", async () => {
     const executor = makeDynamicWorkerExecutor({ loader });
     const invoker = {
       invoke: () =>
@@ -320,7 +321,8 @@ describe("makeDynamicWorkerExecutor", () => {
       executor.execute("async () => { return await tools.records.query({}); }", invoker),
     );
 
-    expect(result.error).toBe('Field with name "DisplayName" does not exist');
+    expect(result.error).toBe("Internal tool error");
+    expect(result.error).not.toContain("DisplayName");
     expect(result.result).toBeNull();
   });
 
@@ -366,7 +368,7 @@ describe("makeDynamicWorkerExecutor", () => {
     expect(result.error).toBe("Tool RPC payload contains a circular reference");
   });
 
-  it("returns an execution error for circular tool results", async () => {
+  it("returns an opaque generic when a tool result can't be serialized", async () => {
     const executor = makeDynamicWorkerExecutor({ loader });
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
@@ -377,7 +379,7 @@ describe("makeDynamicWorkerExecutor", () => {
     );
 
     expect(result.result).toBeNull();
-    expect(result.error).toBe("Tool RPC payload contains a circular reference");
+    expect(result.error).toBe("Internal tool error");
   });
 
   it("respects timeout", async () => {

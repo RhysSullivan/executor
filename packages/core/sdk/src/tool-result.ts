@@ -22,7 +22,6 @@ export const ToolResult = {
   fail: <T = never>(error: ToolError): ToolResult<T> => ({ ok: false, error }),
 } as const;
 
-
 export const isToolResult = (value: unknown): value is ToolResult<unknown> => {
   if (value === null || typeof value !== "object") return false;
   if (!("ok" in value)) return false;
@@ -31,14 +30,11 @@ export const isToolResult = (value: unknown): value is ToolResult<unknown> => {
   if (ok === false) {
     if (!("error" in value)) return false;
     const error = (value as { error: unknown }).error;
-    return (
-      error !== null &&
-      typeof error === "object" &&
-      "code" in error &&
-      "message" in error &&
-      typeof (error as { code: unknown }).code === "string" &&
-      typeof (error as { message: unknown }).message === "string"
-    );
+    if (error === null || typeof error !== "object") return false;
+    if (!("code" in error) || !("message" in error)) return false;
+    const errorObj = error as { readonly code: unknown; readonly message: unknown };
+    // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: structural type guard; `message` is a required ToolError field, not a thrown JS error
+    return typeof errorObj.code === "string" && typeof errorObj.message === "string";
   }
   return false;
 };

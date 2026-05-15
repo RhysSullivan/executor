@@ -1,4 +1,4 @@
-import { Effect, Match, Option, Predicate } from "effect";
+import { Effect, Predicate } from "effect";
 import * as Cause from "effect/Cause";
 import type {
   Executor,
@@ -12,6 +12,16 @@ import { isToolResult } from "@executor-js/sdk/core";
 import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import { ExecutionToolError } from "./errors";
 
+const OPAQUE_DEFECT_MESSAGE = "Internal tool error";
+
+const newCorrelationId = (): string => {
+  // 8-hex-char correlation id; enough entropy to disambiguate within a
+  // single deployment without leaking host process info.
+  return Math.floor(Math.random() * 0x1_0000_0000)
+    .toString(16)
+    .padStart(8, "0");
+};
+
 /**
  * Extract the source namespace from a tool path. Tool paths look like
  * "<sourceId>.<op>" or "<sourceId>.<group>.<op>" — we take the first
@@ -22,108 +32,6 @@ import { ExecutionToolError } from "./errors";
 const extractSourceNamespace = (path: string): string => {
   const idx = path.indexOf(".");
   return idx === -1 ? path : path.slice(0, idx);
-};
-
-const hasStringMessage = (value: unknown): value is { readonly message: string } =>
-  value !== null &&
-  typeof value === "object" &&
-  "message" in value &&
-  typeof value.message === "string";
-
-const messageFromErrorLike = (value: unknown): string | undefined => {
-  if (hasStringMessage(value)) {
-    return value.message;
-  }
-  return undefined;
-};
-
-// Boundary: `.catchCause` branch — `err` is an internal/typed plugin error.
-// Keep `.message`-only discipline; never walk `.cause`/stack/structured body.
-const renderCauseErrorMessage = (error: unknown): string =>
-  messageFromErrorLike(error) ??
-  (typeof error === "undefined" ? "Tool execution failed" : renderUnknownPrimitive(error));
-
-const renderUnknownPrimitive = (value: unknown): string =>
-  Match.value(value).pipe(
-    Match.when(Match.string, (s) => s),
-    Match.whenOr(Match.number, Match.boolean, Match.bigint, Match.symbol, (x) => x.toString()),
-    Match.option,
-    Option.getOrElse(() => "Tool execution failed"),
-  );
-
-type LegacyToolResultEnvelope = {
-  readonly error?: unknown;
-  readonly data?: unknown;
-};
-
-const isLegacyToolResultEnvelope = (value: unknown): value is LegacyToolResultEnvelope =>
-  value !== null && typeof value === "object" && ("error" in value || "data" in value);
-
-const hasLegacyToolResultError = (
-  value: LegacyToolResultEnvelope,
-): value is LegacyToolResultEnvelope & { readonly error: unknown } =>
-  value.error !== null && value.error !== undefined;
-
-const STRINGIFIED_BODY_CAP = 1024;
-
-// Boundary: legacy envelope branch — `body` is a domain-level structured
-// upstream error body returned by the handler in a `data: null, error: ...`
-// envelope. Walk known upstream shapes (Microsoft Graph, DealCloud,
-// JSON:API, etc.) before falling back to a clamped JSON.stringify.
-const extractLegacyEnvelopeMessage = (body: unknown): string => {
-  if (typeof body === "string") {
-    return body.length === 0 ? "Tool execution failed" : body;
-  }
-  if (body === null || typeof body !== "object") {
-    return renderUnknownPrimitive(body);
-  }
-
-  const obj = body as Record<string, unknown>;
-
-  // Microsoft Graph / SharePoint: { error: { code, message } }
-  const nested = obj.error;
-  if (nested !== null && typeof nested === "object" && "message" in nested) {
-    const m = (nested as { message: unknown }).message;
-    if (typeof m === "string" && m.length > 0) return m;
-  }
-
-  // Plain { message: ... }
-  if (typeof obj.message === "string" && obj.message.length > 0) return obj.message;
-
-  // DealCloud-ish: { errorCode, errorMessage }
-  if (typeof obj.errorMessage === "string" && obj.errorMessage.length > 0) return obj.errorMessage;
-
-  // JSON:API multi-errors: { errors: [{ detail|message|title, ... }] }
-  if (Array.isArray(obj.errors) && obj.errors.length > 0) {
-    const first = obj.errors[0];
-    if (first !== null && typeof first === "object") {
-      const f = first as Record<string, unknown>;
-      for (const key of ["detail", "message", "title"]) {
-        const v = f[key];
-        if (typeof v === "string" && v.length > 0) return v;
-      }
-    }
-  }
-
-  for (const key of ["detail", "title", "description"]) {
-    const v = obj[key];
-    if (typeof v === "string" && v.length > 0) return v;
-  }
-
-  return clampedStringify(body);
-};
-
-const clampedStringify = (value: unknown): string => {
-  let s: string;
-  try {
-    s = JSON.stringify(value);
-  } catch {
-    s = String(value);
-  }
-  if (s.length > STRINGIFIED_BODY_CAP) {
-    return `${s.slice(0, STRINGIFIED_BODY_CAP)}…`;
-  }
-  return s;
 };
 
 /**
@@ -152,44 +60,46 @@ export const makeExecutorToolInvoker = (
     const result = yield* executor.tools.invoke(path as ToolId, args, options.invokeOptions).pipe(
       Effect.catchCause((cause): Effect.Effect<never, ExecutionToolError> => {
         const err = cause.reasons.find(Cause.isFailReason)?.error;
-        if (!isElicitationDeclinedError(err)) {
+        if (isElicitationDeclinedError(err)) {
           return Effect.fail(
             new ExecutionToolError({
-              message: renderCauseErrorMessage(err),
-              cause: err ?? cause,
+              message: `Tool "${err.toolId}" requires approval but the request was ${err.action === "cancel" ? "cancelled" : "declined"} by the user.`,
+              cause: err,
             }),
           );
         }
-        return Effect.fail(
-          new ExecutionToolError({
-            message: `Tool "${err.toolId}" requires approval but the request was ${err.action === "cancel" ? "cancelled" : "declined"} by the user.`,
-            cause: err,
+        // Any other failure here is an infra/plugin defect. Emit an
+        // opaque generic with a correlation id so internal context (URLs
+        // with tokens, DB connection strings, file paths in stacks)
+        // can't leak through Error.message into the sandbox. The full
+        // cause is logged with the same correlation id so operators can
+        // still trace the failure.
+        const correlationId = newCorrelationId();
+        return Effect.logError("tool dispatch failed", cause).pipe(
+          Effect.annotateLogs({
+            "executor.correlation_id": correlationId,
+            "mcp.tool.name": path,
           }),
+          Effect.flatMap(() =>
+            Effect.fail(
+              new ExecutionToolError({
+                message: `${OPAQUE_DEFECT_MESSAGE} [${correlationId}]`,
+                cause: err ?? cause,
+              }),
+            ),
+          ),
         );
       }),
     );
 
-    // New typed-union path. Pass the whole `ToolResult<T>` through; user
-    // sandbox code branches on `r.ok`.
+    // Strict: plugins emit ToolResult<T>. Anything else is treated as a
+    // raw success value and wrapped — keeps the sandbox-facing contract
+    // uniform without forcing every tiny test plugin to import
+    // `ToolResult.ok`.
     if (isToolResult(result)) {
       return result;
     }
-
-    // Legacy envelope shim. Translates the old `{ data, error }` shape
-    // into an Effect failure so existing user code keeps throwing on
-    // domain errors. Phase 3 deletes this branch outright.
-    if (isLegacyToolResultEnvelope(result)) {
-      if (hasLegacyToolResultError(result)) {
-        return yield* new ExecutionToolError({
-          message: extractLegacyEnvelopeMessage(result.error),
-          cause: result.error,
-        });
-      }
-      if ("data" in result) {
-        return result.data;
-      }
-    }
-    return result;
+    return { ok: true, data: result };
   }),
 });
 

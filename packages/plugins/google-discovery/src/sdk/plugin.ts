@@ -38,6 +38,7 @@ const GOOGLE_BODY_CAP = 1024;
 
 const googleClampedStringify = (value: unknown): string => {
   let s: string;
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: JSON.stringify may throw on cycles; fall back to String() so the upstream body can still be surfaced as ToolError.details fallback text
   try {
     s = JSON.stringify(value);
   } catch {
