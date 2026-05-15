@@ -1,4 +1,6 @@
-import type { ConnectionId, CredentialBindingValue, ScopeId } from "@executor-js/sdk";
+import type { ConnectionId, ScopeId } from "@executor-js/sdk";
+
+import type { SourceCredentialBindingRef } from "./credential-bindings";
 
 export type SourceCredentialSlot =
   | {
@@ -14,11 +16,7 @@ export type SourceCredentialSlot =
       readonly optional?: boolean;
     };
 
-export type SourceCredentialBindingRef = {
-  readonly slot: string;
-  readonly scopeId: ScopeId;
-  readonly value: CredentialBindingValue;
-};
+export type { SourceCredentialBindingRef } from "./credential-bindings";
 
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: ScopeId): number =>
   ranks.get(scopeId) ?? Number.MAX_SAFE_INTEGER;
@@ -31,7 +29,8 @@ export const effectiveSourceCredentialBinding = (
 ): SourceCredentialBindingRef | null =>
   rows
     .filter(
-      (row) => row.slot === slot && scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
+      (row) =>
+        row.slotKey === slot && scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
     )
     .sort((a, b) => scopeRank(ranks, a.scopeId) - scopeRank(ranks, b.scopeId))[0] ?? null;
 

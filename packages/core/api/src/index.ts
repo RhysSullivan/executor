@@ -13,6 +13,7 @@ export { ConnectionsApi } from "./connections/api";
 export { ExecutionsApi } from "./executions/api";
 export { ScopeApi } from "./scope/api";
 export { OAuthApi } from "./oauth/api";
+export { CredentialBindingsApi } from "./credential-bindings/api";
 export {
   OAUTH_POPUP_MESSAGE_TYPE,
   isOAuthPopupResult,

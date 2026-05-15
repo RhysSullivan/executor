@@ -16,17 +16,6 @@ export const openApiSourceAtom = (scopeId: ScopeId, namespace: string) =>
     reactivityKeys: [ReactivityKey.sources, ReactivityKey.tools],
   });
 
-export const openApiSourceBindingsAtom = (
-  scopeId: ScopeId,
-  namespace: string,
-  sourceScopeId: ScopeId,
-) =>
-  OpenApiClient.query("openapi", "listSourceBindings", {
-    params: { scopeId, namespace, sourceScopeId },
-    timeToLive: "15 seconds",
-    reactivityKeys: [ReactivityKey.sources, ReactivityKey.secrets, ReactivityKey.connections],
-  });
-
 // ---------------------------------------------------------------------------
 // Mutation atoms
 // ---------------------------------------------------------------------------
@@ -63,7 +52,3 @@ export const addOpenApiSpecOptimistic = Atom.family((scopeId: ScopeId) =>
 );
 
 export const updateOpenApiSource = OpenApiClient.mutation("openapi", "updateSource");
-
-export const setOpenApiSourceBinding = OpenApiClient.mutation("openapi", "setSourceBinding");
-
-export const removeOpenApiSourceBinding = OpenApiClient.mutation("openapi", "removeSourceBinding");

@@ -10,11 +10,7 @@ import {
 import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
 import { StoredSourceSchema } from "../sdk/store";
-import {
-  OAuth2SourceConfig,
-  OpenApiSourceBindingInput,
-  OpenApiSourceBindingRef,
-} from "../sdk/types";
+import { OAuth2SourceConfig } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -34,12 +30,6 @@ const ScopeIdParam = {
 const SourceParams = {
   scopeId: ScopeId,
   namespace: Schema.String,
-};
-
-const SourceBindingParams = {
-  scopeId: ScopeId,
-  namespace: Schema.String,
-  sourceScopeId: ScopeId,
 };
 
 const SpecFetchCredentialsPayload = Schema.Struct({
@@ -102,13 +92,6 @@ const UpdateSourceResponse = Schema.Struct({
   updated: Schema.Boolean,
 });
 
-const RemoveBindingPayload = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScope: ScopeId,
-  slot: Schema.String,
-  scope: ScopeId,
-});
-
 // ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------
@@ -167,33 +150,6 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
       params: SourceParams,
       payload: UpdateSourcePayload,
       success: UpdateSourceResponse,
-      error: DomainErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.get(
-      "listSourceBindings",
-      "/scopes/:scopeId/openapi/sources/:namespace/base/:sourceScopeId/bindings",
-      {
-        params: SourceBindingParams,
-        success: Schema.Array(OpenApiSourceBindingRef),
-        error: DomainErrors,
-      },
-    ),
-  )
-  .add(
-    HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/openapi/source-bindings", {
-      params: ScopeIdParam,
-      payload: OpenApiSourceBindingInput,
-      success: OpenApiSourceBindingRef,
-      error: DomainErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.post("removeSourceBinding", "/scopes/:scopeId/openapi/source-bindings/remove", {
-      params: ScopeIdParam,
-      payload: RemoveBindingPayload,
-      success: Schema.Struct({ removed: Schema.Boolean }),
       error: DomainErrors,
     }),
   );

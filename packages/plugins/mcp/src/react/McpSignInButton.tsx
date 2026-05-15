@@ -4,14 +4,17 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { ScopeId } from "@executor-js/sdk/core";
 import { useScope, useUserScope } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
-import { connectionsAtom } from "@executor-js/react/api/atoms";
+import {
+  connectionsAtom,
+  setSourceCredentialBinding,
+  sourceCredentialBindingsAtom,
+} from "@executor-js/react/api/atoms";
 import { SourceOAuthSignInButton } from "@executor-js/react/plugins/oauth-sign-in";
 import { slugifyNamespace } from "@executor-js/react/plugins/source-identity";
 import { secretBackedValuesFromConfiguredCredentialBindings } from "@executor-js/react/plugins/credential-bindings";
 
-import { mcpSourceAtom, mcpSourceBindingsAtom, setMcpSourceBinding } from "./atoms";
+import { mcpSourceAtom } from "./atoms";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
-import { McpSourceBindingInput } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // McpSignInButton — top-bar action on the source detail page.
@@ -31,10 +34,10 @@ export default function McpSignInButton(props: { sourceId: string }) {
     AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
   const sourceScope = source ? ScopeId.make(source.scope) : scopeId;
   const bindingsResult = useAtomValue(
-    mcpSourceBindingsAtom(userScopeId, props.sourceId, sourceScope),
+    sourceCredentialBindingsAtom(userScopeId, "mcp", props.sourceId, sourceScope),
   );
   const connectionsResult = useAtomValue(connectionsAtom(userScopeId));
-  const setBinding = useAtomSet(setMcpSourceBinding, { mode: "promise" });
+  const setBinding = useAtomSet(setSourceCredentialBinding, { mode: "promise" });
 
   const remote = source && source.config.transport === "remote" ? source.config : null;
   const oauth2 = remote && remote.auth.kind === "oauth2" ? remote.auth : null;
@@ -43,7 +46,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
     : null;
   const bindings = AsyncResult.isSuccess(bindingsResult) ? bindingsResult.value : null;
   const connectionBinding = bindings?.find(
-    (binding) => binding.slot === oauth2?.connectionSlot && binding.value.kind === "connection",
+    (binding) => binding.slotKey === oauth2?.connectionSlot && binding.value.kind === "connection",
   );
   const connectionId =
     connectionBinding?.value.kind === "connection" ? connectionBinding.value.connectionId : null;
@@ -76,13 +79,14 @@ export default function McpSignInButton(props: { sourceId: string }) {
       onConnected={async (nextConnectionId) => {
         await setBinding({
           params: { scopeId: userScopeId },
-          payload: McpSourceBindingInput.make({
+          payload: {
+            targetScope: userScopeId,
+            pluginId: "mcp",
             sourceId: props.sourceId,
             sourceScope,
-            scope: userScopeId,
-            slot: oauth2.connectionSlot,
+            slotKey: oauth2.connectionSlot,
             value: { kind: "connection", connectionId: nextConnectionId },
-          }),
+          },
           reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
         });
       }}

@@ -41,7 +41,8 @@ import { serveTestHttpApp } from "@executor-js/sdk/testing";
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
-import { OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
+import { OAuth2SourceConfig } from "./types";
+import { setOpenApiCredentialBinding } from "../testing";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -282,18 +283,16 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         baseUrl,
         oauth2,
       });
-      yield* userExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: userScope.id,
-          scope: userScope.id,
-          slot: oauth2.connectionSlot,
-          value: {
-            kind: "connection",
-            connectionId: ConnectionId.make(completedConnection.connectionId),
-          },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(userExec, {
+        sourceId: "petstore",
+        sourceScope: userScope.id,
+        targetScope: userScope.id,
+        slotKey: oauth2.connectionSlot,
+        value: {
+          kind: "connection",
+          connectionId: ConnectionId.make(completedConnection.connectionId),
+        },
+      });
       // Invoking the tool injects the freshly-minted bearer via
       // ctx.connections.accessToken.
       const result = (yield* userExec.tools.invoke(

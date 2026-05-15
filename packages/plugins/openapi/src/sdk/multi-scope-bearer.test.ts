@@ -45,7 +45,12 @@ import {
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
-import { ConfiguredHeaderBinding, OpenApiSourceBindingInput } from "./types";
+import { ConfiguredHeaderBinding } from "./types";
+import {
+  listOpenApiCredentialBindings,
+  removeOpenApiCredentialBinding,
+  setOpenApiCredentialBinding,
+} from "../testing";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -239,54 +244,46 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       //    their own scope. Same secret id, same source, different
       //    binding owner and provider value.
       // -------------------------------------------------------------
-      yield* aliceExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "vercel",
-          sourceScope: orgScope.id,
-          scope: aliceScope.id,
-          slot: "auth:vercel_api_token",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("vercel_api_token"),
-          },
-        }),
-      );
-      yield* aliceExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "vercel",
-          sourceScope: orgScope.id,
-          scope: aliceScope.id,
-          slot: "query_param:vercel_team_token",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("vercel_team_token"),
-          },
-        }),
-      );
-      yield* bobExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "vercel",
-          sourceScope: orgScope.id,
-          scope: bobScope.id,
-          slot: "auth:vercel_api_token",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("vercel_api_token"),
-          },
-        }),
-      );
-      yield* bobExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "vercel",
-          sourceScope: orgScope.id,
-          scope: bobScope.id,
-          slot: "query_param:vercel_team_token",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("vercel_team_token"),
-          },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(aliceExec, {
+        sourceId: "vercel",
+        sourceScope: orgScope.id,
+        targetScope: aliceScope.id,
+        slotKey: "auth:vercel_api_token",
+        value: {
+          kind: "secret",
+          secretId: SecretId.make("vercel_api_token"),
+        },
+      });
+      yield* setOpenApiCredentialBinding(aliceExec, {
+        sourceId: "vercel",
+        sourceScope: orgScope.id,
+        targetScope: aliceScope.id,
+        slotKey: "query_param:vercel_team_token",
+        value: {
+          kind: "secret",
+          secretId: SecretId.make("vercel_team_token"),
+        },
+      });
+      yield* setOpenApiCredentialBinding(bobExec, {
+        sourceId: "vercel",
+        sourceScope: orgScope.id,
+        targetScope: bobScope.id,
+        slotKey: "auth:vercel_api_token",
+        value: {
+          kind: "secret",
+          secretId: SecretId.make("vercel_api_token"),
+        },
+      });
+      yield* setOpenApiCredentialBinding(bobExec, {
+        sourceId: "vercel",
+        sourceScope: orgScope.id,
+        targetScope: bobScope.id,
+        slotKey: "query_param:vercel_team_token",
+        value: {
+          kind: "secret",
+          secretId: SecretId.make("vercel_team_token"),
+        },
+      });
 
       // -------------------------------------------------------------
       // 4. Invoking the shared tool through each user's executor
@@ -448,30 +445,26 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
 
-      yield* aliceExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "vercel",
-          sourceScope: orgScope.id,
-          scope: aliceScope.id,
-          slot: "auth:personal-token",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("alice_vercel_pat"),
-          },
-        }),
-      );
-      yield* bobExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "vercel",
-          sourceScope: orgScope.id,
-          scope: bobScope.id,
-          slot: "auth:personal-token",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("bob_vercel_pat"),
-          },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(aliceExec, {
+        sourceId: "vercel",
+        sourceScope: orgScope.id,
+        targetScope: aliceScope.id,
+        slotKey: "auth:personal-token",
+        value: {
+          kind: "secret",
+          secretId: SecretId.make("alice_vercel_pat"),
+        },
+      });
+      yield* setOpenApiCredentialBinding(bobExec, {
+        sourceId: "vercel",
+        sourceScope: orgScope.id,
+        targetScope: bobScope.id,
+        slotKey: "auth:personal-token",
+        value: {
+          kind: "secret",
+          secretId: SecretId.make("bob_vercel_pat"),
+        },
+      });
 
       const aliceResult = (yield* aliceExec.tools.invoke(
         "vercel.projects.list",
@@ -573,18 +566,16 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
             value: "org-token",
           }),
         );
-        yield* adminExec.openapi.setSourceBinding(
-          OpenApiSourceBindingInput.make({
-            sourceId: "vercel",
-            sourceScope: orgScope.id,
-            scope: orgScope.id,
-            slot: "auth:token",
-            value: {
-              kind: "secret",
-              secretId: SecretId.make("org_vercel_pat"),
-            },
-          }),
-        );
+        yield* setOpenApiCredentialBinding(adminExec, {
+          sourceId: "vercel",
+          sourceScope: orgScope.id,
+          targetScope: orgScope.id,
+          slotKey: "auth:token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("org_vercel_pat"),
+          },
+        });
 
         const sharedResult = (yield* aliceExec.tools.invoke(
           "vercel.projects.list",
@@ -602,18 +593,16 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
             value: "alice-token",
           }),
         );
-        yield* aliceExec.openapi.setSourceBinding(
-          OpenApiSourceBindingInput.make({
-            sourceId: "vercel",
-            sourceScope: orgScope.id,
-            scope: aliceScope.id,
-            slot: "auth:token",
-            value: {
-              kind: "secret",
-              secretId: SecretId.make("alice_vercel_pat"),
-            },
-          }),
-        );
+        yield* setOpenApiCredentialBinding(aliceExec, {
+          sourceId: "vercel",
+          sourceScope: orgScope.id,
+          targetScope: aliceScope.id,
+          slotKey: "auth:token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("alice_vercel_pat"),
+          },
+        });
 
         const overrideResult = (yield* aliceExec.tools.invoke(
           "vercel.projects.list",
@@ -623,12 +612,12 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         expect(overrideResult.error).toBeNull();
         expect(overrideResult.data?.authorization).toBe("Bearer alice-token");
 
-        yield* aliceExec.openapi.removeSourceBinding(
-          "vercel",
-          String(orgScope.id),
-          "auth:token",
-          String(aliceScope.id),
-        );
+        yield* removeOpenApiCredentialBinding(aliceExec, {
+          sourceId: "vercel",
+          sourceScope: String(orgScope.id),
+          slotKey: "auth:token",
+          targetScope: String(aliceScope.id),
+        });
 
         const fallbackResult = (yield* aliceExec.tools.invoke(
           "vercel.projects.list",
@@ -638,18 +627,16 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         expect(fallbackResult.error).toBeNull();
         expect(fallbackResult.data?.authorization).toBe("Bearer org-token");
 
-        yield* aliceExec.openapi.setSourceBinding(
-          OpenApiSourceBindingInput.make({
-            sourceId: "vercel",
-            sourceScope: orgScope.id,
-            scope: aliceScope.id,
-            slot: "auth:token",
-            value: {
-              kind: "secret",
-              secretId: SecretId.make("alice_vercel_pat"),
-            },
-          }),
-        );
+        yield* setOpenApiCredentialBinding(aliceExec, {
+          sourceId: "vercel",
+          sourceScope: orgScope.id,
+          targetScope: aliceScope.id,
+          slotKey: "auth:token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("alice_vercel_pat"),
+          },
+        });
 
         yield* adminExec.openapi.removeSpec("vercel", String(orgScope.id));
         yield* adminExec.openapi.addSpec({
@@ -666,10 +653,10 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           },
         });
 
-        const bindingsAfterReadd = yield* aliceExec.openapi.listSourceBindings(
-          "vercel",
-          String(orgScope.id),
-        );
+        const bindingsAfterReadd = yield* listOpenApiCredentialBindings(aliceExec, {
+          sourceId: "vercel",
+          sourceScope: String(orgScope.id),
+        });
         expect(bindingsAfterReadd).toEqual([]);
 
         const error = yield* Effect.flip(
@@ -835,18 +822,16 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
             value: "alice-token",
           }),
         );
-        yield* aliceExec.openapi.setSourceBinding(
-          OpenApiSourceBindingInput.make({
-            sourceId: "vercel",
-            sourceScope: orgScope.id,
-            scope: aliceScope.id,
-            slot: "auth:token",
-            value: {
-              kind: "secret",
-              secretId: SecretId.make("alice_vercel_pat"),
-            },
-          }),
-        );
+        yield* setOpenApiCredentialBinding(aliceExec, {
+          sourceId: "vercel",
+          sourceScope: orgScope.id,
+          targetScope: aliceScope.id,
+          slotKey: "auth:token",
+          value: {
+            kind: "secret",
+            secretId: SecretId.make("alice_vercel_pat"),
+          },
+        });
 
         const result = (yield* aliceExec.tools.invoke("vercel.projects.list", {}, autoApprove)) as {
           data: { authorization?: string } | null;
@@ -934,15 +919,13 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           value: "org-token",
         }),
       );
-      yield* adminExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "vercel",
-          sourceScope: orgScope.id,
-          scope: orgScope.id,
-          slot: "auth:shared-token",
-          value: { kind: "secret", secretId: SecretId.make("shared-token") },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(adminExec, {
+        sourceId: "vercel",
+        sourceScope: orgScope.id,
+        targetScope: orgScope.id,
+        slotKey: "auth:shared-token",
+        value: { kind: "secret", secretId: SecretId.make("shared-token") },
+      });
 
       yield* userExec.secrets.set(
         SetSecretInput.make({
@@ -1041,19 +1024,17 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         }),
       );
 
-      yield* userExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "vercel",
-          sourceScope: orgScope.id,
-          scope: userScope.id,
-          slot: "auth:personal-choice",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("org-choice-token"),
-            secretScopeId: orgScope.id,
-          },
-        }),
-      );
+      yield* setOpenApiCredentialBinding(userExec, {
+        sourceId: "vercel",
+        sourceScope: orgScope.id,
+        targetScope: userScope.id,
+        slotKey: "auth:personal-choice",
+        value: {
+          kind: "secret",
+          secretId: SecretId.make("org-choice-token"),
+          secretScopeId: orgScope.id,
+        },
+      });
 
       const result = (yield* userExec.tools.invoke("vercel.projects.list", {}, autoApprove)) as {
         data: { authorization?: string } | null;

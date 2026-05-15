@@ -48,14 +48,11 @@ import {
   MCP_OAUTH_CLIENT_SECRET_SLOT,
   MCP_OAUTH_CONNECTION_SLOT,
   McpToolBinding,
-  McpSourceBindingInput,
-  McpSourceBindingRef,
   mcpHeaderSlot,
   mcpQueryParamSlot,
   type McpConnectionAuth,
   type McpConnectionAuthInput,
   type McpCredentialInput,
-  type McpSourceBindingValue,
   type SecretBackedValue,
   type McpStoredSourceData,
   type ConfiguredMcpCredentialValue,
@@ -235,42 +232,12 @@ const scopeRanks = (ctx: PluginCtx<McpBindingStore>): ReadonlyMap<string, number
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: string): number =>
   ranks.get(scopeId) ?? Infinity;
 
-const coreBindingToMcpBinding = (binding: CredentialBindingRef): McpSourceBindingRef =>
-  McpSourceBindingRef.make({
-    sourceId: binding.sourceId,
-    sourceScopeId: binding.sourceScopeId,
-    scopeId: binding.scopeId,
-    slot: binding.slotKey,
-    value: binding.value,
-    createdAt: binding.createdAt,
-    updatedAt: binding.updatedAt,
-  });
-
-const listMcpSourceBindings = (
-  ctx: PluginCtx<McpBindingStore>,
-  sourceId: string,
-  sourceScope: string,
-): Effect.Effect<readonly McpSourceBindingRef[], StorageFailure> =>
-  Effect.gen(function* () {
-    const ranks = scopeRanks(ctx);
-    const sourceSourceRank = scopeRank(ranks, sourceScope);
-    if (sourceSourceRank === Infinity) return [];
-    const bindings = yield* ctx.credentialBindings.listForSource({
-      pluginId: MCP_PLUGIN_ID,
-      sourceId,
-      sourceScope: ScopeId.make(sourceScope),
-    });
-    return bindings
-      .filter((binding) => scopeRank(ranks, binding.scopeId) <= sourceSourceRank)
-      .map(coreBindingToMcpBinding);
-  });
-
-const resolveMcpSourceBinding = (
+const resolveMcpCredentialBinding = (
   ctx: PluginCtx<McpBindingStore>,
   sourceId: string,
   sourceScope: string,
   slot: string,
-): Effect.Effect<McpSourceBindingRef | null, StorageFailure> =>
+): Effect.Effect<CredentialBindingRef | null, StorageFailure> =>
   Effect.gen(function* () {
     const ranks = scopeRanks(ctx);
     const sourceSourceRank = scopeRank(ranks, sourceScope);
@@ -286,7 +253,7 @@ const resolveMcpSourceBinding = (
           candidate.slotKey === slot && scopeRank(ranks, candidate.scopeId) <= sourceSourceRank,
       )
       .sort((a, b) => scopeRank(ranks, a.scopeId) - scopeRank(ranks, b.scopeId))[0];
-    return binding ? coreBindingToMcpBinding(binding) : null;
+    return binding ?? null;
   });
 
 const validateMcpBindingTarget = (
@@ -364,12 +331,12 @@ const canonicalizeCredentialMap = (
   readonly values: Record<string, ConfiguredMcpCredentialValue>;
   readonly bindings: ReadonlyArray<{
     readonly slot: string;
-    readonly value: McpSourceBindingValue;
+    readonly value: CredentialBindingValue;
     readonly targetScope?: string;
   }>;
 } => {
   const nextValues: Record<string, ConfiguredMcpCredentialValue> = {};
-  const bindings: Array<{ slot: string; value: McpSourceBindingValue; targetScope?: string }> = [];
+  const bindings: Array<{ slot: string; value: CredentialBindingValue; targetScope?: string }> = [];
   for (const [name, value] of Object.entries(values ?? {})) {
     if (typeof value === "string") {
       nextValues[name] = value;
@@ -406,7 +373,7 @@ const canonicalizeAuth = (
   readonly auth: McpConnectionAuth;
   readonly bindings: ReadonlyArray<{
     readonly slot: string;
-    readonly value: McpSourceBindingValue;
+    readonly value: CredentialBindingValue;
     readonly targetScope?: string;
   }>;
 } => {
@@ -434,7 +401,7 @@ const canonicalizeAuth = (
     };
   }
   if ("connectionSlot" in auth) return { auth, bindings: [] };
-  const bindings: Array<{ slot: string; value: McpSourceBindingValue; targetScope?: string }> = [
+  const bindings: Array<{ slot: string; value: CredentialBindingValue; targetScope?: string }> = [
     {
       slot: MCP_OAUTH_CONNECTION_SLOT,
       value: {
@@ -563,7 +530,7 @@ const resolveMcpBindingValueMap = (
         resolved[name] = value;
         continue;
       }
-      const binding = yield* resolveMcpSourceBinding(
+      const binding = yield* resolveMcpCredentialBinding(
         ctx,
         params.sourceId,
         params.sourceScope,
@@ -665,7 +632,7 @@ const resolveMcpHeaderAuth = (
 ): Effect.Effect<Record<string, string>, McpConnectionError | StorageFailure> =>
   Effect.gen(function* () {
     if (auth.kind !== "header") return {};
-    const binding = yield* resolveMcpSourceBinding(ctx, sourceId, sourceScope, auth.secretSlot);
+    const binding = yield* resolveMcpCredentialBinding(ctx, sourceId, sourceScope, auth.secretSlot);
     if (binding?.value.kind === "secret") {
       const secret = yield* ctx.secrets.getAtScope(binding.value.secretId, binding.scopeId).pipe(
         Effect.catchTag("SecretOwnedByConnectionError", () =>
@@ -704,7 +671,12 @@ const resolveMcpStoredOauthProvider = (
 ): Effect.Effect<OAuthClientProvider | undefined, McpConnectionError | StorageFailure> =>
   Effect.gen(function* () {
     if (auth.kind !== "oauth2") return undefined;
-    const binding = yield* resolveMcpSourceBinding(ctx, sourceId, sourceScope, auth.connectionSlot);
+    const binding = yield* resolveMcpCredentialBinding(
+      ctx,
+      sourceId,
+      sourceScope,
+      auth.connectionSlot,
+    );
     if (binding?.value.kind !== "connection") {
       return yield* new McpConnectionError({
         transport: "remote",
@@ -768,7 +740,7 @@ const resolveMcpInputAuth = (
       "connectionId" in auth
         ? { id: ConnectionId.make(auth.connectionId), scope: targetScope ?? sourceScope }
         : yield* Effect.gen(function* () {
-            const binding = yield* resolveMcpSourceBinding(
+            const binding = yield* resolveMcpCredentialBinding(
               ctx,
               sourceId,
               sourceScope,
@@ -1655,40 +1627,6 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         refreshSource,
         getSource,
         updateSource,
-        listSourceBindings: (sourceId: string, sourceScope: string) =>
-          listMcpSourceBindings(ctx, sourceId, sourceScope),
-        setSourceBinding: (input: McpSourceBindingInput) =>
-          Effect.gen(function* () {
-            yield* validateMcpBindingTarget(ctx, {
-              sourceId: input.sourceId,
-              sourceScope: input.sourceScope,
-              targetScope: input.scope,
-            });
-            const binding = yield* ctx.credentialBindings.set({
-              targetScope: input.scope,
-              pluginId: MCP_PLUGIN_ID,
-              sourceId: input.sourceId,
-              sourceScope: input.sourceScope,
-              slotKey: input.slot,
-              value: input.value,
-            });
-            return coreBindingToMcpBinding(binding);
-          }),
-        removeSourceBinding: (sourceId: string, sourceScope: string, slot: string, scope: string) =>
-          Effect.gen(function* () {
-            yield* validateMcpBindingTarget(ctx, {
-              sourceId,
-              sourceScope,
-              targetScope: scope,
-            });
-            yield* ctx.credentialBindings.remove({
-              targetScope: ScopeId.make(scope),
-              pluginId: MCP_PLUGIN_ID,
-              sourceId,
-              sourceScope: ScopeId.make(sourceScope),
-              slotKey: slot,
-            });
-          }),
       };
     },
 
@@ -1977,17 +1915,4 @@ export interface McpPluginExtension {
     scope: string,
     input: McpUpdateSourceInput,
   ) => Effect.Effect<void, McpExtensionFailure>;
-  readonly listSourceBindings: (
-    sourceId: string,
-    sourceScope: string,
-  ) => Effect.Effect<readonly McpSourceBindingRef[], StorageFailure>;
-  readonly setSourceBinding: (
-    input: McpSourceBindingInput,
-  ) => Effect.Effect<McpSourceBindingRef, StorageFailure>;
-  readonly removeSourceBinding: (
-    sourceId: string,
-    sourceScope: string,
-    slot: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
 }

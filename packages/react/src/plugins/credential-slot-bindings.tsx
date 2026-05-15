@@ -1,4 +1,4 @@
-import { ScopeId, type CredentialBindingValue } from "@executor-js/sdk";
+import { ScopeId } from "@executor-js/sdk";
 
 import { Button } from "../components/button";
 import { CardStackEntryField } from "../components/card-stack";
@@ -7,6 +7,7 @@ import {
   effectiveCredentialBindingForScope,
   exactCredentialBindingForScope,
   isSecretCredentialBindingValue,
+  type SourceCredentialBindingRef,
 } from "./credential-bindings";
 import { CreatableSecretPicker } from "./secret-header-auth";
 import type { SecretPickerSecret } from "./secret-picker";
@@ -20,12 +21,6 @@ export type SecretCredentialSlot = {
 export type CredentialBindingScope = {
   readonly scopeId: ScopeId;
   readonly label: string;
-};
-
-type CredentialSlotBindingRef = {
-  readonly slot: string;
-  readonly scopeId: ScopeId;
-  readonly value: CredentialBindingValue;
 };
 
 const slugify = (value: string): string =>
@@ -48,7 +43,7 @@ const rowTitle = (bindingScope: CredentialBindingScope, bindingScopeCount: numbe
 export function SecretCredentialSlotBindings(props: {
   readonly slots: readonly SecretCredentialSlot[];
   readonly bindingScopes: readonly CredentialBindingScope[];
-  readonly bindingRows: readonly CredentialSlotBindingRef[];
+  readonly bindingRows: readonly SourceCredentialBindingRef[];
   readonly scopeRanks: ReadonlyMap<string, number>;
   readonly secrets: readonly SecretPickerSecret[];
   readonly sourceId: string;

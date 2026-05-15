@@ -2,13 +2,12 @@ import { useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import { graphqlSourceAtom, updateGraphqlSource } from "./atoms";
 import {
-  graphqlSourceAtom,
-  graphqlSourceBindingsAtom,
-  setGraphqlSourceBinding,
-  updateGraphqlSource,
-} from "./atoms";
-import { connectionsAtom } from "@executor-js/react/api/atoms";
+  connectionsAtom,
+  setSourceCredentialBinding,
+  sourceCredentialBindingsAtom,
+} from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
@@ -30,13 +29,9 @@ import { FilterTabs } from "@executor-js/react/components/filter-tabs";
 import { SourceOAuthConnectionControl } from "@executor-js/react/plugins/source-oauth-connection";
 import { Badge } from "@executor-js/react/components/badge";
 import { ScopeId } from "@executor-js/sdk/core";
+import type { CredentialBindingRef } from "@executor-js/sdk/core";
 import { GraphqlSourceFields } from "./GraphqlSourceFields";
-import {
-  GRAPHQL_OAUTH_CONNECTION_SLOT,
-  type GraphqlCredentialInput,
-  GraphqlSourceBindingInput,
-  type GraphqlSourceBindingRef,
-} from "../sdk/types";
+import { GRAPHQL_OAUTH_CONNECTION_SLOT, type GraphqlCredentialInput } from "../sdk/types";
 import type { StoredGraphqlSource } from "../sdk/store";
 
 type EditableSource = StoredGraphqlSource;
@@ -49,7 +44,7 @@ type AuthMode = "none" | "oauth2";
 function EditForm(props: {
   sourceId: string;
   initial: EditableSource;
-  bindings: readonly GraphqlSourceBindingRef[];
+  bindings: readonly CredentialBindingRef[];
   onSave: () => void;
 }) {
   const displayScope = useScope();
@@ -67,7 +62,7 @@ function EditForm(props: {
     initialTargetScope: initialCredentialTargetScope(sourceScope, props.bindings),
   });
   const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promiseExit" });
-  const setBinding = useAtomSet(setGraphqlSourceBinding, { mode: "promise" });
+  const setBinding = useAtomSet(setSourceCredentialBinding, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 
@@ -247,13 +242,14 @@ function EditForm(props: {
           onConnected={async (connectionId) => {
             await setBinding({
               params: { scopeId: oauthCredentialTargetScope },
-              payload: GraphqlSourceBindingInput.make({
+              payload: {
+                targetScope: oauthCredentialTargetScope,
+                pluginId: "graphql",
                 sourceId: props.sourceId,
                 sourceScope,
-                scope: oauthCredentialTargetScope,
-                slot: oauth2.connectionSlot,
+                slotKey: oauth2.connectionSlot,
                 value: { kind: "connection", connectionId },
-              }),
+              },
               reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
             });
           }}
@@ -289,7 +285,7 @@ export default function EditGraphqlSource(props: { sourceId: string; onSave: () 
     AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
   const sourceScope = source ? ScopeId.make(source.scope) : scopeId;
   const bindingsResult = useAtomValue(
-    graphqlSourceBindingsAtom(scopeId, props.sourceId, sourceScope),
+    sourceCredentialBindingsAtom(scopeId, "graphql", props.sourceId, sourceScope),
   );
 
   if (!AsyncResult.isSuccess(sourceResult) || !source || !AsyncResult.isSuccess(bindingsResult)) {

@@ -105,6 +105,18 @@ export const connectionUsagesAtom = (scopeId: ScopeId, connectionId: ConnectionI
     reactivityKeys: [ReactivityKey.connections, ReactivityKey.sources, ReactivityKey.secrets],
   });
 
+export const sourceCredentialBindingsAtom = (
+  scopeId: ScopeId,
+  pluginId: string,
+  sourceId: string,
+  sourceScope: ScopeId,
+) =>
+  ExecutorApiClient.query("credentialBindings", "listForSource", {
+    params: { scopeId, pluginId, sourceId, sourceScope },
+    timeToLive: "15 seconds",
+    reactivityKeys: [ReactivityKey.sources, ReactivityKey.secrets, ReactivityKey.connections],
+  });
+
 export const policiesAtom = (scopeId: ScopeId) =>
   ExecutorApiClient.query("policies", "list", {
     params: { scopeId },
@@ -145,6 +157,13 @@ export const startOAuth = ExecutorApiClient.mutation("oauth", "start");
 export const completeOAuth = ExecutorApiClient.mutation("oauth", "complete");
 
 export const cancelOAuth = ExecutorApiClient.mutation("oauth", "cancel");
+
+export const setSourceCredentialBinding = ExecutorApiClient.mutation("credentialBindings", "set");
+
+export const removeSourceCredentialBinding = ExecutorApiClient.mutation(
+  "credentialBindings",
+  "remove",
+);
 
 export const createPolicy = ExecutorApiClient.mutation("policies", "create");
 

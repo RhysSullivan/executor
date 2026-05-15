@@ -50,7 +50,8 @@ import { serveTestHttpApp } from "@executor-js/sdk/testing";
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
-import { OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
+import { OAuth2SourceConfig } from "./types";
+import { setOpenApiCredentialBinding } from "../testing";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -261,15 +262,13 @@ const bindOAuthConnection = (
   connectionId: string,
   oauth2: OAuth2SourceConfig,
 ) =>
-  executor.openapi.setSourceBinding(
-    OpenApiSourceBindingInput.make({
-      sourceId: "petstore",
-      sourceScope: scopeId,
-      scope: scopeId,
-      slot: oauth2.connectionSlot,
-      value: { kind: "connection", connectionId: ConnectionId.make(connectionId) },
-    }),
-  );
+  setOpenApiCredentialBinding(executor, {
+    sourceId: "petstore",
+    sourceScope: scopeId,
+    targetScope: scopeId,
+    slotKey: oauth2.connectionSlot,
+    value: { kind: "connection", connectionId: ConnectionId.make(connectionId) },
+  });
 
 // ---------------------------------------------------------------------------
 // Tests

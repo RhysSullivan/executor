@@ -20,7 +20,7 @@ import {
 import { mcpPlugin, userFacingProbeMessage } from "./plugin";
 import { MCP_OAUTH_CONNECTION_SLOT } from "./types";
 import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
-import { serveMcpServer } from "../testing";
+import { listMcpCredentialBindings, serveMcpServer, setMcpCredentialBinding } from "../testing";
 
 // ---------------------------------------------------------------------------
 // Memory secrets plugin — without a writable provider in the stack,
@@ -449,7 +449,10 @@ describe("mcpPlugin", () => {
         auth: { kind: "none" },
       });
 
-      const bindings = yield* executor.mcp.listSourceBindings("stale_binding", "test-scope");
+      const bindings = yield* listMcpCredentialBindings(executor, {
+        sourceId: "stale_binding",
+        sourceScope: "test-scope",
+      });
       expect(bindings).toEqual([]);
     }),
   );
@@ -707,11 +710,11 @@ describe("mcpPlugin", () => {
           },
         }),
       );
-      yield* executor.mcp.setSourceBinding({
+      yield* setMcpCredentialBinding(executor, {
         sourceId: "team_mcp",
         sourceScope: ORG_SCOPE_ID,
-        scope: USER_SCOPE_ID,
-        slot: MCP_OAUTH_CONNECTION_SLOT,
+        targetScope: USER_SCOPE_ID,
+        slotKey: MCP_OAUTH_CONNECTION_SLOT,
         value: { kind: "connection", connectionId },
       });
 

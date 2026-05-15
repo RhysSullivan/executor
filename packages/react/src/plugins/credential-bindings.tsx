@@ -10,40 +10,40 @@ type ConfiguredCredentialValueLike =
       readonly prefix?: string;
     };
 
-type CredentialBindingRefLike = {
-  readonly slot: string;
+export type SourceCredentialBindingRef = {
+  readonly slotKey: string;
   readonly scopeId: ScopeId;
   readonly value: CredentialBindingValue;
 };
 
 const bindingBySlot = (
-  bindings: readonly CredentialBindingRefLike[],
-): ReadonlyMap<string, CredentialBindingRefLike> =>
-  new Map(bindings.map((binding) => [binding.slot, binding]));
+  bindings: readonly SourceCredentialBindingRef[],
+): ReadonlyMap<string, SourceCredentialBindingRef> =>
+  new Map(bindings.map((binding) => [binding.slotKey, binding]));
 
 export const initialCredentialTargetScope = (
   sourceScope: ScopeId,
-  bindings: readonly CredentialBindingRefLike[],
+  bindings: readonly SourceCredentialBindingRef[],
 ): ScopeId => bindings[0]?.scopeId ?? sourceScope;
 
 export const exactCredentialBindingForScope = (
-  rows: readonly CredentialBindingRefLike[],
+  rows: readonly SourceCredentialBindingRef[],
   slot: string,
   scopeId: ScopeId,
-): CredentialBindingRefLike | null =>
-  rows.find((row) => row.slot === slot && row.scopeId === scopeId) ?? null;
+): SourceCredentialBindingRef | null =>
+  rows.find((row) => row.slotKey === slot && row.scopeId === scopeId) ?? null;
 
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: ScopeId): number =>
   ranks.get(scopeId) ?? Number.MAX_SAFE_INTEGER;
 
 export const effectiveCredentialBindingForScope = (
-  rows: readonly CredentialBindingRefLike[],
+  rows: readonly SourceCredentialBindingRef[],
   slot: string,
   targetScope: ScopeId,
   ranks: ReadonlyMap<string, number>,
-): CredentialBindingRefLike | null =>
+): SourceCredentialBindingRef | null =>
   rows.find(
-    (row) => row.slot === slot && scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
+    (row) => row.slotKey === slot && scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
   ) ?? null;
 
 export const isSecretCredentialBindingValue = (
@@ -58,7 +58,7 @@ export const isConnectionCredentialBindingValue = (
 const headerFromConfiguredCredential = (
   name: string,
   value: ConfiguredCredentialValueLike,
-  bindings: ReadonlyMap<string, CredentialBindingRefLike>,
+  bindings: ReadonlyMap<string, SourceCredentialBindingRef>,
 ): HeaderState | null => {
   if (typeof value === "string") {
     return headerValueToState(name, value);
@@ -86,7 +86,7 @@ const headerFromConfiguredCredential = (
 const queryParamFromConfiguredCredential = (
   name: string,
   value: ConfiguredCredentialValueLike,
-  bindings: ReadonlyMap<string, CredentialBindingRefLike>,
+  bindings: ReadonlyMap<string, SourceCredentialBindingRef>,
 ): QueryParamState | null => {
   if (typeof value === "string") {
     return { name, secretId: null, literalValue: value };
@@ -112,7 +112,7 @@ const queryParamFromConfiguredCredential = (
 
 export const secretBackedValuesFromConfiguredCredentialBindings = (
   values: Record<string, ConfiguredCredentialValueLike> | undefined | null,
-  bindingsInput: readonly CredentialBindingRefLike[],
+  bindingsInput: readonly SourceCredentialBindingRef[],
 ): Record<string, SecretBackedValue> | undefined => {
   const bindings = bindingBySlot(bindingsInput);
   const out: Record<string, SecretBackedValue> = {};
@@ -140,7 +140,7 @@ export const secretBackedValuesFromConfiguredCredentialBindings = (
 export const httpCredentialsFromConfiguredCredentialBindings = (input: {
   readonly headers?: Record<string, ConfiguredCredentialValueLike> | null;
   readonly queryParams?: Record<string, ConfiguredCredentialValueLike> | null;
-  readonly bindings: readonly CredentialBindingRefLike[];
+  readonly bindings: readonly SourceCredentialBindingRef[];
 }): HttpCredentialsState => {
   const bindings = bindingBySlot(input.bindings);
 

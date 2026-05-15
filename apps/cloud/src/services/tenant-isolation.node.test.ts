@@ -272,13 +272,14 @@ describe("tenant isolation (HTTP)", () => {
               },
             },
           });
-          yield* client.openapi.setSourceBinding({
+          yield* client.credentialBindings.set({
             params: { scopeId: ScopeId.make(orgA) },
             payload: {
+              targetScope: ScopeId.make(orgA),
+              pluginId: "openapi",
               sourceId: namespaceA,
               sourceScope: ScopeId.make(orgA),
-              scope: ScopeId.make(orgA),
-              slot: "auth:token",
+              slotKey: "auth:token",
               value: { kind: "secret", secretId: secretIdA },
             },
           });
@@ -319,13 +320,14 @@ describe("tenant isolation (HTTP)", () => {
               },
             },
           });
-          yield* client.openapi.setSourceBinding({
+          yield* client.credentialBindings.set({
             params: { scopeId: ScopeId.make(orgA) },
             payload: {
+              targetScope: ScopeId.make(orgA),
+              pluginId: "openapi",
               sourceId: namespaceA,
               sourceScope: ScopeId.make(orgA),
-              scope: ScopeId.make(orgA),
-              slot: "auth:conn",
+              slotKey: "auth:conn",
               value: { kind: "connection", connectionId: connectionIdA },
             },
           });

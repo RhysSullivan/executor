@@ -26,7 +26,7 @@ describe("credential binding editor helpers", () => {
       },
       bindings: [
         {
-          slot: "header:authorization",
+          slotKey: "header:authorization",
           scopeId: personalScope,
           value: {
             kind: "secret",
@@ -35,7 +35,7 @@ describe("credential binding editor helpers", () => {
           },
         },
         {
-          slot: "query_param:token",
+          slotKey: "query_param:token",
           scopeId: organizationScope,
           value: {
             kind: "text",
@@ -71,7 +71,7 @@ describe("credential binding editor helpers", () => {
     expect(
       initialCredentialTargetScope(sourceScope, [
         {
-          slot: "header:authorization",
+          slotKey: "header:authorization",
           scopeId: personalScope,
           value: {
             kind: "secret",
@@ -95,7 +95,7 @@ describe("credential binding editor helpers", () => {
         },
         [
           {
-            slot: "header:authorization",
+            slotKey: "header:authorization",
             scopeId: ScopeId.make("user_1"),
             value: {
               kind: "secret",

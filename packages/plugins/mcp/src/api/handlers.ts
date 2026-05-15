@@ -168,35 +168,5 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           return { updated: true };
         }),
       ),
-    )
-    .handle("listSourceBindings", ({ params: path }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.listSourceBindings(path.namespace, path.sourceScopeId);
-        }),
-      ),
-    )
-    .handle("setSourceBinding", ({ payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.setSourceBinding(payload);
-        }),
-      ),
-    )
-    .handle("removeSourceBinding", ({ payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          yield* ext.removeSourceBinding(
-            payload.sourceId,
-            payload.sourceScope,
-            payload.slot,
-            payload.scope,
-          );
-          return { removed: true };
-        }),
-      ),
     ),
 );

@@ -1,5 +1,10 @@
 import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
 import { HttpClient, HttpServer } from "effect/unstable/http";
+import {
+  ScopeId,
+  type CredentialBindingsFacade,
+  type CredentialBindingValue,
+} from "@executor-js/sdk";
 
 export class OpenApiTestServerAddressError extends Data.TaggedError(
   "OpenApiTestServerAddressError",
@@ -84,3 +89,60 @@ export class OpenApiTestServer extends Context.Service<OpenApiTestServer, OpenAp
 export const TestLayers = {
   server: OpenApiTestServer.layer,
 };
+
+type ScopeInput = ScopeId | string;
+
+const scopeId = (scope: ScopeInput): ScopeId => ScopeId.make(String(scope));
+
+export interface OpenApiTestCredentialBindingInput {
+  readonly sourceId: string;
+  readonly sourceScope: ScopeInput;
+  readonly targetScope: ScopeInput;
+  readonly slotKey: string;
+  readonly value: CredentialBindingValue;
+}
+
+export const setOpenApiCredentialBinding = (
+  executor: { readonly credentialBindings: CredentialBindingsFacade },
+  input: OpenApiTestCredentialBindingInput,
+): ReturnType<CredentialBindingsFacade["set"]> =>
+  executor.credentialBindings.set({
+    targetScope: scopeId(input.targetScope),
+    pluginId: "openapi",
+    sourceId: input.sourceId,
+    sourceScope: scopeId(input.sourceScope),
+    slotKey: input.slotKey,
+    value: input.value,
+  });
+
+export interface OpenApiTestCredentialBindingSourceInput {
+  readonly sourceId: string;
+  readonly sourceScope: ScopeInput;
+}
+
+export const listOpenApiCredentialBindings = (
+  executor: { readonly credentialBindings: CredentialBindingsFacade },
+  input: OpenApiTestCredentialBindingSourceInput,
+): ReturnType<CredentialBindingsFacade["listForSource"]> =>
+  executor.credentialBindings.listForSource({
+    pluginId: "openapi",
+    sourceId: input.sourceId,
+    sourceScope: scopeId(input.sourceScope),
+  });
+
+export interface OpenApiTestRemoveCredentialBindingInput extends OpenApiTestCredentialBindingSourceInput {
+  readonly targetScope: ScopeInput;
+  readonly slotKey: string;
+}
+
+export const removeOpenApiCredentialBinding = (
+  executor: { readonly credentialBindings: CredentialBindingsFacade },
+  input: OpenApiTestRemoveCredentialBindingInput,
+): ReturnType<CredentialBindingsFacade["remove"]> =>
+  executor.credentialBindings.remove({
+    targetScope: scopeId(input.targetScope),
+    pluginId: "openapi",
+    sourceId: input.sourceId,
+    sourceScope: scopeId(input.sourceScope),
+    slotKey: input.slotKey,
+  });
