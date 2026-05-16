@@ -1,6 +1,6 @@
 import type { Options } from "./";
 
-export async function format(code: string, options: Options): Promise<string> {
+export function format(code: string, options: Options): string {
   void options;
   return code;
 }

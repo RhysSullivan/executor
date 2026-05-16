@@ -748,7 +748,7 @@ const compileSchemaPreview = async (
   options: TypeScriptRenderOptions,
 ): Promise<TypeScriptSchemaPreview> => {
   const wrappedSchema = buildWrappedSchema(schema, defs);
-  const source = await compile(wrappedSchema, ROOT_WRAPPER_NAME, compilerOptionsFrom(options));
+  const source = compile(wrappedSchema, ROOT_WRAPPER_NAME, compilerOptionsFrom(options));
   return previewFromCompiledTypeScript(source);
 };
 
@@ -799,7 +799,8 @@ export const buildToolTypeScriptPreview = async (input: {
   }
 
   const wrappedSchema = buildWrappedObjectSchema(properties, input.defs);
-  return compile(wrappedSchema, ROOT_WRAPPER_NAME, compilerOptionsFrom(input.options ?? {}))
+  return Promise.resolve()
+    .then(() => compile(wrappedSchema, ROOT_WRAPPER_NAME, compilerOptionsFrom(input.options ?? {})))
     .then(
       (source) => previewToolFromCompiledTypeScript(source),
       () => ({

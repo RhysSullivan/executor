@@ -15,7 +15,30 @@ import {
 import type { Options } from "./";
 import { applySchemaTyping } from "./applySchemaTyping";
 import type { DereferencedPaths } from "./resolver";
-import { isDeepStrictEqual } from "util";
+
+const isJsonEqual = (left: unknown, right: unknown): boolean => {
+  if (left === right) return true;
+  if (typeof left !== typeof right) return false;
+  if (left === null || right === null) return false;
+  if (typeof left !== "object" || typeof right !== "object") return false;
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    return left.every((value, index) => isJsonEqual(value, right[index]));
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  if (leftKeys.length !== rightKeys.length) return false;
+
+  return leftKeys.every(
+    (key) => Object.hasOwn(rightRecord, key) && isJsonEqual(leftRecord[key], rightRecord[key]),
+  );
+};
 
 type Rule = (
   schema: LinkedJSONSchema,
@@ -230,7 +253,7 @@ rules.set("Make extends always an array, if it is defined", (schema) => {
 });
 
 rules.set("Transform definitions to $defs", (schema, fileName) => {
-  if (schema.definitions && schema.$defs && !isDeepStrictEqual(schema.definitions, schema.$defs)) {
+  if (schema.definitions && schema.$defs && !isJsonEqual(schema.definitions, schema.$defs)) {
     throw ReferenceError(
       `Schema must define either definitions or $defs, not both. Given id=${schema.id} in ${fileName}`,
     );

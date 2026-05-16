@@ -1,19 +1,13 @@
-/// <reference types="node" />
-
-import { readFileSync } from "fs";
 import type { JSONSchema4 } from "./types/json-schema";
-import type { ParserOptions as $RefOptions } from "@apidevtools/json-schema-ref-parser";
 import { cloneDeep, merge } from "./compat";
-import { dirname } from "path";
 import { format } from "./formatter";
 import { generate } from "./generator";
 import { normalize } from "./normalizer";
 import { optimize } from "./optimizer";
 import { parse } from "./parser";
 import { dereference } from "./resolver";
-import { error, stripExtension, Try, log, parseFileAsJSONSchema } from "./utils";
+import { error, isVerbose, log } from "./utils";
 import { validate } from "./validator";
-import { isDeepStrictEqual } from "util";
 import { link } from "./linker";
 import { validateOptions } from "./optionValidator";
 import type { JSONSchema as LinkedJSONSchema } from "./types/JSONSchema";
@@ -35,11 +29,17 @@ export interface FormatOptions {
   useTabs?: boolean;
 }
 
+export type RefOptions = Record<string, unknown>;
+
 export interface Options {
   /**
-   * [$RefParser](https://github.com/APIDevTools/json-schema-ref-parser) Options, used when resolving `$ref`s
+   * Preserved for upstream API compatibility.
+   *
+   * Executor's vendored compiler only resolves same-document JSON Pointer
+   * `$ref`s and never fetches or reads external references, so this option is
+   * accepted but ignored.
    */
-  $refOptions: $RefOptions;
+  $refOptions: RefOptions;
   /**
    * Default value for additionalProperties, when it is not explicitly set.
    */
@@ -56,7 +56,8 @@ export interface Options {
     keyNameFromDefinition: string | undefined,
   ) => string | undefined;
   /**
-   * Root directory for resolving [`$ref`](https://tools.ietf.org/id/draft-pbryan-zyp-json-ref-03.html)s.
+   * Preserved for upstream API compatibility. External refs are not resolved,
+   * so this option is accepted but ignored.
    */
   cwd: string;
   /**
@@ -118,7 +119,7 @@ export const DEFAULT_OPTIONS: Options = {
 * DO NOT MODIFY IT BY HAND. Instead, modify the source JSONSchema file,
 * and run json-schema-to-typescript to regenerate this file.
 */`,
-  cwd: process.cwd(),
+  cwd: "",
   declareExternallyReferenced: true,
   enableConstEnums: true,
   inferStringEnumKeysFromValues: false,
@@ -139,29 +140,7 @@ export const DEFAULT_OPTIONS: Options = {
   unknownAny: true,
 };
 
-export function compileFromFile(
-  filename: string,
-  options: Partial<Options> = DEFAULT_OPTIONS,
-): Promise<string> {
-  const schema = parseAsJSONSchema(filename);
-  return compile(schema, stripExtension(filename), { cwd: dirname(filename), ...options });
-}
-
-function parseAsJSONSchema(filename: string): JSONSchema4 {
-  const contents = Try(
-    () => readFileSync(filename),
-    () => {
-      throw new ReferenceError(`Unable to read file "${filename}"`);
-    },
-  );
-  return parseFileAsJSONSchema(filename, contents.toString());
-}
-
-export async function compile(
-  schema: JSONSchema4,
-  name: string,
-  options: Partial<Options> = {},
-): Promise<string> {
+export function compile(schema: JSONSchema4, name: string, options: Partial<Options> = {}): string {
   validateOptions(options);
 
   const _options = merge({} as Options, DEFAULT_OPTIONS, options);
@@ -171,25 +150,16 @@ export async function compile(
     return `(${Date.now() - start}ms)`;
   }
 
-  // normalize options
-  if (!_options.cwd.endsWith("/")) {
-    _options.cwd += "/";
-  }
-
   // Initial clone to avoid mutating the input
   const _schema = cloneDeep(schema);
 
-  const { dereferencedPaths, dereferencedSchema } = await dereference(_schema, _options);
-  if (process.env.VERBOSE) {
-    if (isDeepStrictEqual(_schema, dereferencedSchema)) {
-      log("green", "dereferencer", time(), "ok No change");
-    } else {
-      log("green", "dereferencer", time(), "ok Result:", dereferencedSchema);
-    }
+  const { dereferencedPaths, dereferencedSchema } = dereference(_schema);
+  if (isVerbose()) {
+    log("green", "dereferencer", time(), "ok Result:", dereferencedSchema);
   }
 
   const linked = link(dereferencedSchema);
-  if (process.env.VERBOSE) {
+  if (isVerbose()) {
     log("green", "linker", time(), "ok No change");
   }
 
@@ -198,7 +168,7 @@ export async function compile(
     errors.forEach((_) => error(_));
     throw new ValidationError();
   }
-  if (process.env.VERBOSE) {
+  if (isVerbose()) {
     log("green", "validator", time(), "ok No change");
   }
 
@@ -214,7 +184,7 @@ export async function compile(
   const generated = generate(optimized, _options);
   log("magenta", "generator", time(), "ok Result:", generated);
 
-  const formatted = await format(generated, _options);
+  const formatted = format(generated, _options);
   log("white", "formatter", time(), "ok Result:", formatted);
 
   return formatted;

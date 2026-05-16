@@ -1,6 +1,5 @@
 import type { JSONSchema4Type, JSONSchema4TypeName } from "./types/json-schema";
 import { findKey, isPlainObject, memoize, omit } from "./compat";
-import { format } from "util";
 import type { Options } from "./";
 import { applySchemaTyping } from "./applySchemaTyping";
 import type {
@@ -73,7 +72,14 @@ export function parse(
 
   if (types.size === 1) {
     const type = [...types][0];
-    const ast = parseAsTypeWithCache(normalizedSchema, type, options, keyName, processed, usedNames);
+    const ast = parseAsTypeWithCache(
+      normalizedSchema,
+      type,
+      options,
+      keyName,
+      processed,
+      usedNames,
+    );
     log("blue", "parser", "Type:", type, "Input:", normalizedSchema, "Output:", ast);
     return ast;
   }
@@ -249,7 +255,7 @@ function parseNonLiteral(
         type: "UNION",
       };
     case "REFERENCE":
-      throw Error(format("Refs should have been resolved by the resolver!", schema));
+      throw Error("Refs should have been resolved by the resolver.");
     case "STRING":
       return {
         comment: schema.description,

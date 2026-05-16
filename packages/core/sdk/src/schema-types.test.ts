@@ -7,6 +7,7 @@ import {
   schemaToTypeScriptPreview,
   schemaToTypeScriptPreviewWithDefs,
 } from "./schema-types";
+import { compile } from "./vendor/json-schema-to-typescript";
 
 const StripeBalanceTransactionsFixture = Schema.Struct({
   schema: Schema.Unknown,
@@ -318,6 +319,18 @@ describe("schema-types", () => {
         IssueFilter: "{ and?: IssueFilter[]; }",
       },
     });
+  });
+
+  it("rejects external refs instead of loading them", () => {
+    expect(() =>
+      compile(
+        {
+          $ref: "file:///tmp/executor-schema-ref-should-not-load.json",
+        },
+        "ExternalRef",
+        { bannerComment: "", format: false },
+      ),
+    ).toThrow(/Only same-document JSON Pointer refs are supported/);
   });
 
   it("merges input and output TypeScript definitions", async () => {

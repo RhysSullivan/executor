@@ -18,9 +18,8 @@ class OpenApiExtractionErrorFromParse extends OpenApiExtractionError {}
 /**
  * Fetch an OpenAPI spec URL and return its body text. Uses the Effect
  * HttpClient so the caller chooses the transport via layer — in Cloudflare
- * Workers, `FetchHttpClient.layer` binds to the Workers-native `fetch` and
- * avoids json-schema-ref-parser's Node-polyfill http resolver, which hangs
- * in production. Bounded by a 60s timeout.
+ * Workers, `FetchHttpClient.layer` binds to the Workers-native `fetch`.
+ * Bounded by a 60s timeout.
  */
 export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
   url: string,

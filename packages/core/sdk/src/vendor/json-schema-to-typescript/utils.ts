@@ -1,5 +1,4 @@
 import { deburr, isPlainObject, upperFirst } from "./compat";
-import { basename, dirname, extname, normalize, sep, posix } from "path";
 import {
   Intersection,
   type JSONSchema,
@@ -7,17 +6,6 @@ import {
   type NormalizedJSONSchema,
   Parent,
 } from "./types/JSONSchema";
-import type { JSONSchema4 } from "./types/json-schema";
-import yaml from "js-yaml";
-
-// TODO: pull out into a separate package
-export function Try<T>(fn: () => T, err: (e: Error) => any): T {
-  try {
-    return fn();
-  } catch (e) {
-    return err(e as Error);
-  }
-}
 
 // keys that shouldn't be traversed by the catchall step
 const BLACKLISTED_KEYS = new Set([
@@ -173,14 +161,14 @@ export function traverse(
  * Eg. `foo/bar/baz.json` => `baz`
  */
 export function justName(filename = ""): string {
-  return stripExtension(basename(filename));
+  return stripExtension(filename.split(/[\\/]/).pop() ?? "");
 }
 
 /**
  * Avoid appending "js" to top-level unnamed schemas
  */
 export function stripExtension(filename: string): string {
-  return filename.replace(extname(filename), "");
+  return filename.replace(/\.[^./\\]*$/, "");
 }
 
 /**
@@ -231,8 +219,12 @@ export function generateName(from: string, usedNames: Set<string>) {
   return name;
 }
 
+export function isVerbose(): boolean {
+  return typeof process !== "undefined" && process.env?.VERBOSE != null;
+}
+
 export function error(...messages: any[]): void {
-  if (!process.env.VERBOSE) {
+  if (!isVerbose()) {
     return console.error(messages);
   }
   console.error("error", ...messages);
@@ -241,7 +233,7 @@ export function error(...messages: any[]): void {
 type LogStyle = "blue" | "cyan" | "green" | "magenta" | "red" | "white" | "yellow";
 
 export function log(style: LogStyle, title: string, ...messages: unknown[]): void {
-  if (!process.env.VERBOSE) {
+  if (!isVerbose()) {
     return;
   }
   let lastMessage = null;
@@ -255,7 +247,7 @@ export function log(style: LogStyle, title: string, ...messages: unknown[]): voi
 }
 
 function getStyledTextForLogging(style: LogStyle): ((text: string) => string) | undefined {
-  if (!process.env.VERBOSE) {
+  if (!isVerbose()) {
     return;
   }
   void style;
@@ -275,25 +267,6 @@ export function escapeBlockComment(schema: JSONSchema) {
       schema[key] = schema[key]!.replace(/\*\//g, replacer);
     }
   }
-}
-
-/*
-the following logic determines the out path by comparing the in path to the users specified out path.
-For example, if input directory MultiSchema looks like:
-  MultiSchema/foo/a.json
-  MultiSchema/bar/fuzz/c.json
-  MultiSchema/bar/d.json
-And the user wants the outputs to be in MultiSchema/Out, then this code will be able to map the inner directories foo, bar, and fuzz into the intended Out directory like so:
-  MultiSchema/Out/foo/a.json
-  MultiSchema/Out/bar/fuzz/c.json
-  MultiSchema/Out/bar/d.json
-*/
-export function pathTransform(outputPath: string, inputPath: string, filePath: string): string {
-  const inPathList = normalize(inputPath).split(sep);
-  const filePathList = dirname(normalize(filePath)).split(sep);
-  const filePathRel = filePathList.filter((f, i) => f !== inPathList[i]);
-
-  return posix.join(posix.normalize(outputPath), ...filePathRel);
 }
 
 /**
@@ -383,26 +356,4 @@ export function isSchemaLike(schema: any): schema is LinkedJSONSchema {
   }
 
   return true;
-}
-
-export function parseFileAsJSONSchema(filename: string | null, contents: string): JSONSchema4 {
-  if (filename != null && isYaml(filename)) {
-    return Try(
-      () => yaml.load(contents.toString()) as JSONSchema4,
-      () => {
-        throw new TypeError(`Error parsing YML in file "${filename}"`);
-      },
-    );
-  }
-
-  return Try(
-    () => JSON.parse(contents.toString()),
-    () => {
-      throw new TypeError(`Error parsing JSON in file "${filename}"`);
-    },
-  );
-}
-
-function isYaml(filename: string) {
-  return filename.endsWith(".yaml") || filename.endsWith(".yml");
 }

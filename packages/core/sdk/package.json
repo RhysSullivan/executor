@@ -65,12 +65,10 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@apidevtools/json-schema-ref-parser": "^11.9.3",
     "@standard-schema/spec": "^1.1.0",
     "effect": "catalog:",
     "fractional-indexing": "^3.2.0",
     "fumadb": "workspace:*",
-    "js-yaml": "^4.1.1",
     "oauth4webapi": "^3.8.5"
   },
   "devDependencies": {
@@ -78,7 +76,6 @@
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/js-yaml": "^4.0.9",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "better-sqlite3": "^12.9.0",
