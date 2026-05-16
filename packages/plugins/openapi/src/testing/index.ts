@@ -80,7 +80,7 @@ export interface OpenApiEchoTestServerShape extends OpenApiTestServerShape {
 }
 
 export type OpenApiTestSourceOptions = Omit<OpenApiSpecConfig, "spec" | "baseUrl"> & {
-  readonly baseUrl?: string;
+  readonly baseUrl?: string | null;
 };
 
 export type OpenApiTestSourceExecutor = {
@@ -90,11 +90,14 @@ export type OpenApiTestSourceExecutor = {
 export const makeOpenApiTestSourceConfig = (
   server: OpenApiTestServerShape,
   options: OpenApiTestSourceOptions,
-): OpenApiSpecConfig => ({
-  ...options,
-  spec: server.specJson,
-  baseUrl: options.baseUrl ?? server.baseUrl,
-});
+): OpenApiSpecConfig => {
+  const { baseUrl, ...rest } = options;
+  return {
+    ...rest,
+    spec: server.specJson,
+    ...(baseUrl === null ? {} : { baseUrl: baseUrl ?? server.baseUrl }),
+  };
+};
 
 export const addOpenApiTestSource = (
   executor: OpenApiTestSourceExecutor,
