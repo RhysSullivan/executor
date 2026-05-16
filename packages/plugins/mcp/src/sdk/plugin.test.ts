@@ -1,7 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result } from "effect";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import z from "zod";
 
 import {
   ConnectionId,
@@ -20,7 +18,7 @@ import { makeTestConfig } from "@executor-js/sdk/testing";
 import { mcpPlugin, userFacingProbeMessage } from "./plugin";
 import { MCP_OAUTH_CONNECTION_SLOT } from "./types";
 import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
-import { serveMcpServer } from "../testing";
+import { makeAnnotationsMcpServer, serveMcpServer } from "../testing";
 
 // ---------------------------------------------------------------------------
 // Memory secrets plugin — without a writable provider in the stack,
@@ -855,52 +853,7 @@ describe("mcpPlugin", () => {
 // destructiveHint → requiresApproval (end-to-end with a real local server)
 // ---------------------------------------------------------------------------
 
-const createAnnotationsTestServer = () => {
-  const mcpServer = new McpServer(
-    { name: "annotations-test-server", version: "1.0.0" },
-    { capabilities: {} },
-  );
-
-  mcpServer.registerTool(
-    "delete",
-    {
-      description: "A destructive tool",
-      inputSchema: { id: z.string() },
-      annotations: { destructiveHint: true },
-    },
-    async () => ({ content: [] }),
-  );
-
-  mcpServer.registerTool(
-    "delete_titled",
-    {
-      description: "A destructive tool with a title annotation",
-      inputSchema: { id: z.string() },
-      annotations: { destructiveHint: true, title: "Delete dataset" },
-    },
-    async () => ({ content: [] }),
-  );
-
-  mcpServer.registerTool(
-    "list",
-    {
-      description: "A read-only tool",
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
-    },
-    async () => ({ content: [] }),
-  );
-
-  mcpServer.registerTool(
-    "ping",
-    { description: "An unannotated tool", inputSchema: {} },
-    async () => ({ content: [] }),
-  );
-
-  return mcpServer;
-};
-
-const serveAnnotationsTestServer = serveMcpServer(createAnnotationsTestServer);
+const serveAnnotationsTestServer = serveMcpServer(makeAnnotationsMcpServer);
 
 describe("MCP destructiveHint → requiresApproval", () => {
   it.effect("destructiveHint becomes requiresApproval, others stay false", () =>

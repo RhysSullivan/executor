@@ -1,7 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import z from "zod";
 
 import {
   createExecutor,
@@ -12,66 +10,11 @@ import {
 import { makeTestConfig } from "@executor-js/sdk/testing";
 
 import { mcpPlugin } from "./plugin";
-import { serveMcpServer } from "../testing";
+import { makeElicitationMcpServer, serveMcpServer } from "../testing";
 
 const isFormElicitation = Schema.is(FormElicitation);
 
-// ---------------------------------------------------------------------------
-// Test MCP server on a real HTTP port
-// ---------------------------------------------------------------------------
-
-function createTestMcpServer() {
-  const server = new McpServer(
-    { name: "elicitation-test-server", version: "1.0.0" },
-    { capabilities: {} },
-  );
-
-  server.registerTool(
-    "gated_echo",
-    {
-      description: "Asks for approval before echoing a value",
-      inputSchema: { value: z.string() },
-    },
-    async ({ value }: { value: string }) => {
-      const response = await server.server.elicitInput({
-        mode: "form",
-        message: `Approve echo for "${value}"?`,
-        requestedSchema: {
-          type: "object",
-          properties: {
-            approved: { type: "boolean", title: "Approve" },
-          },
-          required: ["approved"],
-        },
-      });
-
-      if (response.action !== "accept" || !response.content || response.content.approved !== true) {
-        return {
-          content: [{ type: "text" as const, text: `denied:${value}` }],
-        };
-      }
-
-      return {
-        content: [{ type: "text" as const, text: `approved:${value}` }],
-      };
-    },
-  );
-
-  server.registerTool(
-    "simple_echo",
-    {
-      description: "Echoes a value without elicitation",
-      inputSchema: { value: z.string() },
-    },
-    async ({ value }: { value: string }) => ({
-      content: [{ type: "text" as const, text: value }],
-    }),
-  );
-
-  return server;
-}
-
-const serveElicitationTestServer = serveMcpServer(createTestMcpServer);
+const serveElicitationTestServer = serveMcpServer(makeElicitationMcpServer);
 
 // ---------------------------------------------------------------------------
 // Helper — create executor with MCP plugin pointed at test server

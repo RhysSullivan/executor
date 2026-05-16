@@ -326,3 +326,99 @@ export const makeEchoMcpServer = (
 
   return server;
 };
+
+export const makeElicitationMcpServer = () => {
+  const server = new McpServer(
+    { name: "elicitation-test-server", version: "1.0.0" },
+    { capabilities: {} },
+  );
+
+  server.registerTool(
+    "gated_echo",
+    {
+      description: "Asks for approval before echoing a value",
+      inputSchema: { value: z.string() },
+    },
+    async ({ value }: { value: string }) => {
+      const response = await server.server.elicitInput({
+        mode: "form",
+        message: `Approve echo for "${value}"?`,
+        requestedSchema: {
+          type: "object",
+          properties: {
+            approved: { type: "boolean", title: "Approve" },
+          },
+          required: ["approved"],
+        },
+      });
+
+      if (response.action !== "accept" || !response.content || response.content.approved !== true) {
+        return {
+          content: [{ type: "text" as const, text: `denied:${value}` }],
+        };
+      }
+
+      return {
+        content: [{ type: "text" as const, text: `approved:${value}` }],
+      };
+    },
+  );
+
+  server.registerTool(
+    "simple_echo",
+    {
+      description: "Echoes a value without elicitation",
+      inputSchema: { value: z.string() },
+    },
+    async ({ value }: { value: string }) => ({
+      content: [{ type: "text" as const, text: value }],
+    }),
+  );
+
+  return server;
+};
+
+export const makeAnnotationsMcpServer = () => {
+  const server = new McpServer(
+    { name: "annotations-test-server", version: "1.0.0" },
+    { capabilities: {} },
+  );
+
+  server.registerTool(
+    "delete",
+    {
+      description: "A destructive tool",
+      inputSchema: { id: z.string() },
+      annotations: { destructiveHint: true },
+    },
+    async () => ({ content: [] }),
+  );
+
+  server.registerTool(
+    "delete_titled",
+    {
+      description: "A destructive tool with a title annotation",
+      inputSchema: { id: z.string() },
+      annotations: { destructiveHint: true, title: "Delete dataset" },
+    },
+    async () => ({ content: [] }),
+  );
+
+  server.registerTool(
+    "list",
+    {
+      description: "A read-only tool",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => ({ content: [] }),
+  );
+
+  server.registerTool(
+    "ping",
+    { description: "An unannotated tool", inputSchema: {} },
+    async () => ({ content: [] }),
+  );
+
+  return server;
+};
