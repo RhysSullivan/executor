@@ -1,4 +1,4 @@
-import type { JSONSchema4Type } from "json-schema";
+import type { JSONSchema4Type } from "./json-schema";
 
 export type AST_TYPE = AST["type"];
 

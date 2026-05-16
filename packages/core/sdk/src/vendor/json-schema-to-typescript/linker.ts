@@ -1,7 +1,7 @@
 import { Parent } from "./types/JSONSchema";
 import type { JSONSchema, LinkedJSONSchema } from "./types/JSONSchema";
-import { isPlainObject } from "lodash";
-import type { JSONSchema4Type } from "json-schema";
+import { isPlainObject } from "./lodash";
+import type { JSONSchema4Type } from "./types/json-schema";
 
 /**
  * Traverses over the schema, giving each node a reference to its

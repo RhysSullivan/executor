@@ -1,4 +1,4 @@
-import { memoize, omit } from "lodash";
+import { memoize, omit } from "./lodash";
 import { DEFAULT_OPTIONS, type Options } from "./index";
 import { hasComment, hasStandaloneName, T_ANY, T_UNKNOWN } from "./types/AST";
 import type {

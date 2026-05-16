@@ -1,4 +1,4 @@
-import { deburr, isPlainObject, trim, upperFirst } from "lodash";
+import { deburr, isPlainObject, trim, upperFirst } from "./lodash";
 import { basename, dirname, extname, normalize, sep, posix } from "path";
 import {
   Intersection,
@@ -7,7 +7,7 @@ import {
   type NormalizedJSONSchema,
   Parent,
 } from "./types/JSONSchema";
-import type { JSONSchema4 } from "json-schema";
+import type { JSONSchema4 } from "./types/json-schema";
 import yaml from "js-yaml";
 
 // TODO: pull out into a separate package

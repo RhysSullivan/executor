@@ -1,9 +1,9 @@
 /// <reference types="node" />
 
 import { readFileSync } from "fs";
-import type { JSONSchema4 } from "json-schema";
+import type { JSONSchema4 } from "./types/json-schema";
 import type { ParserOptions as $RefOptions } from "@apidevtools/json-schema-ref-parser";
-import { cloneDeep, endsWith, merge } from "lodash";
+import { cloneDeep, endsWith, merge } from "./lodash";
 import { dirname } from "path";
 import { format } from "./formatter";
 import { generate } from "./generator";

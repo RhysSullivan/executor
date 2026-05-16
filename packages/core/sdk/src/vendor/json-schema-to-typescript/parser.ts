@@ -1,5 +1,5 @@
-import type { JSONSchema4Type, JSONSchema4TypeName } from "json-schema";
-import { findKey, includes, isPlainObject, map, memoize, omit } from "lodash";
+import type { JSONSchema4Type, JSONSchema4TypeName } from "./types/json-schema";
+import { findKey, includes, isPlainObject, map, memoize, omit } from "./lodash";
 import { format } from "util";
 import type { Options } from "./";
 import { applySchemaTyping } from "./applySchemaTyping";
