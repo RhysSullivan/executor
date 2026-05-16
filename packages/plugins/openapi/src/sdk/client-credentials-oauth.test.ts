@@ -6,17 +6,10 @@
 // then resolves the bearer at invoke time.
 // ---------------------------------------------------------------------------
 
-import { expect, layer } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
-import {
-  HttpApi,
-  HttpApiBuilder,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  OpenApi,
-} from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
-import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
+import { describe, expect, it } from "@effect/vitest";
+import { Effect, Schema } from "effect";
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { FetchHttpClient, HttpServerRequest } from "effect/unstable/http";
 
 import {
   ConnectionId,
@@ -30,6 +23,10 @@ import {
   type SecretProvider,
 } from "@executor-js/sdk";
 import { makeTestConfig, serveOAuthTestServer } from "@executor-js/sdk/testing";
+import {
+  addOpenApiTestSource,
+  serveOpenApiHttpApiTestServer,
+} from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
 import { OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
@@ -57,7 +54,6 @@ const ItemsGroup = HttpApiGroup.make("items").add(
 );
 
 const TestApi = HttpApi.make("testApi").add(ItemsGroup);
-const specJson = JSON.stringify(OpenApi.fromApi(TestApi));
 
 const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
   handlers.handle("echoHeaders", () =>
@@ -68,12 +64,6 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
       });
     }),
   ),
-);
-
-const ApiLive = HttpApiBuilder.layer(TestApi).pipe(Layer.provide(ItemsGroupLive));
-
-const TestLayer = HttpRouter.serve(ApiLive, { disableListenLog: true, disableLogger: true }).pipe(
-  Layer.provideMerge(NodeHttpServer.layerTest),
 );
 
 const tokenEndpointRequests = (
@@ -87,7 +77,7 @@ const tokenEndpointRequests = (
 // Tests
 // ---------------------------------------------------------------------------
 
-layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
+describe("OpenAPI client_credentials OAuth", () => {
   it.effect("startOAuth exchanges tokens inline and makes them usable at invoke time", () =>
     Effect.gen(function* () {
       const secretStore = new Map<string, string>();
@@ -108,14 +98,10 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         secretProviders: [memoryProvider],
       }));
       const clientLayer = FetchHttpClient.layer;
-      const server = yield* HttpServer.HttpServer;
-      const address = server.address;
-      if (!("port" in address)) {
-        return yield* new OpenApiClientCredentialsTestSetupError({
-          message: "Test server must bind to TCP",
-        });
-      }
-      const baseUrl = `http://127.0.0.1:${address.port}`;
+      const openApiServer = yield* serveOpenApiHttpApiTestServer({
+        api: TestApi,
+        handlersLayer: ItemsGroupLive,
+      });
       const plugins = [
         openApiPlugin({ httpClientLayer: clientLayer }),
         memorySecretsPlugin(),
@@ -221,11 +207,9 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
 
       // Add the source with source-owned OAuth structure, then bind the
       // per-user connection into the configured slot.
-      yield* userExec.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(userExec, openApiServer, {
         scope: userScope.id,
         namespace: "petstore",
-        baseUrl,
         oauth2,
       });
       yield* userExec.openapi.setSourceBinding(

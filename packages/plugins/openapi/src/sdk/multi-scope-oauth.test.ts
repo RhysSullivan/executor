@@ -8,17 +8,10 @@
 // user-facing `secrets.list()` automatically.
 // ---------------------------------------------------------------------------
 
-import { expect, layer } from "@effect/vitest";
-import { Data, Effect, Layer, Predicate, Schema } from "effect";
-import {
-  HttpApi,
-  HttpApiBuilder,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  OpenApi,
-} from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
-import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
+import { describe, expect, it } from "@effect/vitest";
+import { Data, Effect, Schema } from "effect";
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { FetchHttpClient, HttpServerRequest } from "effect/unstable/http";
 
 import {
   ConnectionId,
@@ -32,6 +25,10 @@ import {
   type SecretProvider,
 } from "@executor-js/sdk";
 import { makeTestConfig, serveOAuthTestServer } from "@executor-js/sdk/testing";
+import {
+  addOpenApiTestSource,
+  serveOpenApiHttpApiTestServer,
+} from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
 import { OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
@@ -75,7 +72,6 @@ const ItemsGroup = HttpApiGroup.make("items").add(
 );
 
 const TestApi = HttpApi.make("testApi").add(ItemsGroup);
-const specJson = JSON.stringify(OpenApi.fromApi(TestApi));
 
 const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
   handlers.handle("echoHeaders", () =>
@@ -86,12 +82,6 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
       });
     }),
   ),
-);
-
-const ApiLive = HttpApiBuilder.layer(TestApi).pipe(Layer.provide(ItemsGroupLive));
-
-const TestLayer = HttpRouter.serve(ApiLive, { disableListenLog: true, disableLogger: true }).pipe(
-  Layer.provideMerge(NodeHttpServer.layerTest),
 );
 
 const tokenEndpointRequests = (
@@ -105,7 +95,7 @@ const tokenEndpointRequests = (
 // Tests
 // ---------------------------------------------------------------------------
 
-layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
+describe("OpenAPI multi-scope OAuth", () => {
   it.effect("per-user Connections coexist with a shared org-level client credential", () =>
     Effect.gen(function* () {
       const secretStore = new Map<string, string>();
@@ -126,12 +116,10 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         secretProviders: [memoryProvider],
       }));
       const clientLayer = FetchHttpClient.layer;
-      const server = yield* HttpServer.HttpServer;
-      const address = server.address;
-      if (!Predicate.isTagged(address, "TcpAddress")) {
-        return yield* new TestInvariantError({ message: "test server must bind to TCP" });
-      }
-      const baseUrl = `http://127.0.0.1:${address.port}`;
+      const openApiServer = yield* serveOpenApiHttpApiTestServer({
+        api: TestApi,
+        handlersLayer: ItemsGroupLive,
+      });
       const plugins = [
         openApiPlugin({ httpClientLayer: clientLayer }),
         memorySecretsPlugin(),
@@ -286,11 +274,9 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // 3. Each user adds the spec with source-owned OAuth structure,
       //    then binds their own connection into the configured slot.
       // -------------------------------------------------------------
-      yield* aliceExec.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(aliceExec, openApiServer, {
         scope: String(aliceScope.id),
         namespace: "petstore",
-        baseUrl,
         oauth2,
       });
       yield* aliceExec.openapi.setSourceBinding(
@@ -302,11 +288,9 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
           value: { kind: "connection", connectionId: ConnectionId.make(aliceAuth.connectionId) },
         }),
       );
-      yield* bobExec.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(bobExec, openApiServer, {
         scope: String(bobScope.id),
         namespace: "petstore",
-        baseUrl,
         oauth2,
       });
       yield* bobExec.openapi.setSourceBinding(
@@ -407,12 +391,10 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         secretProviders: [memoryProvider],
       }));
       const clientLayer = FetchHttpClient.layer;
-      const server = yield* HttpServer.HttpServer;
-      const address = server.address;
-      if (!Predicate.isTagged(address, "TcpAddress")) {
-        return yield* new TestInvariantError({ message: "test server must bind to TCP" });
-      }
-      const baseUrl = `http://127.0.0.1:${address.port}`;
+      const openApiServer = yield* serveOpenApiHttpApiTestServer({
+        api: TestApi,
+        handlersLayer: ItemsGroupLive,
+      });
       const plugins = [
         openApiPlugin({ httpClientLayer: clientLayer }),
         memorySecretsPlugin(),
@@ -549,11 +531,9 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // creds and writes the connection at org, then the connection binding
       // is explicitly attached to the source slot.
       const adminAuth = yield* startClientCredentials(adminExec, orgScope.id, startInput);
-      yield* adminExec.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(adminExec, openApiServer, {
         scope: String(orgScope.id),
         namespace: "petstore",
-        baseUrl,
         oauth2,
       });
       yield* adminExec.openapi.setSourceBinding(

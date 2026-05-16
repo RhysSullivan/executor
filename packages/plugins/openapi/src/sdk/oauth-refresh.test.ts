@@ -12,17 +12,10 @@
 //      `ConnectionReauthRequiredError` so the UI can prompt sign-in.
 // ---------------------------------------------------------------------------
 
-import { expect, layer } from "@effect/vitest";
-import { Effect, Layer, Predicate, Schema } from "effect";
-import {
-  HttpApi,
-  HttpApiBuilder,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  OpenApi,
-} from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
-import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
+import { describe, expect, it } from "@effect/vitest";
+import { Effect, Predicate, Schema } from "effect";
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { FetchHttpClient, HttpServerRequest } from "effect/unstable/http";
 
 import {
   ConnectionId,
@@ -39,6 +32,10 @@ import {
   type SecretProvider,
 } from "@executor-js/sdk";
 import { makeTestConfig, serveOAuthTestServer } from "@executor-js/sdk/testing";
+import {
+  addOpenApiTestSource,
+  serveOpenApiHttpApiTestServer,
+} from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
 import { OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
@@ -60,7 +57,6 @@ const ItemsGroup = HttpApiGroup.make("items").add(
 );
 
 const TestApi = HttpApi.make("testApi").add(ItemsGroup);
-const specJson = JSON.stringify(OpenApi.fromApi(TestApi));
 
 const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
   handlers.handle("echoHeaders", () =>
@@ -71,12 +67,6 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
       });
     }),
   ),
-);
-
-const ApiLive = HttpApiBuilder.layer(TestApi).pipe(Layer.provide(ItemsGroupLive));
-
-const TestLayer = HttpRouter.serve(ApiLive, { disableListenLog: true, disableLogger: true }).pipe(
-  Layer.provideMerge(NodeHttpServer.layerTest),
 );
 
 // ---------------------------------------------------------------------------
@@ -105,13 +95,10 @@ const makeExecutor = () =>
       secretProviders: [memoryProvider],
     }));
     const clientLayer = FetchHttpClient.layer;
-    const server = yield* HttpServer.HttpServer;
-    const address = server.address;
-    if (!Predicate.isTagged("TcpAddress")(address)) {
-      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: test harness cannot continue without a TCP test server address
-      return yield* Effect.die("test server must bind to TCP");
-    }
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const openApiServer = yield* serveOpenApiHttpApiTestServer({
+      api: TestApi,
+      handlersLayer: ItemsGroupLive,
+    });
     const plugins = [
       openApiPlugin({ httpClientLayer: clientLayer }),
       memorySecretsPlugin(),
@@ -150,7 +137,7 @@ const makeExecutor = () =>
       }),
     );
 
-    return { executor, scopeId, baseUrl };
+    return { executor, scopeId, openApiServer };
   });
 
 type EffectSuccess<T> = T extends Effect.Effect<infer A, unknown, unknown> ? A : never;
@@ -239,10 +226,10 @@ const refreshTokenRequests = (
 // Tests
 // ---------------------------------------------------------------------------
 
-layer(TestLayer)("OpenAPI oauth refresh", (it) => {
+describe("OpenAPI oauth refresh", () => {
   it.effect("expired access_token is refreshed via grant_type=refresh_token before invoke", () =>
     Effect.gen(function* () {
-      const { executor, scopeId, baseUrl } = yield* makeExecutor();
+      const { executor, scopeId, openApiServer } = yield* makeExecutor();
       const oauth = yield* serveOAuthTestServer({
         defaultClientId: "abc",
         defaultClientSecret: "shhh",
@@ -259,11 +246,9 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
         initialTokens.refreshToken!,
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, openApiServer, {
         scope: String(scopeId),
         namespace: "petstore",
-        baseUrl,
         oauth2: auth,
       });
       yield* bindOAuthConnection(executor, scopeId, "conn-refresh-ok", auth);
@@ -296,7 +281,7 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
 
   it.effect("concurrent invokes with an expired token issue exactly one refresh", () =>
     Effect.gen(function* () {
-      const { executor, scopeId, baseUrl } = yield* makeExecutor();
+      const { executor, scopeId, openApiServer } = yield* makeExecutor();
       const oauth = yield* serveOAuthTestServer({
         defaultClientId: "abc",
         defaultClientSecret: "shhh",
@@ -313,11 +298,9 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
         initialTokens.refreshToken!,
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, openApiServer, {
         scope: String(scopeId),
         namespace: "petstore",
-        baseUrl,
         oauth2: auth,
       });
       yield* bindOAuthConnection(executor, scopeId, "conn-refresh-concurrent", auth);
@@ -349,7 +332,7 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
 
   it.effect("invalid_grant from refresh surfaces as ConnectionReauthRequiredError", () =>
     Effect.gen(function* () {
-      const { executor, scopeId, baseUrl } = yield* makeExecutor();
+      const { executor, scopeId, openApiServer } = yield* makeExecutor();
       const oauth = yield* serveOAuthTestServer({
         defaultClientId: "abc",
         defaultClientSecret: "shhh",
@@ -364,11 +347,9 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
         "refresh-v1",
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, openApiServer, {
         scope: String(scopeId),
         namespace: "petstore",
-        baseUrl,
         oauth2: auth,
       });
       yield* bindOAuthConnection(executor, scopeId, "conn-refresh-dead", auth);
