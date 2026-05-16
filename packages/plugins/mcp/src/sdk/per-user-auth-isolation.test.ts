@@ -1,7 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Exit, Predicate } from "effect";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import z from "zod";
 
 import {
   ConnectionId,
@@ -18,7 +16,7 @@ import {
 import { makeTestConfig, memorySecretsPlugin } from "@executor-js/sdk/testing";
 
 import { mcpPlugin } from "./plugin";
-import { serveMcpServer } from "../testing";
+import { makeEchoMcpServer, serveMcpServer } from "../testing";
 
 const USER_A = ScopeId.make("user-a");
 const USER_B = ScopeId.make("user-b");
@@ -32,20 +30,14 @@ const failureError = <E>(exit: Exit.Exit<unknown, E>): E | undefined =>
 const isToolInvocationError = (error: unknown): error is ToolInvocationError =>
   Predicate.isTagged(error, "ToolInvocationError");
 
-const createAuthRecordingMcpServer = () => {
-  const mcpServer = new McpServer({ name: "iso-test", version: "1.0.0" }, { capabilities: {} });
-  mcpServer.registerTool(
-    "whoami",
-    {
-      description: "Echoes a marker so the test can prove the invoke reached the server",
-      inputSchema: { marker: z.string() },
-    },
-    async ({ marker }: { marker: string }) => ({
-      content: [{ type: "text" as const, text: `ok:${marker}` }],
-    }),
-  );
-  return mcpServer;
-};
+const createAuthRecordingMcpServer = () =>
+  makeEchoMcpServer({
+    name: "iso-test",
+    toolName: "whoami",
+    toolDescription: "Echoes a marker so the test can prove the invoke reached the server",
+    inputName: "marker",
+    text: (marker) => `ok:${marker}`,
+  });
 
 const serveAuthRecordingMcpServer = serveMcpServer(createAuthRecordingMcpServer);
 

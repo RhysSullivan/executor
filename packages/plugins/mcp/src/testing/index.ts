@@ -1,6 +1,7 @@
 export {
   McpTestServerError,
   McpTestServerLayer,
+  makeEchoMcpServer,
   makeGreetingMcpServer,
   serveMcpServer,
   serveMcpServerWithOAuth,

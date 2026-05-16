@@ -3,6 +3,7 @@ import * as http from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { OAuthTestServer } from "@executor-js/sdk/testing";
+import z from "zod";
 
 export type McpTestServer = {
   readonly url: string;
@@ -282,6 +283,44 @@ export const makeGreetingMcpServer = (
     },
     async () => ({
       content: [{ type: "text" as const, text: options.text ?? "mcp-ok" }],
+    }),
+  );
+
+  return server;
+};
+
+export const makeEchoMcpServer = (
+  options: {
+    readonly name?: string;
+    readonly version?: string;
+    readonly toolName?: string;
+    readonly toolDescription?: string;
+    readonly inputName?: "name" | "value" | "marker";
+    readonly text?: (value: string) => string;
+  } = {},
+) => {
+  const inputName = options.inputName ?? "value";
+  const server = new McpServer(
+    {
+      name: options.name ?? "executor-echo-mcp",
+      version: options.version ?? "1.0.0",
+    },
+    { capabilities: {} },
+  );
+
+  server.registerTool(
+    options.toolName ?? "echo",
+    {
+      description: options.toolDescription ?? "Echoes a string value",
+      inputSchema: { [inputName]: z.string() },
+    },
+    async (input) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: options.text ? options.text(input[inputName]) : input[inputName],
+        },
+      ],
     }),
   );
 

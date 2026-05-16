@@ -2,31 +2,18 @@ import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { OAuthTestServer } from "@executor-js/sdk/testing";
-import z from "zod";
 
-import { serveMcpServerWithOAuth } from "../testing";
+import { makeEchoMcpServer, serveMcpServerWithOAuth } from "../testing";
 
-const createGreetingMcpServer = () => {
-  const server = new McpServer(
-    { name: "executor-test-mcp", version: "1.0.0" },
-    { capabilities: {} },
-  );
-
-  server.registerTool(
-    "hello",
-    {
-      description: "Greets a person",
-      inputSchema: { name: z.string() },
-    },
-    async ({ name }: { readonly name: string }) => ({
-      content: [{ type: "text" as const, text: `Hello ${name}` }],
-    }),
-  );
-
-  return server;
-};
+const createGreetingMcpServer = () =>
+  makeEchoMcpServer({
+    name: "executor-test-mcp",
+    toolName: "hello",
+    toolDescription: "Greets a person",
+    inputName: "name",
+    text: (name) => `Hello ${name}`,
+  });
 
 const makeClient = (endpoint: string, accessToken: string) => {
   const client = new Client({ name: "executor-test-client", version: "1.0.0" });

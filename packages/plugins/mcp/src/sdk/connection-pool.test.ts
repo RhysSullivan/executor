@@ -23,32 +23,24 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
 
 import { createExecutor } from "@executor-js/sdk";
 import { makeTestConfig } from "@executor-js/sdk/testing";
 
 import { mcpPlugin } from "./plugin";
-import { serveMcpServer } from "../testing";
+import { makeEchoMcpServer, serveMcpServer } from "../testing";
 
 // ---------------------------------------------------------------------------
 // Test MCP server — counts session connects (each = one cold handshake)
 // ---------------------------------------------------------------------------
 
 function createTestMcpServer() {
-  const server = new McpServer(
-    { name: "pool-test-server", version: "1.0.0" },
-    { capabilities: {} },
-  );
-
-  server.registerTool(
-    "echo",
-    { description: "Echo a value", inputSchema: { value: z.string() } },
-    async ({ value }: { value: string }) => ({
-      content: [{ type: "text" as const, text: value }],
-    }),
-  );
+  const server = makeEchoMcpServer({
+    name: "pool-test-server",
+    toolName: "echo",
+    toolDescription: "Echo a value",
+  });
 
   server.registerTool(
     "echo2",
