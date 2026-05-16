@@ -32,7 +32,11 @@ import {
   type SecretProvider,
 } from "@executor-js/sdk";
 import { makeTestConfig } from "@executor-js/sdk/testing";
-import { serveOpenApiHttpApiTestServer } from "../testing";
+import {
+  makeOpenApiTestSourceConfig,
+  type OpenApiTestServerShape,
+  serveOpenApiHttpApiTestServer,
+} from "../testing";
 
 import { openApiPlugin } from "./plugin";
 
@@ -89,11 +93,7 @@ const startScriptedServer = (script: ResponseScript) =>
         }),
       ),
     ),
-  }).pipe(
-    Effect.map((server) => ({
-      baseUrl: server.baseUrl,
-    })),
-  );
+  });
 
 const startDroppingServer = () =>
   Effect.acquireRelease(
@@ -147,6 +147,25 @@ const buildExecutor = (baseUrl: string) =>
     return executor;
   });
 
+const buildExecutorForOpenApiServer = (server: OpenApiTestServerShape) =>
+  Effect.gen(function* () {
+    const executor = yield* createExecutor(
+      makeTestConfig({
+        plugins: [
+          openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
+          memorySecretsPlugin(),
+        ] as const,
+      }),
+    );
+    yield* executor.openapi.addSpec(
+      makeOpenApiTestSourceConfig(server, {
+        scope: TEST_SCOPE,
+        namespace: "f",
+      }),
+    );
+    return executor;
+  });
+
 describe("OpenAPI upstream failure modes", () => {
   // Upstream HTTP errors come back via the `{ error, data? }` envelope
   // rather than a failed Effect. That shape has to be stable: sandbox
@@ -155,12 +174,12 @@ describe("OpenAPI upstream failure modes", () => {
   // failure is acceptable; what isn't is a silent successful return.
   it.effect("upstream 500 surfaces via the error envelope (not silent success)", () =>
     Effect.gen(function* () {
-      const { baseUrl } = yield* startScriptedServer(() => ({
+      const server = yield* startScriptedServer(() => ({
         status: 500,
         headers: { "content-type": "application/json" },
         body: '{"error":{"code":"internal","message":"db timeout"}}',
       }));
-      const executor = yield* buildExecutor(baseUrl);
+      const executor = yield* buildExecutorForOpenApiServer(server);
 
       const exit = yield* executor.tools
         .invoke("f.things.listThings", {}, autoApprove)
@@ -184,12 +203,12 @@ describe("OpenAPI upstream failure modes", () => {
 
   it.effect("upstream 4xx surfaces structured error body", () =>
     Effect.gen(function* () {
-      const { baseUrl } = yield* startScriptedServer(() => ({
+      const server = yield* startScriptedServer(() => ({
         status: 422,
         headers: { "content-type": "application/json" },
         body: '{"error":{"field":"name","reason":"too_short"}}',
       }));
-      const executor = yield* buildExecutor(baseUrl);
+      const executor = yield* buildExecutorForOpenApiServer(server);
 
       const exit = yield* executor.tools
         .invoke("f.things.listThings", {}, autoApprove)
@@ -206,12 +225,12 @@ describe("OpenAPI upstream failure modes", () => {
 
   it.effect("upstream returns malformed JSON despite Content-Type: application/json", () =>
     Effect.gen(function* () {
-      const { baseUrl } = yield* startScriptedServer(() => ({
+      const server = yield* startScriptedServer(() => ({
         status: 200,
         headers: { "content-type": "application/json" },
         body: "not json at all <<<<",
       }));
-      const executor = yield* buildExecutor(baseUrl);
+      const executor = yield* buildExecutorForOpenApiServer(server);
 
       // Whatever happens, the test asserts it doesn't produce a defect or
       // hang — either the plugin returns a value (raw text / passthrough)
@@ -242,12 +261,12 @@ describe("OpenAPI upstream failure modes", () => {
 
   it.effect("upstream returns wrong content-type (HTML for a JSON op)", () =>
     Effect.gen(function* () {
-      const { baseUrl } = yield* startScriptedServer(() => ({
+      const server = yield* startScriptedServer(() => ({
         status: 200,
         headers: { "content-type": "text/html" },
         body: "<html><body>Service Unavailable</body></html>",
       }));
-      const executor = yield* buildExecutor(baseUrl);
+      const executor = yield* buildExecutorForOpenApiServer(server);
 
       const exit = yield* executor.tools
         .invoke("f.things.listThings", {}, autoApprove)

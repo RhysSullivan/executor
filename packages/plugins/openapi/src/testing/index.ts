@@ -13,6 +13,7 @@ import {
   OpenApi,
 } from "effect/unstable/httpapi";
 import { OAuthTestServer, serveTestHttpServerLayer } from "@executor-js/sdk/testing";
+import type { OpenApiPluginExtension, OpenApiSpecConfig } from "../sdk/plugin";
 
 export class OpenApiTestServerAddressError extends Data.TaggedError(
   "OpenApiTestServerAddressError",
@@ -77,6 +78,29 @@ export interface OpenApiEchoTestServerShape extends OpenApiTestServerShape {
   readonly requests: Effect.Effect<readonly OpenApiTestRequest[]>;
   readonly clearRequests: Effect.Effect<void>;
 }
+
+export type OpenApiTestSourceOptions = Omit<OpenApiSpecConfig, "spec" | "baseUrl"> & {
+  readonly baseUrl?: string;
+};
+
+export type OpenApiTestSourceExecutor = {
+  readonly openapi: Pick<OpenApiPluginExtension, "addSpec">;
+};
+
+export const makeOpenApiTestSourceConfig = (
+  server: OpenApiTestServerShape,
+  options: OpenApiTestSourceOptions,
+): OpenApiSpecConfig => ({
+  ...options,
+  spec: server.specJson,
+  baseUrl: options.baseUrl ?? server.baseUrl,
+});
+
+export const addOpenApiTestSource = (
+  executor: OpenApiTestSourceExecutor,
+  server: OpenApiTestServerShape,
+  options: OpenApiTestSourceOptions,
+) => executor.openapi.addSpec(makeOpenApiTestSourceConfig(server, options));
 
 const isJsonObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

@@ -25,7 +25,10 @@ import {
   type SecretProvider,
 } from "@executor-js/sdk";
 import { makeTestWorkspaceLayer, TestWorkspace } from "@executor-js/sdk/testing";
-import { serveOpenApiHttpApiTestServer } from "@executor-js/plugin-openapi/testing";
+import {
+  addOpenApiTestSource,
+  serveOpenApiHttpApiTestServer,
+} from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
 
@@ -90,7 +93,7 @@ const startEchoServer = () =>
       api: FormApi,
       handlersLayer: FormsLive,
     });
-    return { baseUrl: server.baseUrl, specJson: server.specJson, captured };
+    return { server, captured };
   });
 
 const plugins = [
@@ -106,15 +109,13 @@ layer(
 )("OpenAPI non-JSON request body serialization", (it) => {
   it.effect("form-urlencoded object body is properly encoded (no '[object Object]')", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer();
+      const { server, captured } = yield* startEchoServer();
       const { config } = yield* TestWorkspace;
       const executor = yield* createExecutor({ ...config, plugins });
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "form",
-        baseUrl,
       });
 
       yield* executor.tools.invoke(

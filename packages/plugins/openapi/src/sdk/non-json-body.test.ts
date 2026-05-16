@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
 // Dispatch tests for non-JSON request bodies.
 //
-// Each case spins up a tiny http server, declares a POST endpoint in a
-// minimal OpenAPI spec with the content type under test, and asserts both
-// the wire-level content type and body shape the plugin actually sent.
+// Each case spins up an Effect HttpApi-backed test server, derives the
+// OpenAPI spec from that API, and asserts both the wire-level content type
+// and body shape the plugin actually sent.
 //
 // The scenarios mirror what real specs commonly carry — multipart uploads
 // (files + scalar fields), XML bodies declared as pre-serialized strings,
@@ -28,7 +28,11 @@ import {
   type SecretProvider,
 } from "@executor-js/sdk";
 import { makeTestConfig } from "@executor-js/sdk/testing";
-import { serveOpenApiHttpApiTestServer } from "@executor-js/plugin-openapi/testing";
+import {
+  addOpenApiTestSource,
+  makeOpenApiTestSourceConfig,
+  serveOpenApiHttpApiTestServer,
+} from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
 
@@ -104,7 +108,7 @@ const startEchoServer = (options: {
       handlersLayer,
       transformSpec: options.transformSpec,
     });
-    return { baseUrl: server.baseUrl, specJson: server.specJson, captured };
+    return { server, captured };
   });
 
 const ObjectBody = Schema.Struct({
@@ -154,7 +158,7 @@ const replaceRequestBodyContent =
 describe("OpenAPI non-JSON request body dispatch", () => {
   it.effect("multipart/form-data: object body is encoded as real multipart", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: ObjectBody.pipe(HttpApiSchema.asMultipart()),
       });
 
@@ -167,11 +171,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "mp",
-        baseUrl,
       });
 
       yield* executor.tools.invoke(
@@ -195,7 +197,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("application/xml: string body passes through with xml content-type", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: Schema.String.pipe(HttpApiSchema.asText({ contentType: "application/xml" })),
       });
 
@@ -208,11 +210,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "xml",
-        baseUrl,
       });
 
       const xml = '<?xml version="1.0"?><root><name>Acme</name></root>';
@@ -225,7 +225,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("text/xml: object body is JSON-stringified (never '[object Object]')", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: JsonNameObject,
         transformSpec: replaceRequestBodyContent("/submit", "post", contentFor("text/xml")),
       });
@@ -239,11 +239,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "tx",
-        baseUrl,
       });
 
       yield* executor.tools.invoke("tx.body.submit", { body: { name: "Acme" } }, autoApprove);
@@ -257,7 +255,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("text/plain: string body passes through with text/plain", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: Schema.String.pipe(HttpApiSchema.asText()),
       });
 
@@ -270,11 +268,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "tp",
-        baseUrl,
       });
 
       yield* executor.tools.invoke("tp.body.submit", { body: "hello, world" }, autoApprove);
@@ -286,7 +282,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("application/octet-stream: Uint8Array passes through as bytes", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
       });
 
@@ -299,11 +295,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "bin",
-        baseUrl,
       });
 
       const payload = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01, 0x02]);
@@ -328,7 +322,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("multi-content: defaults to first-declared (not JSON-first)", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: multiContentPayload,
       });
 
@@ -341,11 +335,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "mc",
-        baseUrl,
       });
 
       yield* executor.tools.invoke("mc.body.submit", { body: { name: "Acme" } }, autoApprove);
@@ -358,7 +350,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("multi-content: caller can override via args.contentType", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: multiContentPayload,
       });
 
@@ -371,11 +363,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "mc2",
-        baseUrl,
       });
 
       yield* executor.tools.invoke(
@@ -393,7 +383,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("multi-content: tool input schema exposes contentType enum", () =>
     Effect.gen(function* () {
-      const { specJson } = yield* startEchoServer({
+      const { server } = yield* startEchoServer({
         payload: multiContentPayload,
       });
       const executor = yield* createExecutor(
@@ -405,12 +395,13 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
-        scope: TEST_SCOPE,
-        namespace: "mc3",
-        baseUrl: "https://example.com",
-      });
+      yield* executor.openapi.addSpec(
+        makeOpenApiTestSourceConfig(server, {
+          scope: TEST_SCOPE,
+          namespace: "mc3",
+          baseUrl: "https://example.com",
+        }),
+      );
 
       const tools = yield* executor.tools.list();
       const submit = tools.find((t) => t.id === "mc3.body.submit");
@@ -436,7 +427,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("multipart encoding.contentType: JSON metadata part has typed header", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         name: "upload",
         path: "/upload",
         payload: Schema.Struct({
@@ -462,11 +453,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "mpe",
-        baseUrl,
       });
 
       yield* executor.tools.invoke(
@@ -499,7 +488,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("form-urlencoded explode:false: arrays comma-join", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: ObjectBody.pipe(HttpApiSchema.asFormUrlEncoded()),
         transformSpec: replaceRequestBodyContent(
           "/submit",
@@ -520,11 +509,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "fe",
-        baseUrl,
       });
 
       yield* executor.tools.invoke(
@@ -544,7 +531,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("form-urlencoded deepObject: nested keys use bracket notation", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: ObjectBody.pipe(HttpApiSchema.asFormUrlEncoded()),
         transformSpec: replaceRequestBodyContent(
           "/submit",
@@ -565,11 +552,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
-        spec: specJson,
+      yield* addOpenApiTestSource(executor, server, {
         scope: TEST_SCOPE,
         namespace: "fd",
-        baseUrl,
       });
 
       yield* executor.tools.invoke(
@@ -587,7 +572,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
   it.effect("form-urlencoded default: arrays use form+explode=true (repeat key)", () =>
     Effect.gen(function* () {
-      const { baseUrl, specJson, captured } = yield* startEchoServer({
+      const { server, captured } = yield* startEchoServer({
         payload: ObjectBody.pipe(HttpApiSchema.asFormUrlEncoded()),
         transformSpec: replaceRequestBodyContent(
           "/submit",
@@ -606,12 +591,10 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         }),
       );
 
-      yield* executor.openapi.addSpec({
+      yield* addOpenApiTestSource(executor, server, {
         // No encoding → OAS3 defaults: style=form, explode=true.
-        spec: specJson,
         scope: TEST_SCOPE,
         namespace: "fdx",
-        baseUrl,
       });
 
       yield* executor.tools.invoke(
