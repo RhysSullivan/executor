@@ -148,10 +148,10 @@ export function traverse(
     }
   }
   if (schema.definitions) {
-    traverseObjectKeys(schema.definitions, callback, processed);
+    traverseObjectKeys(schema.definitions as Record<string, LinkedJSONSchema>, callback, processed);
   }
   if (schema.$defs) {
-    traverseObjectKeys(schema.$defs, callback, processed);
+    traverseObjectKeys(schema.$defs as Record<string, LinkedJSONSchema>, callback, processed);
   }
   if (schema.not) {
     traverse(schema.not, callback, processed);
@@ -360,7 +360,7 @@ export function isSchemaLike(schema: any): schema is LinkedJSONSchema {
   }
 
   // top-level schema
-  const parent = schema[Parent];
+  const parent = (schema as LinkedJSONSchema)[Parent] as LinkedJSONSchema | null;
   if (parent === null) {
     return true;
   }

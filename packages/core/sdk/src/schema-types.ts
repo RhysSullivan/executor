@@ -1,4 +1,5 @@
 import { hoistDefinitions, normalizeRefs } from "./schema-refs";
+import { compile } from "./vendor/json-schema-to-typescript";
 
 type JsonSchemaRecord = Record<string, unknown>;
 type CompilerJsonSchema = JsonSchemaRecord | boolean;
@@ -18,13 +19,6 @@ type SchemaCompilerOptions = {
   style?: CompilerFormatOptions;
   unknownAny?: boolean;
   unreachableDefinitions?: boolean;
-};
-type SchemaCompiler = {
-  compile: (
-    schema: CompilerJsonSchema,
-    name: string,
-    options: Partial<SchemaCompilerOptions>,
-  ) => Promise<string>;
 };
 
 export type TypeScriptRenderOptions = {
@@ -55,16 +49,6 @@ const DEFAULT_COMPILER_OPTIONS = {
     trailingComma: "none",
   },
 } satisfies Partial<SchemaCompilerOptions>;
-
-const schemaCompilerModulePath = (): string =>
-  import.meta.url.endsWith(".ts")
-    ? "./vendor/json-schema-to-typescript/index.ts"
-    : "./vendor/json-schema-to-typescript/index.js";
-
-const loadSchemaCompiler = async (): Promise<SchemaCompiler> => {
-  const compilerModule: unknown = await import(schemaCompilerModulePath());
-  return compilerModule as SchemaCompiler;
-};
 
 const DEFINITION_REF_PATTERN = /^#\/definitions\/(.+)$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -764,7 +748,6 @@ const compileSchemaPreview = async (
   options: TypeScriptRenderOptions,
 ): Promise<TypeScriptSchemaPreview> => {
   const wrappedSchema = buildWrappedSchema(schema, defs);
-  const { compile } = await loadSchemaCompiler();
   const source = await compile(wrappedSchema, ROOT_WRAPPER_NAME, compilerOptionsFrom(options));
   return previewFromCompiledTypeScript(source);
 };
@@ -816,10 +799,7 @@ export const buildToolTypeScriptPreview = async (input: {
   }
 
   const wrappedSchema = buildWrappedObjectSchema(properties, input.defs);
-  return loadSchemaCompiler()
-    .then(({ compile }) =>
-      compile(wrappedSchema, ROOT_WRAPPER_NAME, compilerOptionsFrom(input.options ?? {})),
-    )
+  return compile(wrappedSchema, ROOT_WRAPPER_NAME, compilerOptionsFrom(input.options ?? {}))
     .then(
       (source) => previewToolFromCompiledTypeScript(source),
       () => ({

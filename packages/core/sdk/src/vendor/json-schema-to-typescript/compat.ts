@@ -10,15 +10,16 @@ export const isPlainObject = (value: unknown): value is Record<string, unknown> 
 
 export const cloneDeep = <T>(value: T): T => structuredClone(value);
 
-export const merge = <T extends Record<string, unknown>>(
+export const merge = <T extends object>(
   target: T,
-  ...sources: ReadonlyArray<Record<string, unknown> | undefined>
+  ...sources: ReadonlyArray<object | undefined>
 ): T => {
+  const output = target as Record<string, unknown>;
   for (const source of sources) {
     if (!source) continue;
-    for (const [key, value] of Object.entries(source)) {
-      const current = target[key];
-      target[key] =
+    for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
+      const current = output[key];
+      output[key] =
         isPlainObject(current) && isPlainObject(value)
           ? merge({ ...current }, value)
           : cloneDeep(value);

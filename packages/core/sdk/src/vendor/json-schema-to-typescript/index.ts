@@ -164,7 +164,7 @@ export async function compile(
 ): Promise<string> {
   validateOptions(options);
 
-  const _options = merge({}, DEFAULT_OPTIONS, options);
+  const _options = merge({} as Options, DEFAULT_OPTIONS, options);
 
   const start = Date.now();
   function time() {

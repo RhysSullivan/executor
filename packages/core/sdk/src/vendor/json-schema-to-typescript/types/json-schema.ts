@@ -17,11 +17,11 @@ export type JSONSchema4Type =
   | JSONSchema4Type[];
 
 export interface JSONSchema4Object {
-  readonly [key: string]: unknown;
+  [key: string]: any;
 }
 
 export interface JSONSchema4 {
-  readonly [key: string]: unknown;
+  [key: string]: any;
   $id?: string;
   $ref?: string;
   $schema?: string;
@@ -44,7 +44,7 @@ export interface JSONSchema4 {
   oneOf?: JSONSchema4[];
   patternProperties?: Record<string, JSONSchema4>;
   properties?: Record<string, JSONSchema4>;
-  required?: string[];
+  required?: string[] | false;
   title?: string;
   type?: JSONSchema4TypeName | JSONSchema4TypeName[];
 }

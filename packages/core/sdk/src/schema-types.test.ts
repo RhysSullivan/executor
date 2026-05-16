@@ -1,6 +1,4 @@
 import { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 
@@ -22,15 +20,6 @@ const stripeBalanceTransactionsFixture = Schema.decodeUnknownSync(
     new URL("./__fixtures__/stripe-get-balance-transactions-id.json", import.meta.url),
     "utf8",
   ),
-);
-
-const sdkPackageRoot = fileURLToPath(new URL("..", import.meta.url));
-const TypeScriptPreviewOutput = Schema.Struct({
-  inputTypeScript: Schema.String,
-  outputTypeScript: Schema.String,
-});
-const decodeTypeScriptPreviewOutput = Schema.decodeUnknownSync(
-  Schema.fromJsonString(TypeScriptPreviewOutput),
 );
 
 describe("schema-types", () => {
@@ -383,33 +372,22 @@ describe("schema-types", () => {
     });
   });
 
-  it("loads the vendored compiler through Bun's TypeScript loader", () => {
-    const output = execFileSync(
-      "bun",
-      [
-        "-e",
-        `
-          import { buildToolTypeScriptPreview } from "./src/schema-types.ts";
-          const preview = await buildToolTypeScriptPreview({
-            inputSchema: {
-              type: "object",
-              properties: {
-                account_id: { type: "string" },
-                body: {}
-              },
-              required: ["account_id", "body"],
-              additionalProperties: false
-            },
-            outputSchema: {},
-            defs: new Map()
-          });
-          console.log(JSON.stringify(preview));
-        `,
-      ],
-      { cwd: sdkPackageRoot, encoding: "utf8" },
-    );
-
-    expect(decodeTypeScriptPreviewOutput(output)).toEqual({
+  it("renders unconstrained schemas as unknown", async () => {
+    await expect(
+      buildToolTypeScriptPreview({
+        inputSchema: {
+          type: "object",
+          properties: {
+            account_id: { type: "string" },
+            body: {},
+          },
+          required: ["account_id", "body"],
+          additionalProperties: false,
+        },
+        outputSchema: {},
+        defs: new Map(),
+      }),
+    ).resolves.toEqual({
       inputTypeScript: "{ account_id: string; body: unknown; }",
       outputTypeScript: "unknown",
     });

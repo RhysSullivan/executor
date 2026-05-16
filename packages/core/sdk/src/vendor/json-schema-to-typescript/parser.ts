@@ -47,8 +47,9 @@ export function parse(
     return parseLiteral(schema, keyName);
   }
 
-  const intersection = schema[Intersection];
-  const types = schema[Types];
+  const normalizedSchema = schema as NormalizedJSONSchema;
+  const intersection = normalizedSchema[Intersection];
+  const types = normalizedSchema[Types];
 
   if (intersection) {
     const ast = parseAsTypeWithCache(
@@ -61,17 +62,19 @@ export function parse(
     ) as TIntersection;
 
     types.forEach((type) => {
-      ast.params.push(parseAsTypeWithCache(schema, type, options, keyName, processed, usedNames));
+      ast.params.push(
+        parseAsTypeWithCache(normalizedSchema, type, options, keyName, processed, usedNames),
+      );
     });
 
-    log("blue", "parser", "Types:", [...types], "Input:", schema, "Output:", ast);
+    log("blue", "parser", "Types:", [...types], "Input:", normalizedSchema, "Output:", ast);
     return ast;
   }
 
   if (types.size === 1) {
     const type = [...types][0];
-    const ast = parseAsTypeWithCache(schema, type, options, keyName, processed, usedNames);
-    log("blue", "parser", "Type:", type, "Input:", schema, "Output:", ast);
+    const ast = parseAsTypeWithCache(normalizedSchema, type, options, keyName, processed, usedNames);
+    log("blue", "parser", "Type:", type, "Input:", normalizedSchema, "Output:", ast);
     return ast;
   }
 

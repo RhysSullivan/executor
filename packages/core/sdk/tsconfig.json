@@ -20,6 +20,5 @@
       }
     ]
   },
-  "include": ["src"],
-  "exclude": ["src/vendor/json-schema-to-typescript"]
+  "include": ["src"]
 }

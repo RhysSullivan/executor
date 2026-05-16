@@ -59,7 +59,7 @@
     }
   },
   "scripts": {
-    "build": "tsup && mkdir -p dist/vendor/json-schema-to-typescript && cp src/vendor/json-schema-to-typescript/LICENCE.md dist/vendor/json-schema-to-typescript/LICENCE.md && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "typecheck:slow": "tsc --noEmit"

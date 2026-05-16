@@ -377,7 +377,7 @@ function generateStandaloneType(ast: ASTWithStandaloneName, options: Options): s
   return (
     (hasComment(ast) ? generateComment(ast.comment) + "\n" : "") +
     `export type ${toSafeString(ast.standaloneName)} = ${generateType(
-      omit<AST>(ast, "standaloneName") as AST /* TODO */,
+      omit(ast, "standaloneName") as AST /* TODO */,
       options,
     )}`
   );
