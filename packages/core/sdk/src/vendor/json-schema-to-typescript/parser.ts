@@ -25,7 +25,7 @@ import type {
   SchemaType,
 } from "./types/JSONSchema";
 import { Intersection, Types, getRootSchema, isBoolean, isPrimitive } from "./types/JSONSchema";
-import { generateName, log, maybeStripDefault } from "./utils";
+import { generateName, maybeStripDefault } from "./utils";
 
 export type Processed = Map<NormalizedJSONSchema, Map<SchemaType, AST>>;
 
@@ -66,7 +66,6 @@ export function parse(
       );
     });
 
-    log("blue", "parser", "Types:", [...types], "Input:", normalizedSchema, "Output:", ast);
     return ast;
   }
 
@@ -80,7 +79,6 @@ export function parse(
       processed,
       usedNames,
     );
-    log("blue", "parser", "Type:", type, "Input:", normalizedSchema, "Output:", ast);
     return ast;
   }
 

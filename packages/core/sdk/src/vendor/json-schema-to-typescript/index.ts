@@ -6,7 +6,6 @@ import { normalize } from "./normalizer";
 import { optimize } from "./optimizer";
 import { parse } from "./parser";
 import { dereference } from "./resolver";
-import { error, isVerbose, log } from "./utils";
 import { validate } from "./validator";
 import { link } from "./linker";
 import { validateOptions } from "./optionValidator";
@@ -145,47 +144,21 @@ export function compile(schema: JSONSchema4, name: string, options: Partial<Opti
 
   const _options = merge({} as Options, DEFAULT_OPTIONS, options);
 
-  const start = Date.now();
-  function time() {
-    return `(${Date.now() - start}ms)`;
-  }
-
   // Initial clone to avoid mutating the input
   const _schema = cloneDeep(schema);
 
   const { dereferencedPaths, dereferencedSchema } = dereference(_schema);
-  if (isVerbose()) {
-    log("green", "dereferencer", time(), "ok Result:", dereferencedSchema);
-  }
-
   const linked = link(dereferencedSchema);
-  if (isVerbose()) {
-    log("green", "linker", time(), "ok No change");
-  }
-
   const errors = validate(linked, name);
   if (errors.length) {
-    errors.forEach((_) => error(_));
-    throw new ValidationError();
-  }
-  if (isVerbose()) {
-    log("green", "validator", time(), "ok No change");
+    throw new ValidationError(errors.join("\n"));
   }
 
   const normalized = normalize(linked, dereferencedPaths, name, _options);
-  log("yellow", "normalizer", time(), "ok Result:", normalized);
-
   const parsed = parse(normalized, _options);
-  log("blue", "parser", time(), "ok Result:", parsed);
-
   const optimized = optimize(parsed, _options);
-  log("cyan", "optimizer", time(), "ok Result:", optimized);
-
   const generated = generate(optimized, _options);
-  log("magenta", "generator", time(), "ok Result:", generated);
-
   const formatted = format(generated, _options);
-  log("white", "formatter", time(), "ok Result:", formatted);
 
   return formatted;
 }

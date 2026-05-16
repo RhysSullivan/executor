@@ -1,5 +1,4 @@
 import type { JSONSchema } from "./types/JSONSchema";
-import { log } from "./utils";
 
 export type DereferencedPaths = WeakMap<JSONSchema, string>;
 
@@ -134,7 +133,6 @@ export function dereference(schema: JSONSchema): {
   dereferencedPaths: DereferencedPaths;
   dereferencedSchema: JSONSchema;
 } {
-  log("green", "dereferencer", "Dereferencing input schema:", schema);
   const dereferencedPaths: DereferencedPaths = new WeakMap();
   const dereferencedSchema = dereferenceNode(
     schema,

@@ -11,7 +11,7 @@ import type {
   TNamedInterface,
   TUnion,
 } from "./types/AST";
-import { log, toSafeString } from "./utils";
+import { toSafeString } from "./utils";
 
 export function generate(ast: AST, options = DEFAULT_OPTIONS): string {
   return (
@@ -172,8 +172,6 @@ function generateTypeUnmemoized(ast: AST, options: Options): string {
 export const generateType = memoize(generateTypeUnmemoized);
 
 function generateRawType(ast: AST, options: Options): string {
-  log("magenta", "generator", ast);
-
   if (hasStandaloneName(ast)) {
     return toSafeString(ast.standaloneName);
   }

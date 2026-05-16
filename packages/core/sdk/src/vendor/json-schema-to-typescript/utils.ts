@@ -219,42 +219,6 @@ export function generateName(from: string, usedNames: Set<string>) {
   return name;
 }
 
-export function isVerbose(): boolean {
-  const global = globalThis as { process?: { env?: Record<string, string | undefined> } };
-  return global.process?.env?.VERBOSE != null;
-}
-
-export function error(...messages: any[]): void {
-  if (!isVerbose()) {
-    return console.error(messages);
-  }
-  console.error("error", ...messages);
-}
-
-type LogStyle = "blue" | "cyan" | "green" | "magenta" | "red" | "white" | "yellow";
-
-export function log(style: LogStyle, title: string, ...messages: unknown[]): void {
-  if (!isVerbose()) {
-    return;
-  }
-  let lastMessage = null;
-  if (messages.length > 1 && typeof messages[messages.length - 1] !== "string") {
-    lastMessage = messages.splice(messages.length - 1, 1);
-  }
-  console.info("debug", getStyledTextForLogging(style)?.(title), ...messages);
-  if (lastMessage) {
-    console.dir(lastMessage, { depth: 6, maxArrayLength: 6 });
-  }
-}
-
-function getStyledTextForLogging(style: LogStyle): ((text: string) => string) | undefined {
-  if (!isVerbose()) {
-    return;
-  }
-  void style;
-  return (text) => text;
-}
-
 /**
  * escape block comments in schema descriptions so that they don't unexpectedly close JSDoc comments in generated typescript interfaces
  */
