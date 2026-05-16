@@ -12,8 +12,14 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Schema } from "effect";
-import { FetchHttpClient, HttpServerResponse } from "effect/unstable/http";
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { FetchHttpClient, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  OpenApi,
+} from "effect/unstable/httpapi";
 // The socket-drop and slow-response cases exercise Node transport behavior
 // that Effect's in-memory HTTP test server intentionally abstracts away.
 import { createServer } from "node:http";
@@ -25,7 +31,8 @@ import {
   type InvokeOptions,
   type SecretProvider,
 } from "@executor-js/sdk";
-import { makeTestConfig, serveTestHttpApp } from "@executor-js/sdk/testing";
+import { makeTestConfig } from "@executor-js/sdk/testing";
+import { serveOpenApiHttpApiTestServer } from "../testing";
 
 import { openApiPlugin } from "./plugin";
 
@@ -64,18 +71,28 @@ type ResponseScript = (req: {
 };
 
 const startScriptedServer = (script: ResponseScript) =>
-  serveTestHttpApp((request) =>
-    Effect.sync(() => {
-      const result = script({
-        url: request.url,
-        method: request.method,
-        headers: request.headers,
-      });
-      return HttpServerResponse.text(result.body ?? '{"ok":true}', {
-        status: result.status ?? 200,
-        headers: result.headers ?? { "content-type": "application/json" },
-      });
-    }),
+  serveOpenApiHttpApiTestServer({
+    api: FailureApi,
+    handlersLayer: HttpApiBuilder.group(FailureApi, "things", (handlers) =>
+      handlers.handle("listThings", () =>
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const result = script({
+            url: request.url,
+            method: request.method,
+            headers: request.headers,
+          });
+          return HttpServerResponse.text(result.body ?? '{"ok":true}', {
+            status: result.status ?? 200,
+            headers: result.headers ?? { "content-type": "application/json" },
+          });
+        }),
+      ),
+    ),
+  }).pipe(
+    Effect.map((server) => ({
+      baseUrl: server.baseUrl,
+    })),
   );
 
 const startDroppingServer = () =>
