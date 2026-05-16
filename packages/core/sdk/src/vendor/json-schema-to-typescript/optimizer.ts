@@ -1,4 +1,4 @@
-import { uniqBy } from "./lodash";
+import { uniqBy } from "./compat";
 import type { Options } from ".";
 import { generateType } from "./generator";
 import { T_ANY, T_UNKNOWN } from "./types/AST";

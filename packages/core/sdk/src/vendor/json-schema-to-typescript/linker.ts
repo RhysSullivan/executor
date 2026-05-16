@@ -1,6 +1,6 @@
 import { Parent } from "./types/JSONSchema";
 import type { JSONSchema, LinkedJSONSchema } from "./types/JSONSchema";
-import { isPlainObject } from "./lodash";
+import { isPlainObject } from "./compat";
 import type { JSONSchema4Type } from "./types/json-schema";
 
 /**

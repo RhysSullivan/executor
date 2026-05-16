@@ -3,7 +3,7 @@
 import { readFileSync } from "fs";
 import type { JSONSchema4 } from "./types/json-schema";
 import type { ParserOptions as $RefOptions } from "@apidevtools/json-schema-ref-parser";
-import { cloneDeep, endsWith, merge } from "./lodash";
+import { cloneDeep, merge } from "./compat";
 import { dirname } from "path";
 import { format } from "./formatter";
 import { generate } from "./generator";
@@ -172,7 +172,7 @@ export async function compile(
   }
 
   // normalize options
-  if (!endsWith(_options.cwd, "/")) {
+  if (!_options.cwd.endsWith("/")) {
     _options.cwd += "/";
   }
 

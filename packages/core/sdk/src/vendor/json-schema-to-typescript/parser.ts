@@ -1,5 +1,5 @@
 import type { JSONSchema4Type, JSONSchema4TypeName } from "./types/json-schema";
-import { findKey, includes, isPlainObject, map, memoize, omit } from "./lodash";
+import { findKey, isPlainObject, memoize, omit } from "./compat";
 import { format } from "util";
 import type { Options } from "./";
 import { applySchemaTyping } from "./applySchemaTyping";
@@ -428,10 +428,11 @@ function parseSchema(
   usedNames: UsedNames,
   parentSchemaName: string,
 ): TInterfaceParam[] {
-  let asts: TInterfaceParam[] = map(schema.properties, (value, key: string) => ({
+  const required = new Set(schema.required ?? []);
+  let asts: TInterfaceParam[] = Object.entries(schema.properties ?? {}).map(([key, value]) => ({
     ast: parse(value, options, key, processed, usedNames),
     isPatternProperty: false,
-    isRequired: includes(schema.required || [], key),
+    isRequired: required.has(key),
     isUnreachableDefinition: false,
     keyName: key,
   }));
@@ -445,7 +446,7 @@ function parseSchema(
       !schema.additionalProperties && Object.keys(schema.patternProperties).length === 1;
 
     asts = asts.concat(
-      map(schema.patternProperties, (value, key: string) => {
+      Object.entries(schema.patternProperties).map(([key, value]) => {
         const ast = parse(value, options, key, processed, usedNames);
         const comment = `This interface was referenced by \`${parentSchemaName}\`'s JSON-Schema definition
 via the \`patternProperty\` "${key.replace("*/", "*\\/")}".`;
@@ -453,7 +454,7 @@ via the \`patternProperty\` "${key.replace("*/", "*\\/")}".`;
         return {
           ast,
           isPatternProperty: !singlePatternProperty,
-          isRequired: singlePatternProperty || includes(schema.required || [], key),
+          isRequired: singlePatternProperty || required.has(key),
           isUnreachableDefinition: false,
           keyName: singlePatternProperty ? "[k: string]" : key,
         };
@@ -463,7 +464,7 @@ via the \`patternProperty\` "${key.replace("*/", "*\\/")}".`;
 
   if (options.unreachableDefinitions) {
     asts = asts.concat(
-      map(schema.$defs, (value, key: string) => {
+      Object.entries(schema.$defs ?? {}).map(([key, value]) => {
         const ast = parse(value, options, key, processed, usedNames);
         const comment = `This interface was referenced by \`${parentSchemaName}\`'s JSON-Schema
 via the \`definition\` "${key}".`;
@@ -471,7 +472,7 @@ via the \`definition\` "${key}".`;
         return {
           ast,
           isPatternProperty: false,
-          isRequired: includes(schema.required || [], key),
+          isRequired: required.has(key),
           isUnreachableDefinition: true,
           keyName: key,
         };

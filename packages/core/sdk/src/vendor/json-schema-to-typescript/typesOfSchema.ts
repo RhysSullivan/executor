@@ -1,4 +1,4 @@
-import { isPlainObject } from "./lodash";
+import { isPlainObject } from "./compat";
 import { isCompound } from "./types/JSONSchema";
 import type { JSONSchema, SchemaType } from "./types/JSONSchema";
 

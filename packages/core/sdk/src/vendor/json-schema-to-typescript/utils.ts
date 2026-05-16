@@ -1,4 +1,4 @@
-import { deburr, isPlainObject, trim, upperFirst } from "./lodash";
+import { deburr, isPlainObject, upperFirst } from "./compat";
 import { basename, dirname, extname, normalize, sep, posix } from "path";
 import {
   Intersection,
@@ -204,7 +204,7 @@ export function toSafeString(string: string): string {
       // uppercase letters after digits, dollars
       .replace(/([\d$]+[a-zA-Z])/g, (match) => match.toUpperCase())
       // uppercase first letter after whitespace
-      .replace(/\s+([a-zA-Z])/g, (match) => trim(match.toUpperCase()))
+      .replace(/\s+([a-zA-Z])/g, (match) => match.toUpperCase().trim())
       // remove remaining whitespace
       .replace(/\s/g, ""),
   );
