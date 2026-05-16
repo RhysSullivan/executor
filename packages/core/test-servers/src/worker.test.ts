@@ -17,6 +17,46 @@ const OpenApiItemsResponse = Schema.Array(
 );
 const decodeOpenApiItemsResponse = Schema.decodeUnknownEffect(OpenApiItemsResponse);
 
+const OpenApiSpecResponse = Schema.Struct({
+  openapi: Schema.String,
+  servers: Schema.Array(Schema.Struct({ url: Schema.String })),
+  paths: Schema.Record(Schema.String, Schema.Unknown),
+  components: Schema.Struct({
+    securitySchemes: Schema.Struct({
+      oauth2: Schema.Struct({
+        type: Schema.Literal("oauth2"),
+        flows: Schema.Struct({
+          authorizationCode: Schema.Struct({
+            authorizationUrl: Schema.String,
+            tokenUrl: Schema.String,
+            scopes: Schema.Record(Schema.String, Schema.String),
+          }),
+        }),
+      }),
+    }),
+  }),
+});
+const decodeOpenApiSpecResponse = Schema.decodeUnknownEffect(OpenApiSpecResponse);
+
+const OAuthMetadataResponse = Schema.Struct({
+  issuer: Schema.String,
+  authorization_endpoint: Schema.String,
+  token_endpoint: Schema.String,
+  registration_endpoint: Schema.String,
+  code_challenge_methods_supported: Schema.Array(Schema.String),
+});
+const decodeOAuthMetadataResponse = Schema.decodeUnknownEffect(OAuthMetadataResponse);
+
+const ProtectedResourceMetadataResponse = Schema.Struct({
+  resource: Schema.String,
+  authorization_servers: Schema.Array(Schema.String),
+  bearer_methods_supported: Schema.Array(Schema.String),
+  scopes_supported: Schema.Array(Schema.String),
+});
+const decodeProtectedResourceMetadataResponse = Schema.decodeUnknownEffect(
+  ProtectedResourceMetadataResponse,
+);
+
 const GraphqlResponse = Schema.Struct({
   data: Schema.Struct({ hello: Schema.String }),
 });
@@ -99,6 +139,47 @@ const authorize = Effect.gen(function* () {
 
 it.effect("worker exposes OAuth-protected OpenAPI, GraphQL, and MCP endpoints", () =>
   Effect.gen(function* () {
+    const oauthMetadataResponse = yield* Effect.promise(() =>
+      worker.fetch(request("/.well-known/oauth-authorization-server")),
+    );
+    const oauthMetadata = yield* Effect.promise(() => oauthMetadataResponse.json()).pipe(
+      Effect.flatMap(decodeOAuthMetadataResponse),
+    );
+    expect(oauthMetadata).toMatchObject({
+      issuer: origin,
+      authorization_endpoint: `${origin}/authorize`,
+      token_endpoint: `${origin}/token`,
+      registration_endpoint: `${origin}/register`,
+    });
+    expect(oauthMetadata.code_challenge_methods_supported).toContain("S256");
+
+    const resourceMetadataResponse = yield* Effect.promise(() =>
+      worker.fetch(request("/.well-known/oauth-protected-resource/openapi/items")),
+    );
+    const resourceMetadata = yield* Effect.promise(() => resourceMetadataResponse.json()).pipe(
+      Effect.flatMap(decodeProtectedResourceMetadataResponse),
+    );
+    expect(resourceMetadata).toEqual({
+      resource: `${origin}/openapi/items`,
+      authorization_servers: [origin],
+      bearer_methods_supported: ["header"],
+      scopes_supported: ["read", "write"],
+    });
+
+    const openApiSpecResponse = yield* Effect.promise(() =>
+      worker.fetch(request("/openapi/spec.json")),
+    );
+    const openApiSpec = yield* Effect.promise(() => openApiSpecResponse.json()).pipe(
+      Effect.flatMap(decodeOpenApiSpecResponse),
+    );
+    expect(openApiSpec.servers).toEqual([{ url: `${origin}/openapi` }]);
+    expect(openApiSpec.paths).toHaveProperty("/items");
+    expect(openApiSpec.components.securitySchemes.oauth2.flows.authorizationCode).toMatchObject({
+      authorizationUrl: `${origin}/authorize`,
+      tokenUrl: `${origin}/token`,
+      scopes: { read: "Read test resources" },
+    });
+
     const accessToken = yield* authorize;
 
     const openApiResponse = yield* Effect.promise(() =>
