@@ -220,7 +220,8 @@ export function generateName(from: string, usedNames: Set<string>) {
 }
 
 export function isVerbose(): boolean {
-  return typeof process !== "undefined" && process.env?.VERBOSE != null;
+  const global = globalThis as { process?: { env?: Record<string, string | undefined> } };
+  return global.process?.env?.VERBOSE != null;
 }
 
 export function error(...messages: any[]): void {
