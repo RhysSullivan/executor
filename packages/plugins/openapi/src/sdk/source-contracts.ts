@@ -41,6 +41,12 @@ export const headerBindingSlot = (headerName: string): string =>
 export const queryParamBindingSlot = (name: string): string =>
   `query_param:${slugifySlotPart(name)}`;
 
+export const specFetchHeaderBindingSlot = (headerName: string): string =>
+  `spec_fetch_header:${slugifySlotPart(headerName)}`;
+
+export const specFetchQueryParamBindingSlot = (name: string): string =>
+  `spec_fetch_query_param:${slugifySlotPart(name)}`;
+
 export const oauth2ClientIdSlot = (securitySchemeName: string): string =>
   `oauth2:${slugifySlotPart(securitySchemeName)}:client-id`;
 
