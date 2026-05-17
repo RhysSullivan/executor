@@ -7,6 +7,17 @@ export {
   type SourceCredentialSlot,
 } from "./source-credential-status-core";
 
+export function SourceCredentialLoadingBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="animate-pulse border-border bg-muted/40 text-[10px] text-muted-foreground"
+    >
+      loading
+    </Badge>
+  );
+}
+
 export function SourceCredentialStatusBadge(props: { readonly missing: readonly string[] }) {
   if (props.missing.length === 0) {
     return (

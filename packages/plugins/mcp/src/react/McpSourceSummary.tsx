@@ -4,6 +4,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { connectionsAtom } from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
 import {
+  SourceCredentialLoadingBadge,
   SourceCredentialNotice,
   SourceCredentialStatusBadge,
   missingSourceCredentialLabels,
@@ -70,9 +71,7 @@ export default function McpSourceSummary(props: {
   const slots = sourceCredentialSlots(source as McpStoredSourceSchemaType);
   if (slots.length === 0) return null;
   if (!AsyncResult.isSuccess(bindingsResult) || !AsyncResult.isSuccess(connectionsResult)) {
-    return props.variant === "panel" ? null : (
-      <SourceCredentialStatusBadge missing={["credentials"]} />
-    );
+    return props.variant === "panel" ? null : <SourceCredentialLoadingBadge />;
   }
 
   const scopeRanks = new Map(scopeStack.map((scope, index) => [scope.id, index] as const));
