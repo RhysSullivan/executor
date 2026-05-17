@@ -23,7 +23,7 @@
 // enumerate options before asking.
 // ---------------------------------------------------------------------------
 
-import { Effect, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 
 import { definePlugin, tool } from "./plugin";
 
@@ -96,6 +96,15 @@ export interface CoreToolsPluginOptions {
   readonly webBaseUrl?: string;
 }
 
+class CoreToolsConfigurationError extends Data.TaggedError("CoreToolsConfigurationError")<{
+  readonly message: string;
+}> {}
+
+class CoreToolsScopeNotFoundError extends Data.TaggedError("CoreToolsScopeNotFoundError")<{
+  readonly scope: string;
+  readonly message: string;
+}> {}
+
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
@@ -151,20 +160,18 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
             Effect.gen(function* () {
               const webBaseUrl = options.webBaseUrl;
               if (!webBaseUrl) {
-                return yield* Effect.die(
-                  new Error(
+                return yield* new CoreToolsConfigurationError({
+                  message:
                     "core-tools secrets.create requires webBaseUrl. Pass it to coreToolsPlugin({ webBaseUrl }) at executor construction.",
-                  ),
-                );
+                });
               }
 
               const targetScope = ctx.scopes.find((s) => s.name === input.scope);
               if (!targetScope) {
-                return yield* Effect.die(
-                  new Error(
-                    `secrets.create: unknown scope "${input.scope}". Call scopes.list to see valid names.`,
-                  ),
-                );
+                return yield* new CoreToolsScopeNotFoundError({
+                  scope: input.scope,
+                  message: `secrets.create: unknown scope "${input.scope}". Call scopes.list to see valid names.`,
+                });
               }
 
               const secretId = crypto.randomUUID();
