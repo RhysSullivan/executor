@@ -80,22 +80,30 @@ export interface OpenApiEchoTestServerShape extends OpenApiTestServerShape {
   readonly clearRequests: Effect.Effect<void>;
 }
 
-export type OpenApiTestSourceOptions = Omit<OpenApiSpecConfig, "spec" | "baseUrl"> & {
+export type OpenApiTestSourceOptions = Omit<
+  OpenApiSpecConfig,
+  "spec" | "baseUrl" | "name" | "namespace"
+> & {
   readonly baseUrl?: string | null;
+  readonly name?: string;
+  readonly namespace?: string;
 };
 
-export type OpenApiHttpApiTestSourceOptions = Omit<OpenApiSpecConfig, "spec"> & {
+export type OpenApiHttpApiTestSourceOptions = Omit<
+  OpenApiSpecConfig,
+  "spec" | "name" | "namespace" | "baseUrl"
+> & {
+  readonly name?: string;
+  readonly namespace?: string;
+  readonly baseUrl?: string | null;
   readonly specBaseUrl?: string;
   readonly transformSpec?: (spec: Record<string, unknown>) => Record<string, unknown>;
 };
 
 export type OpenApiHttpApiTestAddSpecPayloadOptions = Omit<
   OpenApiHttpApiTestSourceOptions,
-  "scope" | "credentialTargetScope"
-> & {
-  readonly targetScope: ScopeId;
-  readonly credentialTargetScope?: ScopeId;
-};
+  "scope"
+>;
 
 export type OpenApiTestSourceExecutor = {
   readonly openapi: Pick<OpenApiPluginExtension, "addSpec">;
@@ -125,9 +133,11 @@ export const makeOpenApiTestSourceConfig = (
   const { baseUrl, ...rest } = options;
   return {
     ...rest,
-    spec: server.specJson,
+    spec: { kind: "blob", value: server.specJson },
+    name: rest.name ?? "Test API",
+    namespace: rest.namespace ?? "test_api",
     ...(baseUrl === null ? {} : { baseUrl: baseUrl ?? server.baseUrl }),
-  };
+  } as OpenApiSpecConfig;
 };
 
 export const addOpenApiTestSource = (
@@ -140,11 +150,17 @@ export const makeOpenApiHttpApiTestSourceConfig = (
   api: HttpApi.Any,
   options: OpenApiHttpApiTestSourceOptions,
 ): OpenApiSpecConfig => {
-  const { specBaseUrl, transformSpec, ...config } = options;
+  const { baseUrl, specBaseUrl, transformSpec, ...config } = options;
   return {
     ...config,
-    spec: makeOpenApiTestSpecJson(api, { baseUrl: specBaseUrl, transformSpec }),
-  };
+    spec: {
+      kind: "blob",
+      value: makeOpenApiTestSpecJson(api, { baseUrl: specBaseUrl, transformSpec }),
+    },
+    name: config.name ?? "Test API",
+    namespace: config.namespace ?? "test_api",
+    ...(baseUrl === null ? {} : { baseUrl: baseUrl ?? specBaseUrl ?? "https://api.example.test" }),
+  } as OpenApiSpecConfig;
 };
 
 export const addOpenApiHttpApiTestSource = (
@@ -157,24 +173,19 @@ export const makeOpenApiHttpApiTestAddSpecPayload = (
   api: HttpApi.Any,
   options: OpenApiHttpApiTestAddSpecPayloadOptions,
 ) => {
-  const { targetScope, credentialTargetScope, ...sourceOptions } = options;
+  const { ...sourceOptions } = options;
   const config = makeOpenApiHttpApiTestSourceConfig(api, {
     ...sourceOptions,
-    scope: String(targetScope),
-    ...(credentialTargetScope !== undefined
-      ? { credentialTargetScope: String(credentialTargetScope) }
-      : {}),
+    scope: "unused-http-helper-scope",
   });
   return {
-    targetScope,
     spec: config.spec,
     namespace: config.namespace,
-    ...(config.name !== undefined ? { name: config.name } : {}),
-    ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
+    name: config.name,
+    baseUrl: config.baseUrl,
     ...(config.headers !== undefined ? { headers: config.headers } : {}),
     ...(config.queryParams !== undefined ? { queryParams: config.queryParams } : {}),
     ...(config.oauth2 !== undefined ? { oauth2: config.oauth2 } : {}),
-    ...(credentialTargetScope !== undefined ? { credentialTargetScope } : {}),
     ...(config.specFetchCredentials !== undefined
       ? { specFetchCredentials: config.specFetchCredentials }
       : {}),

@@ -20,15 +20,14 @@ const TenantIsolationApi = HttpApi.make("tenantIsolationTest")
   .annotateMerge(OpenApi.annotations({ title: "Tenant Test API", version: "1.0.0" }));
 
 const makeTenantOpenApiSourcePayload = (
-  targetScope: ScopeId,
+  _targetScope: ScopeId,
   namespace: string,
   options: Omit<
     Parameters<typeof makeOpenApiHttpApiTestAddSpecPayload>[1],
-    "targetScope" | "namespace"
+    "namespace"
   > = {},
 ) =>
   makeOpenApiHttpApiTestAddSpecPayload(TenantIsolationApi, {
-    targetScope,
     namespace,
     ...options,
   });
@@ -262,8 +261,7 @@ describe("tenant isolation (HTTP)", () => {
               ...makeTenantOpenApiSourcePayload(ScopeId.make(orgA), namespaceA),
               headers: {
                 Authorization: {
-                  kind: "binding",
-                  slot: "auth:token",
+                  kind: "secret",
                   prefix: "Bearer ",
                 },
               },
@@ -275,7 +273,7 @@ describe("tenant isolation (HTTP)", () => {
               sourceId: namespaceA,
               sourceScope: ScopeId.make(orgA),
               scope: ScopeId.make(orgA),
-              slot: "auth:token",
+              slot: "header:authorization",
               value: { kind: "secret", secretId: secretIdA },
             },
           });
@@ -303,16 +301,7 @@ describe("tenant isolation (HTTP)", () => {
         Effect.gen(function* () {
           yield* client.openapi.addSpec({
             params: { scopeId: ScopeId.make(orgA) },
-            payload: {
-              ...makeTenantOpenApiSourcePayload(ScopeId.make(orgA), namespaceA),
-              headers: {
-                Authorization: {
-                  kind: "binding",
-                  slot: "auth:conn",
-                  prefix: "Bearer ",
-                },
-              },
-            },
+            payload: makeTenantOpenApiSourcePayload(ScopeId.make(orgA), namespaceA),
           });
           yield* client.openapi.setSourceBinding({
             params: { scopeId: ScopeId.make(orgA) },

@@ -3,7 +3,6 @@ import { Schema } from "effect";
 import {
   InternalError,
   ScopeId,
-  ScopedSecretCredentialInput,
   SecretBackedValue,
 } from "@executor-js/sdk/shared";
 
@@ -42,57 +41,54 @@ const SourceBindingParams = {
   sourceScopeId: ScopeId,
 };
 
-const SpecFetchCredentialsPayload = Schema.Struct({
+const OpenApiSpecInputPayload = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("url"), url: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("blob"), value: Schema.String }),
+]);
+
+const PreviewSpecFetchCredentialsPayload = Schema.Struct({
   headers: Schema.optional(Schema.Record(Schema.String, SecretBackedValue)),
   queryParams: Schema.optional(Schema.Record(Schema.String, SecretBackedValue)),
 });
 
-const ConfiguredCredentialBindingPayload = Schema.Struct({
-  kind: Schema.Literal("binding"),
-  slot: Schema.String,
+const OpenApiSecretShapePayload = Schema.Struct({
+  kind: Schema.Literal("secret"),
   prefix: Schema.optional(Schema.String),
 });
 
-const ConfiguredCredentialValuePayload = Schema.Union([
-  Schema.String,
-  ConfiguredCredentialBindingPayload,
-]);
+const OpenApiConfiguredValuePayload = Schema.Union([Schema.String, OpenApiSecretShapePayload]);
 
-const OpenApiCredentialInputPayload = Schema.Union([
-  ScopedSecretCredentialInput,
-  SecretBackedValue,
-  ConfiguredCredentialValuePayload,
-]);
+const SpecFetchCredentialsPayload = Schema.Struct({
+  headers: Schema.optional(Schema.Record(Schema.String, OpenApiConfiguredValuePayload)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiConfiguredValuePayload)),
+});
 
 // ---------------------------------------------------------------------------
 // Payloads
 // ---------------------------------------------------------------------------
 
 const AddSpecPayload = Schema.Struct({
-  targetScope: ScopeId,
-  credentialTargetScope: Schema.optional(ScopeId),
-  spec: Schema.String,
+  spec: OpenApiSpecInputPayload,
   specFetchCredentials: Schema.optional(SpecFetchCredentialsPayload),
-  name: Schema.optional(Schema.String),
-  baseUrl: Schema.optional(Schema.String),
-  namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
-  queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
+  name: Schema.String,
+  baseUrl: Schema.String,
+  namespace: Schema.String,
+  headers: Schema.optional(Schema.Record(Schema.String, OpenApiConfiguredValuePayload)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiConfiguredValuePayload)),
   oauth2: Schema.optional(OAuth2SourceConfig),
 });
 
 const PreviewSpecPayload = Schema.Struct({
   spec: Schema.String,
-  specFetchCredentials: Schema.optional(SpecFetchCredentialsPayload),
+  specFetchCredentials: Schema.optional(PreviewSpecFetchCredentialsPayload),
 });
 
 const UpdateSourcePayload = Schema.Struct({
   sourceScope: ScopeId,
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
-  queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiCredentialInputPayload)),
-  credentialTargetScope: Schema.optional(ScopeId),
+  headers: Schema.optional(Schema.Record(Schema.String, OpenApiConfiguredValuePayload)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiConfiguredValuePayload)),
   // Set after a successful re-authenticate to refresh the source's
   // stored OAuth2 metadata.
   oauth2: Schema.optional(OAuth2SourceConfig),

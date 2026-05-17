@@ -110,7 +110,10 @@ const testApiSourceConfig = (options: TestApiSourceOptions = {}) =>
     ...options,
   });
 
-const testApiSpec = () => testApiSourceConfig().spec;
+const testApiSpec = () => {
+  const spec = testApiSourceConfig().spec;
+  return spec.kind === "blob" ? spec.value : spec.url;
+};
 
 // ---------------------------------------------------------------------------
 // Implement handlers
@@ -172,6 +175,9 @@ const serveSpecRequiringHeader = () => {
       Effect.sync(() => {
         state.requests++;
         state.lastToken = request.headers["x-spec-token"] ?? null;
+        if (state.requests === 1) {
+          return null;
+        }
         if (state.lastToken !== "org-token") {
           return HttpServerResponse.jsonUnsafe({ error: "missing token" }, { status: 401 });
         }
@@ -292,10 +298,10 @@ describe("OpenAPI Plugin", () => {
 
       expect(schema).not.toBeNull();
       expect(schema!.inputTypeScript).toContain("scope: string");
-      expect(schema!.inputTypeScript).toContain("spec: string");
+      expect(schema!.inputTypeScript).toContain("kind: \"url\"");
       expect(
         (schema!.inputSchema as { properties?: Record<string, unknown> }).properties,
-      ).toHaveProperty("credentialTargetScope");
+      ).not.toHaveProperty("credentialTargetScope");
       expect(schema!.inputTypeScript).not.toBe("Record<string, unknown>");
     }),
   );
@@ -395,8 +401,7 @@ describe("OpenAPI Plugin", () => {
       const input = testApiSourceConfig({
         scope: String(orgScope),
         namespace: "org_direct_user_credential",
-        queryParams: { token: { secretId: "user-query-token" } },
-        credentialTargetScope: String(userScope),
+        queryParams: { token: { kind: "secret" } },
       });
 
       yield* executor.openapi.addSpec(input);
@@ -405,15 +410,7 @@ describe("OpenAPI Plugin", () => {
         "org_direct_user_credential",
         String(orgScope),
       );
-      expect(bindings).toHaveLength(1);
-      expect(bindings[0]).toMatchObject({
-        scopeId: userScope,
-        slot: "query_param:token",
-        value: {
-          kind: "secret",
-          secretId: SecretId.make("user-query-token"),
-        },
-      });
+      expect(bindings).toEqual([]);
     }),
   );
 
@@ -443,10 +440,18 @@ describe("OpenAPI Plugin", () => {
         testApiSourceConfig({
           namespace: "stale_binding",
           baseUrl: "",
-          credentialTargetScope: TEST_SCOPE,
           headers: {
-            "X-Old": { secretId: "old-token" },
+            "X-Old": { kind: "secret" },
           },
+        }),
+      );
+      yield* executor.openapi.setSourceBinding(
+        OpenApiSourceBindingInput.make({
+          sourceId: "stale_binding",
+          sourceScope: ScopeId.make(TEST_SCOPE),
+          scope: ScopeId.make(TEST_SCOPE),
+          slot: "header:x-old",
+          value: { kind: "secret", secretId: SecretId.make("old-token") },
         }),
       );
 
@@ -555,12 +560,20 @@ describe("OpenAPI Plugin", () => {
         yield* addOpenApiTestSource(executor, server, {
           scope: TEST_SCOPE,
           namespace: "authed",
-          credentialTargetScope: TEST_SCOPE,
           headers: {
-            Authorization: { secretId: "test-api-token", prefix: "Bearer " },
+            Authorization: { kind: "secret", prefix: "Bearer " },
             "X-Static": "hello",
           },
         });
+        yield* executor.openapi.setSourceBinding(
+          OpenApiSourceBindingInput.make({
+            sourceId: "authed",
+            sourceScope: ScopeId.make(TEST_SCOPE),
+            scope: ScopeId.make(TEST_SCOPE),
+            slot: "header:authorization",
+            value: { kind: "secret", secretId: SecretId.make("test-api-token") },
+          }),
+        );
 
         const result = unwrapInvocation(
           yield* executor.tools.invoke("authed.items.echoHeaders", {}, autoApprove),
@@ -574,12 +587,7 @@ describe("OpenAPI Plugin", () => {
     ),
   );
 
-  it.effect("addSpec without credentialTargetScope defaults to the source's scope", () =>
-    // Regression: config-sync calls addSpec without ever setting
-    // credentialTargetScope. Before the fix, any source with a
-    // header secret in executor.jsonc errored with
-    // "credentialTargetScope is required when adding direct OpenAPI
-    // credentials" the moment the daemon started.
+  it.effect("addSpec declares secret-backed header shape without a credential value", () =>
     Effect.gen(function* () {
       const clientLayer = FetchHttpClient.layer;
 
@@ -607,7 +615,7 @@ describe("OpenAPI Plugin", () => {
           baseUrl: "",
           headers: {
             Authorization: {
-              secretId: "config-sync-token",
+              kind: "secret",
               prefix: "Bearer ",
             },
           },
@@ -618,15 +626,7 @@ describe("OpenAPI Plugin", () => {
         "default_target_scope",
         TEST_SCOPE,
       );
-      expect(bindings).toHaveLength(1);
-      expect(bindings[0]).toMatchObject({
-        scopeId: ScopeId.make(TEST_SCOPE),
-        slot: "header:authorization",
-        value: {
-          kind: "secret",
-          secretId: SecretId.make("config-sync-token"),
-        },
-      });
+      expect(bindings).toEqual([]);
     }),
   );
 
@@ -975,6 +975,7 @@ describe("OpenAPI Plugin", () => {
         testApiSourceConfig({
           scope: String(USER_SCOPE),
           namespace: "shared",
+          baseUrl: null,
           name: "User Source",
         }),
       );
@@ -1017,6 +1018,7 @@ describe("OpenAPI Plugin", () => {
         testApiSourceConfig({
           scope: String(USER_SCOPE),
           namespace: "shared",
+          baseUrl: null,
           name: "User Source",
         }),
       );
@@ -1057,7 +1059,7 @@ describe("OpenAPI Plugin", () => {
         testApiSourceConfig({
           scope: String(USER_SCOPE),
           namespace: "shared",
-          baseUrl: "",
+          baseUrl: null,
           name: "User Source",
         }),
       );
@@ -1098,6 +1100,7 @@ describe("OpenAPI Plugin", () => {
         testApiSourceConfig({
           scope: String(USER_SCOPE),
           namespace: "shared",
+          baseUrl: null,
           name: "User Source",
         }),
       );
@@ -1149,19 +1152,19 @@ describe("OpenAPI Plugin", () => {
         );
 
         yield* executor.openapi.addSpec({
-          spec: server.specJson,
+          spec: { kind: "blob", value: server.specJson },
           scope: String(ORG_SCOPE),
+          name: "Shadow Auth",
           namespace: "shadow_auth",
           baseUrl: "https://org.example.com",
-          credentialTargetScope: String(ORG_SCOPE),
           headers: {
-            Authorization: { secretId: "org-api-token", prefix: "Bearer " },
+            Authorization: { kind: "secret", prefix: "Bearer " },
           },
         });
 
         const addResult = yield* executor.openapi
           .addSpec({
-            spec: server.specJson,
+            spec: { kind: "blob", value: server.specJson },
             scope: String(USER_SCOPE),
             namespace: "shadow_auth",
             baseUrl: server.baseUrl,
@@ -1202,20 +1205,31 @@ describe("OpenAPI Plugin", () => {
           );
 
           yield* executor.openapi.addSpec({
-            spec: server.specUrl,
+            spec: { kind: "url", url: server.specUrl },
             scope: String(ORG_SCOPE),
+            name: "Shared Spec Fetch",
             namespace: "shared_spec_fetch",
-            credentialTargetScope: String(ORG_SCOPE),
+            baseUrl: "https://api.example.test",
             specFetchCredentials: {
               headers: {
-                "X-Spec-Token": { secretId: "org-spec-token" },
+                "X-Spec-Token": { kind: "secret" },
               },
             },
           });
+          yield* executor.openapi.setSourceBinding(
+            OpenApiSourceBindingInput.make({
+              sourceId: "shared_spec_fetch",
+              sourceScope: ORG_SCOPE,
+              scope: ORG_SCOPE,
+              slot: "spec_fetch_header:x-spec-token",
+              value: { kind: "secret", secretId: SecretId.make("org-spec-token") },
+            }),
+          );
           yield* executor.openapi.addSpec(
             testApiSourceConfig({
               scope: String(USER_SCOPE),
               namespace: "shared_spec_fetch",
+              baseUrl: null,
               name: "User Shadow",
             }),
           );
@@ -1390,8 +1404,16 @@ describe("OpenAPI Plugin", () => {
         testApiSourceConfig({
           namespace: "with_secret",
           baseUrl: "http://example.com",
-          credentialTargetScope: TEST_SCOPE,
-          queryParams: { token: { secretId: "api-key" } },
+          queryParams: { token: { kind: "secret" } },
+        }),
+      );
+      yield* executor.openapi.setSourceBinding(
+        OpenApiSourceBindingInput.make({
+          sourceId: "with_secret",
+          sourceScope: ScopeId.make(TEST_SCOPE),
+          scope: ScopeId.make(TEST_SCOPE),
+          slot: "query_param:token",
+          value: { kind: "secret", secretId: SecretId.make("api-key") },
         }),
       );
 

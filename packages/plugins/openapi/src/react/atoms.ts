@@ -43,7 +43,7 @@ export const addOpenApiSpecOptimistic = Atom.family((scopeId: ScopeId) =>
           const id = arg.payload.namespace ?? `pending-${Math.random().toString(36).slice(2)}`;
           const source = {
             id,
-            scopeId: arg.payload.targetScope,
+            scopeId,
             kind: "openapi",
             pluginId: "openapi",
             name: arg.payload.name ?? id,

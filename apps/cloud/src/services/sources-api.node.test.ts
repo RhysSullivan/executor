@@ -35,15 +35,14 @@ const MinimalSourceApi = HttpApi.make("sourcesApiTest")
   .annotateMerge(OpenApi.annotations({ title: "Sources API Test", version: "1.0.0" }));
 
 const makeMinimalOpenApiSourcePayload = (
-  targetScope: ScopeId,
+  _targetScope: ScopeId,
   namespace: string,
   options: Omit<
     Parameters<typeof makeOpenApiHttpApiTestAddSpecPayload>[1],
-    "targetScope" | "namespace"
+    "namespace"
   > = {},
 ) =>
   makeOpenApiHttpApiTestAddSpecPayload(MinimalSourceApi, {
-    targetScope,
     namespace,
     ...options,
   });
@@ -166,11 +165,12 @@ describe("sources api (HTTP)", () => {
       const addResult = yield* asOrg(org, (client) =>
         client.openapi.addSpec({
           params: { scopeId },
-          payload: {
-            targetScope: scopeId,
-            spec: server.specJson,
-            namespace,
-          },
+            payload: {
+              spec: { kind: "blob", value: server.specJson },
+              name: "Invocable Source API",
+              baseUrl: server.baseUrl,
+              namespace,
+            },
         }),
       );
       expect(addResult).toEqual({ namespace, toolCount: 1 });
@@ -505,8 +505,7 @@ describe("sources api (HTTP)", () => {
             ...makeMinimalOpenApiSourcePayload(ScopeId.make(orgId), namespace),
             headers: {
               Authorization: {
-                kind: "binding",
-                slot: "auth:personal-token",
+                kind: "secret",
                 prefix: "Bearer ",
               },
             },
@@ -530,7 +529,7 @@ describe("sources api (HTTP)", () => {
               sourceId: namespace,
               sourceScope: ScopeId.make(orgId),
               scope: ScopeId.make(aliceScope),
-              slot: "auth:personal-token",
+              slot: "header:authorization",
               value: {
                 kind: "secret",
                 secretId: SecretId.make("alice_pat"),
@@ -541,7 +540,7 @@ describe("sources api (HTTP)", () => {
             sourceId: namespace,
             sourceScopeId: ScopeId.make(orgId),
             scopeId: ScopeId.make(aliceScope),
-            slot: "auth:personal-token",
+            slot: "header:authorization",
             value: {
               kind: "secret",
               secretId: SecretId.make("alice_pat"),
@@ -568,7 +567,7 @@ describe("sources api (HTTP)", () => {
               sourceId: namespace,
               sourceScope: ScopeId.make(orgId),
               scope: ScopeId.make(bobScope),
-              slot: "auth:personal-token",
+              slot: "header:authorization",
               value: {
                 kind: "secret",
                 secretId: SecretId.make("bob_pat"),
@@ -590,7 +589,7 @@ describe("sources api (HTTP)", () => {
       expect(aliceBindings).toContainEqual(
         expect.objectContaining({
           scopeId: ScopeId.make(aliceScope),
-          slot: "auth:personal-token",
+          slot: "header:authorization",
           value: {
             kind: "secret",
             secretId: SecretId.make("alice_pat"),
@@ -601,7 +600,7 @@ describe("sources api (HTTP)", () => {
       expect(
         aliceBindings.some(
           (binding) =>
-            binding.slot === "auth:personal-token" &&
+            binding.slot === "header:authorization" &&
             binding.value.kind === "secret" &&
             binding.value.secretId === SecretId.make("bob_pat"),
         ),
@@ -619,7 +618,7 @@ describe("sources api (HTTP)", () => {
       expect(bobBindings).toContainEqual(
         expect.objectContaining({
           scopeId: ScopeId.make(bobScope),
-          slot: "auth:personal-token",
+          slot: "header:authorization",
           value: {
             kind: "secret",
             secretId: SecretId.make("bob_pat"),
@@ -630,7 +629,7 @@ describe("sources api (HTTP)", () => {
       expect(
         bobBindings.some(
           (binding) =>
-            binding.slot === "auth:personal-token" &&
+            binding.slot === "header:authorization" &&
             binding.value.kind === "secret" &&
             binding.value.secretId === SecretId.make("alice_pat"),
         ),
@@ -654,8 +653,9 @@ describe("sources api (HTTP)", () => {
           client.openapi.addSpec({
             params: { scopeId: ScopeId.make(org) },
             payload: {
-              targetScope: ScopeId.make(org),
-              spec: CLOUDFLARE_SPEC,
+              spec: { kind: "blob", value: CLOUDFLARE_SPEC },
+              name: namespace,
+              baseUrl: "https://api.cloudflare.com/client/v4",
               namespace,
             },
           }),

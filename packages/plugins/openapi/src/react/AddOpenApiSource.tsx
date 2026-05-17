@@ -68,7 +68,6 @@ import {
   queryParamBindingSlot,
 } from "../sdk/source-contracts";
 import {
-  ConfiguredHeaderBinding,
   OAuth2SourceConfig,
   OpenApiSourceBindingInput,
   type ServerInfo,
@@ -337,14 +336,14 @@ export default function AddOpenApiSource(props: {
 
   const resolvedBaseUrl = baseUrl.trim();
 
-  const configuredHeaders: Record<string, ConfiguredHeaderBinding> = {};
+  const configuredHeaders: Record<string, { kind: "secret"; prefix?: string }> = {};
   const headerBindings: Array<{
     slot: string;
     secretId: string;
     scope: ScopeId;
     secretScope: ScopeId;
   }> = [];
-  const configuredQueryParams: Record<string, string | ConfiguredHeaderBinding> = {};
+  const configuredQueryParams: Record<string, string | { kind: "secret"; prefix?: string }> = {};
   const queryParamBindings: Array<{
     slot: string;
     secretId: string;
@@ -354,11 +353,7 @@ export default function AddOpenApiSource(props: {
   for (const ch of customHeaders) {
     if (!ch.name.trim()) continue;
     const slot = headerBindingSlot(ch.name.trim());
-    configuredHeaders[ch.name.trim()] = ConfiguredHeaderBinding.make({
-      kind: "binding",
-      slot,
-      prefix: ch.prefix,
-    });
+    configuredHeaders[ch.name.trim()] = { kind: "secret", prefix: ch.prefix };
     if (ch.secretId) {
       headerBindings.push({
         slot,
@@ -373,11 +368,7 @@ export default function AddOpenApiSource(props: {
     if (!name) continue;
     if (param.secretId) {
       const slot = queryParamBindingSlot(name);
-      configuredQueryParams[name] = ConfiguredHeaderBinding.make({
-        kind: "binding",
-        slot,
-        prefix: param.prefix,
-      });
+      configuredQueryParams[name] = { kind: "secret", prefix: param.prefix };
       queryParamBindings.push({
         slot,
         secretId: param.secretId,
@@ -709,13 +700,10 @@ export default function AddOpenApiSource(props: {
     const exit = await doAdd({
       params: { scopeId },
       payload: {
-        targetScope: scopeId,
-        credentialTargetScope,
-        spec: specUrl,
-        specFetchCredentials: serializeHttpCredentials(specFetchCredentials),
+        spec: { kind: "url", url: specUrl },
         name: displayName,
         namespace,
-        baseUrl: resolvedBaseUrl || undefined,
+        baseUrl: resolvedBaseUrl,
         ...(hasHeaders ? { headers: configuredHeaders } : {}),
         ...(Object.keys(configuredQueryParams).length > 0
           ? { queryParams: configuredQueryParams }

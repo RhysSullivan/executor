@@ -45,8 +45,9 @@ describe("sources.refresh (HTTP)", () => {
           client.openapi.addSpec({
             params: { scopeId: ScopeId.make(org) },
             payload: {
-              targetScope: ScopeId.make(org),
-              spec: server.specUrl,
+              spec: { kind: "url", url: server.specUrl },
+              name: namespace,
+              baseUrl: server.baseUrl,
               namespace,
             },
           }),
@@ -107,8 +108,9 @@ describe("sources.refresh (HTTP)", () => {
         client.openapi.addSpec({
           params: { scopeId: ScopeId.make(org) },
           payload: {
-            targetScope: ScopeId.make(org),
-            spec: makeRefreshSpecText(),
+            spec: { kind: "blob", value: makeRefreshSpecText() },
+            name: namespace,
+            baseUrl: "https://api.example.test",
             namespace,
           },
         }),

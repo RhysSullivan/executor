@@ -90,8 +90,9 @@ const getRegisteredToolSchema = (namespace: string, specText: string, toolId: st
     );
 
     yield* executor.openapi.addSpec({
-      spec: specText,
+      spec: { kind: "blob", value: specText },
       scope: TEST_SCOPE,
+      name: namespace,
       namespace,
       baseUrl: "",
     });
