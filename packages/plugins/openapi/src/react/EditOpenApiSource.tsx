@@ -5,7 +5,13 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
-import { connectionsAtom, sourceAtom, startOAuth } from "@executor-js/react/api/atoms";
+import {
+  connectionsAtom,
+  removeSourceCredentialBinding,
+  setSourceCredentialBinding,
+  sourceAtom,
+  startOAuth,
+} from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { Button } from "@executor-js/react/components/button";
@@ -22,7 +28,14 @@ import {
 import { FilterTabs } from "@executor-js/react/components/filter-tabs";
 import { Input } from "@executor-js/react/components/input";
 import { sourceWriteKeys as openApiWriteKeys } from "@executor-js/react/api/reactivity-keys";
-import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk/shared";
+import {
+  ConnectionId,
+  CredentialBindingRef,
+  RemoveSourceCredentialBindingInput,
+  ScopeId,
+  SecretId,
+  SetSourceCredentialBindingInput,
+} from "@executor-js/sdk/shared";
 import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
 import {
   oauthCallbackUrl,
@@ -37,13 +50,7 @@ import {
 } from "@executor-js/react/plugins/credential-bindings";
 import { SecretCredentialSlotBindings } from "@executor-js/react/plugins/credential-slot-bindings";
 
-import {
-  openApiSourceAtom,
-  openApiSourceBindingsAtom,
-  removeOpenApiSourceBinding,
-  setOpenApiSourceBinding,
-  updateOpenApiSource,
-} from "./atoms";
+import { openApiSourceAtom, openApiSourceBindingsAtom, updateOpenApiSource } from "./atoms";
 import { OpenApiSourceDetailsFields } from "./OpenApiSourceDetailsFields";
 import {
   OPENAPI_OAUTH_CALLBACK_PATH,
@@ -52,11 +59,7 @@ import {
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
 import { oauth2ClientSecretSlot } from "../sdk/source-contracts";
-import {
-  OAuth2SourceConfig,
-  OpenApiSourceBindingInput,
-  type OpenApiSourceBindingRef,
-} from "../sdk/types";
+import { OAuth2SourceConfig } from "../sdk/types";
 
 const ErrorMessage = Schema.Struct({ message: Schema.String });
 const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
@@ -79,6 +82,8 @@ type SlotDef =
       readonly slot: string;
       readonly label: string;
     };
+
+type OpenApiCredentialBindingRow = CredentialBindingRef & { readonly slot: string };
 
 const slugify = (value: string): string =>
   value
@@ -137,10 +142,10 @@ export default function EditOpenApiSource(props: {
   const secretList = useSecretPickerSecrets();
 
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promiseExit" });
-  const doSetBinding = useAtomSet(setOpenApiSourceBinding, {
+  const doSetBinding = useAtomSet(setSourceCredentialBinding, {
     mode: "promiseExit",
   });
-  const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, {
+  const doRemoveBinding = useAtomSet(removeSourceCredentialBinding, {
     mode: "promiseExit",
   });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
@@ -152,7 +157,7 @@ export default function EditOpenApiSource(props: {
 
   const source =
     AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
-  const bindingRows: readonly OpenApiSourceBindingRef[] = AsyncResult.isSuccess(bindingsResult)
+  const bindingRows: readonly OpenApiCredentialBindingRow[] = AsyncResult.isSuccess(bindingsResult)
     ? bindingsResult.value
     : [];
   const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
@@ -363,11 +368,10 @@ export default function EditOpenApiSource(props: {
     setError(null);
     const exit = await doSetBinding({
       params: { scopeId: displayScope },
-      payload: OpenApiSourceBindingInput.make({
-        sourceId: props.sourceId,
-        sourceScope,
+      payload: SetSourceCredentialBindingInput.make({
+        source: { id: props.sourceId, scope: sourceScope },
         scope: targetScope,
-        slot,
+        slotKey: slot,
         value: {
           kind: "secret",
           secretId: SecretId.make(trimmed),
@@ -387,12 +391,11 @@ export default function EditOpenApiSource(props: {
     setError(null);
     const exit = await doRemoveBinding({
       params: { scopeId: displayScope },
-      payload: {
-        sourceId: props.sourceId,
-        sourceScope,
-        slot,
+      payload: RemoveSourceCredentialBindingInput.make({
+        source: { id: props.sourceId, scope: sourceScope },
         scope: targetScope,
-      },
+        slotKey: slot,
+      }),
       reactivityKeys: sourceWriteKeys,
     });
     if (Exit.isFailure(exit)) {
@@ -490,11 +493,10 @@ export default function EditOpenApiSource(props: {
       }
       const setBindingExit = await doSetBinding({
         params: { scopeId: displayScope },
-        payload: OpenApiSourceBindingInput.make({
-          sourceId: props.sourceId,
-          sourceScope,
+        payload: SetSourceCredentialBindingInput.make({
+          source: { id: props.sourceId, scope: sourceScope },
           scope: targetScope,
-          slot: oauth2.connectionSlot,
+          slotKey: oauth2.connectionSlot,
           value: {
             kind: "connection",
             connectionId: ConnectionId.make(response.completedConnection.connectionId),
@@ -558,11 +560,10 @@ export default function EditOpenApiSource(props: {
       onSuccess: async (result) => {
         const setBindingExit = await doSetBinding({
           params: { scopeId: displayScope },
-          payload: OpenApiSourceBindingInput.make({
-            sourceId: props.sourceId,
-            sourceScope,
+          payload: SetSourceCredentialBindingInput.make({
+            source: { id: props.sourceId, scope: sourceScope },
             scope: targetScope,
-            slot: oauth2.connectionSlot,
+            slotKey: oauth2.connectionSlot,
             value: {
               kind: "connection",
               connectionId: ConnectionId.make(result.connectionId),

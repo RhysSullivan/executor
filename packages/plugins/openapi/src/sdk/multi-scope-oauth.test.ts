@@ -21,6 +21,7 @@ import {
   ScopeId,
   SecretId,
   SetSecretInput,
+  SetSourceCredentialBindingInput,
   type InvokeOptions,
   type SecretProvider,
 } from "@executor-js/sdk";
@@ -32,7 +33,7 @@ import {
 } from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
-import { OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
+import { OAuth2SourceConfig } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -280,12 +281,11 @@ describe("OpenAPI multi-scope OAuth", () => {
         namespace: "petstore",
         oauth2,
       });
-      yield* aliceExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: aliceScope.id,
+      yield* aliceExec.sources.setBinding(
+        SetSourceCredentialBindingInput.make({
+          source: { id: "petstore", scope: aliceScope.id },
           scope: aliceScope.id,
-          slot: oauth2.connectionSlot,
+          slotKey: oauth2.connectionSlot,
           value: { kind: "connection", connectionId: ConnectionId.make(aliceAuth.connectionId) },
         }),
       );
@@ -294,12 +294,11 @@ describe("OpenAPI multi-scope OAuth", () => {
         namespace: "petstore",
         oauth2,
       });
-      yield* bobExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: bobScope.id,
+      yield* bobExec.sources.setBinding(
+        SetSourceCredentialBindingInput.make({
+          source: { id: "petstore", scope: bobScope.id },
           scope: bobScope.id,
-          slot: oauth2.connectionSlot,
+          slotKey: oauth2.connectionSlot,
           value: { kind: "connection", connectionId: ConnectionId.make(bobAuth.connectionId) },
         }),
       );
@@ -539,12 +538,11 @@ describe("OpenAPI multi-scope OAuth", () => {
         namespace: "petstore",
         oauth2,
       });
-      yield* adminExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: orgScope.id,
+      yield* adminExec.sources.setBinding(
+        SetSourceCredentialBindingInput.make({
+          source: { id: "petstore", scope: orgScope.id },
           scope: orgScope.id,
-          slot: oauth2.connectionSlot,
+          slotKey: oauth2.connectionSlot,
           value: { kind: "connection", connectionId: ConnectionId.make(adminAuth) },
         }),
       );
@@ -555,21 +553,19 @@ describe("OpenAPI multi-scope OAuth", () => {
       // Bob signs in → no user-scope shadow, falls through to the
       // org defaults (`org-client`), writes at user-bob.
       const bobAuth = yield* startClientCredentials(bobExec, bobScope.id, startInput);
-      yield* aliceExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: orgScope.id,
+      yield* aliceExec.sources.setBinding(
+        SetSourceCredentialBindingInput.make({
+          source: { id: "petstore", scope: orgScope.id },
           scope: aliceScope.id,
-          slot: oauth2.connectionSlot,
+          slotKey: oauth2.connectionSlot,
           value: { kind: "connection", connectionId: ConnectionId.make(aliceAuth) },
         }),
       );
-      yield* bobExec.openapi.setSourceBinding(
-        OpenApiSourceBindingInput.make({
-          sourceId: "petstore",
-          sourceScope: orgScope.id,
+      yield* bobExec.sources.setBinding(
+        SetSourceCredentialBindingInput.make({
+          source: { id: "petstore", scope: orgScope.id },
           scope: bobScope.id,
-          slot: oauth2.connectionSlot,
+          slotKey: oauth2.connectionSlot,
           value: { kind: "connection", connectionId: ConnectionId.make(bobAuth) },
         }),
       );

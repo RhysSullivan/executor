@@ -1,15 +1,17 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { InternalError, ScopeId, SecretBackedValue } from "@executor-js/sdk/shared";
+import {
+  ConnectionId,
+  CredentialBindingRef,
+  InternalError,
+  ScopeId,
+  SecretBackedValue,
+} from "@executor-js/sdk/shared";
 
 import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
 import { StoredSourceSchema } from "../sdk/source-contracts";
-import {
-  OAuth2SourceConfig,
-  OpenApiSourceBindingInput,
-  OpenApiSourceBindingRef,
-} from "../sdk/types";
+import { OAuth2SourceConfig } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -29,12 +31,6 @@ const ScopeIdParam = {
 const SourceParams = {
   scopeId: ScopeId,
   namespace: Schema.String,
-};
-
-const SourceBindingParams = {
-  scopeId: ScopeId,
-  namespace: Schema.String,
-  sourceScopeId: ScopeId,
 };
 
 const OpenApiSpecInputPayload = Schema.Union([
@@ -90,15 +86,52 @@ const UpdateSourcePayload = Schema.Struct({
   oauth2: Schema.optional(OAuth2SourceConfig),
 });
 
-const UpdateSourceResponse = Schema.Struct({
-  updated: Schema.Boolean,
+const ConfigureCredentialPayload = Schema.Union([
+  Schema.String,
+  Schema.Struct({
+    kind: Schema.Literal("text"),
+    text: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("secret"),
+    secretId: Schema.String,
+    secretScope: Schema.optional(ScopeId),
+    prefix: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("connection"),
+    connectionId: ConnectionId,
+  }),
+]);
+
+const ConfigureCredentialMapPayload = Schema.Record(Schema.String, ConfigureCredentialPayload);
+
+const ConfigurePayload = Schema.Struct({
+  source: Schema.Struct({
+    id: Schema.String,
+    scope: ScopeId,
+  }),
+  scope: ScopeId,
+  headers: Schema.optional(ConfigureCredentialMapPayload),
+  queryParams: Schema.optional(ConfigureCredentialMapPayload),
+  specFetchCredentials: Schema.optional(
+    Schema.Struct({
+      headers: Schema.optional(ConfigureCredentialMapPayload),
+      queryParams: Schema.optional(ConfigureCredentialMapPayload),
+    }),
+  ),
+  oauth2: Schema.optional(
+    Schema.Struct({
+      clientId: Schema.optional(ConfigureCredentialPayload),
+      clientSecret: Schema.optional(ConfigureCredentialPayload),
+      connection: Schema.optional(ConfigureCredentialPayload),
+    }),
+  ),
 });
 
-const RemoveBindingPayload = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScope: ScopeId,
-  slot: Schema.String,
-  scope: ScopeId,
+const UpdateSourceResponse = Schema.Struct({
+  updated: Schema.Boolean,
 });
 
 // ---------------------------------------------------------------------------
@@ -163,29 +196,10 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
     }),
   )
   .add(
-    HttpApiEndpoint.get(
-      "listSourceBindings",
-      "/scopes/:scopeId/openapi/sources/:namespace/base/:sourceScopeId/bindings",
-      {
-        params: SourceBindingParams,
-        success: Schema.Array(OpenApiSourceBindingRef),
-        error: DomainErrors,
-      },
-    ),
-  )
-  .add(
-    HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/openapi/source-bindings", {
+    HttpApiEndpoint.post("configure", "/scopes/:scopeId/openapi/configure", {
       params: ScopeIdParam,
-      payload: OpenApiSourceBindingInput,
-      success: OpenApiSourceBindingRef,
-      error: DomainErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.post("removeSourceBinding", "/scopes/:scopeId/openapi/source-bindings/remove", {
-      params: ScopeIdParam,
-      payload: RemoveBindingPayload,
-      success: Schema.Struct({ removed: Schema.Boolean }),
+      payload: ConfigurePayload,
+      success: Schema.Array(CredentialBindingRef),
       error: DomainErrors,
     }),
   );

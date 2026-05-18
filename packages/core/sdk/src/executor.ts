@@ -46,9 +46,14 @@ import {
   type CredentialBindingSlotInput,
   type CredentialBindingSourceInput,
   type RemoveCredentialBindingInput,
+  type RemoveSourceCredentialBindingInput,
   type ReplaceCredentialBindingsInput,
+  type ReplaceSourceCredentialBindingsInput,
   ResolvedCredentialSlot,
   type SetCredentialBindingInput,
+  type SetSourceCredentialBindingInput,
+  type SourceCredentialBindingSlotInput,
+  type SourceCredentialBindingSourceInput,
 } from "./credential-bindings";
 import {
   coreSchema,
@@ -222,6 +227,21 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
     readonly definitions: (
       sourceId: string,
     ) => Effect.Effect<Record<string, unknown>, StorageFailure>;
+    readonly listBindings: (
+      input: SourceCredentialBindingSourceInput,
+    ) => Effect.Effect<readonly CredentialBindingRef[], StorageFailure>;
+    readonly resolveBinding: (
+      input: SourceCredentialBindingSlotInput,
+    ) => Effect.Effect<CredentialBindingRef | null, StorageFailure>;
+    readonly setBinding: (
+      input: SetSourceCredentialBindingInput,
+    ) => Effect.Effect<CredentialBindingRef, StorageFailure>;
+    readonly removeBinding: (
+      input: RemoveSourceCredentialBindingInput,
+    ) => Effect.Effect<void, StorageFailure>;
+    readonly replaceBindings: (
+      input: ReplaceSourceCredentialBindingsInput,
+    ) => Effect.Effect<readonly CredentialBindingRef[], StorageFailure>;
   };
 
   readonly secrets: {
@@ -2053,6 +2073,17 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         });
       });
 
+    const findSourceOwnerRowAtScope = (input: {
+      readonly sourceId: string;
+      readonly sourceScope: string;
+    }): Effect.Effect<SourceRow | null, StorageFailure> =>
+      Effect.gen(function* () {
+        if (!scopeIds.includes(input.sourceScope)) return null;
+        return yield* core.findFirst("source", {
+          where: byScopedId(input.sourceScope, input.sourceId),
+        });
+      });
+
     const findSecretRowAtScope = (input: {
       readonly secretId: string;
       readonly scopeId: string;
@@ -2461,6 +2492,13 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         return "missing";
       });
 
+    const credentialBindingResolveBinding = (input: CredentialBindingSlotInput) =>
+      Effect.gen(function* () {
+        const rows = yield* credentialBindingRowsForSlot(input);
+        const row = findInnermost(rows);
+        return row ? credentialBindingRowToRef(row) : null;
+      });
+
     const credentialBindingResolve = (input: CredentialBindingSlotInput) =>
       Effect.gen(function* () {
         const rows = yield* credentialBindingRowsForSlot(input);
@@ -2545,6 +2583,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
 
     const credentialBindings: CredentialBindingsFacade = {
       listForSource: credentialBindingListForSource,
+      resolveBinding: credentialBindingResolveBinding,
       resolve: credentialBindingResolve,
       set: credentialBindingSet,
       remove: credentialBindingRemove,
@@ -2553,6 +2592,94 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       usagesForSecret: credentialBindingUsagesForSecret,
       usagesForConnection: credentialBindingUsagesForConnection,
     };
+
+    const credentialBindingInputForSource = (input: SourceCredentialBindingSourceInput) =>
+      Effect.gen(function* () {
+        const source = yield* findSourceOwnerRowAtScope({
+          sourceId: input.source.id,
+          sourceScope: input.source.scope,
+        });
+        return source
+          ? ({
+              pluginId: source.plugin_id,
+              sourceId: input.source.id,
+              sourceScope: input.source.scope,
+            } satisfies CredentialBindingSourceInput)
+          : null;
+      });
+
+    const sourceBindingList = (input: SourceCredentialBindingSourceInput) =>
+      Effect.gen(function* () {
+        const bindingInput = yield* credentialBindingInputForSource(input);
+        return bindingInput ? yield* credentialBindingListForSource(bindingInput) : [];
+      });
+
+    const sourceBindingResolve = (input: SourceCredentialBindingSlotInput) =>
+      Effect.gen(function* () {
+        const bindingInput = yield* credentialBindingInputForSource(input);
+        return bindingInput
+          ? yield* credentialBindingResolveBinding({
+              ...bindingInput,
+              slotKey: input.slotKey,
+            })
+          : null;
+      });
+
+    const sourceBindingSet = (input: SetSourceCredentialBindingInput) =>
+      Effect.gen(function* () {
+        const bindingInput = yield* credentialBindingInputForSource(input);
+        if (!bindingInput) {
+          return yield* new StorageError({
+            message:
+              `Cannot set credential binding for source "${input.source.id}" ` +
+              `at scope "${input.source.scope}": source is not visible.`,
+            cause: undefined,
+          });
+        }
+        return yield* credentialBindingSet({
+          ...bindingInput,
+          targetScope: input.scope,
+          slotKey: input.slotKey,
+          value: input.value,
+        });
+      });
+
+    const sourceBindingRemove = (input: RemoveSourceCredentialBindingInput) =>
+      Effect.gen(function* () {
+        const bindingInput = yield* credentialBindingInputForSource(input);
+        if (!bindingInput) {
+          return yield* new StorageError({
+            message:
+              `Cannot remove credential binding for source "${input.source.id}" ` +
+              `at scope "${input.source.scope}": source is not visible.`,
+            cause: undefined,
+          });
+        }
+        yield* credentialBindingRemove({
+          ...bindingInput,
+          targetScope: input.scope,
+          slotKey: input.slotKey,
+        });
+      });
+
+    const sourceBindingReplace = (input: ReplaceSourceCredentialBindingsInput) =>
+      Effect.gen(function* () {
+        const bindingInput = yield* credentialBindingInputForSource(input);
+        if (!bindingInput) {
+          return yield* new StorageError({
+            message:
+              `Cannot replace credential bindings for source "${input.source.id}" ` +
+              `at scope "${input.source.scope}": source is not visible.`,
+            cause: undefined,
+          });
+        }
+        return yield* credentialBindingReplaceForSource({
+          ...bindingInput,
+          targetScope: input.scope,
+          slotPrefixes: input.slotPrefixes,
+          bindings: input.bindings,
+        });
+      });
 
     const oauthBundle = makeOAuth2Service({
       fuma,
@@ -3639,6 +3766,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         refresh: refreshSource,
         detect: detectSource,
         definitions: sourceDefinitions,
+        listBindings: sourceBindingList,
+        resolveBinding: sourceBindingResolve,
+        setBinding: sourceBindingSet,
+        removeBinding: sourceBindingRemove,
+        replaceBindings: sourceBindingReplace,
       },
       secrets: {
         get: secretsGet,
