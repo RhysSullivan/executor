@@ -1,11 +1,5 @@
 import { Schema } from "effect";
-import {
-  ConnectionId,
-  ScopeId,
-  ScopedSecretCredentialInput,
-  SecretBackedValue,
-  SecretId,
-} from "@executor-js/sdk/shared";
+import { ScopedSecretCredentialInput, SecretBackedValue } from "@executor-js/sdk/shared";
 
 // ---------------------------------------------------------------------------
 // Branded IDs
@@ -164,43 +158,6 @@ export const OpenApiCredentialInput = Schema.Union([
   ConfiguredHeaderValue,
 ]);
 export type OpenApiCredentialInput = typeof OpenApiCredentialInput.Type;
-
-export const OpenApiSourceBindingValue = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("secret"),
-    secretId: SecretId,
-    secretScopeId: Schema.optional(ScopeId),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("connection"),
-    connectionId: ConnectionId,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("text"),
-    text: Schema.String,
-  }),
-]);
-export type OpenApiSourceBindingValue = typeof OpenApiSourceBindingValue.Type;
-
-export const OpenApiSourceBindingInput = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScope: ScopeId,
-  scope: ScopeId,
-  slot: Schema.String,
-  value: OpenApiSourceBindingValue,
-});
-export type OpenApiSourceBindingInput = typeof OpenApiSourceBindingInput.Type;
-
-export const OpenApiSourceBindingRef = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScopeId: ScopeId,
-  scopeId: ScopeId,
-  slot: Schema.String,
-  value: OpenApiSourceBindingValue,
-  createdAt: Schema.Date,
-  updatedAt: Schema.Date,
-});
-export type OpenApiSourceBindingRef = typeof OpenApiSourceBindingRef.Type;
 
 // ---------------------------------------------------------------------------
 // OAuth2 source config — carries source-owned slots and API-level config to

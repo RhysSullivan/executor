@@ -24,6 +24,7 @@ import {
   SecretId,
   Scope,
   SetSecretInput,
+  SetSourceCredentialBindingInput,
   TokenMaterial,
   OAUTH2_PROVIDER_KEY,
   createExecutor,
@@ -39,7 +40,7 @@ import {
 } from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
-import { OAuth2SourceConfig, OpenApiSourceBindingInput } from "./types";
+import { OAuth2SourceConfig } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -205,12 +206,11 @@ const bindOAuthConnection = (
   connectionId: string,
   oauth2: OAuth2SourceConfig,
 ) =>
-  executor.openapi.setSourceBinding(
-    OpenApiSourceBindingInput.make({
-      sourceId: "petstore",
-      sourceScope: scopeId,
+  executor.sources.setBinding(
+    SetSourceCredentialBindingInput.make({
+      source: { id: "petstore", scope: scopeId },
       scope: scopeId,
-      slot: oauth2.connectionSlot,
+      slotKey: oauth2.connectionSlot,
       value: { kind: "connection", connectionId: ConnectionId.make(connectionId) },
     }),
   );

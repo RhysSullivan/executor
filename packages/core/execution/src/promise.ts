@@ -92,6 +92,11 @@ const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
     refresh: (input) => fromPromise(() => pe.sources.refresh(input)),
     detect: (url) => fromPromise(() => pe.sources.detect(url)),
     definitions: (id) => fromPromise(() => pe.sources.definitions(id)),
+    listBindings: (input) => fromPromise(() => pe.sources.listBindings(input)),
+    resolveBinding: (input) => fromPromise(() => pe.sources.resolveBinding(input)),
+    setBinding: (input) => fromPromise(() => pe.sources.setBinding(input)),
+    removeBinding: (input) => fromPromise(() => pe.sources.removeBinding(input)),
+    replaceBindings: (input) => fromPromise(() => pe.sources.replaceBindings(input)),
   },
   secrets: {
     get: (id) => fromPromise(() => pe.secrets.get(id)),
@@ -120,6 +125,7 @@ const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
   },
   credentialBindings: {
     listForSource: (input) => fromPromise(() => pe.credentialBindings.listForSource(input)),
+    resolveBinding: (input) => fromPromise(() => pe.credentialBindings.resolveBinding(input)),
     resolve: (input) => fromPromise(() => pe.credentialBindings.resolve(input)),
     set: (input) => fromPromise(() => pe.credentialBindings.set(input)),
     remove: (input) => fromPromise(() => pe.credentialBindings.remove(input)),

@@ -39,8 +39,21 @@ export {
 export {
   ConfiguredCredentialBinding,
   ConfiguredCredentialValue,
+  CredentialBindingRef,
   CredentialBindingValue,
+  CredentialBindingSourceInput,
+  CredentialBindingSlotInput,
+  RemoveCredentialBindingInput,
+  RemoveSourceCredentialBindingInput,
   ScopedSecretCredentialInput,
+  SetCredentialBindingInput,
+  SetSourceCredentialBindingInput,
+  ReplaceCredentialBindingValue,
+  ReplaceCredentialBindingsInput,
+  ReplaceSourceCredentialBindingsInput,
+  SourceCredentialBindingSource,
+  SourceCredentialBindingSourceInput,
+  SourceCredentialBindingSlotInput,
   credentialSlotKey,
 } from "./credential-bindings";
 

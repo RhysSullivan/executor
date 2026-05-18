@@ -136,6 +136,21 @@ export const refreshSource = ExecutorApiClient.mutation("sources", "refresh");
 
 export const detectSource = ExecutorApiClient.mutation("sources", "detect");
 
+export const sourceCredentialBindingsAtom = (
+  scopeId: ScopeId,
+  sourceId: string,
+  sourceScopeId: ScopeId,
+) =>
+  ExecutorApiClient.query("sources", "listBindings", {
+    params: { scopeId, sourceId, sourceScopeId },
+    timeToLive: "15 seconds",
+    reactivityKeys: [ReactivityKey.sources, ReactivityKey.secrets, ReactivityKey.connections],
+  });
+
+export const setSourceCredentialBinding = ExecutorApiClient.mutation("sources", "setBinding");
+
+export const removeSourceCredentialBinding = ExecutorApiClient.mutation("sources", "removeBinding");
+
 // ---------------------------------------------------------------------------
 // OAuth — one atom pair drives sign-in for every plugin. The plugin's
 // `Add*Source` / `*SignInButton` component passes the `strategy` descriptor

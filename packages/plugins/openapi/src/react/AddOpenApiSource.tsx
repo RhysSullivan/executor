@@ -6,8 +6,13 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk/shared";
-import { startOAuth } from "@executor-js/react/api/atoms";
+import {
+  ConnectionId,
+  ScopeId,
+  SecretId,
+  SetSourceCredentialBindingInput,
+} from "@executor-js/sdk/shared";
+import { setSourceCredentialBinding, startOAuth } from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 
@@ -58,7 +63,7 @@ import { Textarea } from "@executor-js/react/components/textarea";
 import { Checkbox } from "@executor-js/react/components/checkbox";
 import { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
 import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
-import { addOpenApiSpecOptimistic, previewOpenApiSpec, setOpenApiSourceBinding } from "./atoms";
+import { addOpenApiSpecOptimistic, previewOpenApiSpec } from "./atoms";
 import { OpenApiSourceDetailsFields } from "./OpenApiSourceDetailsFields";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
 import {
@@ -70,7 +75,7 @@ import {
   specFetchHeaderBindingSlot,
   specFetchQueryParamBindingSlot,
 } from "../sdk/source-contracts";
-import { OAuth2SourceConfig, OpenApiSourceBindingInput, type ServerInfo } from "../sdk/types";
+import { OAuth2SourceConfig, type ServerInfo } from "../sdk/types";
 import { expandServerUrlOptions } from "../sdk/openapi-utils";
 
 export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
@@ -285,7 +290,7 @@ export default function AddOpenApiSource(props: {
     mode: "promiseExit",
   });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
-  const doSetBinding = useAtomSet(setOpenApiSourceBinding, {
+  const doSetBinding = useAtomSet(setSourceCredentialBinding, {
     mode: "promiseExit",
   });
   const secretList = useSecretPickerSecrets();
@@ -757,11 +762,10 @@ export default function AddOpenApiSource(props: {
     for (const binding of headerBindings) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: OpenApiSourceBindingInput.make({
-          sourceId,
-          sourceScope,
+        payload: SetSourceCredentialBindingInput.make({
+          source: { id: sourceId, scope: sourceScope },
           scope: binding.scope,
-          slot: binding.slot,
+          slotKey: binding.slot,
           value: {
             kind: "secret",
             secretId: SecretId.make(binding.secretId),
@@ -780,11 +784,10 @@ export default function AddOpenApiSource(props: {
     for (const binding of queryParamBindings) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: OpenApiSourceBindingInput.make({
-          sourceId,
-          sourceScope,
+        payload: SetSourceCredentialBindingInput.make({
+          source: { id: sourceId, scope: sourceScope },
           scope: binding.scope,
-          slot: binding.slot,
+          slotKey: binding.slot,
           value: {
             kind: "secret",
             secretId: SecretId.make(binding.secretId),
@@ -803,11 +806,10 @@ export default function AddOpenApiSource(props: {
     for (const binding of specFetchBindings) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: OpenApiSourceBindingInput.make({
-          sourceId,
-          sourceScope,
+        payload: SetSourceCredentialBindingInput.make({
+          source: { id: sourceId, scope: sourceScope },
           scope: binding.scope,
-          slot: binding.slot,
+          slotKey: binding.slot,
           value: {
             kind: "secret",
             secretId: SecretId.make(binding.secretId),
@@ -826,11 +828,10 @@ export default function AddOpenApiSource(props: {
     if (configuredOAuth2 && oauth2ClientIdSecretId) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: OpenApiSourceBindingInput.make({
-          sourceId,
-          sourceScope,
+        payload: SetSourceCredentialBindingInput.make({
+          source: { id: sourceId, scope: sourceScope },
           scope: sourceScope,
-          slot: configuredOAuth2.clientIdSlot,
+          slotKey: configuredOAuth2.clientIdSlot,
           value: {
             kind: "secret",
             secretId: SecretId.make(oauth2ClientIdSecretId),
@@ -849,11 +850,10 @@ export default function AddOpenApiSource(props: {
     if (configuredOAuth2?.clientSecretSlot && oauth2ClientSecretSecretId) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: OpenApiSourceBindingInput.make({
-          sourceId,
-          sourceScope,
+        payload: SetSourceCredentialBindingInput.make({
+          source: { id: sourceId, scope: sourceScope },
           scope: sourceScope,
-          slot: configuredOAuth2.clientSecretSlot,
+          slotKey: configuredOAuth2.clientSecretSlot,
           value: {
             kind: "secret",
             secretId: SecretId.make(oauth2ClientSecretSecretId),
@@ -872,11 +872,10 @@ export default function AddOpenApiSource(props: {
     if (configuredOAuth2 && oauth2Auth) {
       const bindingExit = await doSetBinding({
         params: { scopeId },
-        payload: OpenApiSourceBindingInput.make({
-          sourceId,
-          sourceScope,
+        payload: SetSourceCredentialBindingInput.make({
+          source: { id: sourceId, scope: sourceScope },
           scope: oauthTokenBindingScope,
-          slot: configuredOAuth2.connectionSlot,
+          slotKey: configuredOAuth2.connectionSlot,
           value: {
             kind: "connection",
             connectionId: ConnectionId.make(oauth2Auth.connectionId),

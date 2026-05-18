@@ -172,6 +172,51 @@ describe("credential bindings", () => {
     }),
   );
 
+  it.effect("exposes source binding helpers over the source facade", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness();
+      const orgExecutor = yield* harness.create([harness.scopes.org]);
+      yield* orgExecutor.credentialTest.registerSource(harness.scopes.org.id);
+
+      const userExecutor = yield* harness.create([
+        harness.scopes.userWorkspaceA,
+        harness.scopes.org,
+      ]);
+      yield* setSecret(userExecutor, harness.scopes.userWorkspaceA.id, "api-token", "sk-user-a");
+      const binding = yield* userExecutor.sources.setBinding({
+        scope: harness.scopes.userWorkspaceA.id,
+        source: {
+          id: TEST_SOURCE_ID,
+          scope: harness.scopes.org.id,
+        },
+        slotKey: TEST_SLOT,
+        value: { kind: "secret", secretId: SecretId.make("api-token") },
+      });
+
+      const listed = yield* userExecutor.sources.listBindings({
+        source: {
+          id: TEST_SOURCE_ID,
+          scope: harness.scopes.org.id,
+        },
+      });
+      const resolved = yield* userExecutor.sources.resolveBinding({
+        source: {
+          id: TEST_SOURCE_ID,
+          scope: harness.scopes.org.id,
+        },
+        slotKey: TEST_SLOT,
+      });
+
+      expect(listed.map((row) => row.id)).toEqual([binding.id]);
+      expect(resolved?.id).toBe(binding.id);
+      expect(resolved?.value).toEqual({
+        kind: "secret",
+        secretId: SecretId.make("api-token"),
+        secretScopeId: harness.scopes.userWorkspaceA.id,
+      });
+    }),
+  );
+
   it.effect("workspace credential bindings shadow org bindings without copying the source", () =>
     Effect.gen(function* () {
       const harness = makeHarness();

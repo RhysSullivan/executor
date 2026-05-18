@@ -107,6 +107,46 @@ export const ReplaceCredentialBindingsInput = Schema.Struct({
 });
 export type ReplaceCredentialBindingsInput = typeof ReplaceCredentialBindingsInput.Type;
 
+export const SourceCredentialBindingSource = Schema.Struct({
+  id: Schema.String,
+  scope: ScopeId,
+});
+export type SourceCredentialBindingSource = typeof SourceCredentialBindingSource.Type;
+
+export const SourceCredentialBindingSourceInput = Schema.Struct({
+  source: SourceCredentialBindingSource,
+});
+export type SourceCredentialBindingSourceInput = typeof SourceCredentialBindingSourceInput.Type;
+
+export const SourceCredentialBindingSlotInput = Schema.Struct({
+  source: SourceCredentialBindingSource,
+  slotKey: Schema.String,
+});
+export type SourceCredentialBindingSlotInput = typeof SourceCredentialBindingSlotInput.Type;
+
+export const SetSourceCredentialBindingInput = Schema.Struct({
+  scope: ScopeId,
+  source: SourceCredentialBindingSource,
+  slotKey: Schema.String,
+  value: CredentialBindingValue,
+});
+export type SetSourceCredentialBindingInput = typeof SetSourceCredentialBindingInput.Type;
+
+export const RemoveSourceCredentialBindingInput = Schema.Struct({
+  scope: ScopeId,
+  source: SourceCredentialBindingSource,
+  slotKey: Schema.String,
+});
+export type RemoveSourceCredentialBindingInput = typeof RemoveSourceCredentialBindingInput.Type;
+
+export const ReplaceSourceCredentialBindingsInput = Schema.Struct({
+  scope: ScopeId,
+  source: SourceCredentialBindingSource,
+  slotPrefixes: Schema.Array(Schema.String),
+  bindings: Schema.Array(ReplaceCredentialBindingValue),
+});
+export type ReplaceSourceCredentialBindingsInput = typeof ReplaceSourceCredentialBindingsInput.Type;
+
 export const CredentialBindingResolutionStatus = Schema.Literals([
   "resolved",
   "missing",
@@ -129,6 +169,9 @@ export interface CredentialBindingsFacade {
   readonly listForSource: (
     input: CredentialBindingSourceInput,
   ) => Effect.Effect<readonly CredentialBindingRef[], StorageFailure>;
+  readonly resolveBinding: (
+    input: CredentialBindingSlotInput,
+  ) => Effect.Effect<CredentialBindingRef | null, StorageFailure>;
   readonly resolve: (
     input: CredentialBindingSlotInput,
   ) => Effect.Effect<ResolvedCredentialSlot, StorageFailure>;
