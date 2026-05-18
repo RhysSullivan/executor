@@ -315,6 +315,62 @@ describe("mcpPlugin", () => {
     }),
   );
 
+  it.effect("marks source oauth-backed when add-time credentials include oauth", () =>
+    Effect.gen(function* () {
+      const server = yield* serveMcpServer(makeGreetingMcpServer, {
+        auth: {
+          validateAuthorization: (authorization) =>
+            Effect.succeed(authorization === "Bearer oauth-token"),
+        },
+      });
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [makeMemorySecretsPlugin()(), mcpPlugin()] as const }),
+      );
+      const connectionId = ConnectionId.make("mcp-oauth2-initial");
+      yield* executor.connections.create(
+        CreateConnectionInput.make({
+          id: connectionId,
+          scope: ScopeId.make("test-scope"),
+          provider: OAUTH2_PROVIDER_KEY,
+          identityLabel: "Initial MCP OAuth",
+          accessToken: TokenMaterial.make({
+            secretId: SecretId.make(`${connectionId}.access_token`),
+            name: "Initial MCP OAuth Access Token",
+            value: "oauth-token",
+          }),
+          refreshToken: null,
+          expiresAt: null,
+          oauthScope: null,
+          providerState: null,
+        }),
+      );
+
+      const result = yield* executor.mcp.addSource({
+        transport: "remote",
+        scope: "test-scope",
+        name: "initial oauth",
+        endpoint: server.endpoint,
+        namespace: "initial_oauth_mcp",
+        credentials: {
+          scope: "test-scope",
+          auth: {
+            oauth2: {
+              connection: { kind: "connection", connectionId },
+            },
+          },
+        },
+      });
+
+      expect(result).toEqual({ toolCount: 1, namespace: "initial_oauth_mcp" });
+      const stored = yield* executor.mcp.getSource("initial_oauth_mcp", "test-scope");
+      expect(stored?.config.transport).toBe("remote");
+      if (stored?.config.transport !== "remote") return;
+      expect(stored.config.auth.kind).toBe("oauth2");
+      if (stored.config.auth.kind !== "oauth2") return;
+      expect(stored.config.auth.connectionSlot).toBe(MCP_OAUTH_CONNECTION_SLOT);
+    }),
+  );
+
   // -------------------------------------------------------------------------
   // Multi-scope shadowing — regression suite covering the bug class where
   // store reads/writes that don't pin scope_id collapse onto whichever visible

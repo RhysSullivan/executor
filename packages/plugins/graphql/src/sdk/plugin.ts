@@ -663,7 +663,6 @@ const makeGraphqlExtension = (
           config.queryParams,
           graphqlQueryParamSlot,
         );
-        const auth = authFromOAuth2Source(config.oauth2);
         const initialHeaders =
           config.credentials?.headers !== undefined
             ? canonicalizeCredentialMap(config.credentials.headers, graphqlHeaderSlot)
@@ -674,6 +673,9 @@ const makeGraphqlExtension = (
             : null;
         const initialAuth =
           config.credentials?.auth !== undefined ? canonicalizeAuth(config.credentials.auth) : null;
+        const auth = config.oauth2
+          ? authFromOAuth2Source(config.oauth2)
+          : (initialAuth?.auth ?? { kind: "none" });
         const initialBindings = [
           ...(initialHeaders?.bindings ?? []),
           ...(initialQueryParams?.bindings ?? []),

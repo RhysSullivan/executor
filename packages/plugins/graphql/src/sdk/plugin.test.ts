@@ -230,6 +230,59 @@ describe("graphqlPlugin real protocol server", () => {
     }),
   );
 
+  it.effect("marks source oauth-backed when add-time credentials include oauth", () =>
+    Effect.gen(function* () {
+      const server = yield* serveGraphqlTestServer({
+        schema: makeGreetingGraphqlSchema(),
+        auth: {
+          validateAuthorization: (authorization) =>
+            Effect.succeed(authorization === "Bearer oauth-token"),
+        },
+      });
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [memorySecretsPlugin(), graphqlPlugin()] as const }),
+      );
+      const connectionId = ConnectionId.make("graphql-oauth2-initial");
+      yield* executor.connections.create(
+        CreateConnectionInput.make({
+          id: connectionId,
+          scope: ScopeId.make(TEST_SCOPE),
+          provider: "oauth2",
+          identityLabel: "Initial GraphQL OAuth",
+          accessToken: TokenMaterial.make({
+            secretId: SecretId.make(`${connectionId}.access_token`),
+            name: "Initial GraphQL OAuth Access Token",
+            value: "oauth-token",
+          }),
+          refreshToken: null,
+          expiresAt: null,
+          oauthScope: null,
+          providerState: null,
+        }),
+      );
+
+      const result = yield* executor.graphql.addSource({
+        endpoint: server.endpoint,
+        scope: TEST_SCOPE,
+        namespace: "initial_oauth_graphql",
+        credentials: {
+          scope: TEST_SCOPE,
+          auth: {
+            oauth2: {
+              connection: { kind: "connection", connectionId },
+            },
+          },
+        },
+      });
+
+      expect(result).toEqual({ toolCount: 2, namespace: "initial_oauth_graphql" });
+      const source = yield* executor.graphql.getSource("initial_oauth_graphql", TEST_SCOPE);
+      expect(source?.auth.kind).toBe("oauth2");
+      if (source?.auth.kind !== "oauth2") return;
+      expect(source.auth.connectionSlot).toBe(GRAPHQL_OAUTH_CONNECTION_SLOT);
+    }),
+  );
+
   it.effect("invokes a live query with headers and query params", () =>
     Effect.gen(function* () {
       const server = yield* serveGreetingServer;

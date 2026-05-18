@@ -1142,7 +1142,6 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                     config.queryParams,
                     mcpQueryParamSlot,
                   ),
-                  auth: authFromOAuth2Source(config.oauth2),
                 }
               : null;
           const initialRemote =
@@ -1163,6 +1162,20 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                       : null,
                 }
               : null;
+          const remoteAuth =
+            config.transport === "remote"
+              ? config.oauth2
+                ? authFromOAuth2Source(config.oauth2)
+                : (initialRemote?.auth?.auth ?? ({ kind: "none" } as McpConnectionAuth))
+              : null;
+          const remoteCredentials =
+            canonicalRemote && remoteAuth
+              ? {
+                  headers: canonicalRemote.headers,
+                  queryParams: canonicalRemote.queryParams,
+                  auth: remoteAuth,
+                }
+              : undefined;
           const initialBindings = [
             ...(initialRemote?.headers?.bindings ?? []),
             ...(initialRemote?.queryParams?.bindings ?? []),
@@ -1175,16 +1188,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
               targetScope: initialRemote.scope,
             });
           }
-          const sd = toStoredSourceData(
-            config,
-            canonicalRemote
-              ? {
-                  headers: canonicalRemote.headers,
-                  queryParams: canonicalRemote.queryParams,
-                  auth: canonicalRemote.auth,
-                }
-              : undefined,
-          );
+          const sd = toStoredSourceData(config, remoteCredentials);
 
           // Stdio sources are gated — a resolver failure there is a
           // config error the admin must fix before the source makes
