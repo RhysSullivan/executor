@@ -49,6 +49,7 @@ describe("credential binding editor helpers", () => {
       {
         name: "Authorization",
         secretId: "personal-api-token",
+        valueKind: "secret",
         prefix: "Bearer ",
         presetKey: "bearer",
         targetScope: personalScope,
@@ -59,6 +60,7 @@ describe("credential binding editor helpers", () => {
       {
         name: "token",
         secretId: null,
+        valueKind: "text",
         literalValue: "literal-token",
       },
     ]);

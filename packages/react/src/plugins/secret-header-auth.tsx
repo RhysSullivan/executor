@@ -34,6 +34,7 @@ export interface HeaderAuthPreset {
   readonly label: string;
   readonly name: string;
   readonly prefix?: string;
+  readonly valueKind?: HeaderValueKind;
 }
 
 export const defaultHeaderAuthPresets: readonly HeaderAuthPreset[] = [
@@ -203,6 +204,8 @@ export function QueryParamCredentialValuePreview(props: SecretCredentialPreviewP
 export type HeaderState = {
   name: string;
   secretId: string | null;
+  valueKind?: HeaderValueKind;
+  literalValue?: string;
   prefix?: string;
   presetKey?: string;
   fromPreset?: boolean;
@@ -211,6 +214,8 @@ export type HeaderState = {
   /** Scope that owns the selected reusable secret. */
   secretScope?: ScopeId;
 };
+
+export type HeaderValueKind = "secret" | "text";
 
 export function matchPresetKey(name: string, prefix?: string): string {
   const preset =
@@ -257,11 +262,18 @@ export function headerValueToState(
   value: { secretId: string; prefix?: string } | string,
 ): HeaderState {
   if (typeof value === "string") {
-    return { name, secretId: null, presetKey: matchPresetKey(name, undefined) };
+    return {
+      name,
+      secretId: null,
+      literalValue: value,
+      valueKind: "text",
+      presetKey: matchPresetKey(name, undefined),
+    };
   }
   return {
     name,
     secretId: value.secretId,
+    valueKind: "secret",
     prefix: value.prefix,
     presetKey: matchPresetKey(name, value.prefix),
   };
@@ -269,11 +281,18 @@ export function headerValueToState(
 
 export function headersFromState(
   entries: readonly HeaderState[],
-): Record<string, { secretId: string; prefix?: string }> {
-  const result: Record<string, { secretId: string; prefix?: string }> = {};
+): Record<string, string | { secretId: string; prefix?: string }> {
+  const result: Record<string, string | { secretId: string; prefix?: string }> = {};
   for (const entry of entries) {
     const name = entry.name.trim();
-    if (!name || !entry.secretId) continue;
+    if (!name) continue;
+    if (entry.valueKind === "text") {
+      if (entry.literalValue?.trim()) {
+        result[name] = entry.literalValue.trim();
+      }
+      continue;
+    }
+    if (!entry.secretId) continue;
     result[name] = {
       secretId: entry.secretId,
       ...(entry.prefix ? { prefix: entry.prefix } : {}),

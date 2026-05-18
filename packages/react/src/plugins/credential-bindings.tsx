@@ -93,7 +93,7 @@ const queryParamFromConfiguredCredential = (
   bindings: ReadonlyMap<string, CredentialBindingRefLike>,
 ): QueryParamState | null => {
   if (typeof value === "string") {
-    return { name, secretId: null, literalValue: value };
+    return { name, secretId: null, literalValue: value, valueKind: "text" };
   }
 
   const binding = bindings.get(value.slot);
@@ -101,6 +101,7 @@ const queryParamFromConfiguredCredential = (
     return {
       name,
       secretId: binding.value.secretId,
+      valueKind: "secret",
       prefix: value.prefix,
       targetScope: binding.scopeId,
       secretScope: binding.value.secretScopeId,
@@ -108,7 +109,7 @@ const queryParamFromConfiguredCredential = (
   }
 
   if (binding?.value.kind === "text") {
-    return { name, secretId: null, literalValue: binding.value.text };
+    return { name, secretId: null, literalValue: binding.value.text, valueKind: "text" };
   }
 
   return null;

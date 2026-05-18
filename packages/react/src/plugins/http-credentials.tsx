@@ -21,6 +21,7 @@ export type { SecretBackedValue };
 export type QueryParamState = {
   name: string;
   secretId: string | null;
+  valueKind?: "secret" | "text";
   prefix?: string;
   literalValue?: string;
   targetScope?: ScopeId;
@@ -50,15 +51,15 @@ export const httpCredentialsFromValues = (input: {
   ),
   queryParams: Object.entries(input.queryParams ?? {}).map(([name, value]) => {
     if (typeof value === "string") {
-      return { name, secretId: null, literalValue: value };
+      return { name, secretId: null, literalValue: value, valueKind: "text" as const };
     }
-    return { name, secretId: value.secretId, prefix: value.prefix };
+    return { name, secretId: value.secretId, prefix: value.prefix, valueKind: "secret" as const };
   }),
 });
 
 export const serializeHeaderCredentials = (
   headers: readonly HeaderState[],
-): Record<string, { secretId: string; prefix?: string }> => headersFromState(headers);
+): Record<string, SecretBackedValue> => headersFromState(headers);
 
 export const serializeQueryCredentials = (
   queryParams: readonly QueryParamState[],
@@ -84,7 +85,7 @@ export const serializeQueryCredentials = (
 export const serializeHttpCredentials = (
   credentials: HttpCredentialsState,
 ): {
-  readonly headers: Record<string, { secretId: string; prefix?: string }>;
+  readonly headers: Record<string, SecretBackedValue>;
   readonly queryParams: Record<string, SecretBackedValue>;
 } => ({
   headers: serializeHeaderCredentials(credentials.headers),
@@ -164,7 +165,14 @@ export const serializeConfigureHeaderCredentials = (
   const result: Record<string, HttpConfigureCredentialInput> = {};
   for (const header of headers) {
     const name = header.name.trim();
-    if (!name || !header.secretId) continue;
+    if (!name) continue;
+    if (header.valueKind === "text") {
+      if (header.literalValue?.trim()) {
+        result[name] = header.literalValue.trim();
+      }
+      continue;
+    }
+    if (!header.secretId) continue;
     result[name] = {
       kind: "secret",
       secretId: header.secretId,
@@ -217,7 +225,14 @@ export const serializeTemplateHeaderCredentials = (
   const result: Record<string, HttpTemplateCredentialInput> = {};
   for (const header of headers) {
     const name = header.name.trim();
-    if (!name || !header.secretId) continue;
+    if (!name) continue;
+    if (header.valueKind === "text") {
+      if (header.literalValue?.trim()) {
+        result[name] = header.literalValue.trim();
+      }
+      continue;
+    }
+    if (!header.secretId) continue;
     result[name] = {
       kind: "secret",
       ...(header.prefix ? { prefix: header.prefix } : {}),
@@ -253,7 +268,12 @@ export const serializeTemplateHttpCredentials = (credentials: HttpCredentialsSta
 });
 
 export const httpCredentialsValid = (credentials: HttpCredentialsState): boolean =>
-  credentials.headers.every((header) => header.name.trim() && header.secretId) &&
+  credentials.headers.every((header) => {
+    if (!header.name.trim()) return false;
+    return header.valueKind === "text"
+      ? Boolean(header.literalValue?.trim())
+      : Boolean(header.secretId);
+  }) &&
   credentials.queryParams.every((param) => {
     if (!param.name.trim()) return false;
     return Boolean(param.secretId || param.literalValue?.trim());
@@ -276,6 +296,7 @@ export function HttpCredentialsEditor(props: {
     readonly headers?: string;
     readonly queryParams?: string;
   };
+  readonly headerPresets?: readonly HeaderAuthPreset[];
 }) {
   const showHeaders = props.sections?.headers ?? true;
   const showQueryParams = props.sections?.queryParams ?? true;
@@ -294,6 +315,7 @@ export function HttpCredentialsEditor(props: {
             credentialScopeOptions={props.credentialScopeOptions}
             bindingScopeOptions={props.bindingScopeOptions}
             restrictSecretsToTargetScope={props.restrictSecretsToTargetScope}
+            presets={props.headerPresets}
           />
         </section>
       )}
