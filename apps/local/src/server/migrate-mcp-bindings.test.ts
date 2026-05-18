@@ -16,16 +16,9 @@ import { PRE_0007_SQL, stampPriorMigrationsApplied } from "./__test-helpers__/pr
 
 const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
-const ConfigJson = Schema.fromJsonString(
-  Schema.Struct({
-    auth: Schema.optional(Schema.Unknown),
-    command: Schema.optional(Schema.String),
-    endpoint: Schema.optional(Schema.String),
-    transport: Schema.String,
-  }),
-);
-
-const decodeConfigJson = Schema.decodeUnknownSync(ConfigJson);
+const PluginStorageRow = Schema.Struct({ data: Schema.String });
+const decodePluginStorageRow = Schema.decodeUnknownSync(PluginStorageRow);
+const decodePluginStorageData = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 const tempDirs: Array<string> = [];
 
@@ -72,21 +65,32 @@ describe("mcp credential migrations", () => {
     migrate(drizzleDb, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const after = new Database(dbPath, { readonly: true });
-    const row = after
-      .prepare(
-        "SELECT auth_kind, auth_header_name, auth_header_slot, auth_header_prefix, config FROM mcp_source WHERE id = ?",
-      )
-      .get("remote-headers") as {
-      auth_kind: string;
-      auth_header_name: string;
-      auth_header_slot: string;
-      auth_header_prefix: string;
-      config: string;
+    const source = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("mcp", "source", "remote-headers"),
+      ).data,
+    ) as {
+      readonly config: {
+        readonly auth?: {
+          readonly kind: string;
+          readonly headerName?: string;
+          readonly secretSlot?: string;
+          readonly prefix?: string;
+        };
+        readonly endpoint?: string;
+        readonly transport: string;
+      };
     };
-    expect(row.auth_kind).toBe("header");
-    expect(row.auth_header_name).toBe("X-API-Key");
-    expect(row.auth_header_slot).toBe("auth:header");
-    expect(row.auth_header_prefix).toBe("Bearer ");
+    expect(source.config.auth).toMatchObject({
+      kind: "header",
+      headerName: "X-API-Key",
+      secretSlot: "auth:header",
+      prefix: "Bearer ",
+    });
     const binding = after
       .prepare(
         "SELECT slot_key, kind, secret_id FROM credential_binding WHERE plugin_id = ? AND source_id = ? AND slot_key = ?",
@@ -97,11 +101,8 @@ describe("mcp credential migrations", () => {
       kind: "secret",
       secret_id: "tok-secret",
     });
-    // The auth key should be stripped from config json after migration.
-    const config = decodeConfigJson(row.config);
-    expect(config.auth).toBeUndefined();
-    expect(config.transport).toBe("remote");
-    expect(config.endpoint).toBe("https://example.com/mcp");
+    expect(source.config.transport).toBe("remote");
+    expect(source.config.endpoint).toBe("https://example.com/mcp");
     after.close();
   });
 
@@ -142,15 +143,27 @@ describe("mcp credential migrations", () => {
     migrate(drizzleDb, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const after = new Database(dbPath, { readonly: true });
-    const row = after
-      .prepare(
-        "SELECT auth_kind, auth_connection_slot, auth_client_id_slot, auth_client_secret_slot FROM mcp_source WHERE id = ?",
-      )
-      .get("remote-oauth") as Record<string, string | null>;
-    expect(row.auth_kind).toBe("oauth2");
-    expect(row.auth_connection_slot).toBe("auth:oauth2:connection");
-    expect(row.auth_client_id_slot).toBe("auth:oauth2:client-id");
-    expect(row.auth_client_secret_slot).toBe("auth:oauth2:client-secret");
+    const source = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("mcp", "source", "remote-oauth"),
+      ).data,
+    ) as {
+      readonly config: {
+        readonly auth?: Record<string, unknown>;
+        readonly headers?: Record<string, unknown>;
+        readonly queryParams?: Record<string, unknown>;
+      };
+    };
+    expect(source.config.auth).toMatchObject({
+      kind: "oauth2",
+      connectionSlot: "auth:oauth2:connection",
+      clientIdSlot: "auth:oauth2:client-id",
+      clientSecretSlot: "auth:oauth2:client-secret",
+    });
 
     const authBindings = after
       .prepare(
@@ -171,34 +184,18 @@ describe("mcp credential migrations", () => {
       secret_id: "client-secret-sec",
     });
 
-    const headers = after
-      .prepare(
-        "SELECT name, kind, text_value, slot_key, prefix FROM mcp_source_header WHERE source_id = ? ORDER BY name",
-      )
-      .all("remote-oauth") as ReadonlyArray<Record<string, string | null>>;
-    expect(headers).toHaveLength(2);
-    const byName = new Map(headers.map((h) => [h.name, h]));
-    expect(byName.get("X-Trace")).toMatchObject({
-      kind: "text",
-      text_value: "static",
-    });
-    expect(byName.get("X-Token")).toMatchObject({
-      kind: "binding",
-      slot_key: "header:x-token",
+    expect(source.config.headers).toMatchObject({
+      "X-Trace": "static",
+      "X-Token": { kind: "binding", slot: "header:x-token" },
     });
     expect(bySlot.get("header:x-token")).toMatchObject({
       kind: "secret",
       secret_id: "extra-tok",
     });
 
-    const params = after
-      .prepare("SELECT name, kind, slot_key FROM mcp_source_query_param WHERE source_id = ?")
-      .all("remote-oauth") as ReadonlyArray<Record<string, string>>;
-    expect(params).toHaveLength(1);
-    expect(params[0]).toMatchObject({
-      name: "org",
+    expect(source.config.queryParams?.org).toMatchObject({
       kind: "binding",
-      slot_key: "query_param:org",
+      slot: "query_param:org",
     });
     expect(bySlot.get("query_param:org")).toMatchObject({
       kind: "secret",
@@ -263,18 +260,17 @@ describe("mcp credential migrations", () => {
     migrate(drizzleDb, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const after = new Database(dbPath, { readonly: true });
-    const row = after
-      .prepare("SELECT auth_kind, auth_header_slot, config FROM mcp_source WHERE id = ?")
-      .get("stdio-only") as {
-      auth_kind: string;
-      auth_header_slot: string | null;
-      config: string;
-    };
-    expect(row.auth_kind).toBe("none");
-    expect(row.auth_header_slot).toBeNull();
-    const config = decodeConfigJson(row.config);
-    expect(config.transport).toBe("stdio");
-    expect(config.command).toBe("/usr/bin/server");
+    const source = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("mcp", "source", "stdio-only"),
+      ).data,
+    ) as { readonly config: { readonly transport: string; readonly command?: string } };
+    expect(source.config.transport).toBe("stdio");
+    expect(source.config.command).toBe("/usr/bin/server");
     after.close();
   });
 });

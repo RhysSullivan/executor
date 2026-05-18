@@ -9,7 +9,6 @@ export {
   type OpenApiPluginExtension,
   type OpenApiPluginOptions,
   type OpenApiSourceRef,
-  type OpenApiUpdateSourceInput,
 } from "./plugin";
 export {
   openapiSchema,

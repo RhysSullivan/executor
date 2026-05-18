@@ -87,6 +87,19 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
         }),
       ),
     )
+    .handle("configure", ({ params: path, payload }) =>
+      capture(
+        Effect.gen(function* () {
+          const executor = yield* ExecutorService;
+          return yield* executor.sources.configure({
+            source: payload.source,
+            scope: payload.scope ?? path.scopeId,
+            type: payload.type,
+            config: payload.config,
+          });
+        }),
+      ),
+    )
     .handle("listBindings", ({ params: path }) =>
       capture(
         Effect.gen(function* () {

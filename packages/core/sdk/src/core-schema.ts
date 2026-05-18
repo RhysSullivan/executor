@@ -194,6 +194,14 @@ export const coreTables = defineTables({
     created_at: dateColumn("created_at"),
   }),
   credential_binding: credentialBindingTable,
+  plugin_storage: scopedExecutorTable("plugin_storage", {
+    plugin_id: textColumn("plugin_id"),
+    collection: textColumn("collection"),
+    key: textColumn("key"),
+    data: jsonColumn("data"),
+    created_at: dateColumn("created_at"),
+    updated_at: dateColumn("updated_at"),
+  }),
   tool_policy: scopedExecutorTable("tool_policy", {
     pattern: textColumn("pattern"),
     action: textColumn("action"),
@@ -216,6 +224,7 @@ export type ToolRow = FumaRow<CoreSchema["tool"]>;
 export type DefinitionRow = FumaRow<CoreSchema["definition"]>;
 export type SecretRow = FumaRow<CoreSchema["secret"]>;
 export type ConnectionRow = FumaRow<CoreSchema["connection"]>;
+export type PluginStorageRow = FumaRow<CoreSchema["plugin_storage"]>;
 
 type CredentialBindingRowBase = Omit<
   FumaRow<CoreSchema["credential_binding"]>,

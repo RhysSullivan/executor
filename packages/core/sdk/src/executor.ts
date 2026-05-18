@@ -115,6 +115,11 @@ import type {
   StaticToolSchema,
   StorageDeps,
 } from "./plugin";
+import {
+  pluginStorageId,
+  type PluginStorageEntry,
+  type PluginStorageFacade,
+} from "./plugin-storage";
 import type { Scope } from "./scope";
 import { RemoveSecretInput, SecretRef, SetSecretInput, type SecretProvider } from "./secrets";
 import { Usage } from "./usages";
@@ -227,6 +232,15 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
     readonly definitions: (
       sourceId: string,
     ) => Effect.Effect<Record<string, unknown>, StorageFailure>;
+    readonly configure: (input: {
+      readonly source: {
+        readonly id: string;
+        readonly scope: ScopeId | string;
+      };
+      readonly scope: ScopeId | string;
+      readonly type?: string;
+      readonly config: unknown;
+    }) => Effect.Effect<unknown, StorageFailure>;
     readonly listBindings: (
       input: SourceCredentialBindingSourceInput,
     ) => Effect.Effect<readonly CredentialBindingRef[], StorageFailure>;
@@ -548,6 +562,21 @@ const toToolJsonSchema = (
   });
 };
 
+const decodeConfigureInput = (
+  schema: StaticToolSchema | Schema.Decoder<unknown, never> | undefined,
+  input: unknown,
+): Effect.Effect<unknown, unknown> => {
+  if (schema == null) return Effect.succeed(input);
+  if (!("~standard" in schema)) {
+    return Schema.decodeUnknownEffect(schema)(input);
+  }
+  return Effect.promise(() => Promise.resolve(schema["~standard"].validate(input))).pipe(
+    Effect.flatMap((result) =>
+      "value" in result ? Effect.succeed(result.value) : Effect.fail(result),
+    ),
+  );
+};
+
 const EXECUTOR_SOURCE_ID = "executor";
 const EXECUTOR_SOURCE: StaticSourceDecl = {
   id: EXECUTOR_SOURCE_ID,
@@ -722,6 +751,128 @@ const makeCoreDb = (fuma: ReturnType<typeof makeFumaClient>) => ({
       asLooseStorageDb(db).updateMany(tableName, options),
     ),
 });
+
+const pluginStorageEntryFromRow = <T>(row: CoreRow<"plugin_storage">): PluginStorageEntry<T> => ({
+  id: row.id,
+  scopeId: ScopeId.make(row.scope_id),
+  pluginId: row.plugin_id,
+  collection: row.collection,
+  key: row.key,
+  data: row.data as T,
+  createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+  updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+});
+
+const makePluginStorageFacade = (input: {
+  readonly core: ReturnType<typeof makeCoreDb>;
+  readonly pluginId: string;
+  readonly scopeIds: readonly string[];
+}): PluginStorageFacade => {
+  const whereFor = (collection: string, key?: string) =>
+    scopedWhere(input.scopeIds, (b) =>
+      b.and(
+        b("plugin_id", "=", input.pluginId),
+        b("collection", "=", collection),
+        key === undefined ? true : b("key", "=", key),
+      ),
+    );
+
+  const sortByScopePrecedence = (rows: readonly CoreRow<"plugin_storage">[]) =>
+    [...rows].sort((left, right) => {
+      const leftIndex = input.scopeIds.indexOf(left.scope_id);
+      const rightIndex = input.scopeIds.indexOf(right.scope_id);
+      return leftIndex - rightIndex || left.key.localeCompare(right.key);
+    });
+
+  const getVisible = <T>(collection: string, key: string) =>
+    input.core
+      .findMany("plugin_storage", { where: whereFor(collection, key) })
+      .pipe(Effect.map((rows) => sortByScopePrecedence(rows)[0] ?? null))
+      .pipe(Effect.map((row) => (row ? pluginStorageEntryFromRow<T>(row) : null)));
+
+  return {
+    get: (storageInput) => getVisible(storageInput.collection, storageInput.key),
+    getAtScope: (storageInput) =>
+      input.core
+        .findFirst("plugin_storage", {
+          where: byScopedId(
+            storageInput.scope,
+            pluginStorageId({
+              pluginId: input.pluginId,
+              collection: storageInput.collection,
+              key: storageInput.key,
+            }),
+          ),
+        })
+        .pipe(Effect.map((row) => (row ? pluginStorageEntryFromRow(row) : null))),
+    list: (storageInput) =>
+      input.core.findMany("plugin_storage", { where: whereFor(storageInput.collection) }).pipe(
+        Effect.map((rows) =>
+          sortByScopePrecedence(rows)
+            .filter((row) =>
+              storageInput.keyPrefix === undefined
+                ? true
+                : row.key.startsWith(storageInput.keyPrefix),
+            )
+            .map((row) => pluginStorageEntryFromRow(row)),
+        ),
+      ),
+    put: (storageInput) =>
+      Effect.gen(function* () {
+        if (!input.scopeIds.includes(storageInput.scope)) {
+          return yield* new StorageError({
+            message: `Unknown plugin storage target scope: ${storageInput.scope}`,
+            cause: undefined,
+          });
+        }
+        const id = pluginStorageId({
+          pluginId: input.pluginId,
+          collection: storageInput.collection,
+          key: storageInput.key,
+        });
+        const existing = yield* input.core.findFirst("plugin_storage", {
+          where: byScopedId(storageInput.scope, id),
+        });
+        const now = new Date();
+        if (existing) {
+          yield* input.core.updateMany("plugin_storage", {
+            where: byScopedId(storageInput.scope, id),
+            set: {
+              data: storageInput.data,
+              updated_at: now,
+            },
+          });
+          return pluginStorageEntryFromRow({
+            ...existing,
+            data: storageInput.data,
+            updated_at: now,
+          });
+        }
+        const row = yield* input.core.create("plugin_storage", {
+          id,
+          scope_id: storageInput.scope,
+          plugin_id: input.pluginId,
+          collection: storageInput.collection,
+          key: storageInput.key,
+          data: storageInput.data,
+          created_at: now,
+          updated_at: now,
+        });
+        return pluginStorageEntryFromRow(row);
+      }),
+    remove: (storageInput) =>
+      input.core.deleteMany("plugin_storage", {
+        where: byScopedId(
+          storageInput.scope,
+          pluginStorageId({
+            pluginId: input.pluginId,
+            collection: storageInput.collection,
+            key: storageInput.key,
+          }),
+        ),
+      }),
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Dynamic-row writers — used by ctx.core.sources.register. Static sources
@@ -2725,6 +2876,72 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         });
       });
 
+    const sourceConfigure = (input: {
+      readonly source: {
+        readonly id: string;
+        readonly scope: ScopeId | string;
+      };
+      readonly scope: ScopeId | string;
+      readonly type?: string;
+      readonly config: unknown;
+    }) =>
+      Effect.gen(function* () {
+        yield* assertScopeInStack("source configure source scope", input.source.scope);
+        yield* assertScopeInStack("source configure target scope", input.scope);
+
+        const source = yield* core.findFirst("source", {
+          where: byScopedId(input.source.scope, input.source.id),
+        });
+        if (!source) {
+          return yield* new StorageError({
+            message:
+              `Cannot configure source "${input.source.id}" at scope ` +
+              `"${input.source.scope}": source is not visible.`,
+            cause: undefined,
+          });
+        }
+
+        const runtime = runtimes.get(source.plugin_id);
+        const configure = runtime?.plugin.sourceConfigure;
+        if (!runtime || !configure) {
+          return yield* new StorageError({
+            message: `Plugin "${source.plugin_id}" does not support source.configure.`,
+            cause: undefined,
+          });
+        }
+        if (input.type !== undefined && input.type !== configure.type) {
+          return yield* new StorageError({
+            message:
+              `Source configure type mismatch for plugin "${source.plugin_id}": ` +
+              `expected "${configure.type}", received "${input.type}".`,
+            cause: undefined,
+          });
+        }
+
+        const decoded = yield* decodeConfigureInput(configure.schema, input.config).pipe(
+          Effect.mapError((cause) =>
+            storageFailureFromUnknown(
+              `Invalid source.configure payload for ${configure.type}`,
+              cause,
+            ),
+          ),
+        );
+
+        return yield* configure
+          .configure({
+            ctx: runtime.ctx,
+            sourceId: input.source.id,
+            sourceScope: input.source.scope,
+            targetScope: input.scope,
+            config: decoded,
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              pluginStorageFailure(source.plugin_id, "sourceConfigure", cause),
+            ),
+          );
+      });
+
     const oauthBundle = makeOAuth2Service({
       fuma,
       secretsGet: (id) =>
@@ -2759,6 +2976,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         rootDb,
         plugin.schema ? { tables: new Set(Object.keys(plugin.schema)) } : { tables: new Set() },
       );
+      const pluginStorage = makePluginStorageFacade({
+        core,
+        pluginId: plugin.id,
+        scopeIds,
+      });
       const storageDeps: StorageDeps = {
         scopes,
         fuma: pluginFuma,
@@ -2768,12 +2990,14 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         // scope stack (innermost first); `put`/`delete` require the
         // plugin to name a target scope explicitly.
         blobs: pluginBlobStore(blobs, scopeIds, plugin.id),
+        pluginStorage,
       };
       const storage = plugin.storage(storageDeps);
 
       const ctx: PluginCtx<unknown> = {
         scopes,
         storage,
+        pluginStorage,
         httpClientLayer: config.httpClientLayer ?? FetchHttpClient.layer,
         core: {
           sources: {
@@ -3840,6 +4064,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         refresh: refreshSource,
         detect: detectSource,
         definitions: sourceDefinitions,
+        configure: sourceConfigure,
         listBindings: sourceBindingList,
         resolveBinding: sourceBindingResolve,
         setBinding: sourceBindingSet,

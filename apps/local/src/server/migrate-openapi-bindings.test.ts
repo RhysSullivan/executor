@@ -31,36 +31,8 @@ const BindingRow = Schema.Struct({
   text_value: Schema.NullOr(Schema.String),
 });
 
-const QueryParamRow = Schema.Struct({
-  name: Schema.String,
-  kind: Schema.String,
-  text_value: Schema.NullOr(Schema.String),
-  slot_key: Schema.NullOr(Schema.String),
-  prefix: Schema.NullOr(Schema.String),
-});
-
-const HeaderRow = QueryParamRow;
-
-const FetchHeaderRow = Schema.Struct({
-  name: Schema.String,
-  kind: Schema.String,
-  slot_key: Schema.NullOr(Schema.String),
-  prefix: Schema.NullOr(Schema.String),
-});
-
-const FetchQueryParamRow = Schema.Struct({
-  name: Schema.String,
-  kind: Schema.String,
-  slot_key: Schema.NullOr(Schema.String),
-  prefix: Schema.NullOr(Schema.String),
-});
-
-const SourceJsonRow = Schema.Struct({
-  oauth2: Schema.NullOr(Schema.String),
-});
-
-const TableInfoRow = Schema.Struct({
-  name: Schema.String,
+const PluginStorageRow = Schema.Struct({
+  data: Schema.String,
 });
 
 const CountRow = Schema.Struct({
@@ -68,16 +40,9 @@ const CountRow = Schema.Struct({
 });
 
 const decodeBindingRows = Schema.decodeUnknownSync(Schema.Array(BindingRow));
-const decodeQueryParamRows = Schema.decodeUnknownSync(Schema.Array(QueryParamRow));
-const decodeHeaderRows = Schema.decodeUnknownSync(Schema.Array(HeaderRow));
-const decodeFetchHeaderRows = Schema.decodeUnknownSync(Schema.Array(FetchHeaderRow));
-const decodeFetchQueryParamRows = Schema.decodeUnknownSync(Schema.Array(FetchQueryParamRow));
-const decodeTableInfoRows = Schema.decodeUnknownSync(Schema.Array(TableInfoRow));
 const decodeCountRow = Schema.decodeUnknownSync(CountRow);
-const decodeSourceJsonRow = Schema.decodeUnknownSync(SourceJsonRow);
-const decodeJsonRecord = Schema.decodeUnknownSync(
-  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
-);
+const decodePluginStorageRow = Schema.decodeUnknownSync(PluginStorageRow);
+const decodePluginStorageData = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 describe("0007_normalize_plugin_secret_refs (openapi)", () => {
   let dir: string;
@@ -257,55 +222,44 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
 
     const after = openDatabase(dbPath, { readonly: true });
 
-    const qpRows = decodeQueryParamRows(
-      after
-        .prepare(
-          "SELECT name, kind, text_value, slot_key, prefix FROM openapi_source_query_param WHERE source_id = ? ORDER BY name",
-        )
-        .all("src"),
-    );
-    expect(qpRows).toHaveLength(2);
-    const byName = new Map(qpRows.map((r) => [r.name, r]));
-    expect(byName.get("api_key")).toMatchObject({
-      kind: "binding",
-      slot_key: "query_param:api-key",
-      prefix: null,
+    const sourceData = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("openapi", "source", "src"),
+      ).data,
+    ) as {
+      readonly config: {
+        readonly queryParams?: Record<string, unknown>;
+        readonly specFetchCredentials?: {
+          readonly headers?: Record<string, unknown>;
+          readonly queryParams?: Record<string, unknown>;
+        };
+      };
+    };
+    expect(sourceData.config.queryParams).toMatchObject({
+      api_key: { kind: "binding", slot: "query_param:api-key" },
+      flag: "true",
     });
-    expect(byName.get("flag")).toMatchObject({
-      kind: "text",
-      text_value: "true",
-      slot_key: null,
-    });
-
-    const fetchHeaders = decodeFetchHeaderRows(
-      after
-        .prepare(
-          "SELECT name, kind, slot_key, prefix FROM openapi_source_spec_fetch_header WHERE source_id = ?",
-        )
-        .all("src"),
-    );
-    expect(fetchHeaders).toHaveLength(1);
-    expect(fetchHeaders[0]).toMatchObject({
-      name: "Authorization",
+    expect(sourceData.config.specFetchCredentials?.headers?.Authorization).toMatchObject({
       kind: "binding",
-      slot_key: "spec_fetch_header:authorization",
+      slot: "spec_fetch_header:authorization",
       prefix: "Bearer ",
     });
-
-    const fetchQp = decodeFetchQueryParamRows(
+    expect(sourceData.config.specFetchCredentials?.queryParams?.token).toMatchObject({
+      kind: "binding",
+      slot: "spec_fetch_query_param:token",
+    });
+    const oldQueryParamTableCount = decodeCountRow(
       after
         .prepare(
-          "SELECT name, kind, slot_key, prefix FROM openapi_source_spec_fetch_query_param WHERE source_id = ?",
+          "SELECT count(*) as n FROM sqlite_master WHERE type = 'table' AND name = 'openapi_source_query_param'",
         )
-        .all("src"),
+        .get(),
     );
-    expect(fetchQp).toHaveLength(1);
-    expect(fetchQp[0]).toMatchObject({
-      name: "token",
-      kind: "binding",
-      slot_key: "spec_fetch_query_param:token",
-      prefix: null,
-    });
+    expect(oldQueryParamTableCount.n).toBe(0);
 
     const bindings = decodeBindingRows(
       after
@@ -320,10 +274,14 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
       ["spec_fetch_query_param:token", "secret", "fetch-qp"],
     ]);
 
-    // Old json columns dropped.
-    const cols = decodeTableInfoRows(after.prepare("PRAGMA table_info('openapi_source')").all());
-    expect(cols.some((c) => c.name === "query_params")).toBe(false);
-    expect(cols.some((c) => c.name === "invocation_config")).toBe(false);
+    const oldSourceTableCount = decodeCountRow(
+      after
+        .prepare(
+          "SELECT count(*) as n FROM sqlite_master WHERE type = 'table' AND name = 'openapi_source'",
+        )
+        .get(),
+    );
+    expect(oldSourceTableCount.n).toBe(0);
   });
 
   it("fails instead of silently collapsing colliding legacy query parameter slots", () => {
@@ -423,37 +381,35 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
     closeDatabase(drizzleSqlite);
 
     const after = openDatabase(dbPath, { readonly: true });
-    const source = decodeSourceJsonRow(
-      after.prepare("SELECT oauth2 FROM openapi_source WHERE id = ?").get("src"),
-    );
-    const headerRows = decodeHeaderRows(
+    const source = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("openapi", "source", "src"),
+      ).data,
+    ) as {
+      readonly config: {
+        readonly headers?: Record<string, unknown>;
+        readonly oauth2?: Record<string, unknown>;
+      };
+    };
+    expect(source.config.headers).toMatchObject({
+      Authorization: { kind: "binding", slot: "header:authorization", prefix: "Bearer " },
+      "X-Static": "literal",
+      "X-Already": { kind: "binding", slot: "header:x-already" },
+    });
+    const oldHeaderTableCount = decodeCountRow(
       after
         .prepare(
-          "SELECT name, kind, text_value, slot_key, prefix FROM openapi_source_header WHERE source_id = ? ORDER BY name",
+          "SELECT count(*) as n FROM sqlite_master WHERE type = 'table' AND name = 'openapi_source_header'",
         )
-        .all("src"),
+        .get(),
     );
-    expect(headerRows).toHaveLength(3);
-    const headersByName = new Map(headerRows.map((row) => [row.name, row]));
-    expect(headersByName.get("Authorization")).toMatchObject({
-      kind: "binding",
-      text_value: null,
-      slot_key: "header:authorization",
-      prefix: "Bearer ",
-    });
-    expect(headersByName.get("X-Static")).toMatchObject({
-      kind: "text",
-      text_value: "literal",
-      slot_key: null,
-      prefix: null,
-    });
-    expect(headersByName.get("X-Already")).toMatchObject({
-      kind: "binding",
-      slot_key: "header:x-already",
-      prefix: null,
-    });
+    expect(oldHeaderTableCount.n).toBe(0);
 
-    const migratedOAuth2 = decodeJsonRecord(source.oauth2 ?? "{}");
+    const migratedOAuth2 = source.config.oauth2 ?? {};
     expect(migratedOAuth2).toMatchObject({
       kind: "oauth2",
       securitySchemeName: "oauth2",
@@ -480,8 +436,14 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
       ["oauth2:oauth2:connection", "connection", null, "conn-1"],
     ]);
 
-    const cols = decodeTableInfoRows(after.prepare("PRAGMA table_info('openapi_source')").all());
-    expect(cols.some((c) => c.name === "headers")).toBe(false);
+    const oldSourceTableCount = decodeCountRow(
+      after
+        .prepare(
+          "SELECT count(*) as n FROM sqlite_master WHERE type = 'table' AND name = 'openapi_source'",
+        )
+        .get(),
+    );
+    expect(oldSourceTableCount.n).toBe(0);
   });
 
   it("survives empty / missing json on bindings and sources", () => {
@@ -501,11 +463,15 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
     closeDatabase(drizzleSqlite);
 
     const after = openDatabase(dbPath, { readonly: true });
-    const qpCount = decodeCountRow(
-      after
-        .prepare("SELECT count(*) as n FROM openapi_source_query_param WHERE source_id = ?")
-        .get("bare"),
-    ).n;
-    expect(qpCount).toBe(0);
+    const source = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("openapi", "source", "bare"),
+      ).data,
+    ) as { readonly config: { readonly queryParams?: unknown } };
+    expect(source.config.queryParams).toBeUndefined();
   });
 });

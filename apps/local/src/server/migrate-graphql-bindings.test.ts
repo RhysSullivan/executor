@@ -18,26 +18,8 @@ const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
 const NullableString = Schema.NullOr(Schema.String);
 
-const GraphqlAuthRow = Schema.Struct({
-  auth_kind: Schema.String,
-  auth_connection_slot: NullableString,
-});
-
 const TableInfoRow = Schema.Struct({
   name: Schema.String,
-});
-
-const GraphqlHeaderRow = Schema.Struct({
-  name: Schema.String,
-  kind: Schema.String,
-  text_value: NullableString,
-  slot_key: NullableString,
-  prefix: NullableString,
-});
-
-const GraphqlQueryParamRow = Schema.Struct({
-  kind: Schema.String,
-  slot_key: Schema.String,
 });
 
 const BindingRow = Schema.Struct({
@@ -51,24 +33,12 @@ const BindingRow = Schema.Struct({
   connection_id: NullableString,
 });
 
-const CountRow = Schema.Struct({
-  n: Schema.Number,
-});
+const PluginStorageRow = Schema.Struct({ data: Schema.String });
 
-const GraphqlHeaderIdRow = Schema.Struct({
-  id: Schema.String,
-  source_id: Schema.String,
-  name: Schema.String,
-  text_value: Schema.String,
-});
-
-const decodeAuthRow = Schema.decodeUnknownSync(GraphqlAuthRow);
 const decodeTableInfoRows = Schema.decodeUnknownSync(Schema.Array(TableInfoRow));
-const decodeHeaderRows = Schema.decodeUnknownSync(Schema.Array(GraphqlHeaderRow));
-const decodeQueryParamRow = Schema.decodeUnknownSync(GraphqlQueryParamRow);
 const decodeBindingRows = Schema.decodeUnknownSync(Schema.Array(BindingRow));
-const decodeCountRow = Schema.decodeUnknownSync(CountRow);
-const decodeHeaderIdRows = Schema.decodeUnknownSync(Schema.Array(GraphqlHeaderIdRow));
+const decodePluginStorageRow = Schema.decodeUnknownSync(PluginStorageRow);
+const decodePluginStorageData = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 let dir: string;
 
@@ -103,13 +73,17 @@ describe("graphql credential migrations", () => {
     migrate(drizzleDb, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const after = new Database(dbPath, { readonly: true });
-    const row = decodeAuthRow(
-      after
-        .prepare("SELECT auth_kind, auth_connection_slot FROM graphql_source WHERE id = ?")
-        .get("github"),
-    );
-    expect(row.auth_kind).toBe("oauth2");
-    expect(row.auth_connection_slot).toBe("auth:oauth2:connection");
+    const source = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("graphql", "source", "github"),
+      ).data,
+    ) as { readonly auth: { readonly kind: string; readonly connectionSlot?: string } };
+    expect(source.auth.kind).toBe("oauth2");
+    expect(source.auth.connectionSlot).toBe("auth:oauth2:connection");
     const bindings = decodeBindingRows(
       after
         .prepare(
@@ -174,39 +148,27 @@ describe("graphql credential migrations", () => {
     migrate(drizzleDb, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const after = new Database(dbPath, { readonly: true });
-    const headerRows = decodeHeaderRows(
-      after
-        .prepare(
-          "SELECT name, kind, text_value, slot_key, prefix FROM graphql_source_header WHERE source_id = ? ORDER BY name",
-        )
-        .all("example"),
-    );
-    expect(headerRows).toHaveLength(3);
-
-    const byName = new Map(headerRows.map((r) => [r.name, r]));
-    expect(byName.get("X-Static")).toMatchObject({
-      kind: "text",
-      text_value: "literal-value",
-      slot_key: null,
+    const source = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("graphql", "source", "example"),
+      ).data,
+    ) as {
+      readonly headers: Record<string, unknown>;
+      readonly queryParams: Record<string, unknown>;
+    };
+    expect(source.headers).toMatchObject({
+      "X-Static": "literal-value",
+      Authorization: { kind: "binding", slot: "header:authorization" },
+      "X-Bearer": { kind: "binding", slot: "header:x-bearer", prefix: "Bearer " },
     });
-    expect(byName.get("Authorization")).toMatchObject({
+    expect(source.queryParams.api_key).toMatchObject({
       kind: "binding",
-      text_value: null,
-      slot_key: "header:authorization",
-      prefix: null,
+      slot: "query_param:api-key",
     });
-    expect(byName.get("X-Bearer")).toMatchObject({
-      kind: "binding",
-      slot_key: "header:x-bearer",
-      prefix: "Bearer ",
-    });
-
-    const paramRow = decodeQueryParamRow(
-      after
-        .prepare("SELECT kind, slot_key FROM graphql_source_query_param WHERE source_id = ?")
-        .get("example"),
-    );
-    expect(paramRow).toMatchObject({ kind: "binding", slot_key: "query_param:api-key" });
 
     const bindings = decodeBindingRows(
       after
@@ -298,20 +260,17 @@ describe("graphql credential migrations", () => {
     migrate(drizzleDb, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const after = new Database(dbPath, { readonly: true });
-    const row = decodeAuthRow(
-      after
-        .prepare("SELECT auth_kind, auth_connection_slot FROM graphql_source WHERE id = ?")
-        .get("bare"),
-    );
-    expect(row.auth_kind).toBe("none");
-    expect(row.auth_connection_slot).toBeNull();
-
-    const headerCount = decodeCountRow(
-      after
-        .prepare("SELECT count(*) as n FROM graphql_source_header WHERE source_id = ?")
-        .get("bare"),
-    ).n;
-    expect(headerCount).toBe(0);
+    const source = decodePluginStorageData(
+      decodePluginStorageRow(
+        after
+          .prepare(
+            "SELECT data FROM plugin_storage WHERE plugin_id = ? AND collection = ? AND key = ?",
+          )
+          .get("graphql", "source", "bare"),
+      ).data,
+    ) as { readonly auth: { readonly kind: string }; readonly headers: Record<string, unknown> };
+    expect(source.auth.kind).toBe("none");
+    expect(source.headers).toEqual({});
     after.close();
   });
 
@@ -344,28 +303,21 @@ describe("graphql credential migrations", () => {
     migrate(drizzleDb, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const after = new Database(dbPath, { readonly: true });
-    const rows = decodeHeaderIdRows(
-      after
-        .prepare(
-          "SELECT id, source_id, name, text_value FROM graphql_source_header ORDER BY source_id, name",
-        )
-        .all(),
-    );
-    expect(rows).toHaveLength(2);
-    expect(rows).toEqual([
-      {
-        id: '["a","b:c"]',
-        source_id: "a",
-        name: "b:c",
-        text_value: "second",
-      },
-      {
-        id: '["a:b","c"]',
-        source_id: "a:b",
-        name: "c",
-        text_value: "first",
-      },
-    ]);
+    const rows = after
+      .prepare(
+        "SELECT key, data FROM plugin_storage WHERE plugin_id = ? AND collection = ? ORDER BY key",
+      )
+      .all("graphql", "source")
+      .map((row) => {
+        const decoded = decodePluginStorageRow(row);
+        return { key: (row as { key: string }).key, data: decodePluginStorageData(decoded.data) };
+      }) as ReadonlyArray<{
+      readonly key: string;
+      readonly data: { readonly headers: Record<string, unknown> };
+    }>;
+    expect(rows.map((row) => row.key)).toEqual(["a", "a:b"]);
+    expect(rows[0]?.data.headers).toEqual({ "b:c": "second" });
+    expect(rows[1]?.data.headers).toEqual({ c: "first" });
     after.close();
   });
 });

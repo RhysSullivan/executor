@@ -55,7 +55,18 @@ export {
   SourceCredentialBindingSourceInput,
   SourceCredentialBindingSlotInput,
   credentialSlotKey,
+  credentialSlotPart,
 } from "./credential-bindings";
+
+export {
+  pluginStorageId,
+  type PluginStorageEntry,
+  type PluginStorageFacade,
+  type PluginStorageKeyInput,
+  type PluginStorageListInput,
+  type PluginStoragePutInput,
+  type PluginStorageScopedKeyInput,
+} from "./plugin-storage";
 
 export { SourceDetectionResult, type Source } from "./types";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Data, Effect, Predicate } from "effect";
+import { Data, Effect, Predicate, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 
 import { scopedExecutorTable, textColumn } from "./core-schema";
@@ -187,6 +187,50 @@ const caseSensitiveDynamicPlugin = definePlugin(() => ({
       }),
   }),
   invokeTool: ({ toolRow }) => Effect.succeed({ invokedToolId: toolRow.id }),
+}))();
+
+const configurableSourcePlugin = definePlugin(() => ({
+  id: "configurable" as const,
+  storage: ({ pluginStorage }) => ({
+    get: (scope: string, sourceId = "configured-source") =>
+      pluginStorage.getAtScope<{ readonly header: string; readonly sourceScope: string }>({
+        scope,
+        collection: "source-config",
+        key: sourceId,
+      }),
+    visible: (sourceId = "configured-source") =>
+      pluginStorage.get<{ readonly header: string; readonly sourceScope: string }>({
+        collection: "source-config",
+        key: sourceId,
+      }),
+  }),
+  extension: (ctx) => ({
+    registerSource: (scope: string) =>
+      ctx.core.sources.register({
+        id: "configured-source",
+        scope,
+        kind: "configurable",
+        name: "Configurable Source",
+        canRemove: true,
+        tools: [{ name: "run", description: "run configurable source" }],
+      }),
+    getConfigAtScope: (scope: string) => ctx.storage.get(scope),
+    getVisibleConfig: () => ctx.storage.visible(),
+  }),
+  sourceConfigure: {
+    type: "configurable",
+    schema: Schema.Struct({ header: Schema.String }),
+    configure: ({ ctx, sourceId, sourceScope, targetScope, config }) =>
+      ctx.pluginStorage.put({
+        scope: targetScope,
+        collection: "source-config",
+        key: sourceId,
+        data: {
+          ...(config as { readonly header: string }),
+          sourceScope,
+        },
+      }),
+  },
 }))();
 
 describe("createExecutor", () => {
@@ -387,6 +431,46 @@ describe("createExecutor", () => {
       expect(error).toBeInstanceOf(ToolNotFoundError);
       if (!Predicate.isTagged("ToolNotFoundError")(error)) return;
       expect(error.suggestions).toEqual(["case_source.listdashboards"]);
+    }),
+  );
+
+  it.effect("dispatches source.configure through the owning plugin with explicit scopes", () =>
+    Effect.gen(function* () {
+      const orgScope = Scope.make({
+        id: ScopeId.make("org"),
+        name: "Org",
+        createdAt: new Date(),
+      });
+      const userScope = Scope.make({
+        id: ScopeId.make("user"),
+        name: "User",
+        createdAt: new Date(),
+      });
+      const executor = yield* createExecutor({
+        scopes: [userScope, orgScope],
+        plugins: [configurableSourcePlugin] as const,
+        onElicitation: "accept-all",
+      });
+
+      yield* executor.configurable.registerSource("org");
+      yield* executor.sources.configure({
+        source: { id: "configured-source", scope: "org" },
+        scope: "org",
+        type: "configurable",
+        config: { header: "org-token" },
+      });
+      yield* executor.sources.configure({
+        source: { id: "configured-source", scope: "org" },
+        scope: "user",
+        type: "configurable",
+        config: { header: "user-token" },
+      });
+
+      const orgConfig = yield* executor.configurable.getConfigAtScope("org");
+      const visibleConfig = yield* executor.configurable.getVisibleConfig();
+
+      expect(orgConfig?.data).toEqual({ header: "org-token", sourceScope: "org" });
+      expect(visibleConfig?.data).toEqual({ header: "user-token", sourceScope: "org" });
     }),
   );
 });

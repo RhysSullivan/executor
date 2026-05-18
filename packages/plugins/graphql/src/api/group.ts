@@ -4,13 +4,11 @@ import { InternalError, ScopeId } from "@executor-js/sdk/shared";
 
 import { GraphqlIntrospectionError, GraphqlExtractionError } from "../sdk/errors";
 import {
+  GraphqlConfiguredValueInput,
   ConfiguredGraphqlCredentialValue,
-  GraphqlCredentialInput,
   GraphqlSourceAuth,
-  GraphqlSourceAuthInput,
-  GraphqlSourceBindingInput,
-  GraphqlSourceBindingRef,
 } from "../sdk/types";
+import { OAuth2SourceConfig } from "@executor-js/plugin-http-source/sdk";
 
 // StoredGraphqlSource shape as an HTTP response schema. Kept local to the
 // api layer because the sdk-side `StoredGraphqlSource` is a plain interface.
@@ -37,47 +35,18 @@ const SourceParams = {
   namespace: Schema.String,
 };
 
-const SourceBindingParams = {
-  scopeId: ScopeId,
-  namespace: Schema.String,
-  sourceScopeId: ScopeId,
-};
-
 // ---------------------------------------------------------------------------
 // Payloads
 // ---------------------------------------------------------------------------
 
 const AddSourcePayload = Schema.Struct({
-  targetScope: ScopeId,
   endpoint: Schema.String,
-  name: Schema.optional(Schema.String),
+  name: Schema.String,
   introspectionJson: Schema.optional(Schema.String),
-  namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record(Schema.String, GraphqlCredentialInput)),
-  queryParams: Schema.optional(Schema.Record(Schema.String, GraphqlCredentialInput)),
-  credentialTargetScope: Schema.optional(ScopeId),
-  auth: Schema.optional(GraphqlSourceAuthInput),
-});
-
-const UpdateSourcePayload = Schema.Struct({
-  sourceScope: ScopeId,
-  name: Schema.optional(Schema.String),
-  endpoint: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record(Schema.String, GraphqlCredentialInput)),
-  queryParams: Schema.optional(Schema.Record(Schema.String, GraphqlCredentialInput)),
-  credentialTargetScope: Schema.optional(ScopeId),
-  auth: Schema.optional(GraphqlSourceAuthInput),
-});
-
-const UpdateSourceResponse = Schema.Struct({
-  updated: Schema.Boolean,
-});
-
-const RemoveBindingPayload = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScope: ScopeId,
-  slot: Schema.String,
-  scope: ScopeId,
+  namespace: Schema.String,
+  headers: Schema.optional(Schema.Record(Schema.String, GraphqlConfiguredValueInput)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, GraphqlConfiguredValueInput)),
+  oauth2: Schema.optional(OAuth2SourceConfig),
 });
 
 // ---------------------------------------------------------------------------
@@ -126,41 +95,6 @@ export const GraphqlGroup = HttpApiGroup.make("graphql")
     HttpApiEndpoint.get("getSource", "/scopes/:scopeId/graphql/sources/:namespace", {
       params: SourceParams,
       success: Schema.NullOr(StoredSourceSchema),
-      error: GraphqlErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.patch("updateSource", "/scopes/:scopeId/graphql/sources/:namespace", {
-      params: SourceParams,
-      payload: UpdateSourcePayload,
-      success: UpdateSourceResponse,
-      error: GraphqlErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.get(
-      "listSourceBindings",
-      "/scopes/:scopeId/graphql/sources/:namespace/base/:sourceScopeId/bindings",
-      {
-        params: SourceBindingParams,
-        success: Schema.Array(GraphqlSourceBindingRef),
-        error: GraphqlErrors,
-      },
-    ),
-  )
-  .add(
-    HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/graphql/source-bindings", {
-      params: ScopeParams,
-      payload: GraphqlSourceBindingInput,
-      success: GraphqlSourceBindingRef,
-      error: GraphqlErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.post("removeSourceBinding", "/scopes/:scopeId/graphql/source-bindings/remove", {
-      params: ScopeParams,
-      payload: RemoveBindingPayload,
-      success: Schema.Struct({ removed: Schema.Boolean }),
       error: GraphqlErrors,
     }),
   );

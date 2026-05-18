@@ -346,12 +346,17 @@ describe("tenant isolation (HTTP)", () => {
       );
 
       yield* asOrg(orgA, (client) =>
-        client.openapi.updateSource({
-          params: { scopeId: ScopeId.make(orgA), namespace },
+        client.sources.configure({
+          params: { scopeId: ScopeId.make(orgA) },
           payload: {
-            sourceScope: ScopeId.make(orgA),
-            name: "Org A Updated API",
-            baseUrl: "https://org-a-updated.example.com",
+            source: { id: namespace, scope: ScopeId.make(orgA) },
+            scope: ScopeId.make(orgA),
+            type: "openapi",
+            config: {
+              scope: orgA,
+              name: "Org A Updated API",
+              baseUrl: "https://org-a-updated.example.com",
+            },
           },
         }),
       );

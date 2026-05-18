@@ -71,8 +71,8 @@ export const McpRemoteSourceConfig = Schema.Struct({
   endpoint: Schema.String,
   remoteTransport: Schema.optional(Schema.Literals(["streamable-http", "sse", "auto"])),
   namespace: Schema.optional(Schema.String),
-  queryParams: Schema.optional(StringMap),
-  headers: Schema.optional(StringMap),
+  queryParams: Schema.optional(ConfigHeaders),
+  headers: Schema.optional(ConfigHeaders),
   auth: Schema.optional(McpAuthConfig),
 });
 export type McpRemoteSourceConfig = typeof McpRemoteSourceConfig.Type;

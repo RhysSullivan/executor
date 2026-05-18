@@ -111,6 +111,20 @@ export const credential_binding = pgTable("credential_binding", {
   uniqueIndex("credential_binding_scope_id_id_uidx").on(table.scope_id, table.id)
 ])
 
+export const plugin_storage = pgTable("plugin_storage", {
+  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
+  id: varchar("id", { length: 255 }).notNull(),
+  scope_id: varchar("scope_id", { length: 255 }).notNull(),
+  plugin_id: text("plugin_id").notNull(),
+  collection: text("collection").notNull(),
+  key: text("key").notNull(),
+  data: json("data").notNull(),
+  created_at: timestamp("created_at").notNull(),
+  updated_at: timestamp("updated_at").notNull()
+}, (table) => [
+  uniqueIndex("plugin_storage_scope_id_id_uidx").on(table.scope_id, table.id)
+])
+
 export const tool_policy = pgTable("tool_policy", {
   row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
   id: varchar("id", { length: 255 }).notNull(),
@@ -132,192 +146,6 @@ export const blob = pgTable("blob", {
   value: text("value").notNull()
 }, (table) => [
   uniqueIndex("blob_id_uidx").on(table.id)
-])
-
-export const openapi_source = pgTable("openapi_source", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  name: text("name").notNull(),
-  spec: text("spec").notNull(),
-  source_url: text("source_url"),
-  base_url: text("base_url"),
-  oauth2: json("oauth2")
-}, (table) => [
-  uniqueIndex("openapi_source_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const openapi_operation = pgTable("openapi_operation", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  binding: json("binding").notNull()
-}, (table) => [
-  uniqueIndex("openapi_operation_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const openapi_source_header = pgTable("openapi_source_header", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(),
-  text_value: text("text_value"),
-  slot_key: text("slot_key"),
-  prefix: text("prefix")
-}, (table) => [
-  uniqueIndex("openapi_source_header_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const openapi_source_query_param = pgTable("openapi_source_query_param", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(),
-  text_value: text("text_value"),
-  slot_key: text("slot_key"),
-  prefix: text("prefix")
-}, (table) => [
-  uniqueIndex("openapi_source_query_param_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const openapi_source_spec_fetch_header = pgTable("openapi_source_spec_fetch_header", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(),
-  text_value: text("text_value"),
-  slot_key: text("slot_key"),
-  prefix: text("prefix")
-}, (table) => [
-  uniqueIndex("openapi_source_spec_fetch_header_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const openapi_source_spec_fetch_query_param = pgTable("openapi_source_spec_fetch_query_param", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(),
-  text_value: text("text_value"),
-  slot_key: text("slot_key"),
-  prefix: text("prefix")
-}, (table) => [
-  uniqueIndex("openapi_source_spec_fetch_query_param_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const mcp_source = pgTable("mcp_source", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  name: text("name").notNull(),
-  config: json("config").notNull(),
-  auth_kind: text("auth_kind").notNull().default("none"),
-  auth_header_name: text("auth_header_name"),
-  auth_header_slot: text("auth_header_slot"),
-  auth_header_prefix: text("auth_header_prefix"),
-  auth_connection_slot: text("auth_connection_slot"),
-  auth_client_id_slot: text("auth_client_id_slot"),
-  auth_client_secret_slot: text("auth_client_secret_slot"),
-  created_at: timestamp("created_at").notNull()
-}, (table) => [
-  uniqueIndex("mcp_source_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const mcp_source_header = pgTable("mcp_source_header", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(),
-  text_value: text("text_value"),
-  slot_key: text("slot_key"),
-  prefix: text("prefix")
-}, (table) => [
-  uniqueIndex("mcp_source_header_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const mcp_source_query_param = pgTable("mcp_source_query_param", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(),
-  text_value: text("text_value"),
-  slot_key: text("slot_key"),
-  prefix: text("prefix")
-}, (table) => [
-  uniqueIndex("mcp_source_query_param_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const mcp_binding = pgTable("mcp_binding", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  binding: json("binding").notNull(),
-  created_at: timestamp("created_at").notNull()
-}, (table) => [
-  uniqueIndex("mcp_binding_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const graphql_source = pgTable("graphql_source", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  name: text("name").notNull(),
-  endpoint: text("endpoint").notNull(),
-  auth_kind: text("auth_kind").notNull().default("none"),
-  auth_connection_slot: text("auth_connection_slot")
-}, (table) => [
-  uniqueIndex("graphql_source_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const graphql_source_header = pgTable("graphql_source_header", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(),
-  text_value: text("text_value"),
-  slot_key: text("slot_key"),
-  prefix: text("prefix")
-}, (table) => [
-  uniqueIndex("graphql_source_header_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const graphql_source_query_param = pgTable("graphql_source_query_param", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(),
-  text_value: text("text_value"),
-  slot_key: text("slot_key"),
-  prefix: text("prefix")
-}, (table) => [
-  uniqueIndex("graphql_source_query_param_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
-export const graphql_operation = pgTable("graphql_operation", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  source_id: text("source_id").notNull(),
-  binding: json("binding").notNull()
-}, (table) => [
-  uniqueIndex("graphql_operation_scope_id_id_uidx").on(table.scope_id, table.id)
 ])
 
 export const workos_vault_metadata = pgTable("workos_vault_metadata", {

@@ -62,5 +62,3 @@ export const addOpenApiSpecOptimistic = Atom.family((scopeId: ScopeId) =>
     }),
   ),
 );
-
-export const updateOpenApiSource = OpenApiClient.mutation("openapi", "updateSource");

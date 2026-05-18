@@ -1,22 +1,17 @@
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option, Predicate, Schema } from "effect";
 
 import {
-  type FumaRow,
   type FumaTables,
-  jsonColumn,
-  nullableJsonColumn,
-  nullableTextColumn,
-  scopedExecutorTable,
+  type PluginStorageEntry,
   type StorageDeps,
   type StorageFailure,
-  textColumn,
 } from "@executor-js/sdk/core";
 
 import {
-  ConfiguredHeaderValue,
   ConfiguredHeaderBinding,
   OAuth2SourceConfig,
   OperationBinding,
+  type ConfiguredHeaderValue,
 } from "./types";
 export {
   StoredSourceSchema,
@@ -28,87 +23,11 @@ export {
   queryParamBindingSlot,
 } from "./source-contracts";
 
-// ---------------------------------------------------------------------------
-// Schema:
-//   - openapi_source: one row per onboarded spec (baseUrl, oauth2, ...)
-//   - openapi_operation: one row per operation binding keyed by tool id
-// ---------------------------------------------------------------------------
-
-// Each of the source-owned credential-structure child tables (`openapi_source_header`,
-// `openapi_source_query_param`,
-// `openapi_source_spec_fetch_header`,
-// `openapi_source_spec_fetch_query_param`) shares the same column shape:
-// id/scope_id/source_id/name plus a `kind` enum that discriminates a
-// literal text value from a credential slot binding (with optional prefix).
-// The fields are inlined per-table because FumaDB's table type
-// narrowing relies on the literal types staying on the original
-// declaration site.
-
-export const openapiSchema = {
-  openapi_source: scopedExecutorTable("openapi_source", {
-    name: textColumn("name"),
-    spec: textColumn("spec"),
-    // Origin URL the spec was fetched from. Set when `addSpec` was
-    // invoked with an http(s) URL; null when the caller passed raw
-    // spec text. Drives `canRefresh` on the core source row and
-    // is the address re-fetched on `refreshSource`.
-    source_url: nullableTextColumn("source_url"),
-    base_url: nullableTextColumn("base_url"),
-    // OAuth2 stays JSON because it is one typed source-owned config object
-    // carrying slot names, not concrete secret/connection ids.
-    oauth2: nullableJsonColumn("oauth2"),
-  }),
-  openapi_operation: scopedExecutorTable("openapi_operation", {
-    source_id: textColumn("source_id"),
-    binding: jsonColumn("binding"),
-  }),
-  openapi_source_header: scopedExecutorTable("openapi_source_header", {
-    source_id: textColumn("source_id"),
-    name: textColumn("name"),
-    kind: textColumn("kind"),
-    text_value: nullableTextColumn("text_value"),
-    slot_key: nullableTextColumn("slot_key"),
-    prefix: nullableTextColumn("prefix"),
-  }),
-  openapi_source_query_param: scopedExecutorTable("openapi_source_query_param", {
-    source_id: textColumn("source_id"),
-    name: textColumn("name"),
-    kind: textColumn("kind"),
-    text_value: nullableTextColumn("text_value"),
-    slot_key: nullableTextColumn("slot_key"),
-    prefix: nullableTextColumn("prefix"),
-  }),
-  openapi_source_spec_fetch_header: scopedExecutorTable("openapi_source_spec_fetch_header", {
-    source_id: textColumn("source_id"),
-    name: textColumn("name"),
-    kind: textColumn("kind"),
-    text_value: nullableTextColumn("text_value"),
-    slot_key: nullableTextColumn("slot_key"),
-    prefix: nullableTextColumn("prefix"),
-  }),
-  openapi_source_spec_fetch_query_param: scopedExecutorTable(
-    "openapi_source_spec_fetch_query_param",
-    {
-      source_id: textColumn("source_id"),
-      name: textColumn("name"),
-      kind: textColumn("kind"),
-      text_value: nullableTextColumn("text_value"),
-      slot_key: nullableTextColumn("slot_key"),
-      prefix: nullableTextColumn("prefix"),
-    },
-  ),
-} satisfies FumaTables;
-
+export const openapiSchema = {} satisfies FumaTables;
 export type OpenapiSchema = typeof openapiSchema;
-
-// ---------------------------------------------------------------------------
-// In-memory shapes
-// ---------------------------------------------------------------------------
 
 export interface SourceConfig {
   readonly spec: string;
-  /** Origin URL when the spec was fetched from http(s). Absent for
-   *  raw-text adds. Persisted so `refreshSource` can re-fetch. */
   readonly sourceUrl?: string;
   readonly baseUrl?: string;
   readonly namespace?: string;
@@ -125,8 +44,6 @@ export interface OpenApiSpecFetchCredentials {
 
 export interface StoredSource {
   readonly namespace: string;
-  /** Executor scope id this source row lives in. Writes stamp this on
-   *  `scope_id`; reads choose scope explicitly in the FumaDB query. */
   readonly scope: string;
   readonly name: string;
   readonly config: SourceConfig;
@@ -138,10 +55,8 @@ export interface StoredOperation {
   readonly binding: OperationBinding;
 }
 
-// ---------------------------------------------------------------------------
-// Schema encode/decode — OperationBinding has Option fields, so we must use
-// Schema.encode/decode rather than plain JSON to round-trip correctly.
-// ---------------------------------------------------------------------------
+const SOURCE_COLLECTION = "source";
+const OPERATION_COLLECTION = "operation";
 
 const encodeBinding = Schema.encodeSync(OperationBinding);
 const decodeBinding = Schema.decodeUnknownSync(OperationBinding);
@@ -155,107 +70,40 @@ const encodeOAuth2SourceConfig = Schema.encodeSync(OAuth2SourceConfig);
 
 const NullableString = Schema.NullOr(Schema.String);
 const OptionalNullableString = Schema.optional(NullableString);
-
-const ChildStorageRow = Schema.Struct({
-  name: Schema.String,
-  kind: Schema.Literals(["text", "binding"]),
-  text_value: OptionalNullableString,
-  slot_key: OptionalNullableString,
+const ConfiguredHeaderBindingStorage = Schema.Struct({
+  kind: Schema.Literal("binding"),
+  slot: Schema.String,
   prefix: OptionalNullableString,
 });
-const decodeChildStorageRowOption = Schema.decodeUnknownOption(ChildStorageRow);
-
-const SourceStorageRow = Schema.Struct({
-  id: Schema.String,
-  scope_id: Schema.String,
-  name: Schema.String,
+const ConfiguredHeaderValueStorage = Schema.Union([Schema.String, ConfiguredHeaderBindingStorage]);
+const ConfiguredHeaderMapStorage = Schema.Record(Schema.String, ConfiguredHeaderValueStorage);
+const SpecFetchCredentialsStorage = Schema.Struct({
+  headers: Schema.optional(ConfiguredHeaderMapStorage),
+  queryParams: Schema.optional(ConfiguredHeaderMapStorage),
+});
+const SourceConfigStorage = Schema.Struct({
   spec: Schema.String,
-  source_url: OptionalNullableString,
-  base_url: OptionalNullableString,
+  sourceUrl: Schema.optional(Schema.String),
+  baseUrl: Schema.optional(Schema.String),
+  namespace: Schema.optional(Schema.String),
+  headers: Schema.optional(ConfiguredHeaderMapStorage),
+  queryParams: Schema.optional(ConfiguredHeaderMapStorage),
+  specFetchCredentials: Schema.optional(SpecFetchCredentialsStorage),
   oauth2: Schema.optional(Schema.Unknown),
 });
-const decodeSourceStorageRow = Schema.decodeUnknownSync(SourceStorageRow);
-
-const OperationStorageRow = Schema.Struct({
-  id: Schema.String,
-  source_id: Schema.String,
+const SourceStorage = Schema.Struct({
+  namespace: Schema.String,
+  scope: Schema.String,
+  name: Schema.String,
+  config: SourceConfigStorage,
+});
+const OperationStorage = Schema.Struct({
+  toolId: Schema.String,
+  sourceId: Schema.String,
   binding: Schema.Unknown,
 });
-const decodeOperationStorageRow = Schema.decodeUnknownSync(OperationStorageRow);
-
-type OpenapiSourceRow = FumaRow<OpenapiSchema["openapi_source"]>;
-type OpenapiOperationRow = FumaRow<OpenapiSchema["openapi_operation"]>;
-
-const openapiCredentialChildTables = [
-  "openapi_source_header",
-  "openapi_source_query_param",
-  "openapi_source_spec_fetch_header",
-  "openapi_source_spec_fetch_query_param",
-] as const satisfies readonly (keyof OpenapiSchema)[];
-
-// Collapse a structural credential map into the flat child-table column
-// shape used by openapi_source_header, openapi_source_query_param, and
-// the two openapi_source_spec_fetch_* tables. Returns one record per entry.
-const valueMapToChildRows = (
-  sourceId: string,
-  scope: string,
-  values: Record<string, ConfiguredHeaderValue> | undefined,
-) => {
-  if (!values) return [];
-  return Object.entries(values).map(([name, value]) => {
-    const id = JSON.stringify([sourceId, name]);
-    if (typeof value === "string") {
-      return {
-        id,
-        scope_id: scope,
-        source_id: sourceId,
-        name,
-        kind: "text",
-        text_value: value,
-        slot_key: null,
-        prefix: null,
-      };
-    }
-    return {
-      id,
-      scope_id: scope,
-      source_id: sourceId,
-      name,
-      kind: "binding",
-      text_value: null,
-      slot_key: value.slot,
-      prefix: value.prefix ?? null,
-    };
-  });
-};
-
-const childRowsToValueMap = (
-  rows: readonly Record<string, unknown>[],
-): Record<string, ConfiguredHeaderValue> => {
-  const out: Record<string, ConfiguredHeaderValue> = {};
-  for (const row of rows) {
-    const decoded = decodeChildStorageRowOption(row);
-    if (Option.isSome(decoded)) {
-      const child = decoded.value;
-      if (child.kind === "binding" && child.slot_key != null) {
-        out[child.name] =
-          child.prefix != null
-            ? ConfiguredHeaderBinding.make({
-                kind: "binding",
-                slot: child.slot_key,
-                prefix: child.prefix,
-              })
-            : ConfiguredHeaderBinding.make({
-                kind: "binding",
-                slot: child.slot_key,
-              });
-      } else if (child.kind === "text" && child.text_value != null) {
-        out[child.name] = child.text_value;
-      }
-    }
-  }
-  return out;
-};
+const decodeSourceStorage = Schema.decodeUnknownOption(SourceStorage);
+const decodeOperationStorage = Schema.decodeUnknownOption(OperationStorage);
 
 const toJsonRecord = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
 
@@ -265,25 +113,93 @@ const normalizeStoredOAuth2 = (value: unknown): OAuth2SourceConfig | undefined =
     typeof value === "string"
       ? decodeOAuth2SourceConfigJsonOption(value)
       : decodeOAuth2SourceConfigOption(value);
-  if (Option.isSome(sourceConfig)) {
-    return sourceConfig.value;
-  }
+  if (Option.isSome(sourceConfig)) return sourceConfig.value;
   return undefined;
 };
 
-// ---------------------------------------------------------------------------
-// Store interface
-// ---------------------------------------------------------------------------
+const normalizeConfiguredMap = (
+  values: Readonly<Record<string, typeof ConfiguredHeaderValueStorage.Type>> | undefined,
+): Record<string, ConfiguredHeaderValue> | undefined => {
+  if (!values) return undefined;
+  const normalized: Record<string, ConfiguredHeaderValue> = {};
+  for (const [name, value] of Object.entries(values)) {
+    if (typeof value === "string") {
+      normalized[name] = value;
+    } else {
+      normalized[name] =
+        value.prefix != null
+          ? ConfiguredHeaderBinding.make({
+              kind: "binding",
+              slot: value.slot,
+              prefix: value.prefix,
+            })
+          : ConfiguredHeaderBinding.make({
+              kind: "binding",
+              slot: value.slot,
+            });
+    }
+  }
+  return normalized;
+};
 
-// Every read/write that targets a single row pins BOTH the natural id
-// (namespace, toolId, sessionId) AND the owning `scope_id`. Scope is a
-// normal FumaDB predicate here, not hidden behavior.
+const encodeSourceConfig = (config: SourceConfig): Record<string, unknown> => ({
+  spec: config.spec,
+  ...(config.sourceUrl ? { sourceUrl: config.sourceUrl } : {}),
+  ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
+  ...(config.namespace ? { namespace: config.namespace } : {}),
+  ...(config.headers ? { headers: config.headers } : {}),
+  ...(config.queryParams ? { queryParams: config.queryParams } : {}),
+  ...(config.specFetchCredentials ? { specFetchCredentials: config.specFetchCredentials } : {}),
+  ...(config.oauth2 ? { oauth2: toJsonRecord(encodeOAuth2SourceConfig(config.oauth2)) } : {}),
+});
+
+const rowToSource = (row: PluginStorageEntry): StoredSource | null => {
+  const decoded = decodeSourceStorage(row.data);
+  if (Option.isNone(decoded)) return null;
+  const stored = decoded.value;
+  const oauth2 = normalizeStoredOAuth2(stored.config.oauth2);
+  return {
+    namespace: stored.namespace,
+    scope: stored.scope,
+    name: stored.name,
+    config: {
+      spec: stored.config.spec,
+      sourceUrl: stored.config.sourceUrl,
+      baseUrl: stored.config.baseUrl,
+      namespace: stored.config.namespace,
+      headers: normalizeConfiguredMap(stored.config.headers),
+      queryParams: normalizeConfiguredMap(stored.config.queryParams),
+      specFetchCredentials: stored.config.specFetchCredentials
+        ? {
+            headers: normalizeConfiguredMap(stored.config.specFetchCredentials.headers),
+            queryParams: normalizeConfiguredMap(stored.config.specFetchCredentials.queryParams),
+          }
+        : undefined,
+      oauth2,
+    },
+  };
+};
+
+const rowToOperation = (row: PluginStorageEntry): StoredOperation | null => {
+  const decoded = decodeOperationStorage(row.data);
+  if (Option.isNone(decoded)) return null;
+  const operation = decoded.value;
+  return {
+    toolId: operation.toolId,
+    sourceId: operation.sourceId,
+    binding: decodeBinding(
+      typeof operation.binding === "string"
+        ? decodeBindingJson(operation.binding)
+        : operation.binding,
+    ),
+  };
+};
+
 export interface OpenapiStore {
   readonly upsertSource: (
     input: StoredSource,
     operations: readonly StoredOperation[],
   ) => Effect.Effect<void, StorageFailure>;
-
   readonly updateSourceMeta: (
     namespace: string,
     scope: string,
@@ -296,307 +212,145 @@ export interface OpenapiStore {
       readonly oauth2?: OAuth2SourceConfig;
     },
   ) => Effect.Effect<void, StorageFailure>;
-
   readonly getSource: (
     namespace: string,
     scope: string,
   ) => Effect.Effect<StoredSource | null, StorageFailure>;
-
   readonly listSources: () => Effect.Effect<readonly StoredSource[], StorageFailure>;
-
   readonly getOperationByToolId: (
     toolId: string,
     scope: string,
   ) => Effect.Effect<StoredOperation | null, StorageFailure>;
-
   readonly listOperationsBySource: (
     sourceId: string,
     scope: string,
   ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
-
   readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
-
-  // ---------------------------------------------------------------------
-  // Query params and spec-fetch credentials are source-owned structural
-  // rows only. Secret/connection ownership and usages live in core
-  // `credential_binding`.
 }
 
-// ---------------------------------------------------------------------------
-// Default store implementation
-// ---------------------------------------------------------------------------
-
 export const makeDefaultOpenapiStore = ({
-  fuma,
-  scopes,
+  pluginStorage,
 }: StorageDeps<OpenapiSchema>): OpenapiStore => {
-  const scopeIds = scopes.map((scope) => String(scope.id));
+  const sourceData = (source: StoredSource) => ({
+    namespace: source.namespace,
+    scope: source.scope,
+    name: source.name,
+    config: encodeSourceConfig(source.config),
+  });
 
-  const loadChildValueMap = (
-    tableName: (typeof openapiCredentialChildTables)[number],
-    sourceId: string,
-    scope: string,
-  ) =>
-    fuma
-      .use(`${tableName}.findMany`, (db) =>
-        db.findMany(tableName, {
-          where: (b) => b.and(b("source_id", "=", sourceId), b("scope_id", "=", scope)),
-        }),
-      )
-      .pipe(Effect.map(childRowsToValueMap));
+  const operationData = (operation: StoredOperation) => ({
+    toolId: operation.toolId,
+    sourceId: operation.sourceId,
+    binding: toJsonRecord(encodeBinding(operation.binding)),
+  });
 
-  const rowToSource = (row: OpenapiSourceRow): Effect.Effect<StoredSource, StorageFailure> =>
+  const listOperationRowsForSourceScope = (sourceId: string, scope: string) =>
+    pluginStorage
+      .list({
+        collection: OPERATION_COLLECTION,
+        keyPrefix: `${sourceId}.`,
+      })
+      .pipe(
+        Effect.map((rows) =>
+          rows.filter(
+            (row) => String(row.scopeId) === scope && rowToOperation(row)?.sourceId === sourceId,
+          ),
+        ),
+      );
+
+  const removeOperationsForSourceScope = (sourceId: string, scope: string) =>
     Effect.gen(function* () {
-      const sourceRow = decodeSourceStorageRow(row);
-      const sourceId = sourceRow.id;
-      const scope = sourceRow.scope_id;
-      const oauth2 = normalizeStoredOAuth2(sourceRow.oauth2);
-
-      const headers = yield* loadChildValueMap("openapi_source_header", sourceId, scope);
-      const queryParams = yield* loadChildValueMap("openapi_source_query_param", sourceId, scope);
-      const specFetchHeaders = yield* loadChildValueMap(
-        "openapi_source_spec_fetch_header",
-        sourceId,
-        scope,
-      );
-      const specFetchQueryParams = yield* loadChildValueMap(
-        "openapi_source_spec_fetch_query_param",
-        sourceId,
-        scope,
-      );
-      const specFetchCredentials: OpenApiSpecFetchCredentials | undefined =
-        Object.keys(specFetchHeaders).length === 0 && Object.keys(specFetchQueryParams).length === 0
-          ? undefined
-          : {
-              ...(Object.keys(specFetchHeaders).length > 0 ? { headers: specFetchHeaders } : {}),
-              ...(Object.keys(specFetchQueryParams).length > 0
-                ? { queryParams: specFetchQueryParams }
-                : {}),
-            };
-
-      return {
-        namespace: sourceId,
-        scope,
-        name: sourceRow.name,
-        config: {
-          spec: sourceRow.spec,
-          sourceUrl: sourceRow.source_url ?? undefined,
-          baseUrl: sourceRow.base_url ?? undefined,
-          headers,
-          queryParams,
-          specFetchCredentials,
-          oauth2,
-        },
-      };
-    });
-
-  const rowToOperation = (row: OpenapiOperationRow): StoredOperation => {
-    const operationRow = decodeOperationStorageRow(row);
-    return {
-      toolId: operationRow.id,
-      sourceId: operationRow.source_id,
-      binding: decodeBinding(
-        typeof operationRow.binding === "string"
-          ? decodeBindingJson(operationRow.binding)
-          : operationRow.binding,
-      ),
-    };
-  };
-
-  // Replace the rows of one child table for a source: delete then bulk
-  // insert. Single helper so upsertSource and updateSourceMeta both
-  // funnel through the same write path.
-  const replaceChildRows = (
-    tableName: (typeof openapiCredentialChildTables)[number],
-    sourceId: string,
-    scope: string,
-    values: Record<string, ConfiguredHeaderValue> | undefined,
-  ) =>
-    Effect.gen(function* () {
-      yield* fuma.use(`${tableName}.deleteMany`, (db) =>
-        db.deleteMany(tableName, {
-          where: (b) => b.and(b("source_id", "=", sourceId), b("scope_id", "=", scope)),
-        }),
-      );
-      const rows = valueMapToChildRows(sourceId, scope, values);
-      if (rows.length === 0) return;
-      yield* fuma.use(`${tableName}.createMany`, (db) => db.createMany(tableName, rows));
+      const rows = yield* listOperationRowsForSourceScope(sourceId, scope);
+      for (const row of rows) {
+        yield* pluginStorage.remove({
+          scope,
+          collection: OPERATION_COLLECTION,
+          key: row.key,
+        });
+      }
     });
 
   const deleteSource = (namespace: string, scope: string) =>
     Effect.gen(function* () {
-      yield* fuma.use("openapi_operation.deleteMany", (db) =>
-        db.deleteMany("openapi_operation", {
-          where: (b) => b.and(b("source_id", "=", namespace), b("scope_id", "=", scope)),
-        }),
-      );
-      // Drop every child table's rows for this source/scope.
-      for (const tableName of openapiCredentialChildTables) {
-        yield* fuma.use(`${tableName}.deleteMany`, (db) =>
-          db.deleteMany(tableName, {
-            where: (b) => b.and(b("source_id", "=", namespace), b("scope_id", "=", scope)),
-          }),
-        );
-      }
-      yield* fuma.use("openapi_source.deleteMany", (db) =>
-        db.deleteMany("openapi_source", {
-          where: (b) => b.and(b("id", "=", namespace), b("scope_id", "=", scope)),
-        }),
-      );
+      yield* removeOperationsForSourceScope(namespace, scope);
+      yield* pluginStorage.remove({
+        scope,
+        collection: SOURCE_COLLECTION,
+        key: namespace,
+      });
     });
 
   return {
     upsertSource: (input, operations) =>
       Effect.gen(function* () {
         yield* deleteSource(input.namespace, input.scope);
-        yield* fuma.use("openapi_source.createMany", (db) =>
-          db.createMany("openapi_source", [
-            {
-              id: input.namespace,
-              scope_id: input.scope,
-              name: input.name,
-              spec: input.config.spec,
-              source_url: input.config.sourceUrl ?? null,
-              base_url: input.config.baseUrl ?? null,
-              oauth2: input.config.oauth2
-                ? toJsonRecord(encodeOAuth2SourceConfig(input.config.oauth2))
-                : null,
-            },
-          ]),
-        );
-        yield* replaceChildRows(
-          "openapi_source_header",
-          input.namespace,
-          input.scope,
-          input.config.headers,
-        );
-        yield* replaceChildRows(
-          "openapi_source_query_param",
-          input.namespace,
-          input.scope,
-          input.config.queryParams,
-        );
-        yield* replaceChildRows(
-          "openapi_source_spec_fetch_header",
-          input.namespace,
-          input.scope,
-          input.config.specFetchCredentials?.headers,
-        );
-        yield* replaceChildRows(
-          "openapi_source_spec_fetch_query_param",
-          input.namespace,
-          input.scope,
-          input.config.specFetchCredentials?.queryParams,
-        );
-        if (operations.length > 0) {
-          yield* fuma.use("openapi_operation.createMany", (db) =>
-            db.createMany(
-              "openapi_operation",
-              operations.map((op) => ({
-                id: op.toolId,
-                scope_id: input.scope,
-                source_id: op.sourceId,
-                binding: toJsonRecord(encodeBinding(op.binding)),
-              })),
-            ),
-          );
+        yield* pluginStorage.put({
+          scope: input.scope,
+          collection: SOURCE_COLLECTION,
+          key: input.namespace,
+          data: sourceData(input),
+        });
+        for (const operation of operations) {
+          yield* pluginStorage.put({
+            scope: input.scope,
+            collection: OPERATION_COLLECTION,
+            key: operation.toolId,
+            data: operationData(operation),
+          });
         }
       }),
 
     updateSourceMeta: (namespace, scope, patch) =>
       Effect.gen(function* () {
-        const existingRow = yield* fuma.use("openapi_source.findFirst", (db) =>
-          db.findFirst("openapi_source", {
-            where: (b) => b.and(b("id", "=", namespace), b("scope_id", "=", scope)),
-          }),
-        );
-        if (!existingRow) return;
-        const existing = yield* rowToSource(existingRow);
-
-        const nextName = patch.name?.trim() || existing.name;
-        const nextBaseUrl = patch.baseUrl !== undefined ? patch.baseUrl : existing.config.baseUrl;
-        const nextOAuth2 = patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
-
-        yield* fuma.use("openapi_source.updateMany", (db) =>
-          db.updateMany("openapi_source", {
-            where: (b) => b.and(b("id", "=", namespace), b("scope_id", "=", scope)),
-            set: {
-              name: nextName,
-              base_url: nextBaseUrl ?? null,
-              oauth2: nextOAuth2 ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2)) : null,
-            },
-          }),
-        );
-        if (patch.headers !== undefined) {
-          yield* replaceChildRows("openapi_source_header", namespace, scope, patch.headers);
-        }
-        if (patch.queryParams !== undefined) {
-          yield* replaceChildRows(
-            "openapi_source_query_param",
-            namespace,
-            scope,
-            patch.queryParams,
-          );
-        }
-        if (patch.specFetchCredentials !== undefined) {
-          yield* replaceChildRows(
-            "openapi_source_spec_fetch_header",
-            namespace,
-            scope,
-            patch.specFetchCredentials.headers,
-          );
-          yield* replaceChildRows(
-            "openapi_source_spec_fetch_query_param",
-            namespace,
-            scope,
-            patch.specFetchCredentials.queryParams,
-          );
-        }
-      }),
-
-    getSource: (namespace, scope) =>
-      Effect.gen(function* () {
-        const row = yield* fuma.use("openapi_source.findFirst", (db) =>
-          db.findFirst("openapi_source", {
-            where: (b) => b.and(b("id", "=", namespace), b("scope_id", "=", scope)),
-          }),
-        );
-        if (!row) return null;
-        return yield* rowToSource(row);
-      }),
-
-    listSources: () =>
-      Effect.gen(function* () {
-        const rows = yield* fuma.use("openapi_source.findMany", (db) =>
-          db.findMany("openapi_source", {
-            where: (b) =>
-              scopeIds.length === 1
-                ? b("scope_id", "=", scopeIds[0]!)
-                : b("scope_id", "in", [...scopeIds]),
-          }),
-        );
-        return yield* Effect.forEach(rows, rowToSource, {
-          concurrency: "unbounded",
+        const existing = yield* pluginStorage.getAtScope({
+          scope,
+          collection: SOURCE_COLLECTION,
+          key: namespace,
+        });
+        if (!existing) return;
+        const source = rowToSource(existing);
+        if (!source) return;
+        const next: StoredSource = {
+          ...source,
+          name: patch.name?.trim() || source.name,
+          config: {
+            ...source.config,
+            ...(patch.baseUrl !== undefined ? { baseUrl: patch.baseUrl } : {}),
+            ...(patch.headers !== undefined ? { headers: patch.headers } : {}),
+            ...(patch.queryParams !== undefined ? { queryParams: patch.queryParams } : {}),
+            ...(patch.specFetchCredentials !== undefined
+              ? { specFetchCredentials: patch.specFetchCredentials }
+              : {}),
+            ...(patch.oauth2 !== undefined ? { oauth2: patch.oauth2 } : {}),
+          },
+        };
+        yield* pluginStorage.put({
+          scope,
+          collection: SOURCE_COLLECTION,
+          key: namespace,
+          data: sourceData(next),
         });
       }),
 
+    getSource: (namespace, scope) =>
+      pluginStorage
+        .getAtScope({ scope, collection: SOURCE_COLLECTION, key: namespace })
+        .pipe(Effect.map((row) => (row ? rowToSource(row) : null))),
+
+    listSources: () =>
+      pluginStorage
+        .list({ collection: SOURCE_COLLECTION })
+        .pipe(Effect.map((rows) => rows.map(rowToSource).filter(Predicate.isNotNull))),
+
     getOperationByToolId: (toolId, scope) =>
-      fuma
-        .use("openapi_operation.findFirst", (db) =>
-          db.findFirst("openapi_operation", {
-            where: (b) => b.and(b("id", "=", toolId), b("scope_id", "=", scope)),
-          }),
-        )
+      pluginStorage
+        .getAtScope({ scope, collection: OPERATION_COLLECTION, key: toolId })
         .pipe(Effect.map((row) => (row ? rowToOperation(row) : null))),
 
     listOperationsBySource: (sourceId, scope) =>
-      fuma
-        .use("openapi_operation.findMany", (db) =>
-          db.findMany("openapi_operation", {
-            where: (b) => b.and(b("source_id", "=", sourceId), b("scope_id", "=", scope)),
-          }),
-        )
-        .pipe(Effect.map((rows) => rows.map(rowToOperation))),
+      listOperationRowsForSourceScope(sourceId, scope).pipe(
+        Effect.map((rows) => rows.map(rowToOperation).filter(Predicate.isNotNull)),
+      ),
 
     removeSource: (namespace, scope) => deleteSource(namespace, scope),
   };

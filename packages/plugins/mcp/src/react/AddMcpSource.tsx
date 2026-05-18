@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { useScope } from "@executor-js/react/api/scope-context";
+import { configureSource } from "@executor-js/react/api/atoms";
 import { Button } from "@executor-js/react/components/button";
 import {
   CardStack,
@@ -24,9 +25,10 @@ import {
   emptyHttpCredentials,
   httpCredentialsValid,
   HttpCredentialsEditor,
-  serializeScopedHttpCredentials,
+  serializeConfigureHttpCredentials,
   serializeHttpCredentials,
-} from "@executor-js/react/plugins/http-credentials";
+  serializeTemplateHttpCredentials,
+} from "@executor-js/plugin-http-source/react";
 import {
   sourceDisplayNameFromUrl,
   slugifyNamespace,
@@ -51,7 +53,7 @@ import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { probeMcpEndpoint, addMcpSourceOptimistic } from "./atoms";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
-import { MCP_OAUTH_CONNECTION_SLOT, type McpCredentialInput } from "../sdk/types";
+import type { McpConfiguredValueInput, McpCredentialInput } from "../sdk/types";
 
 const ErrorMessage = Schema.Struct({ message: Schema.String });
 const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
@@ -304,6 +306,7 @@ export default function AddMcpSource(props: {
   const doAdd = useAtomSet(addMcpSourceOptimistic(scopeId), {
     mode: "promiseExit",
   });
+  const doConfigure = useAtomSet(configureSource, { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
     popupName: "mcp-oauth",
@@ -437,49 +440,37 @@ export default function AddMcpSource(props: {
   const handleAddRemote = useCallback(async () => {
     if (!probe) return;
     dispatch({ type: "add-start" });
-    const auth =
-      remoteAuthMode === "oauth2"
-        ? tokens
-          ? {
-              kind: "oauth2" as const,
-              connectionId: tokens.connectionId,
-            }
-          : {
-              kind: "oauth2" as const,
-              connectionSlot: MCP_OAUTH_CONNECTION_SLOT,
-            }
-        : { kind: "none" as const };
     const headers = Object.fromEntries(
       remoteHeaders
         .map((header) => [header.name.trim(), header.value.trim()] as const)
         .filter(([name, value]) => name && value),
     );
-    const credentials = serializeScopedHttpCredentials(
+    const templateCredentials = serializeTemplateHttpCredentials(remoteCredentials);
+    const configureCredentials = serializeConfigureHttpCredentials(
       remoteCredentials,
       requestCredentialTargetScope,
     );
-    const remoteRequestHeaders: Record<string, McpCredentialInput> = {
+    const remoteRequestHeaders: Record<string, McpConfiguredValueInput> = {
       ...headers,
-      ...credentials.headers,
+      ...templateCredentials.headers,
     };
     const displayName = remoteIdentity.name.trim() || probe.serverName || probe.name;
     const slugNamespace = slugifyNamespace(remoteIdentity.namespace);
     const exit = await doAdd({
       params: { scopeId },
       payload: {
-        targetScope: scopeId,
         transport: "remote" as const,
         name: displayName,
         namespace: slugNamespace || undefined,
         endpoint: state.url.trim(),
-        auth,
-        credentialTargetScope:
-          remoteAuthMode === "oauth2" && tokens
-            ? oauthCredentialTargetScope
-            : requestCredentialTargetScope,
         ...(Object.keys(remoteRequestHeaders).length > 0 ? { headers: remoteRequestHeaders } : {}),
-        ...(Object.keys(credentials.queryParams).length > 0
-          ? { queryParams: credentials.queryParams }
+        ...(Object.keys(templateCredentials.queryParams).length > 0
+          ? {
+              queryParams: templateCredentials.queryParams as Record<
+                string,
+                McpConfiguredValueInput
+              >,
+            }
           : {}),
       },
       reactivityKeys: sourceWriteKeys,
@@ -491,6 +482,55 @@ export default function AddMcpSource(props: {
       });
       return;
     }
+    if (
+      Object.keys(configureCredentials.headers).length > 0 ||
+      Object.keys(configureCredentials.queryParams).length > 0 ||
+      (remoteAuthMode === "oauth2" && tokens)
+    ) {
+      const configureExit = await doConfigure({
+        params: { scopeId },
+        payload: {
+          source: { id: exit.value.namespace, scope: scopeId },
+          scope: requestCredentialTargetScope,
+          type: "mcp",
+          config: {
+            ...(Object.keys(configureCredentials.headers).length > 0
+              ? {
+                  headers: configureCredentials.headers as Record<string, McpCredentialInput>,
+                }
+              : {}),
+            ...(Object.keys(configureCredentials.queryParams).length > 0
+              ? {
+                  queryParams: configureCredentials.queryParams as Record<
+                    string,
+                    McpCredentialInput
+                  >,
+                }
+              : {}),
+            ...(remoteAuthMode === "oauth2" && tokens
+              ? {
+                  auth: {
+                    oauth2: {
+                      connection: {
+                        kind: "connection" as const,
+                        connectionId: tokens.connectionId,
+                      },
+                    },
+                  },
+                }
+              : {}),
+          },
+        },
+        reactivityKeys: sourceWriteKeys,
+      });
+      if (Exit.isFailure(configureExit)) {
+        dispatch({
+          type: "add-fail",
+          error: errorMessageFromExit(configureExit, "Failed to configure source"),
+        });
+        return;
+      }
+    }
     props.onComplete();
   }, [
     probe,
@@ -501,10 +541,10 @@ export default function AddMcpSource(props: {
     tokens,
     state.url,
     doAdd,
+    doConfigure,
     props,
     scopeId,
     requestCredentialTargetScope,
-    oauthCredentialTargetScope,
   ]);
 
   // ---- Stdio actions ----
@@ -560,7 +600,6 @@ export default function AddMcpSource(props: {
     const exit = await doAdd({
       params: { scopeId },
       payload: {
-        targetScope: scopeId,
         transport: "stdio" as const,
         name: displayName,
         namespace: slugNamespace || undefined,

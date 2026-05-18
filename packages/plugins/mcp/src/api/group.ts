@@ -4,12 +4,8 @@ import { InternalError, ScopeId, SecretBackedMap } from "@executor-js/sdk/shared
 
 import { McpConnectionError, McpToolDiscoveryError } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
-import {
-  McpConnectionAuthInput,
-  McpCredentialInput,
-  McpSourceBindingInput,
-  McpSourceBindingRef,
-} from "../sdk/types";
+import { McpConfiguredValueInput } from "../sdk/types";
+import { OAuth2SourceConfig } from "@executor-js/plugin-http-source/sdk";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -17,17 +13,6 @@ import {
 
 const ScopeParams = { scopeId: ScopeId };
 const SourceParams = { scopeId: ScopeId, namespace: Schema.String };
-const SourceBindingParams = {
-  scopeId: ScopeId,
-  namespace: Schema.String,
-  sourceScopeId: ScopeId,
-};
-
-// ---------------------------------------------------------------------------
-// Auth payload (only for remote)
-// ---------------------------------------------------------------------------
-
-const AuthPayload = McpConnectionAuthInput;
 
 const StringMap = Schema.Record(Schema.String, Schema.String);
 // ---------------------------------------------------------------------------
@@ -35,20 +20,17 @@ const StringMap = Schema.Record(Schema.String, Schema.String);
 // ---------------------------------------------------------------------------
 
 const AddRemoteSourcePayload = Schema.Struct({
-  targetScope: ScopeId,
   transport: Schema.Literal("remote"),
   name: Schema.String,
   endpoint: Schema.String,
   remoteTransport: Schema.optional(Schema.Literals(["streamable-http", "sse", "auto"])),
   namespace: Schema.optional(Schema.String),
-  queryParams: Schema.optional(Schema.Record(Schema.String, McpCredentialInput)),
-  headers: Schema.optional(Schema.Record(Schema.String, McpCredentialInput)),
-  auth: Schema.optional(AuthPayload),
-  credentialTargetScope: Schema.optional(ScopeId),
+  queryParams: Schema.optional(Schema.Record(Schema.String, McpConfiguredValueInput)),
+  headers: Schema.optional(Schema.Record(Schema.String, McpConfiguredValueInput)),
+  oauth2: Schema.optional(OAuth2SourceConfig),
 });
 
 const AddStdioSourcePayload = Schema.Struct({
-  targetScope: ScopeId,
   transport: Schema.Literal("stdio"),
   name: Schema.String,
   command: Schema.String,
@@ -59,24 +41,6 @@ const AddStdioSourcePayload = Schema.Struct({
 });
 
 const AddSourcePayload = Schema.Union([AddRemoteSourcePayload, AddStdioSourcePayload]);
-
-// ---------------------------------------------------------------------------
-// Other payloads
-// ---------------------------------------------------------------------------
-
-const UpdateSourcePayload = Schema.Struct({
-  sourceScope: ScopeId,
-  name: Schema.optional(Schema.String),
-  endpoint: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record(Schema.String, McpCredentialInput)),
-  queryParams: Schema.optional(Schema.Record(Schema.String, McpCredentialInput)),
-  credentialTargetScope: Schema.optional(ScopeId),
-  auth: Schema.optional(AuthPayload),
-});
-
-const UpdateSourceResponse = Schema.Struct({
-  updated: Schema.Boolean,
-});
 
 const ProbeEndpointPayload = Schema.Struct({
   endpoint: Schema.String,
@@ -96,13 +60,6 @@ const ProbeEndpointResponse = Schema.Struct({
 
 const NamespacePayload = Schema.Struct({
   namespace: Schema.String,
-});
-
-const RemoveBindingPayload = Schema.Struct({
-  sourceId: Schema.String,
-  sourceScope: ScopeId,
-  slot: Schema.String,
-  scope: ScopeId,
 });
 
 // ---------------------------------------------------------------------------
@@ -175,41 +132,6 @@ export const McpGroup = HttpApiGroup.make("mcp")
     HttpApiEndpoint.get("getSource", "/scopes/:scopeId/mcp/sources/:namespace", {
       params: SourceParams,
       success: Schema.NullOr(McpStoredSourceSchema),
-      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-    }),
-  )
-  .add(
-    HttpApiEndpoint.patch("updateSource", "/scopes/:scopeId/mcp/sources/:namespace", {
-      params: SourceParams,
-      payload: UpdateSourcePayload,
-      success: UpdateSourceResponse,
-      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-    }),
-  )
-  .add(
-    HttpApiEndpoint.get(
-      "listSourceBindings",
-      "/scopes/:scopeId/mcp/sources/:namespace/base/:sourceScopeId/bindings",
-      {
-        params: SourceBindingParams,
-        success: Schema.Array(McpSourceBindingRef),
-        error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-      },
-    ),
-  )
-  .add(
-    HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/mcp/source-bindings", {
-      params: ScopeParams,
-      payload: McpSourceBindingInput,
-      success: McpSourceBindingRef,
-      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-    }),
-  )
-  .add(
-    HttpApiEndpoint.post("removeSourceBinding", "/scopes/:scopeId/mcp/source-bindings/remove", {
-      params: ScopeParams,
-      payload: RemoveBindingPayload,
-      success: Schema.Struct({ removed: Schema.Boolean }),
       error: [InternalError, McpConnectionError, McpToolDiscoveryError],
     }),
   );

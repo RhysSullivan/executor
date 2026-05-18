@@ -16,11 +16,27 @@ import {
 import { makeTestConfig, memorySecretsPlugin } from "@executor-js/sdk/testing";
 
 import { mcpPlugin } from "./plugin";
+import {
+  MCP_OAUTH_CLIENT_ID_SLOT,
+  MCP_OAUTH_CLIENT_SECRET_SLOT,
+  MCP_OAUTH_CONNECTION_SLOT,
+} from "./types";
 import { makeEchoMcpServer, serveMcpServer } from "../testing";
 
 const USER_A = ScopeId.make("user-a");
 const USER_B = ScopeId.make("user-b");
 const ORG = ScopeId.make("org");
+const mcpOAuth2Config = {
+  kind: "oauth2" as const,
+  securitySchemeName: "OAuth2",
+  flow: "authorizationCode" as const,
+  tokenUrl: "https://auth.example.test/token",
+  authorizationUrl: "https://auth.example.test/authorize",
+  clientIdSlot: MCP_OAUTH_CLIENT_ID_SLOT,
+  clientSecretSlot: MCP_OAUTH_CLIENT_SECRET_SLOT,
+  connectionSlot: MCP_OAUTH_CONNECTION_SLOT,
+  scopes: [],
+};
 
 const scope = (id: ScopeId, name: string): Scope => Scope.make({ id, name, createdAt: new Date() });
 
@@ -97,11 +113,22 @@ describe("per-user MCP auth isolation", () => {
         yield* execUserA.mcp.addSource({
           transport: "remote",
           scope: ORG,
-          credentialTargetScope: USER_A,
           name: "Shared MCP",
           endpoint: server.url,
           namespace: "iso_test",
-          auth: { kind: "oauth2", connectionId: sharedConnId },
+          oauth2: mcpOAuth2Config,
+        });
+        yield* execUserA.sources.configure({
+          source: { id: "iso_test", scope: ORG },
+          scope: USER_A,
+          type: "mcp",
+          config: {
+            auth: {
+              oauth2: {
+                connection: { kind: "connection", connectionId: sharedConnId },
+              },
+            },
+          },
         });
 
         const userATools = yield* execUserA.tools.list();
@@ -167,15 +194,21 @@ describe("per-user MCP auth isolation", () => {
       yield* execUserA.mcp.addSource({
         transport: "remote",
         scope: ORG,
-        credentialTargetScope: USER_A,
         name: "Shared MCP (header)",
         endpoint: server.url,
         namespace: "iso_header",
-        auth: {
-          kind: "header",
-          headerName: "Authorization",
-          secretId: secret,
-          prefix: "Bearer ",
+        headers: {
+          Authorization: { kind: "secret", prefix: "Bearer " },
+        },
+      });
+      yield* execUserA.sources.configure({
+        source: { id: "iso_header", scope: ORG },
+        scope: USER_A,
+        type: "mcp",
+        config: {
+          headers: {
+            Authorization: { kind: "secret", secretId: secret, prefix: "Bearer " },
+          },
         },
       });
 
@@ -238,15 +271,21 @@ describe("per-user MCP auth isolation", () => {
       yield* execUserA.mcp.addSource({
         transport: "remote",
         scope: ORG,
-        credentialTargetScope: ORG,
         name: "Shared MCP org header",
         endpoint: server.url,
         namespace: "org_header",
-        auth: {
-          kind: "header",
-          headerName: "Authorization",
-          secretId,
-          prefix: "Bearer ",
+        headers: {
+          Authorization: { kind: "secret", prefix: "Bearer " },
+        },
+      });
+      yield* execUserA.sources.configure({
+        source: { id: "org_header", scope: ORG },
+        scope: ORG,
+        type: "mcp",
+        config: {
+          headers: {
+            Authorization: { kind: "secret", secretId, prefix: "Bearer " },
+          },
         },
       });
 

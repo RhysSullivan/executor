@@ -6,7 +6,8 @@ export {
   type GraphqlSourceConfig,
   type GraphqlPluginExtension,
   type GraphqlPluginOptions,
-  type GraphqlUpdateSourceInput,
+  type GraphqlConfigureSourceInput,
+  type GraphqlSourceRef,
 } from "./plugin";
 export {
   graphqlSchema,
@@ -31,7 +32,6 @@ export {
   GraphqlOperationKind,
   GraphqlSourceAuth,
   GraphqlSourceAuthInput,
-  GraphqlSourceBindingInput,
   GraphqlSourceBindingRef,
   GraphqlSourceBindingValue,
   InvocationConfig,

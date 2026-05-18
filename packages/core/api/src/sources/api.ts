@@ -64,6 +64,16 @@ const DetectRequest = Schema.Struct({
   url: Schema.String.check(Schema.isMaxLength(2_048)),
 });
 
+const ConfigureSourceRequest = Schema.Struct({
+  source: Schema.Struct({
+    id: Schema.String,
+    scope: ScopeId,
+  }),
+  scope: ScopeId,
+  type: Schema.optional(Schema.String),
+  config: Schema.Unknown,
+});
+
 const DetectResultResponse = Schema.Struct({
   kind: Schema.String,
   confidence: Schema.Literals(["high", "medium", "low"]),
@@ -116,6 +126,14 @@ export const SourcesApi = HttpApiGroup.make("sources")
       params: ScopeParams,
       payload: DetectRequest,
       success: Schema.Array(DetectResultResponse),
+      error: InternalError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("configure", "/scopes/:scopeId/sources/configure", {
+      params: ScopeParams,
+      payload: ConfigureSourceRequest,
+      success: Schema.Unknown,
       error: InternalError,
     }),
   )

@@ -356,6 +356,7 @@ const program = Effect.gen(function* () {
 
   const gqlResult = yield* executor.graphql.addSource({
     endpoint: "https://example.com/graphql",
+    name: "Example GraphQL",
     introspectionJson,
     namespace: "example-graphql",
     scope: "example-scope",

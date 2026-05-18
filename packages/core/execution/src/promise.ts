@@ -92,6 +92,7 @@ const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
     refresh: (input) => fromPromise(() => pe.sources.refresh(input)),
     detect: (url) => fromPromise(() => pe.sources.detect(url)),
     definitions: (id) => fromPromise(() => pe.sources.definitions(id)),
+    configure: (input) => fromPromise(() => pe.sources.configure(input)),
     listBindings: (input) => fromPromise(() => pe.sources.listBindings(input)),
     resolveBinding: (input) => fromPromise(() => pe.sources.resolveBinding(input)),
     setBinding: (input) => fromPromise(() => pe.sources.setBinding(input)),

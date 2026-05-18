@@ -6,7 +6,7 @@ export {
   type McpRemoteSourceConfig,
   type McpStdioSourceConfig,
   type McpProbeResult,
-  type McpUpdateSourceInput,
+  type McpConfigureSourceInput,
 } from "./plugin";
 
 export {
@@ -26,7 +26,6 @@ export {
   McpConnectionAuth,
   McpConnectionAuthInput,
   McpCredentialInput,
-  McpSourceBindingInput,
   McpSourceBindingRef,
   mcpHeaderSlot,
   mcpQueryParamSlot,

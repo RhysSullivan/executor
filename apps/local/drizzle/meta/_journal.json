@@ -78,6 +78,13 @@
       "when": 1778192434063,
       "tag": "0010_add_credential_binding_secret_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1779087600000,
+      "tag": "0011_plugin_storage_sources",
+      "breakpoints": true
     }
   ]
 }

@@ -143,6 +143,115 @@ export const serializeScopedHttpCredentials = (
   queryParams: serializeScopedQueryCredentials(credentials.queryParams, fallbackTargetScope),
 });
 
+export type HttpConfigureCredentialInput =
+  | string
+  | {
+      readonly kind: "text";
+      readonly text: string;
+      readonly prefix?: string;
+    }
+  | {
+      readonly kind: "secret";
+      readonly secretId: string;
+      readonly secretScope?: ScopeId;
+      readonly prefix?: string;
+    };
+
+export const serializeConfigureHeaderCredentials = (
+  headers: readonly HeaderState[],
+  fallbackSecretScope: ScopeId,
+): Record<string, HttpConfigureCredentialInput> => {
+  const result: Record<string, HttpConfigureCredentialInput> = {};
+  for (const header of headers) {
+    const name = header.name.trim();
+    if (!name || !header.secretId) continue;
+    result[name] = {
+      kind: "secret",
+      secretId: header.secretId,
+      secretScope: header.secretScope ?? fallbackSecretScope,
+      ...(header.prefix ? { prefix: header.prefix } : {}),
+    };
+  }
+  return result;
+};
+
+export const serializeConfigureQueryCredentials = (
+  queryParams: readonly QueryParamState[],
+  fallbackSecretScope: ScopeId,
+): Record<string, HttpConfigureCredentialInput> => {
+  const result: Record<string, HttpConfigureCredentialInput> = {};
+  for (const param of queryParams) {
+    const name = param.name.trim();
+    if (!name) continue;
+    if (param.secretId) {
+      result[name] = {
+        kind: "secret",
+        secretId: param.secretId,
+        secretScope: param.secretScope ?? fallbackSecretScope,
+        ...(param.prefix ? { prefix: param.prefix } : {}),
+      };
+      continue;
+    }
+    if (param.literalValue?.trim()) {
+      result[name] = param.literalValue.trim();
+    }
+  }
+  return result;
+};
+
+export const serializeConfigureHttpCredentials = (
+  credentials: HttpCredentialsState,
+  fallbackSecretScope: ScopeId,
+) => ({
+  headers: serializeConfigureHeaderCredentials(credentials.headers, fallbackSecretScope),
+  queryParams: serializeConfigureQueryCredentials(credentials.queryParams, fallbackSecretScope),
+});
+
+export type HttpTemplateCredentialInput =
+  | string
+  | { readonly kind: "secret"; readonly prefix?: string };
+
+export const serializeTemplateHeaderCredentials = (
+  headers: readonly HeaderState[],
+): Record<string, HttpTemplateCredentialInput> => {
+  const result: Record<string, HttpTemplateCredentialInput> = {};
+  for (const header of headers) {
+    const name = header.name.trim();
+    if (!name || !header.secretId) continue;
+    result[name] = {
+      kind: "secret",
+      ...(header.prefix ? { prefix: header.prefix } : {}),
+    };
+  }
+  return result;
+};
+
+export const serializeTemplateQueryCredentials = (
+  queryParams: readonly QueryParamState[],
+): Record<string, HttpTemplateCredentialInput> => {
+  const result: Record<string, HttpTemplateCredentialInput> = {};
+  for (const param of queryParams) {
+    const name = param.name.trim();
+    if (!name) continue;
+    if (param.secretId) {
+      result[name] = {
+        kind: "secret",
+        ...(param.prefix ? { prefix: param.prefix } : {}),
+      };
+      continue;
+    }
+    if (param.literalValue?.trim()) {
+      result[name] = param.literalValue.trim();
+    }
+  }
+  return result;
+};
+
+export const serializeTemplateHttpCredentials = (credentials: HttpCredentialsState) => ({
+  headers: serializeTemplateHeaderCredentials(credentials.headers),
+  queryParams: serializeTemplateQueryCredentials(credentials.queryParams),
+});
+
 export const httpCredentialsValid = (credentials: HttpCredentialsState): boolean =>
   credentials.headers.every((header) => header.name.trim() && header.secretId) &&
   credentials.queryParams.every((param) => {

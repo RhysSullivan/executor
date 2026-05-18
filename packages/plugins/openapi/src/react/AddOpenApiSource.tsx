@@ -29,7 +29,7 @@ import {
   emptyHttpCredentials,
   serializeHttpCredentials,
   type HttpCredentialsState,
-} from "@executor-js/react/plugins/http-credentials";
+} from "@executor-js/plugin-http-source/react";
 import {
   oauthCallbackUrl,
   useOAuthPopupFlow,

@@ -3,6 +3,6 @@ export type {
   GraphqlPluginOptions,
   GraphqlPluginExtension,
   GraphqlSourceConfig,
-  GraphqlUpdateSourceInput,
+  GraphqlConfigureSourceInput,
   HeaderValue,
 } from "./sdk/plugin";

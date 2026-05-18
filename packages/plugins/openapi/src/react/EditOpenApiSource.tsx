@@ -7,6 +7,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import {
   connectionsAtom,
+  configureSource,
   removeSourceCredentialBinding,
   setSourceCredentialBinding,
   sourceAtom,
@@ -50,7 +51,7 @@ import {
 } from "@executor-js/react/plugins/credential-bindings";
 import { SecretCredentialSlotBindings } from "@executor-js/react/plugins/credential-slot-bindings";
 
-import { openApiSourceAtom, openApiSourceBindingsAtom, updateOpenApiSource } from "./atoms";
+import { openApiSourceAtom, openApiSourceBindingsAtom } from "./atoms";
 import { OpenApiSourceDetailsFields } from "./OpenApiSourceDetailsFields";
 import {
   OPENAPI_OAUTH_CALLBACK_PATH,
@@ -141,7 +142,7 @@ export default function EditOpenApiSource(props: {
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
   const secretList = useSecretPickerSecrets();
 
-  const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promiseExit" });
+  const doConfigure = useAtomSet(configureSource, { mode: "promiseExit" });
   const doSetBinding = useAtomSet(setSourceCredentialBinding, {
     mode: "promiseExit",
   });
@@ -232,12 +233,17 @@ export default function EditOpenApiSource(props: {
       setSourceSaveState("saving");
       setError(null);
       void (async () => {
-        const exit = await doUpdate({
-          params: { scopeId: displayScope, namespace: props.sourceId },
+        const exit = await doConfigure({
+          params: { scopeId: displayScope },
           payload: {
-            sourceScope,
-            name: nextName || undefined,
-            baseUrl: nextBaseUrl || undefined,
+            source: { id: props.sourceId, scope: sourceScope },
+            scope: sourceScope,
+            type: "openapi",
+            config: {
+              scope: sourceScope,
+              name: nextName || undefined,
+              baseUrl: nextBaseUrl || undefined,
+            },
           },
           reactivityKeys: openApiWriteKeys,
         });
@@ -258,7 +264,7 @@ export default function EditOpenApiSource(props: {
   }, [
     baseUrl,
     displayScope,
-    doUpdate,
+    doConfigure,
     loadedSourceKey,
     name,
     props.sourceId,
@@ -655,22 +661,27 @@ export default function EditOpenApiSource(props: {
                 const seq = ++oauth2EndpointsSaveSeq.current;
                 setOAuth2EndpointsSaveState("saving");
                 setError(null);
-                const exit = await doUpdate({
-                  params: { scopeId: displayScope, namespace: props.sourceId },
+                const exit = await doConfigure({
+                  params: { scopeId: displayScope },
                   payload: {
-                    sourceScope,
-                    oauth2: OAuth2SourceConfig.make({
-                      kind: "oauth2",
-                      securitySchemeName: oauth2.securitySchemeName,
-                      flow: oauth2.flow,
-                      tokenUrl: trimmedTokenUrl,
-                      authorizationUrl: isAuthCode ? trimmedAuthUrl || null : null,
-                      issuerUrl: oauth2.issuerUrl ?? null,
-                      clientIdSlot: oauth2.clientIdSlot,
-                      clientSecretSlot: oauth2.clientSecretSlot,
-                      connectionSlot: oauth2.connectionSlot,
-                      scopes: [...oauth2.scopes],
-                    }),
+                    source: { id: props.sourceId, scope: sourceScope },
+                    scope: sourceScope,
+                    type: "openapi",
+                    config: {
+                      scope: sourceScope,
+                      oauth2Source: OAuth2SourceConfig.make({
+                        kind: "oauth2",
+                        securitySchemeName: oauth2.securitySchemeName,
+                        flow: oauth2.flow,
+                        tokenUrl: trimmedTokenUrl,
+                        authorizationUrl: isAuthCode ? trimmedAuthUrl || null : null,
+                        issuerUrl: oauth2.issuerUrl ?? null,
+                        clientIdSlot: oauth2.clientIdSlot,
+                        clientSecretSlot: oauth2.clientSecretSlot,
+                        connectionSlot: oauth2.connectionSlot,
+                        scopes: [...oauth2.scopes],
+                      }),
+                    },
                   },
                   reactivityKeys: openApiWriteKeys,
                 });

@@ -94,6 +94,7 @@ export const POST: APIRoute = async ({ request }) => {
         } else if (match.kind === "graphql") {
           yield* executor.graphql.addSource({
             endpoint: match.endpoint,
+            name: match.name,
             namespace: match.namespace,
             scope: "test-scope",
           });

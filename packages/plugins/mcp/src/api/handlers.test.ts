@@ -28,10 +28,6 @@ const failingExtension: McpPluginExtension = {
   removeSource: () => unused,
   refreshSource: () => unused,
   getSource: () => Effect.succeed(null),
-  updateSource: () => unused,
-  listSourceBindings: () => Effect.succeed([]),
-  setSourceBinding: () => unused,
-  removeSourceBinding: () => unused,
 };
 
 const Api = addGroup(McpGroup);

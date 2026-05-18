@@ -2,22 +2,21 @@ import { useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import { graphqlSourceAtom, graphqlSourceBindingsAtom } from "./atoms";
 import {
-  graphqlSourceAtom,
-  graphqlSourceBindingsAtom,
-  setGraphqlSourceBinding,
-  updateGraphqlSource,
-} from "./atoms";
-import { connectionsAtom } from "@executor-js/react/api/atoms";
+  configureSource,
+  connectionsAtom,
+  setSourceCredentialBinding,
+} from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
 import {
   HttpCredentialsEditor,
+  serializeConfigureHttpCredentials,
   serializeHttpCredentials,
-  serializeScopedHttpCredentials,
   type HttpCredentialsState,
-} from "@executor-js/react/plugins/http-credentials";
+} from "@executor-js/plugin-http-source/react";
 import {
   effectiveCredentialBindingForScope,
   httpCredentialsFromConfiguredCredentialBindings,
@@ -32,9 +31,8 @@ import { Badge } from "@executor-js/react/components/badge";
 import { ScopeId } from "@executor-js/sdk/shared";
 import { GraphqlSourceFields } from "./GraphqlSourceFields";
 import {
-  GRAPHQL_OAUTH_CONNECTION_SLOT,
   type GraphqlCredentialInput,
-  GraphqlSourceBindingInput,
+  type GraphqlSourceAuthInput,
   type GraphqlSourceBindingRef,
 } from "../sdk/types";
 import type { StoredGraphqlSource } from "../sdk/store";
@@ -66,8 +64,8 @@ function EditForm(props: {
     sourceScope,
     initialTargetScope: initialCredentialTargetScope(sourceScope, props.bindings),
   });
-  const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promiseExit" });
-  const setBinding = useAtomSet(setGraphqlSourceBinding, { mode: "promise" });
+  const doConfigure = useAtomSet(configureSource, { mode: "promiseExit" });
+  const setBinding = useAtomSet(setSourceCredentialBinding, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 
@@ -118,44 +116,35 @@ function EditForm(props: {
   const handleSave = async () => {
     setSaving(true);
     setError(null);
-    const { headers, queryParams } = serializeScopedHttpCredentials(
+    const { headers, queryParams } = serializeConfigureHttpCredentials(
       credentials,
       credentialTargetScope,
     );
-    const payload: {
-      sourceScope: ScopeId;
+    const config: {
       name?: string;
       endpoint?: string;
       headers?: Record<string, GraphqlCredentialInput>;
       queryParams?: Record<string, GraphqlCredentialInput>;
-      credentialTargetScope?: ScopeId;
-      auth?: { kind: "none" } | { kind: "oauth2"; connectionSlot: string };
+      auth?: GraphqlSourceAuthInput;
     } = {
-      sourceScope,
       name: metadataDirty ? identity.name.trim() || undefined : undefined,
       endpoint: metadataDirty ? endpoint.trim() || undefined : undefined,
     };
     if (credentialsDirty) {
-      payload.headers = headers;
-      payload.queryParams = queryParams as Record<string, GraphqlCredentialInput>;
-      payload.credentialTargetScope = credentialTargetScope;
+      config.headers = headers;
+      config.queryParams = queryParams as Record<string, GraphqlCredentialInput>;
     }
     if (authDirty) {
-      payload.auth =
-        authMode === "oauth2"
-          ? {
-              kind: "oauth2",
-              connectionSlot:
-                props.initial.auth.kind === "oauth2"
-                  ? props.initial.auth.connectionSlot
-                  : GRAPHQL_OAUTH_CONNECTION_SLOT,
-            }
-          : { kind: "none" };
-      payload.credentialTargetScope = credentialTargetScope;
+      config.auth = authMode === "oauth2" ? { oauth2: {} } : { kind: "none" };
     }
-    const exit = await doUpdate({
-      params: { scopeId: displayScope, namespace: props.sourceId },
-      payload,
+    const exit = await doConfigure({
+      params: { scopeId: displayScope },
+      payload: {
+        source: { id: props.sourceId, scope: sourceScope },
+        scope: credentialTargetScope,
+        type: "graphql",
+        config,
+      },
       reactivityKeys: sourceWriteKeys,
     });
 
@@ -247,13 +236,12 @@ function EditForm(props: {
           onConnected={async (connectionId) => {
             await setBinding({
               params: { scopeId: oauthCredentialTargetScope },
-              payload: GraphqlSourceBindingInput.make({
-                sourceId: props.sourceId,
-                sourceScope,
+              payload: {
                 scope: oauthCredentialTargetScope,
-                slot: oauth2.connectionSlot,
+                source: { id: props.sourceId, scope: sourceScope },
+                slotKey: oauth2.connectionSlot,
                 value: { kind: "connection", connectionId },
-              }),
+              },
               reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
             });
           }}

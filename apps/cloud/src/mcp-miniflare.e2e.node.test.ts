@@ -61,9 +61,10 @@ const ApproveHandlers = HttpApiBuilder.group(UpstreamApi, "approve", (h) =>
 // Services
 // ---------------------------------------------------------------------------
 
-class Upstream extends Context.Service<Upstream, { readonly specJson: string }>()(
-  "MiniflareE2E/Upstream",
-) {}
+class Upstream extends Context.Service<
+  Upstream,
+  { readonly baseUrl: string; readonly specJson: string }
+>()("MiniflareE2E/Upstream") {}
 
 class Worker extends Context.Service<
   Worker,
@@ -110,7 +111,7 @@ const UpstreamLive = Layer.effect(
       return { server, scope };
     }),
     ({ scope }) => Scope.close(scope, Exit.void),
-  ).pipe(Effect.map(({ server }) => ({ specJson: server.specJson }))),
+  ).pipe(Effect.map(({ server }) => ({ baseUrl: server.baseUrl, specJson: server.specJson }))),
 );
 
 // ---------------------------------------------------------------------------
@@ -755,7 +756,7 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
     () =>
       Effect.gen(function* () {
         const { baseUrl, seedOrg } = yield* Worker;
-        const { specJson } = yield* Upstream;
+        const { baseUrl: upstreamBaseUrl, specJson } = yield* Upstream;
         const orgId = nextOrgId();
         yield* Effect.promise(() => seedOrg(orgId, "Elicit Org"));
 
@@ -781,7 +782,7 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
         // `HttpApiGroup` name ("approve") becomes part of the sandbox path,
         // so the invocation reads `tools.approveapi.approve.approveThing`.
         const code = [
-          `await tools.executor.openapi.addSource({ scope: ${JSON.stringify(orgId)}, spec: ${JSON.stringify(specJson)}, namespace: "approveapi" });`,
+          `await tools.executor.openapi.addSource({ scope: ${JSON.stringify(orgId)}, name: "Approve API", baseUrl: ${JSON.stringify(upstreamBaseUrl)}, spec: { kind: "blob", value: ${JSON.stringify(specJson)} }, namespace: "approveapi" });`,
           `return await tools.approveapi.approve.approveThing({});`,
         ].join("\n");
         const result = yield* Effect.promise(() =>

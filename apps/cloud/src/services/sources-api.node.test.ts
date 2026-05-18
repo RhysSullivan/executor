@@ -230,7 +230,6 @@ describe("sources api (HTTP)", () => {
           .addSource({
             params: { scopeId },
             payload: {
-              targetScope: scopeId,
               transport: "remote",
               name: "Broken MCP",
               endpoint: "http://127.0.0.1:1/mcp",
@@ -275,7 +274,6 @@ describe("sources api (HTTP)", () => {
         client.graphql.addSource({
           params: { scopeId },
           payload: {
-            targetScope: scopeId,
             endpoint: server.endpoint,
             namespace,
             name: "Cloud GraphQL",
@@ -344,7 +342,6 @@ describe("sources api (HTTP)", () => {
         client.mcp.addSource({
           params: { scopeId },
           payload: {
-            targetScope: scopeId,
             transport: "remote",
             name: "Cloud MCP",
             endpoint: server.endpoint,
@@ -453,7 +450,7 @@ describe("sources api (HTTP)", () => {
     }),
   );
 
-  it.effect("openapi.updateSource round-trips baseUrl + name changes", () =>
+  it.effect("sources.configure round-trips OpenAPI baseUrl + name changes", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
       const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
@@ -464,12 +461,17 @@ describe("sources api (HTTP)", () => {
             params: { scopeId: ScopeId.make(org) },
             payload: makeMinimalOpenApiSourcePayload(namespace),
           });
-          yield* client.openapi.updateSource({
-            params: { scopeId: ScopeId.make(org), namespace },
+          yield* client.sources.configure({
+            params: { scopeId: ScopeId.make(org) },
             payload: {
-              sourceScope: ScopeId.make(org),
-              name: "Renamed API",
-              baseUrl: "https://override.example.com",
+              source: { id: namespace, scope: ScopeId.make(org) },
+              scope: ScopeId.make(org),
+              type: "openapi",
+              config: {
+                scope: org,
+                name: "Renamed API",
+                baseUrl: "https://override.example.com",
+              },
             },
           });
         }),

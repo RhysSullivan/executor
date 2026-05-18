@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, type Schema as EffectSchema } from "effect";
 import type { Context, Layer } from "effect";
 import type { HttpClient } from "effect/unstable/http";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
@@ -33,6 +33,7 @@ import type {
   SecretOwnedByConnectionError,
 } from "./errors";
 import type { OAuthService } from "./oauth";
+import type { PluginStorageFacade } from "./plugin-storage";
 import type { Scope } from "./scope";
 import type { RemoveSecretInput, SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 import type { Usage, UsagesForConnectionInput, UsagesForSecretInput } from "./usages";
@@ -55,6 +56,7 @@ export interface StorageDeps<TTables extends FumaTables | undefined = FumaTables
   /** Plugin-facing FumaDB query boundary. */
   readonly fuma: IFumaClient<TablesToFumaSchema<TTables>>;
   readonly blobs: PluginBlobStore;
+  readonly pluginStorage: PluginStorageFacade;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +86,7 @@ export interface PluginCtx<TStore = unknown> {
    */
   readonly scopes: readonly Scope[];
   readonly storage: TStore;
+  readonly pluginStorage: PluginStorageFacade;
   readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient>;
 
   readonly core: {
@@ -352,6 +355,22 @@ export interface SourceLifecycleInput<TStore = unknown> {
   readonly scope: string;
 }
 
+export interface ConfigureSourceHandlerInput<TStore = unknown> {
+  readonly ctx: PluginCtx<TStore>;
+  readonly sourceId: string;
+  readonly sourceScope: string;
+  readonly targetScope: string;
+  readonly config: unknown;
+}
+
+export interface SourceConfigureDecl<TStore = unknown> {
+  readonly type: string;
+  readonly schema?: StaticToolSchema | EffectSchema.Decoder<unknown, never>;
+  readonly configure: (
+    input: ConfigureSourceHandlerInput<TStore>,
+  ) => Effect.Effect<unknown, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // PluginSpec — what a `definePlugin(factory)` call returns.
 // ---------------------------------------------------------------------------
@@ -533,6 +552,14 @@ export interface PluginSpec<
   readonly removeSource?: (input: SourceLifecycleInput<TStore>) => Effect.Effect<void, unknown>;
 
   readonly refreshSource?: (input: SourceLifecycleInput<TStore>) => Effect.Effect<void, unknown>;
+
+  /** Core-dispatched source configuration. The executor resolves the
+   *  source row, finds the owning plugin, and calls this handler with
+   *  an explicit source scope plus explicit target scope for credential
+   *  values. Plugin-native `openapi.configure` style methods can call
+   *  the same implementation, but callers do not need to know about
+   *  low-level credential bindings. */
+  readonly sourceConfigure?: SourceConfigureDecl<TStore>;
 
   /** URL autodetection hook. When the user pastes a URL in the
    *  onboarding UI, `executor.sources.detect(url)` fans out to every

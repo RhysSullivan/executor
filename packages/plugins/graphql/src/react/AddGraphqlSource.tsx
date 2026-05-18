@@ -6,13 +6,15 @@ import * as Schema from "effect/Schema";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { configureSource } from "@executor-js/react/api/atoms";
 import {
   HttpCredentialsEditor,
   httpCredentialsValid,
-  serializeScopedHttpCredentials,
+  serializeConfigureHttpCredentials,
   serializeHttpCredentials,
+  serializeTemplateHttpCredentials,
   type HttpCredentialsState,
-} from "@executor-js/react/plugins/http-credentials";
+} from "@executor-js/plugin-http-source/react";
 import {
   sourceDisplayNameFromUrl,
   slugifyNamespace,
@@ -37,7 +39,7 @@ import { Spinner } from "@executor-js/react/components/spinner";
 import { addGraphqlSourceOptimistic } from "./atoms";
 import { initialGraphqlCredentials } from "./defaults";
 import { GraphqlSourceFields } from "./GraphqlSourceFields";
-import type { GraphqlCredentialInput } from "../sdk/types";
+import type { GraphqlConfiguredValueInput, GraphqlCredentialInput } from "../sdk/types";
 
 const ErrorMessage = Schema.Struct({ message: Schema.String });
 const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
@@ -75,6 +77,7 @@ export default function AddGraphqlSource(props: {
   const doAdd = useAtomSet(addGraphqlSourceOptimistic(scopeId), {
     mode: "promiseExit",
   });
+  const doConfigure = useAtomSet(configureSource, { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
     popupName: "graphql-oauth",
@@ -129,35 +132,24 @@ export default function AddGraphqlSource(props: {
   const handleAdd = async () => {
     setAdding(true);
     setAddError(null);
-    const { headers: headerMap, queryParams } = serializeScopedHttpCredentials(
-      credentials,
-      requestCredentialTargetScope,
-    );
+    const { headers: templateHeaders, queryParams: templateQueryParams } =
+      serializeTemplateHttpCredentials(credentials);
+    const { headers: configureHeaders, queryParams: configureQueryParams } =
+      serializeConfigureHttpCredentials(credentials, requestCredentialTargetScope);
 
     const { trimmedEndpoint, namespace, displayName } = sourceIdentity();
     const exit = await doAdd({
       params: { scopeId },
       payload: {
-        targetScope: scopeId,
         endpoint: trimmedEndpoint,
         name: displayName,
         namespace,
-        ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
-        ...(Object.keys(queryParams).length > 0
-          ? {
-              queryParams: queryParams as Record<string, GraphqlCredentialInput>,
-            }
+        ...(Object.keys(templateHeaders).length > 0
+          ? { headers: templateHeaders as Record<string, GraphqlConfiguredValueInput> }
           : {}),
-        credentialTargetScope:
-          authMode === "oauth2" && tokens
-            ? oauthCredentialTargetScope
-            : requestCredentialTargetScope,
-        ...(authMode === "oauth2" && tokens
+        ...(Object.keys(templateQueryParams).length > 0
           ? {
-              auth: {
-                kind: "oauth2" as const,
-                connectionId: tokens.connectionId,
-              },
+              queryParams: templateQueryParams as Record<string, GraphqlConfiguredValueInput>,
             }
           : {}),
       },
@@ -167,6 +159,46 @@ export default function AddGraphqlSource(props: {
       setAddError(errorMessageFromExit(exit, "Failed to add source"));
       setAdding(false);
       return;
+    }
+    if (
+      Object.keys(configureHeaders).length > 0 ||
+      Object.keys(configureQueryParams).length > 0 ||
+      (authMode === "oauth2" && tokens)
+    ) {
+      const configureExit = await doConfigure({
+        params: { scopeId },
+        payload: {
+          source: { id: exit.value.namespace, scope: scopeId },
+          scope: requestCredentialTargetScope,
+          type: "graphql",
+          config: {
+            ...(Object.keys(configureHeaders).length > 0
+              ? { headers: configureHeaders as Record<string, GraphqlCredentialInput> }
+              : {}),
+            ...(Object.keys(configureQueryParams).length > 0
+              ? { queryParams: configureQueryParams as Record<string, GraphqlCredentialInput> }
+              : {}),
+            ...(authMode === "oauth2" && tokens
+              ? {
+                  auth: {
+                    oauth2: {
+                      connection: {
+                        kind: "connection" as const,
+                        connectionId: tokens.connectionId,
+                      },
+                    },
+                  },
+                }
+              : {}),
+          },
+        },
+        reactivityKeys: sourceWriteKeys,
+      });
+      if (Exit.isFailure(configureExit)) {
+        setAddError(errorMessageFromExit(configureExit, "Failed to configure source"));
+        setAdding(false);
+        return;
+      }
     }
     props.onComplete();
   };

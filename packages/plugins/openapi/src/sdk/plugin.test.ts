@@ -415,7 +415,7 @@ describe("OpenAPI Plugin", () => {
     }),
   );
 
-  it.effect("updateSource removes bindings for credential slots no longer present", () =>
+  it.effect("sources.configure removes bindings for credential slots no longer present", () =>
     Effect.gen(function* () {
       const clientLayer = FetchHttpClient.layer;
 
@@ -455,8 +455,11 @@ describe("OpenAPI Plugin", () => {
         }),
       );
 
-      yield* executor.openapi.updateSource("stale_binding", TEST_SCOPE, {
-        headers: {},
+      yield* executor.sources.configure({
+        source: { id: "stale_binding", scope: ScopeId.make(TEST_SCOPE) },
+        scope: ScopeId.make(TEST_SCOPE),
+        type: "openapi",
+        config: { scope: TEST_SCOPE, headers: {} },
       });
 
       const bindings = yield* executor.sources.listBindings({
@@ -466,7 +469,7 @@ describe("OpenAPI Plugin", () => {
     }),
   );
 
-  it.effect("updateSource removes stale OAuth2 bindings when the OAuth template changes", () =>
+  it.effect("sources.configure removes stale OAuth2 bindings when the OAuth template changes", () =>
     Effect.gen(function* () {
       const clientLayer = FetchHttpClient.layer;
 
@@ -515,18 +518,27 @@ describe("OpenAPI Plugin", () => {
         }),
       );
 
-      yield* executor.openapi.updateSource("stale_oauth", TEST_SCOPE, {
-        oauth2: OAuth2SourceConfig.make({
-          kind: "oauth2",
-          securitySchemeName: "new",
-          flow: "authorizationCode",
-          tokenUrl: "https://auth.example.com/token",
-          authorizationUrl: "https://auth.example.com/authorize",
-          clientIdSlot: "oauth2:new:client-id",
-          clientSecretSlot: null,
-          connectionSlot: "oauth2:new:connection",
-          scopes: ["read"],
-        }),
+      yield* executor.sources.configure({
+        source: { id: "stale_oauth", scope: ScopeId.make(TEST_SCOPE) },
+        scope: ScopeId.make(TEST_SCOPE),
+        type: "openapi",
+        config: {
+          scope: TEST_SCOPE,
+          oauth2: {
+            clientId: { kind: "secret", secretId: "old-client-id" },
+          },
+          oauth2Source: OAuth2SourceConfig.make({
+            kind: "oauth2",
+            securitySchemeName: "new",
+            flow: "authorizationCode",
+            tokenUrl: "https://auth.example.com/token",
+            authorizationUrl: "https://auth.example.com/authorize",
+            clientIdSlot: "oauth2:new:client-id",
+            clientSecretSlot: null,
+            connectionSlot: "oauth2:new:connection",
+            scopes: ["read"],
+          }),
+        },
       });
 
       const bindings = yield* executor.sources.listBindings({
@@ -1035,7 +1047,7 @@ describe("OpenAPI Plugin", () => {
 
       expect(userView?.config.baseUrl).toBe("https://org.example.com");
       expect(
-        queryCalls.some((call) => call.method === "findMany" && call.table === "openapi_source"),
+        queryCalls.some((call) => call.method === "findMany" && call.table === "plugin_storage"),
       ).toBe(false);
     }),
   );
@@ -1081,7 +1093,7 @@ describe("OpenAPI Plugin", () => {
     }),
   );
 
-  it.effect("updateSource on user shadow cannot override the inherited base URL", () =>
+  it.effect("sources.configure on user shadow cannot override the inherited base URL", () =>
     Effect.gen(function* () {
       const clientLayer = FetchHttpClient.layer;
 
@@ -1112,10 +1124,16 @@ describe("OpenAPI Plugin", () => {
         }),
       );
 
-      const updateResult = yield* executor.openapi
-        .updateSource("shared", String(USER_SCOPE), {
-          name: "User Renamed",
-          baseUrl: "https://user-new.example.com",
+      const updateResult = yield* executor.sources
+        .configure({
+          source: { id: "shared", scope: USER_SCOPE },
+          scope: USER_SCOPE,
+          type: "openapi",
+          config: {
+            scope: String(USER_SCOPE),
+            name: "User Renamed",
+            baseUrl: "https://user-new.example.com",
+          },
         })
         .pipe(
           Effect.match({
@@ -1127,7 +1145,7 @@ describe("OpenAPI Plugin", () => {
       const userView = yield* executor.openapi.getSource("shared", String(USER_SCOPE));
       const orgView = yield* executor.openapi.getSource("shared", String(ORG_SCOPE));
 
-      expect(updateResult).toMatchObject({ _tag: "OpenApiOAuthError" });
+      expect(updateResult).toMatchObject({ _tag: "StorageError" });
       expect(userView?.name).toBe("User Source");
       expect(userView?.config.baseUrl).toBe("https://org.example.com");
       expect(orgView?.name).toBe("Org Source");
@@ -1241,15 +1259,20 @@ describe("OpenAPI Plugin", () => {
           );
 
           const userRowsBefore = yield* Effect.promise(() =>
-            db.findMany("openapi_source_spec_fetch_header", {
+            db.findMany("plugin_storage", {
               where: (b) =>
                 b.and(
                   b("scope_id", "=", String(USER_SCOPE)),
-                  b("source_id", "=", "shared_spec_fetch"),
+                  b("plugin_id", "=", "openapi"),
+                  b("collection", "=", "source"),
+                  b("key", "=", "shared_spec_fetch"),
                 ),
             }),
           );
-          expect(userRowsBefore).toEqual([]);
+          const userConfigBefore = userRowsBefore[0]?.data as
+            | { readonly config?: { readonly specFetchCredentials?: unknown } }
+            | undefined;
+          expect(userConfigBefore?.config?.specFetchCredentials).toBeUndefined();
 
           const requestsBefore = server.requestCount();
           yield* executor.sources.refresh({
@@ -1260,25 +1283,43 @@ describe("OpenAPI Plugin", () => {
           expect(server.requestCount()).toBeGreaterThan(requestsBefore);
           expect(server.lastToken()).toBe("org-token");
           const orgRowsAfter = yield* Effect.promise(() =>
-            db.findMany("openapi_source_spec_fetch_header", {
+            db.findMany("plugin_storage", {
               where: (b) =>
                 b.and(
                   b("scope_id", "=", String(ORG_SCOPE)),
-                  b("source_id", "=", "shared_spec_fetch"),
+                  b("plugin_id", "=", "openapi"),
+                  b("collection", "=", "source"),
+                  b("key", "=", "shared_spec_fetch"),
                 ),
             }),
           );
           const userRowsAfter = yield* Effect.promise(() =>
-            db.findMany("openapi_source_spec_fetch_header", {
+            db.findMany("plugin_storage", {
               where: (b) =>
                 b.and(
                   b("scope_id", "=", String(USER_SCOPE)),
-                  b("source_id", "=", "shared_spec_fetch"),
+                  b("plugin_id", "=", "openapi"),
+                  b("collection", "=", "source"),
+                  b("key", "=", "shared_spec_fetch"),
                 ),
             }),
           );
-          expect(orgRowsAfter).toHaveLength(1);
-          expect(userRowsAfter).toEqual([]);
+          const orgConfigAfter = orgRowsAfter[0]?.data as
+            | {
+                readonly config?: {
+                  readonly specFetchCredentials?: {
+                    readonly headers?: Readonly<Record<string, unknown>>;
+                  };
+                };
+              }
+            | undefined;
+          const userConfigAfter = userRowsAfter[0]?.data as
+            | { readonly config?: { readonly specFetchCredentials?: unknown } }
+            | undefined;
+          expect(orgConfigAfter?.config?.specFetchCredentials?.headers).toHaveProperty(
+            "X-Spec-Token",
+          );
+          expect(userConfigAfter?.config?.specFetchCredentials).toBeUndefined();
         }),
       ),
   );

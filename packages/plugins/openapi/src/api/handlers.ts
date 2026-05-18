@@ -8,7 +8,6 @@ import type {
   OpenApiPluginExtension,
   OpenApiPreviewSpecFetchCredentialsInput,
   OpenApiSpecFetchCredentialsInput,
-  OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
 import { StoredSourceSchema } from "../sdk/store";
 import { OpenApiGroup } from "./group";
@@ -107,23 +106,6 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
                 },
               })
             : null;
-        }),
-      ),
-    )
-    .handle("updateSource", ({ params: path, payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* OpenApiExtensionService;
-          yield* ext.updateSource(path.namespace, payload.sourceScope, {
-            name: payload.name,
-            baseUrl: payload.baseUrl,
-            headers: payload.headers as Record<string, OpenApiConfiguredValueInput> | undefined,
-            queryParams: payload.queryParams as
-              | Record<string, OpenApiConfiguredValueInput>
-              | undefined,
-            oauth2: payload.oauth2,
-          } as OpenApiUpdateSourceInput);
-          return { updated: true };
         }),
       ),
     )

@@ -97,6 +97,7 @@ export {
   type DefinitionRow,
   type SecretRow,
   type ConnectionRow,
+  type PluginStorageRow,
   type CredentialBindingRow,
   type ToolPolicyRow,
   type ToolPolicyAction,
@@ -297,13 +298,24 @@ export {
   type StaticToolExecuteContext,
   type StaticToolHandlerInput,
   type StaticToolInput,
+  type ConfigureSourceHandlerInput,
   type InvokeToolInput,
   type SourceLifecycleInput,
+  type SourceConfigureDecl,
   type SecretListEntry,
   type Elicit,
   definePlugin,
   tool,
 } from "./plugin";
+export {
+  pluginStorageId,
+  type PluginStorageEntry,
+  type PluginStorageFacade,
+  type PluginStorageKeyInput,
+  type PluginStorageListInput,
+  type PluginStoragePutInput,
+  type PluginStorageScopedKeyInput,
+} from "./plugin-storage";
 
 // Executor
 export {

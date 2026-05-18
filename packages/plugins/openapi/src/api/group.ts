@@ -75,17 +75,6 @@ const PreviewSpecPayload = Schema.Struct({
   specFetchCredentials: Schema.optional(PreviewSpecFetchCredentialsPayload),
 });
 
-const UpdateSourcePayload = Schema.Struct({
-  sourceScope: ScopeId,
-  name: Schema.optional(Schema.String),
-  baseUrl: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record(Schema.String, OpenApiConfiguredValuePayload)),
-  queryParams: Schema.optional(Schema.Record(Schema.String, OpenApiConfiguredValuePayload)),
-  // Set after a successful re-authenticate to refresh the source's
-  // stored OAuth2 metadata.
-  oauth2: Schema.optional(OAuth2SourceConfig),
-});
-
 const ConfigureCredentialPayload = Schema.Union([
   Schema.String,
   Schema.Struct({
@@ -128,10 +117,7 @@ const ConfigurePayload = Schema.Struct({
       connection: Schema.optional(ConfigureCredentialPayload),
     }),
   ),
-});
-
-const UpdateSourceResponse = Schema.Struct({
-  updated: Schema.Boolean,
+  oauth2Source: Schema.optional(OAuth2SourceConfig),
 });
 
 // ---------------------------------------------------------------------------
@@ -184,14 +170,6 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
     HttpApiEndpoint.get("getSource", "/scopes/:scopeId/openapi/sources/:namespace", {
       params: SourceParams,
       success: Schema.NullOr(StoredSourceSchema),
-      error: DomainErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.patch("updateSource", "/scopes/:scopeId/openapi/sources/:namespace", {
-      params: SourceParams,
-      payload: UpdateSourcePayload,
-      success: UpdateSourceResponse,
       error: DomainErrors,
     }),
   )

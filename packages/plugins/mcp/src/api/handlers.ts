@@ -3,13 +3,9 @@ import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor-js/api";
 import { ScopeId } from "@executor-js/sdk/core";
-import type {
-  McpPluginExtension,
-  McpProbeEndpointInput,
-  McpSourceConfig,
-  McpUpdateSourceInput,
-} from "../sdk/plugin";
-import type { McpCredentialInput } from "../sdk/types";
+import type { OAuth2SourceConfigType } from "@executor-js/plugin-http-source/sdk";
+import type { McpPluginExtension, McpProbeEndpointInput, McpSourceConfig } from "../sdk/plugin";
+import type { McpConfiguredValueInput } from "../sdk/types";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
 import { McpGroup } from "./group";
 
@@ -66,11 +62,10 @@ const toSourceConfig = (
     name: string;
     endpoint: string;
     remoteTransport?: "streamable-http" | "sse" | "auto";
-    queryParams?: Record<string, McpCredentialInput>;
-    headers?: Record<string, McpCredentialInput>;
+    queryParams?: Record<string, McpConfiguredValueInput>;
+    headers?: Record<string, McpConfiguredValueInput>;
     namespace?: string;
-    auth?: { kind: string } & Record<string, unknown>;
-    credentialTargetScope?: string;
+    oauth2?: OAuth2SourceConfigType;
   };
 
   return {
@@ -82,8 +77,7 @@ const toSourceConfig = (
     queryParams: p.queryParams,
     headers: p.headers,
     namespace: p.namespace,
-    auth: p.auth as McpSourceConfig extends { auth?: infer A } ? A : never,
-    credentialTargetScope: p.credentialTargetScope,
+    oauth2: p.oauth2,
   };
 };
 
@@ -110,12 +104,12 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
         }),
       ),
     )
-    .handle("addSource", ({ payload }) =>
+    .handle("addSource", ({ params: path, payload }) =>
       capture(
         Effect.gen(function* () {
           const ext = yield* McpExtensionService;
           return yield* ext.addSource(
-            toSourceConfig(payload as Parameters<typeof toSourceConfig>[0], payload.targetScope),
+            toSourceConfig(payload as Parameters<typeof toSourceConfig>[0], path.scopeId),
           );
         }),
       ),
@@ -150,52 +144,6 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
                 config: source.config,
               })
             : null;
-        }),
-      ),
-    )
-    .handle("updateSource", ({ params: path, payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          yield* ext.updateSource(path.namespace, payload.sourceScope, {
-            name: payload.name,
-            endpoint: payload.endpoint,
-            headers: payload.headers,
-            queryParams: payload.queryParams,
-            credentialTargetScope: payload.credentialTargetScope,
-            auth: payload.auth as McpUpdateSourceInput["auth"],
-          });
-          return { updated: true };
-        }),
-      ),
-    )
-    .handle("listSourceBindings", ({ params: path }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.listSourceBindings(path.namespace, path.sourceScopeId);
-        }),
-      ),
-    )
-    .handle("setSourceBinding", ({ payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.setSourceBinding(payload);
-        }),
-      ),
-    )
-    .handle("removeSourceBinding", ({ payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          yield* ext.removeSourceBinding(
-            payload.sourceId,
-            payload.sourceScope,
-            payload.slot,
-            payload.scope,
-          );
-          return { removed: true };
         }),
       ),
     ),

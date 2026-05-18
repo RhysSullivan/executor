@@ -136,6 +136,8 @@ export const refreshSource = ExecutorApiClient.mutation("sources", "refresh");
 
 export const detectSource = ExecutorApiClient.mutation("sources", "detect");
 
+export const configureSource = ExecutorApiClient.mutation("sources", "configure");
+
 export const sourceCredentialBindingsAtom = (
   scopeId: ScopeId,
   sourceId: string,

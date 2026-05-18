@@ -72,6 +72,7 @@ await executor.openapi.addSpec({
 
 await executor.graphql.addSource({
   endpoint: "https://graphql.anilist.co",
+  name: "AniList",
   namespace: "anilist",
   scope: "my-app",
 });

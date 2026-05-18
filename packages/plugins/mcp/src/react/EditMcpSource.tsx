@@ -2,13 +2,12 @@ import { useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
+import { mcpSourceAtom, mcpSourceBindingsAtom } from "./atoms";
 import {
-  mcpSourceAtom,
-  mcpSourceBindingsAtom,
-  setMcpSourceBinding,
-  updateMcpSource,
-} from "./atoms";
-import { connectionsAtom } from "@executor-js/react/api/atoms";
+  configureSource,
+  connectionsAtom,
+  setSourceCredentialBinding,
+} from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { slugifyNamespace, useSourceIdentity } from "@executor-js/react/plugins/source-identity";
@@ -16,10 +15,10 @@ import { useCredentialTargetScope } from "@executor-js/react/plugins/credential-
 import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
 import {
   HttpCredentialsEditor,
+  serializeConfigureHttpCredentials,
   serializeHttpCredentials,
-  serializeScopedHttpCredentials,
   type HttpCredentialsState,
-} from "@executor-js/react/plugins/http-credentials";
+} from "@executor-js/plugin-http-source/react";
 import {
   effectiveCredentialBindingForScope,
   httpCredentialsFromConfiguredCredentialBindings,
@@ -30,11 +29,7 @@ import { Button } from "@executor-js/react/components/button";
 import { Badge } from "@executor-js/react/components/badge";
 import { ScopeId } from "@executor-js/sdk/shared";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
-import {
-  McpSourceBindingInput,
-  type McpCredentialInput,
-  type McpSourceBindingRef,
-} from "../sdk/types";
+import { type McpCredentialInput, type McpSourceBindingRef } from "../sdk/types";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
@@ -61,8 +56,8 @@ function RemoteEditForm(props: {
     sourceScope,
     initialTargetScope: initialCredentialTargetScope(sourceScope, props.bindings),
   });
-  const doUpdate = useAtomSet(updateMcpSource, { mode: "promiseExit" });
-  const setBinding = useAtomSet(setMcpSourceBinding, { mode: "promise" });
+  const doConfigure = useAtomSet(configureSource, { mode: "promiseExit" });
+  const setBinding = useAtomSet(setSourceCredentialBinding, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
 
@@ -111,30 +106,31 @@ function RemoteEditForm(props: {
   const handleSave = async () => {
     setSaving(true);
     setError(null);
-    const { headers, queryParams } = serializeScopedHttpCredentials(
+    const { headers, queryParams } = serializeConfigureHttpCredentials(
       credentials,
       credentialTargetScope,
     );
-    const payload: {
-      sourceScope: ScopeId;
+    const config: {
       name?: string;
       endpoint?: string;
       headers?: Record<string, McpCredentialInput>;
       queryParams?: Record<string, McpCredentialInput>;
-      credentialTargetScope?: ScopeId;
     } = {
-      sourceScope,
       name: metadataDirty ? identity.name.trim() || undefined : undefined,
       endpoint: metadataDirty ? endpoint.trim() || undefined : undefined,
     };
     if (credentialsDirty) {
-      payload.headers = headers;
-      payload.queryParams = queryParams as Record<string, McpCredentialInput>;
-      payload.credentialTargetScope = credentialTargetScope;
+      config.headers = headers;
+      config.queryParams = queryParams as Record<string, McpCredentialInput>;
     }
-    const exit = await doUpdate({
-      params: { scopeId: displayScope, namespace: props.sourceId },
-      payload,
+    const exit = await doConfigure({
+      params: { scopeId: displayScope },
+      payload: {
+        source: { id: props.sourceId, scope: sourceScope },
+        scope: credentialTargetScope,
+        type: "mcp",
+        config,
+      },
       reactivityKeys: sourceWriteKeys,
     });
     if (Exit.isFailure(exit)) {
@@ -206,13 +202,12 @@ function RemoteEditForm(props: {
           onConnected={async (connectionId) => {
             await setBinding({
               params: { scopeId: oauthCredentialTargetScope },
-              payload: McpSourceBindingInput.make({
-                sourceId: props.sourceId,
-                sourceScope,
+              payload: {
                 scope: oauthCredentialTargetScope,
-                slot: oauth2.connectionSlot,
+                source: { id: props.sourceId, scope: sourceScope },
+                slotKey: oauth2.connectionSlot,
                 value: { kind: "connection", connectionId },
-              }),
+              },
               reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
             });
           }}
