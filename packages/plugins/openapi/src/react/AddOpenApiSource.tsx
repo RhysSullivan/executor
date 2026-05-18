@@ -276,10 +276,6 @@ export default function AddOpenApiSource(props: {
   const [oauthTokenTargetScope, setOAuthTokenTargetScope] = useState<ScopeId>(
     defaultOAuthTokenTargetScope,
   );
-  const sourceCredentialScopeOptions = useMemo(
-    () => credentialScopeOptions.filter((option) => option.scopeId === scopeId),
-    [credentialScopeOptions, scopeId],
-  );
   useEffect(() => {
     if (!credentialScopeOptions.some((option) => option.scopeId === oauthTokenTargetScope)) {
       setOAuthTokenTargetScope(defaultOAuthTokenTargetScope);
@@ -294,10 +290,6 @@ export default function AddOpenApiSource(props: {
     mode: "promiseExit",
   });
   const secretList = useSecretPickerSecrets();
-  const sourceCredentialSecrets = useMemo(
-    () => secretList.filter((secret) => secret.scopeId === String(scopeId)),
-    [scopeId, secretList],
-  );
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
     popupName: OPENAPI_OAUTH_POPUP_NAME,
     popupBlockedMessage: "OAuth popup was blocked by the browser",
@@ -354,11 +346,12 @@ export default function AddOpenApiSource(props: {
     const slot = headerBindingSlot(ch.name.trim());
     configuredHeaders[ch.name.trim()] = { kind: "secret", prefix: ch.prefix };
     if (ch.secretId) {
+      const targetScope = ch.targetScope ?? sourceScope;
       headerBindings.push({
         slot,
         secretId: ch.secretId,
-        scope: sourceScope,
-        secretScope: ch.secretScope ?? sourceScope,
+        scope: targetScope,
+        secretScope: ch.secretScope ?? targetScope,
       });
     }
   }
@@ -367,12 +360,13 @@ export default function AddOpenApiSource(props: {
     if (!name) continue;
     if (param.secretId) {
       const slot = queryParamBindingSlot(name);
+      const targetScope = param.targetScope ?? sourceScope;
       configuredQueryParams[name] = { kind: "secret", prefix: param.prefix };
       queryParamBindings.push({
         slot,
         secretId: param.secretId,
-        scope: sourceScope,
-        secretScope: param.secretScope ?? sourceScope,
+        scope: targetScope,
+        secretScope: param.secretScope ?? targetScope,
       });
       continue;
     }
@@ -389,24 +383,26 @@ export default function AddOpenApiSource(props: {
   for (const header of specFetchCredentials.headers) {
     const name = header.name.trim();
     if (!name || !header.secretId) continue;
+    const targetScope = header.targetScope ?? sourceScope;
     configuredSpecFetchHeaders[name] = { kind: "secret", prefix: header.prefix };
     specFetchBindings.push({
       slot: specFetchHeaderBindingSlot(name),
       secretId: header.secretId,
-      scope: sourceScope,
-      secretScope: header.secretScope ?? sourceScope,
+      scope: targetScope,
+      secretScope: header.secretScope ?? targetScope,
     });
   }
   for (const param of specFetchCredentials.queryParams) {
     const name = param.name.trim();
     if (!name) continue;
     if (param.secretId) {
+      const targetScope = param.targetScope ?? sourceScope;
       configuredSpecFetchQueryParams[name] = { kind: "secret", prefix: param.prefix };
       specFetchBindings.push({
         slot: specFetchQueryParamBindingSlot(name),
         secretId: param.secretId,
-        scope: sourceScope,
-        secretScope: param.secretScope ?? sourceScope,
+        scope: targetScope,
+        secretScope: param.secretScope ?? targetScope,
       });
       continue;
     }
@@ -948,8 +944,8 @@ export default function AddOpenApiSource(props: {
                 existingSecrets={secretList}
                 sourceName={identity.name}
                 targetScope={sourceScope}
-                credentialScopeOptions={sourceCredentialScopeOptions}
-                bindingScopeOptions={sourceCredentialScopeOptions}
+                credentialScopeOptions={credentialScopeOptions}
+                bindingScopeOptions={credentialScopeOptions}
                 restrictSecretsToTargetScope
                 labels={{
                   headers: "Spec fetch headers",
@@ -1087,8 +1083,8 @@ export default function AddOpenApiSource(props: {
                   existingSecrets={secretList}
                   sourceName={identity.name}
                   targetScope={sourceScope}
-                  credentialScopeOptions={sourceCredentialScopeOptions}
-                  bindingScopeOptions={sourceCredentialScopeOptions}
+                  credentialScopeOptions={credentialScopeOptions}
+                  bindingScopeOptions={credentialScopeOptions}
                   restrictSecretsToTargetScope
                   emptyLabel="No credentials yet. Add the header value this method should use."
                 />
@@ -1101,8 +1097,8 @@ export default function AddOpenApiSource(props: {
               existingSecrets={secretList}
               sourceName={identity.name}
               targetScope={sourceScope}
-              credentialScopeOptions={sourceCredentialScopeOptions}
-              bindingScopeOptions={sourceCredentialScopeOptions}
+              credentialScopeOptions={credentialScopeOptions}
+              bindingScopeOptions={credentialScopeOptions}
               restrictSecretsToTargetScope
               sections={{ headers: false, queryParams: true }}
               labels={{ queryParams: "Runtime query parameters" }}
@@ -1141,11 +1137,11 @@ export default function AddOpenApiSource(props: {
                             setOauth2ClientIdScope(secretScopeId ?? sourceScope);
                             setOauth2AuthState(null);
                           }}
-                          secrets={sourceCredentialSecrets}
+                          secrets={secretList}
                           sourceName={identity.name}
                           secretLabel="Client ID"
                           targetScope={oauth2ClientIdScope ?? sourceScope}
-                          credentialScopeOptions={sourceCredentialScopeOptions}
+                          credentialScopeOptions={credentialScopeOptions}
                           onCreatedScope={setOauth2ClientIdScope}
                         />
                       </div>
@@ -1173,11 +1169,11 @@ export default function AddOpenApiSource(props: {
                             setOauth2ClientSecretScope(secretScopeId ?? sourceScope);
                             setOauth2AuthState(null);
                           }}
-                          secrets={sourceCredentialSecrets}
+                          secrets={secretList}
                           sourceName={identity.name}
                           secretLabel="Client Secret"
                           targetScope={oauth2ClientSecretScope ?? sourceScope}
-                          credentialScopeOptions={sourceCredentialScopeOptions}
+                          credentialScopeOptions={credentialScopeOptions}
                           onCreatedScope={setOauth2ClientSecretScope}
                         />
                       </div>
