@@ -13,6 +13,7 @@ import {
   type ConnectionProvider,
   type SecretProvider,
   SetSecretInput,
+  SetSourceCredentialBindingInput,
   definePlugin,
 } from "@executor-js/sdk";
 import { makeTestWorkspaceLayer, TestWorkspace } from "@executor-js/sdk/testing";
@@ -22,7 +23,6 @@ import {
 } from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
-import { OpenApiSourceBindingInput } from "./types";
 
 const PingGroup = HttpApiGroup.make("default", { topLevel: true }).add(
   HttpApiEndpoint.get("ping", "/ping"),
@@ -114,12 +114,11 @@ layer(makeTestWorkspaceLayer({ scopes: [orgA], plugins }), { timeout: "15 second
             scope: String(orgA.id),
             namespace: "secret_private_source",
           });
-          yield* orgAExec.openapi.setSourceBinding(
-            OpenApiSourceBindingInput.make({
-              sourceId: "secret_private_source",
-              sourceScope: orgA.id,
+          yield* orgAExec.sources.setBinding(
+            SetSourceCredentialBindingInput.make({
+              source: { id: "secret_private_source", scope: orgA.id },
               scope: orgA.id,
-              slot: "header:authorization",
+              slotKey: "header:authorization",
               value: { kind: "secret", secretId },
             }),
           );
@@ -181,12 +180,11 @@ layer(makeTestWorkspaceLayer({ scopes: [orgA], plugins }), { timeout: "15 second
             scope: String(orgA.id),
             namespace: "connection_private_source",
           });
-          yield* orgAExec.openapi.setSourceBinding(
-            OpenApiSourceBindingInput.make({
-              sourceId: "connection_private_source",
-              sourceScope: orgA.id,
+          yield* orgAExec.sources.setBinding(
+            SetSourceCredentialBindingInput.make({
+              source: { id: "connection_private_source", scope: orgA.id },
               scope: orgA.id,
-              slot: "oauth:connection",
+              slotKey: "oauth:connection",
               value: { kind: "connection", connectionId },
             }),
           );

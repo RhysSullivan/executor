@@ -292,6 +292,7 @@ export interface OpenapiStore {
       readonly baseUrl?: string;
       readonly headers?: Record<string, ConfiguredHeaderValue>;
       readonly queryParams?: Record<string, ConfiguredHeaderValue>;
+      readonly specFetchCredentials?: OpenApiSpecFetchCredentials;
       readonly oauth2?: OAuth2SourceConfig;
     },
   ) => Effect.Effect<void, StorageFailure>;
@@ -535,6 +536,20 @@ export const makeDefaultOpenapiStore = ({
             namespace,
             scope,
             patch.queryParams,
+          );
+        }
+        if (patch.specFetchCredentials !== undefined) {
+          yield* replaceChildRows(
+            "openapi_source_spec_fetch_header",
+            namespace,
+            scope,
+            patch.specFetchCredentials.headers,
+          );
+          yield* replaceChildRows(
+            "openapi_source_spec_fetch_query_param",
+            namespace,
+            scope,
+            patch.specFetchCredentials.queryParams,
           );
         }
       }),

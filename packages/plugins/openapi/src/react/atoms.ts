@@ -1,7 +1,7 @@
 import type { ScopeId } from "@executor-js/sdk/shared";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { sourcesOptimisticAtom } from "@executor-js/react/api/atoms";
+import { sourceCredentialBindingsAtom, sourcesOptimisticAtom } from "@executor-js/react/api/atoms";
 import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { OpenApiClient } from "./client";
 
@@ -21,11 +21,12 @@ export const openApiSourceBindingsAtom = (
   namespace: string,
   sourceScopeId: ScopeId,
 ) =>
-  OpenApiClient.query("openapi", "listSourceBindings", {
-    params: { scopeId, namespace, sourceScopeId },
-    timeToLive: "15 seconds",
-    reactivityKeys: [ReactivityKey.sources, ReactivityKey.secrets, ReactivityKey.connections],
-  });
+  Atom.mapResult(sourceCredentialBindingsAtom(scopeId, namespace, sourceScopeId), (rows) =>
+    rows.map((row) => ({
+      ...row,
+      slot: row.slotKey,
+    })),
+  );
 
 // ---------------------------------------------------------------------------
 // Mutation atoms
@@ -63,7 +64,3 @@ export const addOpenApiSpecOptimistic = Atom.family((scopeId: ScopeId) =>
 );
 
 export const updateOpenApiSource = OpenApiClient.mutation("openapi", "updateSource");
-
-export const setOpenApiSourceBinding = OpenApiClient.mutation("openapi", "setSourceBinding");
-
-export const removeOpenApiSourceBinding = OpenApiClient.mutation("openapi", "removeSourceBinding");

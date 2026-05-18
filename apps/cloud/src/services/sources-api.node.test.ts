@@ -517,13 +517,12 @@ describe("sources api (HTTP)", () => {
               value: "alice-secret",
             },
           });
-          const binding = yield* client.openapi.setSourceBinding({
+          const binding = yield* client.sources.setBinding({
             params: { scopeId: ScopeId.make(aliceScope) },
             payload: {
-              sourceId: namespace,
-              sourceScope: ScopeId.make(orgId),
               scope: ScopeId.make(aliceScope),
-              slot: "header:authorization",
+              source: { id: namespace, scope: ScopeId.make(orgId) },
+              slotKey: "header:authorization",
               value: {
                 kind: "secret",
                 secretId: SecretId.make("alice_pat"),
@@ -534,7 +533,7 @@ describe("sources api (HTTP)", () => {
             sourceId: namespace,
             sourceScopeId: ScopeId.make(orgId),
             scopeId: ScopeId.make(aliceScope),
-            slot: "header:authorization",
+            slotKey: "header:authorization",
             value: {
               kind: "secret",
               secretId: SecretId.make("alice_pat"),
@@ -555,13 +554,12 @@ describe("sources api (HTTP)", () => {
               value: "bob-secret",
             },
           });
-          yield* client.openapi.setSourceBinding({
+          yield* client.sources.setBinding({
             params: { scopeId: ScopeId.make(bobScope) },
             payload: {
-              sourceId: namespace,
-              sourceScope: ScopeId.make(orgId),
               scope: ScopeId.make(bobScope),
-              slot: "header:authorization",
+              source: { id: namespace, scope: ScopeId.make(orgId) },
+              slotKey: "header:authorization",
               value: {
                 kind: "secret",
                 secretId: SecretId.make("bob_pat"),
@@ -572,10 +570,10 @@ describe("sources api (HTTP)", () => {
       );
 
       const aliceBindings = yield* asUser(aliceId, orgId, (client) =>
-        client.openapi.listSourceBindings({
+        client.sources.listBindings({
           params: {
             scopeId: ScopeId.make(aliceScope),
-            namespace,
+            sourceId: namespace,
             sourceScopeId: ScopeId.make(orgId),
           },
         }),
@@ -583,7 +581,7 @@ describe("sources api (HTTP)", () => {
       expect(aliceBindings).toContainEqual(
         expect.objectContaining({
           scopeId: ScopeId.make(aliceScope),
-          slot: "header:authorization",
+          slotKey: "header:authorization",
           value: {
             kind: "secret",
             secretId: SecretId.make("alice_pat"),
@@ -594,17 +592,17 @@ describe("sources api (HTTP)", () => {
       expect(
         aliceBindings.some(
           (binding) =>
-            binding.slot === "header:authorization" &&
+            binding.slotKey === "header:authorization" &&
             binding.value.kind === "secret" &&
             binding.value.secretId === SecretId.make("bob_pat"),
         ),
       ).toBe(false);
 
       const bobBindings = yield* asUser(bobId, orgId, (client) =>
-        client.openapi.listSourceBindings({
+        client.sources.listBindings({
           params: {
             scopeId: ScopeId.make(bobScope),
-            namespace,
+            sourceId: namespace,
             sourceScopeId: ScopeId.make(orgId),
           },
         }),
@@ -612,7 +610,7 @@ describe("sources api (HTTP)", () => {
       expect(bobBindings).toContainEqual(
         expect.objectContaining({
           scopeId: ScopeId.make(bobScope),
-          slot: "header:authorization",
+          slotKey: "header:authorization",
           value: {
             kind: "secret",
             secretId: SecretId.make("bob_pat"),
@@ -623,7 +621,7 @@ describe("sources api (HTTP)", () => {
       expect(
         bobBindings.some(
           (binding) =>
-            binding.slot === "header:authorization" &&
+            binding.slotKey === "header:authorization" &&
             binding.value.kind === "secret" &&
             binding.value.secretId === SecretId.make("alice_pat"),
         ),
