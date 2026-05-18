@@ -164,6 +164,10 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
             queryParams: payload.queryParams,
             credentialTargetScope: payload.credentialTargetScope,
             auth: payload.auth as McpUpdateSourceInput["auth"],
+            command: payload.command,
+            args: payload.args,
+            env: payload.env,
+            cwd: payload.cwd,
           });
           return { updated: true };
         }),
