@@ -535,6 +535,125 @@ describe("mcpPlugin", () => {
   );
 
   // -------------------------------------------------------------------------
+  // Stdio updateSource — the fixture server reads FIXTURE_TOOLS from env
+  // so we can vary its tool list between addSource and updateSource and
+  // assert that re-discovery actually happens.
+  // -------------------------------------------------------------------------
+
+  const stdioFixturePath = new URL("../testing/stdio-fixture-server.ts", import.meta.url).pathname;
+
+  it.effect("updateSource on stdio re-discovers tools when args/env change", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [mcpPlugin({ dangerouslyAllowStdioMCP: true })] as const,
+        }),
+      );
+
+      yield* executor.mcp.addSource({
+        transport: "stdio",
+        scope: "test-scope",
+        name: "Stdio fixture",
+        namespace: "stdio_fixture",
+        command: "bun",
+        args: ["run", stdioFixturePath],
+        env: { FIXTURE_TOOLS: "alpha,beta" },
+      });
+
+      const initialTools = yield* executor.tools.list();
+      const initialIds = initialTools
+        .filter((t) => t.id.startsWith("stdio_fixture."))
+        .map((t) => t.id)
+        .sort();
+      expect(initialIds).toEqual(["stdio_fixture.alpha", "stdio_fixture.beta"]);
+
+      yield* executor.mcp.updateSource("stdio_fixture", "test-scope", {
+        env: { FIXTURE_TOOLS: "gamma" },
+      });
+
+      const updatedTools = yield* executor.tools.list();
+      const updatedIds = updatedTools
+        .filter((t) => t.id.startsWith("stdio_fixture."))
+        .map((t) => t.id)
+        .sort();
+      expect(updatedIds).toEqual(["stdio_fixture.gamma"]);
+
+      const stored = yield* executor.mcp.getSource("stdio_fixture", "test-scope");
+      expect(stored?.config.transport).toBe("stdio");
+      if (stored?.config.transport !== "stdio") return;
+      expect(stored.config.env).toEqual({ FIXTURE_TOOLS: "gamma" });
+    }),
+  );
+
+  // Discovery against a bad command must fail loudly and must not mutate
+  // the stored source — otherwise a typo in the edit form would leave
+  // the user with a half-broken row pointing at a nonexistent process.
+  it.effect("updateSource on stdio leaves config intact when discovery fails", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [mcpPlugin({ dangerouslyAllowStdioMCP: true })] as const,
+        }),
+      );
+
+      yield* executor.mcp.addSource({
+        transport: "stdio",
+        scope: "test-scope",
+        name: "Stdio fixture",
+        namespace: "stdio_intact",
+        command: "bun",
+        args: ["run", stdioFixturePath],
+        env: { FIXTURE_TOOLS: "alpha" },
+      });
+
+      const failure = yield* executor.mcp
+        .updateSource("stdio_intact", "test-scope", {
+          command: "/definitely/not/a/real/binary",
+        })
+        .pipe(Effect.result);
+
+      expect(Result.isFailure(failure)).toBe(true);
+
+      const stored = yield* executor.mcp.getSource("stdio_intact", "test-scope");
+      expect(stored?.config.transport).toBe("stdio");
+      if (stored?.config.transport !== "stdio") return;
+      expect(stored.config.command).toBe("bun");
+      expect(stored.config.args).toEqual(["run", stdioFixturePath]);
+    }),
+  );
+
+  // Stdio fields passed on a remote source must be ignored — the
+  // transport branch in updateSource keys off the existing config, not
+  // the input. This is the regression test for the SDK type extension.
+  it.effect("updateSource ignores stdio fields on a remote source", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
+
+      yield* executor.mcp
+        .addSource({
+          transport: "remote",
+          scope: "test-scope",
+          name: "Remote",
+          endpoint: "http://127.0.0.1:1/remote-mcp",
+          namespace: "remote_ignored",
+        })
+        .pipe(Effect.result);
+
+      yield* executor.mcp.updateSource("remote_ignored", "test-scope", {
+        name: "Remote renamed",
+        command: "should-be-ignored",
+        args: ["nope"],
+        env: { IGNORED: "yes" },
+        cwd: "/tmp",
+      });
+
+      const stored = yield* executor.mcp.getSource("remote_ignored", "test-scope");
+      expect(stored?.name).toBe("Remote renamed");
+      expect(stored?.config.transport).toBe("remote");
+    }),
+  );
+
+  // -------------------------------------------------------------------------
   // Deferred OAuth — admin saves a source with `{kind: "oauth2",
   // connectionId}` before any user has signed in, so the row lands in
   // a "needs sign-in" state. Each user's McpSignInButton later mints a

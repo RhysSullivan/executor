@@ -72,6 +72,10 @@ const UpdateSourcePayload = Schema.Struct({
   queryParams: Schema.optional(Schema.Record(Schema.String, McpCredentialInput)),
   credentialTargetScope: Schema.optional(ScopeId),
   auth: Schema.optional(AuthPayload),
+  command: Schema.optional(Schema.String),
+  args: Schema.optional(Schema.Array(Schema.String)),
+  env: Schema.optional(StringMap),
+  cwd: Schema.optional(Schema.String),
 });
 
 const UpdateSourceResponse = Schema.Struct({

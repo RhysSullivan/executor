@@ -9,6 +9,7 @@ import {
   updateMcpSource,
 } from "./atoms";
 import { connectionsAtom } from "@executor-js/react/api/atoms";
+import { messageFromExit } from "@executor-js/react/api/error-reporting";
 import { useScope, useScopeStack } from "@executor-js/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { slugifyNamespace, useSourceIdentity } from "@executor-js/react/plugins/source-identity";
@@ -30,6 +31,13 @@ import { Button } from "@executor-js/react/components/button";
 import { Badge } from "@executor-js/react/components/badge";
 import { ScopeId } from "@executor-js/sdk/shared";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
+import { McpStdioSourceFields } from "./McpStdioSourceFields";
+import {
+  formatStdioArgs,
+  formatStdioEnv,
+  parseStdioArgs,
+  parseStdioEnv,
+} from "./stdio-form-helpers";
 import {
   McpSourceBindingInput,
   type McpCredentialInput,
@@ -240,39 +248,104 @@ function RemoteEditForm(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Stdio read-only view
+// Stdio edit form
 // ---------------------------------------------------------------------------
 
-function StdioReadOnly(props: {
+function StdioEditForm(props: {
   sourceId: string;
   initial: McpStoredSourceSchemaType & { config: { transport: "stdio" } };
   onSave: () => void;
 }) {
-  const { command, args } = props.initial.config;
+  const displayScope = useScope();
+  const doUpdate = useAtomSet(updateMcpSource, { mode: "promiseExit" });
+  const sourceScope = ScopeId.make(props.initial.scope);
+
+  const initialArgs = formatStdioArgs(props.initial.config.args);
+  const initialEnv = formatStdioEnv(props.initial.config.env);
+  const initialCwd = props.initial.config.cwd ?? "";
+
+  const [command, setCommand] = useState(props.initial.config.command);
+  const [args, setArgs] = useState(initialArgs);
+  const [env, setEnv] = useState(initialEnv);
+  const [cwd, setCwd] = useState(initialCwd);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const trimmedCommand = command.trim();
+  const commandChanged = trimmedCommand !== props.initial.config.command.trim();
+  const argsChanged = args !== initialArgs;
+  const envChanged = env !== initialEnv;
+  const cwdChanged = cwd !== initialCwd;
+  const dirty = commandChanged || argsChanged || envChanged || cwdChanged;
+  const canSave = Boolean(trimmedCommand) && dirty && !saving;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setError(null);
+    const exit = await doUpdate({
+      params: { scopeId: displayScope, namespace: props.sourceId },
+      payload: {
+        sourceScope,
+        ...(commandChanged ? { command: trimmedCommand } : {}),
+        ...(argsChanged ? { args: parseStdioArgs(args) } : {}),
+        ...(envChanged ? { env: parseStdioEnv(env) ?? {} } : {}),
+        ...(cwdChanged ? { cwd: cwd.trim() } : {}),
+      },
+      reactivityKeys: sourceWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      setError(messageFromExit(exit, "Failed to update source"));
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+    props.onSave();
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Stdio MCP sources cannot be edited in the UI. Remove and recreate the source with the
-          updated command.
+          Update the command, arguments, and environment for this MCP server. Saving re-discovers
+          the available tools.
         </p>
       </div>
 
       <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-card-foreground">{props.sourceId}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground font-mono">
-            {command} {(args ?? []).join(" ")}
-          </p>
         </div>
         <Badge variant="secondary" className="text-xs">
           stdio
         </Badge>
       </div>
 
-      <div className="flex items-center justify-end border-t border-border pt-4">
-        <Button onClick={props.onSave}>Done</Button>
+      <McpStdioSourceFields
+        command={command}
+        onCommandChange={setCommand}
+        args={args}
+        onArgsChange={setArgs}
+        env={env}
+        onEnvChange={setEnv}
+        cwd={cwd}
+        onCwdChange={setCwd}
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between border-t border-border pt-4">
+        <Button variant="ghost" onClick={props.onSave} disabled={saving}>
+          Cancel
+        </Button>
+        <Button onClick={handleSave} disabled={!canSave}>
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
       </div>
     </div>
   );
@@ -312,7 +385,7 @@ export default function EditMcpSource({
 
   if (source.config.transport === "stdio") {
     return (
-      <StdioReadOnly
+      <StdioEditForm
         sourceId={sourceId}
         initial={source as McpStoredSourceSchemaType & { config: { transport: "stdio" } }}
         onSave={onSave}

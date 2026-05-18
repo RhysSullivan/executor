@@ -2,16 +2,14 @@ import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } 
 import { useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as Match from "effect/Match";
-import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 
+import { messageFromExit } from "@executor-js/react/api/error-reporting";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
 import {
   CardStack,
   CardStackContent,
   CardStackEntry,
-  CardStackEntryField,
 } from "@executor-js/react/components/card-stack";
 import { FieldLabel } from "@executor-js/react/components/field";
 import { FilterTabs } from "@executor-js/react/components/filter-tabs";
@@ -19,7 +17,6 @@ import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Input } from "@executor-js/react/components/input";
 import { Label } from "@executor-js/react/components/label";
 import { Spinner } from "@executor-js/react/components/spinner";
-import { Textarea } from "@executor-js/react/components/textarea";
 import {
   emptyHttpCredentials,
   httpCredentialsValid,
@@ -50,24 +47,10 @@ type RemoteAuthMode = "none" | "oauth2";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { probeMcpEndpoint, addMcpSourceOptimistic } from "./atoms";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
+import { McpStdioSourceFields } from "./McpStdioSourceFields";
+import { parseStdioArgs, parseStdioEnv } from "./stdio-form-helpers";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
 import { MCP_OAUTH_CONNECTION_SLOT, type McpCredentialInput } from "../sdk/types";
-
-const ErrorMessage = Schema.Struct({ message: Schema.String });
-const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
-const STDIO_ENV_ESCAPE_REPLACEMENTS: Readonly<Record<string, string>> = {
-  "\\": "\\",
-  n: "\n",
-  r: "\r",
-  t: "\t",
-  '"': '"',
-};
-
-const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
-  Option.match(Option.flatMap(Exit.findErrorOption(exit), decodeErrorMessage), {
-    onNone: () => fallback,
-    onSome: ({ message }) => message,
-  });
 
 // ---------------------------------------------------------------------------
 // Preset lookup
@@ -361,7 +344,7 @@ export default function AddMcpSource(props: {
     if (Exit.isFailure(exit)) {
       dispatch({
         type: "probe-fail",
-        error: errorMessageFromExit(exit, "Failed to connect"),
+        error: messageFromExit(exit, "Failed to connect"),
       });
       return;
     }
@@ -487,7 +470,7 @@ export default function AddMcpSource(props: {
     if (Exit.isFailure(exit)) {
       dispatch({
         type: "add-fail",
-        error: errorMessageFromExit(exit, "Failed to add source"),
+        error: messageFromExit(exit, "Failed to add source"),
       });
       return;
     }
@@ -508,47 +491,6 @@ export default function AddMcpSource(props: {
   ]);
 
   // ---- Stdio actions ----
-
-  const parseStdioArgs = (raw: string): string[] => {
-    if (!raw.trim()) return [];
-    const args: string[] = [];
-    const regex = /[^\s"]+|"([^"]*)"/g;
-    let match;
-    while ((match = regex.exec(raw)) !== null) {
-      args.push(match[1] ?? match[0]);
-    }
-    return args;
-  };
-
-  const parseStdioEnvValue = (raw: string): string => {
-    const value = raw.trim();
-    if (value.length < 2) return value;
-
-    const quote = value[0];
-    if ((quote !== '"' && quote !== "'") || value[value.length - 1] !== quote) {
-      return value;
-    }
-
-    const inner = value.slice(1, -1);
-    if (quote === "'") return inner;
-
-    return inner.replace(
-      /\\([\\nrt"])/g,
-      (_, escaped: string) => STDIO_ENV_ESCAPE_REPLACEMENTS[escaped] ?? escaped,
-    );
-  };
-
-  const parseStdioEnv = (raw: string): Record<string, string> | undefined => {
-    if (!raw.trim()) return undefined;
-    const env: Record<string, string> = {};
-    for (const line of raw.split("\n")) {
-      const eq = line.indexOf("=");
-      if (eq > 0) {
-        env[line.slice(0, eq).trim()] = parseStdioEnvValue(line.slice(eq + 1));
-      }
-    }
-    return Object.keys(env).length > 0 ? env : undefined;
-  };
 
   const handleAddStdio = useCallback(async () => {
     const cmd = stdioCommand.trim();
@@ -571,7 +513,7 @@ export default function AddMcpSource(props: {
       reactivityKeys: sourceWriteKeys,
     });
     if (Exit.isFailure(exit)) {
-      setStdioError(errorMessageFromExit(exit, "Failed to add source"));
+      setStdioError(messageFromExit(exit, "Failed to add source"));
       setStdioAdding(false);
       return;
     }
@@ -894,48 +836,14 @@ export default function AddMcpSource(props: {
         </>
       ) : (
         <>
-          {/* Stdio form */}
-          <CardStack>
-            <CardStackContent className="border-t-0">
-              <CardStackEntryField
-                label="Command"
-                description="- The executable to run (e.g. npx, uvx, node)."
-              >
-                <Input
-                  value={stdioCommand}
-                  onChange={(e) => setStdioCommand((e.target as HTMLInputElement).value)}
-                  placeholder="npx"
-                  className="font-mono text-sm"
-                />
-              </CardStackEntryField>
-
-              <CardStackEntryField
-                label="Arguments"
-                description="- Space-separated arguments passed to the command."
-              >
-                <Input
-                  value={stdioArgs}
-                  onChange={(e) => setStdioArgs((e.target as HTMLInputElement).value)}
-                  placeholder="-y chrome-devtools-mcp@latest"
-                  className="font-mono text-sm"
-                />
-              </CardStackEntryField>
-
-              <CardStackEntryField
-                label="Environment variables"
-                description="- One per line, KEY=value format."
-              >
-                <Textarea
-                  value={stdioEnv}
-                  onChange={(e) => setStdioEnv((e.target as HTMLTextAreaElement).value)}
-                  placeholder={"KEY=value\nANOTHER=value"}
-                  rows={3}
-                  maxRows={10}
-                  className="font-mono text-sm"
-                />
-              </CardStackEntryField>
-            </CardStackContent>
-          </CardStack>
+          <McpStdioSourceFields
+            command={stdioCommand}
+            onCommandChange={setStdioCommand}
+            args={stdioArgs}
+            onArgsChange={setStdioArgs}
+            env={stdioEnv}
+            onEnvChange={setStdioEnv}
+          />
 
           <SourceIdentityFields identity={stdioIdentity} namePlaceholder="My MCP Server" />
 

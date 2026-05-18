@@ -130,6 +130,8 @@ export interface McpProbeResult {
   readonly serverName: string | null;
 }
 
+// Fields are transport-specific: the SDK keys off the existing source's
+// transport and ignores fields that don't apply.
 export interface McpUpdateSourceInput {
   readonly name?: string;
   readonly endpoint?: string;
@@ -137,6 +139,10 @@ export interface McpUpdateSourceInput {
   readonly queryParams?: Record<string, McpCredentialInput>;
   readonly credentialTargetScope?: string;
   readonly auth?: McpConnectionAuthInput;
+  readonly command?: string;
+  readonly args?: readonly string[];
+  readonly env?: Record<string, string>;
+  readonly cwd?: string;
 }
 
 export interface McpProbeEndpointInput {
@@ -193,6 +199,28 @@ const toBinding = (entry: McpToolManifestEntry): McpToolBinding =>
     outputSchema: entry.outputSchema,
     annotations: entry.annotations,
   });
+
+const stringArraysEqual = (
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): boolean => {
+  const la = a?.length ?? 0;
+  const lb = b?.length ?? 0;
+  if (la !== lb) return false;
+  for (let i = 0; i < la; i++) if (a![i] !== b![i]) return false;
+  return true;
+};
+
+const stringRecordsEqual = (
+  a: Record<string, string> | undefined,
+  b: Record<string, string> | undefined,
+): boolean => {
+  const ka = a ? Object.keys(a) : [];
+  const kb = b ? Object.keys(b) : [];
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (a![k] !== b?.[k]) return false;
+  return true;
+};
 
 const MCP_PLUGIN_ID = "mcp";
 const McpTextContent = Schema.Struct({ type: Schema.Literal("text"), text: Schema.String });
@@ -1097,6 +1125,11 @@ const toMcpConfigEntry = (
 
 export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
   const allowStdio = options?.dangerouslyAllowStdioMCP ?? false;
+  // Stdio sources are only editable when the host has stdio enabled —
+  // otherwise the Edit form's save would fail discovery on every attempt.
+  // Remote sources don't depend on the flag.
+  const canEditFor = (transport: "remote" | "stdio"): boolean =>
+    transport === "stdio" ? allowStdio : true;
   // Per-plugin-instance runtime holder. Captured by closures in
   // `extension`, `invokeTool`, and `close`, so all three see the same
   // connection cache across a single createExecutor lifecycle.
@@ -1399,7 +1432,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                   url: sd.transport === "remote" ? sd.endpoint : undefined,
                   canRemove: true,
                   canRefresh: true,
-                  canEdit: sd.transport === "remote",
+                  canEdit: canEditFor(sd.transport),
                   tools: manifest.tools.map((e) => ({
                     name: e.toolId,
                     description: e.description ?? `MCP tool: ${e.toolName}`,
@@ -1541,7 +1574,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                   url: sd.transport === "remote" ? sd.endpoint : undefined,
                   canRemove: true,
                   canRefresh: true,
-                  canEdit: sd.transport === "remote",
+                  canEdit: canEditFor(sd.transport),
                   tools: manifest.tools.map((e) => ({
                     name: e.toolId,
                     description: e.description ?? `MCP tool: ${e.toolName}`,
@@ -1567,10 +1600,14 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           }),
         );
 
-      const updateSource = (namespace: string, scope: string, input: McpUpdateSourceInput) =>
+      const updateRemoteSource = (
+        namespace: string,
+        scope: string,
+        existing: McpStoredSource,
+        input: McpUpdateSourceInput,
+      ) =>
         Effect.gen(function* () {
-          const existing = yield* ctx.storage.getSource(namespace, scope);
-          if (!existing || existing.config.transport !== "remote") return;
+          if (existing.config.transport !== "remote") return;
 
           const canonicalHeaders =
             input.headers !== undefined
@@ -1655,6 +1692,148 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
               .upsertSource(toMcpConfigEntry(namespace, sourceName, inputForm))
               .pipe(Effect.withSpan("mcp.plugin.config_file.upsert"));
           }
+        });
+
+      // Stdio updates change the spawned process, so tool shape can drift.
+      // We re-discover with the new command *before* persisting anything —
+      // a discovery failure must leave the existing source intact rather
+      // than landing stale tool bindings pointing at a broken process.
+      const updateStdioSource = (
+        namespace: string,
+        scope: string,
+        existing: McpStoredSource,
+        input: McpUpdateSourceInput,
+      ) =>
+        Effect.gen(function* () {
+          if (existing.config.transport !== "stdio") return;
+          const stdio = existing.config;
+          // `undefined` on the input means "no change". An empty array,
+          // empty object, or empty/whitespace cwd clears the field.
+          const nextArgs =
+            input.args === undefined
+              ? stdio.args
+              : input.args.length > 0
+                ? [...input.args]
+                : undefined;
+          const nextEnv =
+            input.env === undefined
+              ? stdio.env
+              : Object.keys(input.env).length > 0
+                ? input.env
+                : undefined;
+          const nextCwd = input.cwd === undefined ? stdio.cwd : input.cwd.trim() || undefined;
+          const updatedConfig: McpStoredSourceData = {
+            transport: "stdio",
+            command: input.command?.trim() || stdio.command,
+            args: nextArgs,
+            env: nextEnv,
+            cwd: nextCwd,
+          };
+          const sourceName = input.name?.trim() || existing.name;
+
+          // Discovery spawns the configured process — skip it entirely
+          // when the caller's payload would produce no change. Otherwise
+          // an HTTP PATCH with a stale snapshot would spawn unnecessarily.
+          if (
+            updatedConfig.command === stdio.command &&
+            stringArraysEqual(updatedConfig.args, stdio.args) &&
+            stringRecordsEqual(updatedConfig.env, stdio.env) &&
+            updatedConfig.cwd === stdio.cwd &&
+            sourceName === existing.name
+          ) {
+            return;
+          }
+
+          const ci = yield* resolveConnectorInput(
+            namespace,
+            scope,
+            updatedConfig,
+            ctx,
+            allowStdio,
+          ).pipe(
+            Effect.withSpan("mcp.plugin.resolve_connector", {
+              attributes: {
+                "mcp.source.namespace": namespace,
+                "mcp.source.transport": "stdio",
+              },
+            }),
+          );
+          const manifest = yield* discoverTools(createMcpConnector(ci)).pipe(
+            Effect.mapError(
+              ({ message }) =>
+                new McpToolDiscoveryError({
+                  stage: "list_tools",
+                  message: `MCP update failed: ${message}`,
+                }),
+            ),
+            Effect.withSpan("mcp.plugin.discover_tools", {
+              attributes: { "mcp.source.namespace": namespace },
+            }),
+          );
+
+          yield* ctx
+            .transaction(
+              Effect.gen(function* () {
+                yield* ctx.storage.removeBindingsByNamespace(namespace, scope);
+                yield* ctx.core.sources.unregister({ id: namespace, targetScope: scope });
+                yield* ctx.storage.putSource({
+                  namespace,
+                  scope,
+                  name: sourceName,
+                  config: updatedConfig,
+                });
+                yield* ctx.storage.putBindings(
+                  namespace,
+                  scope,
+                  manifest.tools.map((e) => ({
+                    toolId: `${namespace}.${e.toolId}`,
+                    binding: toBinding(e),
+                  })),
+                );
+                yield* ctx.core.sources.register({
+                  id: namespace,
+                  scope,
+                  kind: "mcp",
+                  name: sourceName,
+                  url: undefined,
+                  canRemove: true,
+                  canRefresh: true,
+                  canEdit: canEditFor("stdio"),
+                  tools: manifest.tools.map((e) => ({
+                    name: e.toolId,
+                    description: e.description ?? `MCP tool: ${e.toolName}`,
+                    inputSchema: e.inputSchema,
+                    outputSchema: e.outputSchema,
+                  })),
+                });
+              }),
+            )
+            .pipe(
+              Effect.withSpan("mcp.plugin.persist_source", {
+                attributes: {
+                  "mcp.source.namespace": namespace,
+                  "mcp.source.tool_count": manifest.tools.length,
+                },
+              }),
+            );
+
+          if (configFile) {
+            const inputForm = inputFormFromStored([], updatedConfig, scope, sourceName, namespace);
+            yield* configFile
+              .upsertSource(toMcpConfigEntry(namespace, sourceName, inputForm))
+              .pipe(Effect.withSpan("mcp.plugin.config_file.upsert"));
+          }
+        });
+
+      const updateSource = (namespace: string, scope: string, input: McpUpdateSourceInput) =>
+        Effect.gen(function* () {
+          const existing = yield* ctx.storage.getSource(namespace, scope);
+          if (!existing) return;
+          if (existing.config.transport === "stdio") {
+            yield* updateStdioSource(namespace, scope, existing, input);
+            return;
+          }
+          yield* updateRemoteSource(namespace, scope, existing, input);
         }).pipe(
           Effect.withSpan("mcp.plugin.update_source", {
             attributes: { "mcp.source.namespace": namespace },
