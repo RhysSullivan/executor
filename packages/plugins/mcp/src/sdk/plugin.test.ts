@@ -22,7 +22,7 @@ import {
   MCP_OAUTH_CONNECTION_SLOT,
 } from "./types";
 import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
-import { makeAnnotationsMcpServer, serveMcpServer } from "../testing";
+import { makeAnnotationsMcpServer, makeGreetingMcpServer, serveMcpServer } from "../testing";
 
 const mcpOAuth2Config = {
   kind: "oauth2" as const,
@@ -268,6 +268,50 @@ describe("mcpPlugin", () => {
 
       const tools = yield* executor.tools.list();
       expect(tools.filter((t) => t.sourceId === "broken_source")).toHaveLength(0);
+    }),
+  );
+
+  it.effect("uses initial credential bindings for add-time tool discovery", () =>
+    Effect.gen(function* () {
+      const server = yield* serveMcpServer(makeGreetingMcpServer, {
+        auth: {
+          validateAuthorization: (authorization) =>
+            Effect.succeed(authorization === "Bearer secret-token"),
+        },
+      });
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [makeMemorySecretsPlugin()(), mcpPlugin()] as const }),
+      );
+      yield* executor.secrets.set({
+        id: SecretId.make("mcp-token"),
+        scope: ScopeId.make("test-scope"),
+        name: "MCP token",
+        value: "secret-token",
+        provider: "memory",
+      });
+
+      const result = yield* executor.mcp.addSource({
+        transport: "remote",
+        scope: "test-scope",
+        name: "authenticated",
+        endpoint: server.endpoint,
+        namespace: "authenticated_mcp",
+        headers: {
+          Authorization: { kind: "secret", prefix: "Bearer " },
+        },
+        credentials: {
+          scope: "test-scope",
+          headers: {
+            Authorization: { kind: "secret", secretId: "mcp-token" },
+          },
+        },
+      });
+
+      expect(result).toEqual({ toolCount: 1, namespace: "authenticated_mcp" });
+      const requests = yield* server.requests;
+      expect(requests.some((request) => request.authorization === "Bearer secret-token")).toBe(
+        true,
+      );
     }),
   );
 

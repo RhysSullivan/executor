@@ -66,6 +66,7 @@ const toSourceConfig = (
     headers?: Record<string, McpConfiguredValueInput>;
     namespace?: string;
     oauth2?: OAuth2SourceConfigType;
+    credentials?: Extract<McpSourceConfig, { readonly transport: "remote" }>["credentials"];
   };
 
   return {
@@ -78,6 +79,7 @@ const toSourceConfig = (
     headers: p.headers,
     namespace: p.namespace,
     oauth2: p.oauth2,
+    credentials: p.credentials,
   };
 };
 

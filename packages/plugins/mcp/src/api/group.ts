@@ -4,7 +4,7 @@ import { InternalError, ScopeId, SecretBackedMap } from "@executor-js/sdk/shared
 
 import { McpConnectionError, McpToolDiscoveryError } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
-import { McpConfiguredValueInput } from "../sdk/types";
+import { McpConfiguredValueInput, McpConnectionAuthInput, McpCredentialInput } from "../sdk/types";
 import { OAuth2SourceConfig } from "@executor-js/plugin-http-source/sdk";
 
 // ---------------------------------------------------------------------------
@@ -28,6 +28,14 @@ const AddRemoteSourcePayload = Schema.Struct({
   queryParams: Schema.optional(Schema.Record(Schema.String, McpConfiguredValueInput)),
   headers: Schema.optional(Schema.Record(Schema.String, McpConfiguredValueInput)),
   oauth2: Schema.optional(OAuth2SourceConfig),
+  credentials: Schema.optional(
+    Schema.Struct({
+      scope: ScopeId,
+      headers: Schema.optional(Schema.Record(Schema.String, McpCredentialInput)),
+      queryParams: Schema.optional(Schema.Record(Schema.String, McpCredentialInput)),
+      auth: Schema.optional(McpConnectionAuthInput),
+    }),
+  ),
 });
 
 const AddStdioSourcePayload = Schema.Struct({

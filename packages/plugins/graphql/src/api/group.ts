@@ -6,7 +6,9 @@ import { GraphqlIntrospectionError, GraphqlExtractionError } from "../sdk/errors
 import {
   GraphqlConfiguredValueInput,
   ConfiguredGraphqlCredentialValue,
+  GraphqlCredentialInput,
   GraphqlSourceAuth,
+  GraphqlSourceAuthInput,
 } from "../sdk/types";
 import { OAuth2SourceConfig } from "@executor-js/plugin-http-source/sdk";
 
@@ -47,6 +49,14 @@ const AddSourcePayload = Schema.Struct({
   headers: Schema.optional(Schema.Record(Schema.String, GraphqlConfiguredValueInput)),
   queryParams: Schema.optional(Schema.Record(Schema.String, GraphqlConfiguredValueInput)),
   oauth2: Schema.optional(OAuth2SourceConfig),
+  credentials: Schema.optional(
+    Schema.Struct({
+      scope: ScopeId,
+      headers: Schema.optional(Schema.Record(Schema.String, GraphqlCredentialInput)),
+      queryParams: Schema.optional(Schema.Record(Schema.String, GraphqlCredentialInput)),
+      auth: Schema.optional(GraphqlSourceAuthInput),
+    }),
+  ),
 });
 
 // ---------------------------------------------------------------------------

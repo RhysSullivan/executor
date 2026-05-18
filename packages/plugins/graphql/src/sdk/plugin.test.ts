@@ -187,6 +187,49 @@ describe("graphqlPlugin real protocol server", () => {
     }),
   );
 
+  it.effect("uses initial credential bindings for add-time introspection", () =>
+    Effect.gen(function* () {
+      const server = yield* serveGraphqlTestServer({
+        schema: makeGreetingGraphqlSchema(),
+        auth: {
+          validateAuthorization: (authorization) =>
+            Effect.succeed(authorization === "Bearer secret-token"),
+        },
+      });
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [memorySecretsPlugin(), graphqlPlugin()] as const }),
+      );
+      yield* executor.secrets.set({
+        id: SecretId.make("github-token"),
+        scope: ScopeId.make(TEST_SCOPE),
+        name: "GitHub token",
+        value: "secret-token",
+        provider: "memory",
+      });
+
+      const result = yield* executor.graphql.addSource({
+        endpoint: server.endpoint,
+        scope: TEST_SCOPE,
+        namespace: "initial_credentials",
+        headers: {
+          Authorization: { kind: "secret", prefix: "Bearer " },
+        },
+        credentials: {
+          scope: TEST_SCOPE,
+          headers: {
+            Authorization: { kind: "secret", secretId: "github-token" },
+          },
+        },
+      });
+
+      expect(result).toEqual({ toolCount: 2, namespace: "initial_credentials" });
+      const requests = yield* server.requests;
+      expect(
+        requests.some((request) => request.headers.authorization === "Bearer secret-token"),
+      ).toBe(true);
+    }),
+  );
+
   it.effect("invokes a live query with headers and query params", () =>
     Effect.gen(function* () {
       const server = yield* serveGreetingServer;

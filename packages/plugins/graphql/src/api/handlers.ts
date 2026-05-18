@@ -53,6 +53,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
             headers: payload.headers,
             queryParams: payload.queryParams,
             oauth2: payload.oauth2,
+            credentials: payload.credentials,
           });
           return {
             toolCount: result.toolCount,

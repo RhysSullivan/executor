@@ -6,7 +6,6 @@ import * as Schema from "effect/Schema";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
-import { configureSource } from "@executor-js/react/api/atoms";
 import {
   HttpCredentialsEditor,
   httpCredentialsValid,
@@ -77,7 +76,6 @@ export default function AddGraphqlSource(props: {
   const doAdd = useAtomSet(addGraphqlSourceOptimistic(scopeId), {
     mode: "promiseExit",
   });
-  const doConfigure = useAtomSet(configureSource, { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
     popupName: "graphql-oauth",
@@ -136,6 +134,10 @@ export default function AddGraphqlSource(props: {
       serializeTemplateHttpCredentials(credentials);
     const { headers: configureHeaders, queryParams: configureQueryParams } =
       serializeConfigureHttpCredentials(credentials, requestCredentialTargetScope);
+    const hasInitialCredentials =
+      Object.keys(configureHeaders).length > 0 ||
+      Object.keys(configureQueryParams).length > 0 ||
+      (authMode === "oauth2" && tokens);
 
     const { trimmedEndpoint, namespace, displayName } = sourceIdentity();
     const exit = await doAdd({
@@ -152,6 +154,33 @@ export default function AddGraphqlSource(props: {
               queryParams: templateQueryParams as Record<string, GraphqlConfiguredValueInput>,
             }
           : {}),
+        ...(hasInitialCredentials
+          ? {
+              credentials: {
+                scope: requestCredentialTargetScope,
+                ...(Object.keys(configureHeaders).length > 0
+                  ? { headers: configureHeaders as Record<string, GraphqlCredentialInput> }
+                  : {}),
+                ...(Object.keys(configureQueryParams).length > 0
+                  ? {
+                      queryParams: configureQueryParams as Record<string, GraphqlCredentialInput>,
+                    }
+                  : {}),
+                ...(authMode === "oauth2" && tokens
+                  ? {
+                      auth: {
+                        oauth2: {
+                          connection: {
+                            kind: "connection" as const,
+                            connectionId: tokens.connectionId,
+                          },
+                        },
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       },
       reactivityKeys: sourceWriteKeys,
     });
@@ -159,46 +188,6 @@ export default function AddGraphqlSource(props: {
       setAddError(errorMessageFromExit(exit, "Failed to add source"));
       setAdding(false);
       return;
-    }
-    if (
-      Object.keys(configureHeaders).length > 0 ||
-      Object.keys(configureQueryParams).length > 0 ||
-      (authMode === "oauth2" && tokens)
-    ) {
-      const configureExit = await doConfigure({
-        params: { scopeId },
-        payload: {
-          source: { id: exit.value.namespace, scope: scopeId },
-          scope: requestCredentialTargetScope,
-          type: "graphql",
-          config: {
-            ...(Object.keys(configureHeaders).length > 0
-              ? { headers: configureHeaders as Record<string, GraphqlCredentialInput> }
-              : {}),
-            ...(Object.keys(configureQueryParams).length > 0
-              ? { queryParams: configureQueryParams as Record<string, GraphqlCredentialInput> }
-              : {}),
-            ...(authMode === "oauth2" && tokens
-              ? {
-                  auth: {
-                    oauth2: {
-                      connection: {
-                        kind: "connection" as const,
-                        connectionId: tokens.connectionId,
-                      },
-                    },
-                  },
-                }
-              : {}),
-          },
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-      if (Exit.isFailure(configureExit)) {
-        setAddError(errorMessageFromExit(configureExit, "Failed to configure source"));
-        setAdding(false);
-        return;
-      }
     }
     props.onComplete();
   };

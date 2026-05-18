@@ -6,7 +6,6 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { useScope } from "@executor-js/react/api/scope-context";
-import { configureSource } from "@executor-js/react/api/atoms";
 import { Button } from "@executor-js/react/components/button";
 import {
   CardStack,
@@ -308,7 +307,6 @@ export default function AddMcpSource(props: {
   const doAdd = useAtomSet(addMcpSourceOptimistic(scopeId), {
     mode: "promiseExit",
   });
-  const doConfigure = useAtomSet(configureSource, { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
     popupName: "mcp-oauth",
@@ -442,6 +440,10 @@ export default function AddMcpSource(props: {
       string,
       McpConfiguredValueInput
     >;
+    const hasInitialCredentials =
+      Object.keys(configureCredentials.headers).length > 0 ||
+      Object.keys(configureCredentials.queryParams).length > 0 ||
+      (remoteAuthMode === "oauth2" && tokens);
     const displayName = remoteIdentity.name.trim() || probe.serverName || probe.name;
     const slugNamespace = slugifyNamespace(remoteIdentity.namespace);
     const exit = await doAdd({
@@ -460,6 +462,38 @@ export default function AddMcpSource(props: {
               >,
             }
           : {}),
+        ...(hasInitialCredentials
+          ? {
+              credentials: {
+                scope: requestCredentialTargetScope,
+                ...(Object.keys(configureCredentials.headers).length > 0
+                  ? {
+                      headers: configureCredentials.headers as Record<string, McpCredentialInput>,
+                    }
+                  : {}),
+                ...(Object.keys(configureCredentials.queryParams).length > 0
+                  ? {
+                      queryParams: configureCredentials.queryParams as Record<
+                        string,
+                        McpCredentialInput
+                      >,
+                    }
+                  : {}),
+                ...(remoteAuthMode === "oauth2" && tokens
+                  ? {
+                      auth: {
+                        oauth2: {
+                          connection: {
+                            kind: "connection" as const,
+                            connectionId: tokens.connectionId,
+                          },
+                        },
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       },
       reactivityKeys: sourceWriteKeys,
     });
@@ -470,55 +504,6 @@ export default function AddMcpSource(props: {
       });
       return;
     }
-    if (
-      Object.keys(configureCredentials.headers).length > 0 ||
-      Object.keys(configureCredentials.queryParams).length > 0 ||
-      (remoteAuthMode === "oauth2" && tokens)
-    ) {
-      const configureExit = await doConfigure({
-        params: { scopeId },
-        payload: {
-          source: { id: exit.value.namespace, scope: scopeId },
-          scope: requestCredentialTargetScope,
-          type: "mcp",
-          config: {
-            ...(Object.keys(configureCredentials.headers).length > 0
-              ? {
-                  headers: configureCredentials.headers as Record<string, McpCredentialInput>,
-                }
-              : {}),
-            ...(Object.keys(configureCredentials.queryParams).length > 0
-              ? {
-                  queryParams: configureCredentials.queryParams as Record<
-                    string,
-                    McpCredentialInput
-                  >,
-                }
-              : {}),
-            ...(remoteAuthMode === "oauth2" && tokens
-              ? {
-                  auth: {
-                    oauth2: {
-                      connection: {
-                        kind: "connection" as const,
-                        connectionId: tokens.connectionId,
-                      },
-                    },
-                  },
-                }
-              : {}),
-          },
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-      if (Exit.isFailure(configureExit)) {
-        dispatch({
-          type: "add-fail",
-          error: errorMessageFromExit(configureExit, "Failed to configure source"),
-        });
-        return;
-      }
-    }
     props.onComplete();
   }, [
     probe,
@@ -528,7 +513,6 @@ export default function AddMcpSource(props: {
     tokens,
     state.url,
     doAdd,
-    doConfigure,
     props,
     scopeId,
     requestCredentialTargetScope,
