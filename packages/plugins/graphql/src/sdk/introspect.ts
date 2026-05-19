@@ -84,37 +84,37 @@ const INTROSPECTION_QUERY = `
 const IntrospectionTypeRefLeaf = Schema.Struct({
   kind: Schema.String,
   name: Schema.NullOr(Schema.String),
-  ofType: Schema.Null,
+  ofType: Schema.optional(Schema.Null),
 });
 
 const IntrospectionTypeRef5 = Schema.Struct({
   kind: Schema.String,
   name: Schema.NullOr(Schema.String),
-  ofType: Schema.NullOr(IntrospectionTypeRefLeaf),
+  ofType: Schema.optional(Schema.NullOr(IntrospectionTypeRefLeaf)),
 });
 
 const IntrospectionTypeRef4 = Schema.Struct({
   kind: Schema.String,
   name: Schema.NullOr(Schema.String),
-  ofType: Schema.NullOr(IntrospectionTypeRef5),
+  ofType: Schema.optional(Schema.NullOr(IntrospectionTypeRef5)),
 });
 
 const IntrospectionTypeRef3 = Schema.Struct({
   kind: Schema.String,
   name: Schema.NullOr(Schema.String),
-  ofType: Schema.NullOr(IntrospectionTypeRef4),
+  ofType: Schema.optional(Schema.NullOr(IntrospectionTypeRef4)),
 });
 
 const IntrospectionTypeRef2 = Schema.Struct({
   kind: Schema.String,
   name: Schema.NullOr(Schema.String),
-  ofType: Schema.NullOr(IntrospectionTypeRef3),
+  ofType: Schema.optional(Schema.NullOr(IntrospectionTypeRef3)),
 });
 
 const IntrospectionTypeRefSchema = Schema.Struct({
   kind: Schema.String,
   name: Schema.NullOr(Schema.String),
-  ofType: Schema.NullOr(IntrospectionTypeRef2),
+  ofType: Schema.optional(Schema.NullOr(IntrospectionTypeRef2)),
 });
 
 const IntrospectionInputValueSchema = Schema.Struct({
