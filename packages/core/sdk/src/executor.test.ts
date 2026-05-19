@@ -557,7 +557,11 @@ describe("createExecutor", () => {
         provider: "memory",
       });
 
-      expect(result).toMatchObject({ id: expect.any(String), url: expect.any(String) });
+      expect(result).toMatchObject({
+        id: expect.any(String),
+        url: expect.any(String),
+        instructions: expect.stringContaining("placeholder"),
+      });
       const url = new URL((result as { readonly url: string }).url);
       expect(url.origin).toBe("http://executor.test");
       expect(url.pathname).toBe("/secrets");

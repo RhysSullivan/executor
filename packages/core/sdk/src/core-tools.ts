@@ -58,6 +58,7 @@ const SecretsCreateInput = Schema.Struct({
 const SecretsCreateOutput = Schema.Struct({
   id: Schema.String,
   url: Schema.String,
+  instructions: Schema.String,
 });
 
 const SecretPointerInput = Schema.Struct({
@@ -557,7 +558,12 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
               url.searchParams.set("name", input.name);
               url.searchParams.set("secretId", secretId);
               if (input.provider) url.searchParams.set("provider", input.provider);
-              return { id: secretId, url: url.toString() };
+              return {
+                id: secretId,
+                url: url.toString(),
+                instructions:
+                  "The user needs to open this URL and set the secret value in the browser. Until the user saves the value there, this secret is only a placeholder and will not be available for binding. After the user saves it, call secrets.status for this id before using it in source configuration.",
+              };
             }).pipe(
               Effect.catchTags({
                 CoreToolsConfigurationError: ({ message }) =>
