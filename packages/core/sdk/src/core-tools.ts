@@ -544,12 +544,22 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
         tool({
           name: "secrets.create",
           description:
-            "Create a secret placeholder and return a browser URL for the user to enter the sensitive value. Never ask the user to paste passwords, tokens, client secrets, or API keys into chat. In a single-scope local executor, omit `scope`; otherwise call `scopes.list` and pass the target scope id or name. After the user saves, call `secrets.status` for this id, then pass the secret id to `sources.configure` or `oauth.start`.",
+            "Create a secret placeholder and return a browser URL for the user to enter the sensitive value. Never ask the user to paste passwords, tokens, client secrets, or API keys into chat. In a single-scope local executor, omit `scope`; otherwise call `scopes.list` and pass the target credential scope id or name. The optional `provider` is the Executor secret storage backend, not the API vendor; omit it unless the user explicitly chose a value returned by `secrets.providers`.",
           inputSchema: SecretsCreateInputStd,
           outputSchema: SecretsCreateOutputStd,
           execute: (input, { ctx }) =>
             Effect.gen(function* () {
               const webBaseUrl = yield* requireWebBaseUrl(options.webBaseUrl);
+              if (input.provider) {
+                const providers = yield* ctx.secrets.providers();
+                if (!providers.includes(input.provider)) {
+                  return oauthToolFailure(
+                    "secret_provider_not_found",
+                    `Unknown secret storage provider "${input.provider}". Omit provider unless the user chose one from secrets.providers.`,
+                    { providers },
+                  );
+                }
+              }
               const targetScope = yield* resolveScopeInput(ctx.scopes, input.scope);
 
               const secretId = crypto.randomUUID();
@@ -559,7 +569,14 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
               url.searchParams.set("secretId", secretId);
               if (input.provider) url.searchParams.set("provider", input.provider);
               return { id: secretId, url: url.toString() };
-            }),
+            }).pipe(
+              Effect.catchTags({
+                CoreToolsConfigurationError: ({ message }) =>
+                  Effect.succeed(oauthToolFailure("secret_handoff_not_configured", message)),
+                CoreToolsScopeNotFoundError: ({ message, scope }) =>
+                  Effect.succeed(oauthToolFailure("scope_not_found", message, { scope })),
+              }),
+            ),
         }),
         tool({
           name: "secrets.status",
@@ -582,7 +599,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
         tool({
           name: "secrets.providers",
           description:
-            "List registered secret storage providers. Use this to choose the optional provider for `secrets.create`; sensitive values still must be entered through the returned browser URL.",
+            "List registered secret storage providers. Only use these exact values for the optional `provider` field in `secrets.create`; do not use API vendor names such as Vercel, GitHub, Stripe, or Google. Sensitive values still must be entered through the returned browser URL.",
           outputSchema: ProvidersOutputStd,
           execute: (_args, { ctx }) =>
             Effect.map(ctx.secrets.providers(), (providers) => ({ providers })),

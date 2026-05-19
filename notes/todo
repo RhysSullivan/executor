@@ -1,0 +1,6 @@
+Improve agent-facing source configuration scope flow
+
+- Source add tools now hide raw source placement and resolve the install scope internally, but credential placement still exposes raw scope ids.
+- Add a product-level credential target flow for agents, probably "personal" vs "organization", that maps to the right credential scope internally.
+- Keep the main-branch separation intact: source tools declare shared source config and credential slots; credential tools create secrets/connections and bind them at the selected credential scope.
+- Agent descriptions should explain when a credential target choice is needed and when local single-scope executors can default automatically.

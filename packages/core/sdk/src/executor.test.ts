@@ -581,6 +581,20 @@ describe("createExecutor", () => {
       expect(idUrl.searchParams.get("scope")).toBe("test-scope");
       expect(idUrl.searchParams.get("name")).toBe("api-token-by-id");
 
+      const invalidProvider = yield* executor.tools.invoke("executor.coreTools.secrets.create", {
+        name: "api-token-invalid-provider",
+        provider: "vercel",
+      });
+      expect(invalidProvider).toMatchObject({
+        ok: false,
+        error: {
+          code: "secret_provider_not_found",
+          message:
+            'Unknown secret storage provider "vercel". Omit provider unless the user chose one from secrets.providers.',
+          details: { providers: ["memory"] },
+        },
+      });
+
       yield* executor.close();
       yield* Effect.promise(() => config.testDb.close());
     }),
@@ -607,15 +621,17 @@ describe("createExecutor", () => {
         coreTools: { webBaseUrl: "http://executor.test" },
       });
 
-      const error = yield* executor.tools
-        .invoke("executor.coreTools.secrets.create", {
-          name: "api-token",
-        })
-        .pipe(Effect.flip);
+      const result = yield* executor.tools.invoke("executor.coreTools.secrets.create", {
+        name: "api-token",
+      });
 
-      expect(error).toMatchObject({
-        message:
-          "Multiple scopes are visible. Call scopes.list and pass the target scope id or name.",
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: "scope_not_found",
+          message:
+            "Multiple scopes are visible. Call scopes.list and pass the target scope id or name.",
+        },
       });
 
       yield* executor.close();
