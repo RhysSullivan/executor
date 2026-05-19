@@ -249,14 +249,6 @@ const PreviewSpecInputSchema = Schema.Struct({
   ),
 });
 
-const StaticPreviewOperationSchema = Schema.Struct({
-  operationId: Schema.String,
-  method: Schema.Literals(["get", "put", "post", "delete", "patch", "head", "options", "trace"]),
-  path: Schema.String,
-  summary: Schema.NullOr(Schema.String),
-  tags: Schema.Array(Schema.String),
-  deprecated: Schema.Boolean,
-});
 const StaticPreviewServerVariableSchema = Schema.Struct({
   default: Schema.String,
   enum: Schema.NullOr(Schema.Array(Schema.String)),
@@ -307,7 +299,6 @@ const StaticPreviewSpecOutputSchema = Schema.Struct({
   version: Schema.NullOr(Schema.String),
   servers: Schema.Array(StaticPreviewServerSchema),
   operationCount: Schema.Number,
-  operations: Schema.Array(StaticPreviewOperationSchema),
   tags: Schema.Array(Schema.String),
   securitySchemes: Schema.Array(StaticPreviewSecuritySchemeSchema),
   authStrategies: Schema.Array(Schema.Struct({ schemes: Schema.Array(Schema.String) })),
@@ -469,14 +460,6 @@ const staticPreviewOutput = (preview: SpecPreview): StaticPreviewSpecOutput => (
       : null,
   })),
   operationCount: preview.operationCount,
-  operations: preview.operations.map((operation) => ({
-    operationId: operation.operationId,
-    method: operation.method,
-    path: operation.path,
-    summary: Option.getOrNull(operation.summary),
-    tags: operation.tags,
-    deprecated: operation.deprecated,
-  })),
   tags: preview.tags,
   securitySchemes: preview.securitySchemes.map((scheme) => ({
     name: scheme.name,
@@ -1431,7 +1414,7 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           tool({
             name: "previewSpec",
             description:
-              "Preview an OpenAPI document before adding it as a source. Call this first when the user provides a spec URL/blob so you can inspect servers, auth schemes, operation count, and credential slots before `addSource`. Do not collect API keys or OAuth client secrets in chat; use `executor.coreTools.secrets.create` for those values.",
+              "Preview an OpenAPI document before adding it as a source. Call this first when the user provides a spec URL/blob so you can inspect servers, auth schemes, operation count, tags, and credential slots before `addSource`. This agent-facing preview intentionally omits the full operations list; use `operationCount` and `tags` for full-size specs. Do not collect API keys or OAuth client secrets in chat; use `executor.coreTools.secrets.create` for those values.",
             inputSchema: PreviewSpecInputStandardSchema,
             outputSchema: PreviewSpecOutputStandardSchema,
             execute: (input) =>

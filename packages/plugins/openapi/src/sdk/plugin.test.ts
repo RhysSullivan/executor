@@ -284,9 +284,10 @@ describe("OpenAPI Plugin", () => {
           { spec: testApiSpec() },
           autoApprove,
         ),
-      ).data as { operationCount: number };
+      ).data as { operationCount: number; operations?: unknown };
 
       expect(preview.operationCount).toBeGreaterThanOrEqual(2);
+      expect(preview.operations).toBeUndefined();
     }),
   );
 
@@ -305,6 +306,7 @@ describe("OpenAPI Plugin", () => {
       expect(schema!.outputTypeScript).toContain("securitySchemes:");
       expect(schema!.outputTypeScript).toContain("oauth2Presets:");
       expect(schema!.outputTypeScript).toContain("title: string | null");
+      expect(schema!.outputTypeScript).not.toContain("operations:");
       expect(schema!.outputTypeScript).not.toContain("_tag");
     }),
   );

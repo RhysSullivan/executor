@@ -23,6 +23,13 @@ import {
 } from "../components/dialog";
 import { Button } from "../components/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/select";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -39,10 +46,16 @@ import {
   CardStackHeader,
 } from "../components/card-stack";
 import { Badge } from "../components/badge";
+import { cn } from "../lib/utils";
 
 type SecretStorageOption = {
   readonly label: string;
   readonly value: string;
+};
+
+type SecretScopeOption = {
+  readonly label: string;
+  readonly value: ScopeId;
 };
 
 const defaultStorageOptions: readonly SecretStorageOption[] = [
@@ -77,8 +90,9 @@ function AddSecretDialog(props: {
   onOpenChange: (v: boolean) => void;
   description: string;
   storageOptions: readonly SecretStorageOption[];
-  existingSecretIds: readonly string[];
+  existingSecrets: readonly { readonly id: string; readonly scopeId: ScopeId }[];
   scopeId: ScopeId;
+  scopeOptions: readonly SecretScopeOption[];
   prefill?: SecretPrefill;
 }) {
   return (
@@ -88,8 +102,9 @@ function AddSecretDialog(props: {
           key="open"
           description={props.description}
           storageOptions={props.storageOptions}
-          existingSecretIds={props.existingSecretIds}
+          existingSecrets={props.existingSecrets}
           scopeId={props.scopeId}
+          scopeOptions={props.scopeOptions}
           prefill={props.prefill}
           onClose={() => props.onOpenChange(false)}
         />
@@ -101,20 +116,31 @@ function AddSecretDialog(props: {
 function AddSecretDialogContent(props: {
   description: string;
   storageOptions: readonly SecretStorageOption[];
-  existingSecretIds: readonly string[];
+  existingSecrets: readonly { readonly id: string; readonly scopeId: ScopeId }[];
   scopeId: ScopeId;
+  scopeOptions: readonly SecretScopeOption[];
   prefill?: SecretPrefill;
   onClose: () => void;
 }) {
   const initialProvider = props.prefill?.provider ?? props.storageOptions[0]?.value ?? "auto";
+  const [targetScope, setTargetScope] = useState(props.scopeId);
+  const existingSecretIds = useMemo(
+    () =>
+      props.existingSecrets
+        .filter((secret) => secret.scopeId === targetScope)
+        .map((secret) => secret.id),
+    [props.existingSecrets, targetScope],
+  );
+  const controlFieldClassName =
+    "[&_[data-slot=field-label]]:h-5 [&_[data-slot=field-label]]:items-start [&_[data-slot=field-label]]:leading-none [&_[data-slot=input]]:h-9";
 
   return (
     <SecretForm.Provider
-      existingSecretIds={props.existingSecretIds}
+      existingSecretIds={existingSecretIds}
       suggestedName={props.prefill?.name}
       initialIdOverride={props.prefill?.secretId}
       initialProvider={initialProvider}
-      scopeId={props.scopeId}
+      scopeId={targetScope}
       onCreated={props.onClose}
     >
       <DialogContent className="sm:max-w-[440px]">
@@ -126,11 +152,37 @@ function AddSecretDialogContent(props: {
         </DialogHeader>
 
         <div className="grid gap-5 py-3">
-          <div className="grid grid-cols-2 gap-3">
-            <SecretForm.NameField />
-            <SecretForm.IdField />
+          <div className="grid grid-cols-2 items-start gap-3">
+            <div className={controlFieldClassName}>
+              <SecretForm.NameField />
+            </div>
+            <div className={controlFieldClassName}>
+              <SecretForm.IdField />
+            </div>
           </div>
-          <SecretForm.ValueField />
+          <div className="grid grid-cols-2 items-start gap-3">
+            <div className={controlFieldClassName}>
+              <SecretForm.ValueField />
+            </div>
+            <div className={cn("grid min-w-0 gap-3", controlFieldClassName)}>
+              <label className="h-5 text-sm font-medium leading-none">Scope</label>
+              <Select
+                value={targetScope}
+                onValueChange={(value) => setTargetScope(ScopeId.make(value))}
+              >
+                <SelectTrigger className="h-9 w-full min-w-0 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {props.scopeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           <SecretForm.ProviderField options={props.storageOptions} />
           <SecretForm.ErrorBanner />
         </div>
@@ -273,11 +325,20 @@ export function SecretsPage(props: {
   const existingSecretIds = useMemo(
     () =>
       AsyncResult.match(secrets, {
-        onInitial: () => [] as string[],
-        onFailure: () => [] as string[],
-        onSuccess: ({ value }) => value.map((secret) => secret.id),
+        onInitial: () => [] as { readonly id: string; readonly scopeId: ScopeId }[],
+        onFailure: () => [] as { readonly id: string; readonly scopeId: ScopeId }[],
+        onSuccess: ({ value }) =>
+          value.map((secret) => ({ id: secret.id, scopeId: secret.scopeId })),
       }),
     [secrets],
+  );
+  const scopeOptions = useMemo(
+    () =>
+      scopeStack.map((entry, index) => ({
+        value: entry.id,
+        label: index === 0 ? "Personal" : entry.name || "Organization",
+      })),
+    [scopeStack],
   );
   const doRemove = useAtomSet(removeSecretOptimistic(scopeId), {
     mode: "promiseExit",
@@ -414,8 +475,9 @@ export function SecretsPage(props: {
           onOpenChange={setAddOpen}
           description={addSecretDescription}
           storageOptions={storageOptions}
-          existingSecretIds={existingSecretIds}
+          existingSecrets={existingSecretIds}
           scopeId={formScopeId}
+          scopeOptions={scopeOptions}
           prefill={props.prefill}
         />
       </div>
