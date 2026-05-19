@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/select";
+import { Label } from "../components/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -165,7 +166,7 @@ function AddSecretDialogContent(props: {
               <SecretForm.ValueField />
             </div>
             <div className={cn("grid min-w-0 gap-3", controlFieldClassName)}>
-              <label className="h-5 text-sm font-medium leading-none">Scope</label>
+              <Label className="h-5 text-sm font-medium leading-none">Scope</Label>
               <Select
                 value={targetScope}
                 onValueChange={(value) => setTargetScope(ScopeId.make(value))}
