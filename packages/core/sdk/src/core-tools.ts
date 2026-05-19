@@ -283,6 +283,7 @@ const OAuthStartOutput = Schema.Struct({
   sessionId: Schema.String,
   authorizationUrl: Schema.NullOr(Schema.String),
   completedConnection: Schema.NullOr(Schema.Struct({ connectionId: Schema.String })),
+  instructions: Schema.String,
 });
 
 const OAuthCancelInput = Schema.Struct({
@@ -932,7 +933,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
             Effect.gen(function* () {
               const webBaseUrl = yield* requireWebBaseUrl(options.webBaseUrl);
               const tokenScope = yield* resolveScopeInput(ctx.scopes, input.scope);
-              return yield* ctx.oauth.start({
+              const result = yield* ctx.oauth.start({
                 endpoint: input.endpoint,
                 headers: input.headers,
                 queryParams: input.queryParams,
@@ -943,6 +944,13 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
                 pluginId: input.pluginId,
                 identityLabel: input.identityLabel,
               });
+              return {
+                ...result,
+                instructions:
+                  result.authorizationUrl === null
+                    ? "This OAuth flow completed without a browser handoff. Call connections.list to verify the connection id, then pass that connection id to the relevant source configuration tool."
+                    : "The user needs to open this authorization URL in a browser and complete the OAuth/sign-in flow. Until the browser callback completes, no connection is available for binding. After the user finishes sign-in, call connections.list to find the connection id, then pass that connection id to the relevant source configuration tool.",
+              };
             }).pipe(
               Effect.catchTags({
                 CoreToolsConfigurationError: ({ message }) =>

@@ -768,6 +768,7 @@ describe("createExecutor", () => {
         expect(started).toMatchObject({
           authorizationUrl: null,
           completedConnection: { connectionId: "agent-oauth" },
+          instructions: expect.stringContaining("completed without a browser handoff"),
         });
 
         const listed = yield* executor.tools.invoke("executor.coreTools.connections.list", {});
@@ -864,6 +865,7 @@ describe("createExecutor", () => {
         expect(started).toMatchObject({
           authorizationUrl: expect.stringContaining(oauthServer.authorizationEndpoint),
           completedConnection: null,
+          instructions: expect.stringContaining("open this authorization URL"),
         });
 
         const authorizationUrl = (started as { authorizationUrl: string }).authorizationUrl;
