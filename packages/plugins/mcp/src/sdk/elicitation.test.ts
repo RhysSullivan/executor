@@ -2,7 +2,6 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
 import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation/types";
-import * as ts from "typescript";
 
 import {
   createExecutor,
@@ -11,7 +10,7 @@ import {
   isToolResult,
   type InvokeOptions,
 } from "@executor-js/sdk";
-import { makeTestConfig } from "@executor-js/sdk/testing";
+import { makeTestConfig, typeCheckOutputTypeScript } from "@executor-js/sdk/testing";
 
 import { mcpPlugin } from "./plugin";
 import { makeElicitationMcpServer, serveMcpServer } from "../testing";
@@ -36,54 +35,6 @@ const expectToolResultOkData = (result: unknown): unknown => {
   expect(isToolResult(result)).toBe(true);
   expect(result).toMatchObject({ ok: true });
   return (result as { readonly ok: true; readonly data: unknown }).data;
-};
-
-type OutputTypeScriptContract = {
-  readonly outputTypeScript?: string;
-  readonly typeScriptDefinitions?: Record<string, string>;
-};
-
-const typeCheckOutput = (
-  contract: OutputTypeScriptContract | null | undefined,
-  runtimeOutput: unknown,
-): readonly string[] => {
-  if (!contract?.outputTypeScript) return ["missing outputTypeScript"];
-
-  const fileName = "mcp-output-contract.ts";
-  const source = [
-    ...Object.entries(contract.typeScriptDefinitions ?? {}).map(
-      ([name, definition]) => `type ${name} = ${definition};`,
-    ),
-    `type ToolOutput = ${contract.outputTypeScript};`,
-    `const invokedOutput: ToolOutput = ${JSON.stringify(runtimeOutput)};`,
-    "invokedOutput;",
-  ].join("\n");
-
-  const options: ts.CompilerOptions = {
-    module: ts.ModuleKind.ESNext,
-    noEmit: true,
-    skipLibCheck: true,
-    strict: true,
-    target: ts.ScriptTarget.ES2022,
-  };
-  const host = ts.createCompilerHost(options);
-  const originalGetSourceFile = host.getSourceFile.bind(host);
-  const originalReadFile = host.readFile.bind(host);
-  const originalFileExists = host.fileExists.bind(host);
-
-  host.getSourceFile = (candidate, languageVersion, onError, shouldCreateNewSourceFile) => {
-    if (candidate === fileName) {
-      return ts.createSourceFile(candidate, source, languageVersion, true);
-    }
-    return originalGetSourceFile(candidate, languageVersion, onError, shouldCreateNewSourceFile);
-  };
-  host.readFile = (candidate) => (candidate === fileName ? source : originalReadFile(candidate));
-  host.fileExists = (candidate) => candidate === fileName || originalFileExists(candidate);
-
-  const program = ts.createProgram([fileName], options, host);
-  return ts.getPreEmitDiagnostics(program).map((diagnostic) =>
-    ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
-  );
 };
 
 // ---------------------------------------------------------------------------
@@ -221,7 +172,7 @@ describe("MCP elicitation (end-to-end)", () => {
 
       const data = expectToolResultOkData(result);
       expectMatchesOutputSchema(schema?.outputSchema, data);
-      expect(typeCheckOutput(schema, data)).toEqual([]);
+      expect(typeCheckOutputTypeScript(schema, data)).toEqual([]);
     }),
   );
 
@@ -267,7 +218,7 @@ describe("MCP elicitation (end-to-end)", () => {
       });
       const data = expectToolResultOkData(result);
       expectMatchesOutputSchema(schema?.outputSchema, data);
-      expect(typeCheckOutput(schema, data)).toEqual([]);
+      expect(typeCheckOutputTypeScript(schema, data)).toEqual([]);
     }),
   );
 
@@ -313,7 +264,7 @@ describe("MCP elicitation (end-to-end)", () => {
         { onElicitation: "accept-all" },
       );
       const data = expectToolResultOkData(result);
-      expect(typeCheckOutput(schema, data)).toEqual([]);
+      expect(typeCheckOutputTypeScript(schema, data)).toEqual([]);
     }),
   );
 
