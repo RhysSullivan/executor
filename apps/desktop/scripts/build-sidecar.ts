@@ -10,7 +10,7 @@
  * electron-builder picks it up via extraResources.
  *
  */
-import { mkdir, rm, cp } from "node:fs/promises";
+import { mkdir, rm, cp, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -23,6 +23,8 @@ const SIDECAR_ENTRY = resolve(ROOT, "src/sidecar/server.ts");
 const SIDECAR_OUT_DIR = resolve(ROOT, "resources/sidecar");
 const WEB_UI_OUT_DIR = resolve(ROOT, "resources/web-ui");
 const APPS_LOCAL_DIST = resolve(APPS_LOCAL, "dist");
+const EMBEDDED_MIGRATIONS_PATH = resolve(APPS_LOCAL, "src/server/embedded-migrations.gen.ts");
+const EMBEDDED_MIGRATIONS_STUB = `const migrations: Record<string, string> | null = null;\n\nexport default migrations;\n`;
 
 /**
  * Cross-compile target for `bun build --compile`. When unset we use Bun's
@@ -52,6 +54,31 @@ const resolveQuickJsWasmPath = (): string => {
   return wasmPath;
 };
 
+// Drizzle's migrator takes a folder path at runtime. The compiled sidecar
+// cannot rely on apps/local/drizzle existing on disk, so inline every migration
+// as text and let apps/local extract them to a temp folder during startup.
+const createEmbeddedMigrationsSource = async () => {
+  const migrationsDir = resolve(APPS_LOCAL, "drizzle");
+  const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: migrationsDir })))
+    .map((file) => file.replaceAll("\\", "/"))
+    .sort();
+
+  const imports = files.map((file, index) => {
+    const spec = join(migrationsDir, file).replaceAll("\\", "/");
+    return `import file_${index} from ${JSON.stringify(spec)} with { type: "text" };`;
+  });
+
+  const entries = files.map((file, index) => `  ${JSON.stringify(file)}: file_${index},`);
+
+  return [
+    "// Auto-generated - maps migration paths to inlined file contents",
+    ...imports,
+    "export default {",
+    ...entries,
+    "} as Record<string, string>;",
+  ].join("\n");
+};
+
 if (!existsSync(APPS_LOCAL_DIST)) {
   // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: build-time fatal
   throw new Error(
@@ -67,14 +94,24 @@ await mkdir(WEB_UI_OUT_DIR, { recursive: true });
 console.log(
   `[build-sidecar] bun build --compile --target=${BUN_TARGET} ${SIDECAR_ENTRY} → ${sidecarBinary}`,
 );
-await $`bun build --compile --minify --sourcemap --target=${BUN_TARGET} --outfile ${sidecarBinary} ${SIDECAR_ENTRY}`.cwd(
-  REPO_ROOT,
-);
 
-console.log(`[build-sidecar] staging QuickJS WASM → ${SIDECAR_OUT_DIR}`);
-await cp(resolveQuickJsWasmPath(), join(SIDECAR_OUT_DIR, "emscripten-module.wasm"));
+console.log("[build-sidecar] generating embedded drizzle migrations");
+const embeddedMigrations = await createEmbeddedMigrationsSource();
+await writeFile(EMBEDDED_MIGRATIONS_PATH, `${embeddedMigrations}\n`);
 
-console.log(`[build-sidecar] staging web UI → ${WEB_UI_OUT_DIR}`);
-await cp(APPS_LOCAL_DIST, WEB_UI_OUT_DIR, { recursive: true });
+// oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: build-time script must restore the checked-in migration stub after compile failure
+try {
+  await $`bun build --compile --minify --sourcemap --target=${BUN_TARGET} --outfile ${sidecarBinary} ${SIDECAR_ENTRY}`.cwd(
+    REPO_ROOT,
+  );
+
+  console.log(`[build-sidecar] staging QuickJS WASM → ${SIDECAR_OUT_DIR}`);
+  await cp(resolveQuickJsWasmPath(), join(SIDECAR_OUT_DIR, "emscripten-module.wasm"));
+
+  console.log(`[build-sidecar] staging web UI → ${WEB_UI_OUT_DIR}`);
+  await cp(APPS_LOCAL_DIST, WEB_UI_OUT_DIR, { recursive: true });
+} finally {
+  await writeFile(EMBEDDED_MIGRATIONS_PATH, EMBEDDED_MIGRATIONS_STUB);
+}
 
 console.log("[build-sidecar] done");
