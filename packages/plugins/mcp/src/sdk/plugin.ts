@@ -1516,6 +1516,12 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                 );
 
           if (Result.isFailure(resolved) && sd.transport === "stdio") {
+            if (Predicate.isTagged(resolved.failure, "McpAuthRequiredError")) {
+              return yield* new McpConnectionError({
+                transport: sd.transport,
+                message: resolved.failure.message,
+              });
+            }
             return yield* Effect.fail(resolved.failure);
           }
 
