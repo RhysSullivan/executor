@@ -10,6 +10,7 @@ import { z } from "zod/v4";
 
 import {
   defineMcpContribution,
+  FEATURE_FLAG_GENERATED_UI_MCP_APPS,
   type McpPluginContribution,
   type McpPluginRegisterContext,
   type McpToolResult,
@@ -486,7 +487,28 @@ export const dynamicUiMcpContribution = (): McpPluginContribution => {
     id: "dynamic-ui",
     prepareExecuteDescription: stripGenerativeUiSection,
     register: (ctx: McpPluginRegisterContext) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        const enabled = yield* ctx.featureFlags
+          .isEnabled(FEATURE_FLAG_GENERATED_UI_MCP_APPS, ctx.featureFlagContext)
+          .pipe(
+            Effect.catch((error: unknown) =>
+              Effect.sync(() => {
+                ctx.debugLog("dynamic_ui.feature_flag.error", {
+                  flag: FEATURE_FLAG_GENERATED_UI_MCP_APPS,
+                  error: String(error),
+                });
+                return false;
+              }),
+            ),
+          );
+
+        ctx.debugLog("dynamic_ui.feature_flag", {
+          flag: FEATURE_FLAG_GENERATED_UI_MCP_APPS,
+          enabled,
+        });
+
+        if (!enabled) return;
+
         renderUiTool = registerAppTool(
           ctx.server,
           "render-ui",

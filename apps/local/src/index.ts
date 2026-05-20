@@ -13,4 +13,5 @@ export {
   type LocalExecutor,
 } from "./server/executor";
 export { createMcpRequestHandler, runMcpStdioServer, type McpRequestHandler } from "./server/mcp";
+export { makeLocalEnvFeatureFlags, LocalEnvFeatureFlags } from "./server/feature-flags";
 export { startServer, type StartServerOptions, type ServerInstance } from "./serve";

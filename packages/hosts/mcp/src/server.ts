@@ -26,6 +26,7 @@ import {
   type ResumeResponse,
 } from "@executor-js/execution";
 import { collectMcpContributions, type McpToolResult } from "./plugin";
+import { FeatureFlags, type FeatureFlagContext, type FeatureFlagsShape } from "./feature-flags";
 
 // ---------------------------------------------------------------------------
 // Workers-compatible JSON Schema validator (replaces Ajv which uses new Function())
@@ -95,6 +96,8 @@ type SharedMcpServerConfig = {
    * client cannot mount MCP Apps resources directly.
    */
   readonly renderUiFallbackUrl?: (code: string) => string;
+  readonly featureFlags?: FeatureFlagsShape;
+  readonly featureFlagContext?: FeatureFlagContext;
   /**
    * Executor plugins whose host-protocol MCP contributions should be mounted.
    * Core SDK treats the field as opaque; this host interprets `plugin.mcp`.
@@ -368,6 +371,12 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
       config.description ??
       (yield* engine.getDescription.pipe(Effect.withSpan("mcp.host.get_description")));
     const mcpContributions = collectMcpContributions(config.plugins);
+    const featureFlags =
+      config.featureFlags ??
+      Option.getOrElse(yield* Effect.serviceOption(FeatureFlags), () => ({
+        isEnabled: () => Effect.succeed(false),
+      }));
+    const featureFlagContext = config.featureFlagContext ?? {};
     const executeDescription = mcpContributions.reduce(
       (current, contribution) => contribution.prepareExecuteDescription?.(current) ?? current,
       description,
@@ -678,6 +687,8 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
             runToolEffect,
             executeCodeFromApp,
             renderUiFallbackUrl: config.renderUiFallbackUrl,
+            featureFlags,
+            featureFlagContext,
             resumeExecution,
             parseJsonContent,
           })

@@ -5,6 +5,7 @@ import type * as Cause from "effect/Cause";
 
 import type { AnyPlugin } from "@executor-js/sdk";
 import type { ExecutionEngine } from "@executor-js/execution";
+import type { FeatureFlagContext, FeatureFlagsShape } from "./feature-flags";
 
 export type McpToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -26,6 +27,8 @@ export type McpPluginRegisterContext<E extends Cause.YieldableError = Cause.Yiel
   readonly runToolEffect: McpRunToolEffect;
   readonly executeCodeFromApp: (code: string) => Effect.Effect<McpToolResult, E>;
   readonly renderUiFallbackUrl?: (code: string) => string;
+  readonly featureFlags: FeatureFlagsShape;
+  readonly featureFlagContext: FeatureFlagContext;
   readonly resumeExecution: (
     executionId: string,
     action: "accept" | "decline" | "cancel",

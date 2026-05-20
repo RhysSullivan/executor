@@ -15,6 +15,7 @@ import { Layer } from "effect";
 
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
+import { PostHogFeatureFlags } from "../services/feature-flags";
 
 /**
  * Services that are independent of how the DB or tracer is provisioned —
@@ -22,4 +23,8 @@ import { AutumnService } from "../services/autumn";
  * session DO (long-lived DB + isolate-local tracer SDK) merge this with
  * their own `DbLive` + `UserStoreLive` + telemetry layer.
  */
-export const CoreSharedServices = Layer.mergeAll(WorkOSAuth.Default, AutumnService.Default);
+export const CoreSharedServices = Layer.mergeAll(
+  WorkOSAuth.Default,
+  AutumnService.Default,
+  PostHogFeatureFlags,
+);

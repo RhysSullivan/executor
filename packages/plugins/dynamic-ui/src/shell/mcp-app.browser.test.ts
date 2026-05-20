@@ -758,7 +758,11 @@ const startMcpHarnessForEngine = async <E extends Cause.YieldableError>(
   engine: ExecutionEngine<E>,
 ): Promise<McpHarness> => {
   const mcpServer = await Effect.runPromise(
-    createExecutorMcpServer({ engine, plugins: [dynamicUiPlugin()] }),
+    createExecutorMcpServer({
+      engine,
+      plugins: [dynamicUiPlugin()],
+      featureFlags: { isEnabled: () => Effect.succeed(true) },
+    }),
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client(

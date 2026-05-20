@@ -15,6 +15,7 @@ import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { getExecutorBundle } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 import { ErrorCaptureLive } from "./observability";
+import { makeLocalEnvFeatureFlags } from "./feature-flags";
 
 // ---------------------------------------------------------------------------
 // Local server API.
@@ -98,7 +99,7 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
     dispose: api.dispose,
   };
 
-  const mcp = createMcpRequestHandler({ engine, plugins });
+  const mcp = createMcpRequestHandler({ engine, plugins, featureFlags: makeLocalEnvFeatureFlags() });
 
   return { api: apiHandler, mcp };
 };
