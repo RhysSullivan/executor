@@ -31,6 +31,7 @@ import { UserStoreService } from "./auth/context";
 import { resolveOrganization } from "./auth/resolve-organization";
 import { DbService, combinedSchema, resolveConnectionString } from "./services/db";
 import { makeExecutionStack } from "./services/execution-stack";
+import { PostHogFeatureFlags } from "./services/feature-flags";
 import { makeMcpWorkerTransport, type McpWorkerTransport } from "./services/mcp-worker-transport";
 import { DoTelemetryLive } from "./services/telemetry";
 import { captureCause } from "./observability";
@@ -230,7 +231,8 @@ const makeResolveOrganizationServices = (dbHandle: DbHandle) => {
 // child span from the outer `McpSessionDO.init` / `McpSessionDO.handleRequest`
 // trace. Tracer comes from the outermost `Effect.provide(DoTelemetryLive)`
 // at the DO method boundary.
-const makeSessionServices = (dbHandle: DbHandle) => makeResolveOrganizationServices(dbHandle);
+const makeSessionServices = (dbHandle: DbHandle) =>
+  Layer.mergeAll(makeResolveOrganizationServices(dbHandle), PostHogFeatureFlags);
 
 const resolveSessionMeta = Effect.fn("McpSessionDO.resolveSessionMeta")(function* (
   organizationId: string,
