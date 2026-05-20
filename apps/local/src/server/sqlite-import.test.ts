@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { Schema } from "effect";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -165,6 +166,13 @@ const latePlugin = definePlugin(() => ({
   schema: lateSchema,
   storage: () => ({}),
 }))();
+
+const ImportMarkerForTest = Schema.Struct({
+  importedTables: Schema.Array(Schema.String),
+});
+const decodeImportMarkerForTest = Schema.decodeUnknownSync(
+  Schema.fromJsonString(ImportMarkerForTest),
+);
 
 const legacyShapeSchema = {
   legacy_shape: scopedExecutorTable("legacy_shape", {
@@ -496,5 +504,50 @@ describe("importSqliteDataToFuma", () => {
         select: ["id", "value"],
       }),
     ).resolves.toEqual([{ id: "late_1", value: "from-backup" }]);
+  });
+
+  it("marks newly-loaded empty plugin tables so startup does not retry backup imports", async () => {
+    const sqlitePath = join(workDir, "data.db");
+    const markerPath = join(workDir, "fumadb-sqlite-imported");
+    seedMigratedSqlite(sqlitePath);
+
+    const firstResult = await importLegacySqliteIfNeeded({
+      storage: {
+        dataDir: workDir,
+        sqlitePath,
+        importMarkerPath: markerPath,
+      },
+      tables: collectTables([]),
+      scopeId: "scope_a",
+    });
+    expect(firstResult.importedTables).not.toContain("late_item");
+
+    const allTables = collectTables([latePlugin]);
+    const secondResult = await importLegacySqliteIfNeeded({
+      storage: {
+        dataDir: workDir,
+        sqlitePath,
+        importMarkerPath: markerPath,
+      },
+      tables: allTables,
+      scopeId: "scope_a",
+    });
+
+    expect(secondResult.imported).toBe(false);
+    expect(secondResult.importedRows).toBe(0);
+    expect(decodeImportMarkerForTest(readFileSync(markerPath, "utf8")).importedTables).toContain(
+      "late_item",
+    );
+
+    const thirdResult = await importLegacySqliteIfNeeded({
+      storage: {
+        dataDir: workDir,
+        sqlitePath,
+        importMarkerPath: markerPath,
+      },
+      tables: allTables,
+      scopeId: "scope_a",
+    });
+    expect(thirdResult.imported).toBe(false);
   });
 });

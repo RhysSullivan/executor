@@ -129,6 +129,7 @@ export type LocalExecutor = LocalExecutorBundle["executor"];
 
 class LocalExecutorCreateError extends Data.TaggedError("LocalExecutorCreateError")<{
   readonly operation: "createSqlite" | "importSqlite";
+  readonly message: string;
   readonly cause: unknown;
 }> {}
 
@@ -136,6 +137,19 @@ class LocalExecutorDisposeError extends Data.TaggedError("LocalExecutorDisposeEr
   readonly operation: "createHandle" | "disposeExecutor" | "disposeRuntime";
   readonly cause: unknown;
 }> {}
+
+const localExecutorCreateError = (
+  operation: LocalExecutorCreateError["operation"],
+  cause: unknown,
+) =>
+  new LocalExecutorCreateError({
+    operation,
+    cause,
+    message:
+      operation === "importSqlite"
+        ? "Failed to prepare local SQLite data. Close other Executor processes and retry, or run with --log-level debug for details."
+        : "Failed to open local SQLite data. Close other Executor processes and retry, or run with --log-level debug for details.",
+  });
 
 const ignorePromiseFailure = (
   operation: LocalExecutorDisposeError["operation"],
@@ -460,19 +474,17 @@ const importMissingMarkedTables = async (input: {
     await target.close();
     removeSqliteSidecars(input.storage.sqlitePath);
 
-    if (result.imported) {
-      const importedTables = [
-        ...new Set([...input.marker.importedTables, ...result.importedTables]),
-      ];
-      writeSqliteImportMarker(input.storage.importMarkerPath, {
-        importedRows: input.marker.importedRows + result.importedRows,
-        importedTables,
-        backupPath: input.marker.backupPath,
-        recovered: input.marker.recovered,
-      });
-    }
+    const importedTables = [...new Set([...input.marker.importedTables, ...missingTables])];
+    writeSqliteImportMarker(input.storage.importMarkerPath, {
+      importedRows: input.marker.importedRows + result.importedRows,
+      importedTables,
+      backupPath: input.marker.backupPath,
+      recovered: input.marker.recovered,
+    });
 
-    return result;
+    return result.importedRows > 0 || result.importedTables.length > 0
+      ? result
+      : { imported: false, importedRows: 0, importedTables: [] };
   } catch (cause) {
     await target.close();
     // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: preserve late plugin-table import failure after closing SQLite
@@ -633,7 +645,7 @@ const createLocalExecutorLayer = () => {
             tables,
             scopeId,
           }),
-        catch: (cause) => new LocalExecutorCreateError({ operation: "importSqlite", cause }),
+        catch: (cause) => localExecutorCreateError("importSqlite", cause),
       });
 
       const sqlite = yield* Effect.acquireRelease(
@@ -644,7 +656,7 @@ const createLocalExecutorLayer = () => {
               namespace: localNamespace,
               path: storage.sqlitePath,
             }),
-          catch: (cause) => new LocalExecutorCreateError({ operation: "createSqlite", cause }),
+          catch: (cause) => localExecutorCreateError("createSqlite", cause),
         }),
         (db) => Effect.promise(() => db.close()).pipe(Effect.ignore),
       );
