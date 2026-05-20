@@ -14,6 +14,8 @@ import {
 import type { HttpClient } from "effect/unstable/http";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import * as z from "zod/v4";
 
 import {
   type CredentialBindingRef,
@@ -319,25 +321,29 @@ const normalizeNamespace = (config: McpSourceConfig): string =>
     command: config.transport === "stdio" ? config.command : undefined,
   });
 
-const mcpCallToolResultOutputSchema = (
-  structuredContentSchema?: unknown,
-): Record<string, unknown> => ({
-  type: "object",
-  properties: {
-    content: {
-      type: "array",
-      items: {},
+type JsonSchemaObject = Record<string, unknown> & {
+  readonly properties?: Record<string, unknown>;
+};
+
+const McpCallToolResultJsonSchema = z.toJSONSchema(CallToolResultSchema) as JsonSchemaObject;
+
+const mcpCallToolResultOutputSchema = (structuredContentSchema?: unknown): JsonSchemaObject => {
+  const defaultStructuredContentSchema =
+    McpCallToolResultJsonSchema.properties?.structuredContent ?? {};
+
+  return {
+    ...McpCallToolResultJsonSchema,
+    properties: {
+      ...McpCallToolResultJsonSchema.properties,
+      structuredContent:
+        structuredContentSchema === undefined
+          ? defaultStructuredContentSchema
+          : structuredContentSchema,
+      isError: { const: false },
     },
-    structuredContent: structuredContentSchema ?? {},
-    isError: { const: false },
-    _meta: {
-      type: "object",
-      additionalProperties: {},
-    },
-  },
-  required: structuredContentSchema === undefined ? ["content"] : ["content", "structuredContent"],
-  additionalProperties: {},
-});
+    required: structuredContentSchema === undefined ? ["content"] : ["content", "structuredContent"],
+  };
+};
 
 const toBinding = (entry: McpToolManifestEntry): McpToolBinding =>
   McpToolBinding.make({

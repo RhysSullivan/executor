@@ -161,8 +161,30 @@ describe("MCP elicitation (end-to-end)", () => {
         },
         required: ["content"],
       });
-      expect(schema?.outputTypeScript).toContain("content: unknown[]");
-      expect(schema?.outputTypeScript).toContain("structuredContent?: unknown");
+      const outputSchema = schema?.outputSchema as {
+        readonly properties: {
+          readonly content: {
+            readonly items: {
+              readonly anyOf: readonly unknown[];
+            };
+          };
+        };
+      };
+      expect(outputSchema.properties.content.items.anyOf).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            properties: expect.objectContaining({
+              type: { const: "text", type: "string" },
+              text: { type: "string" },
+            }),
+            required: ["type", "text"],
+          }),
+        ]),
+      );
+      expect(schema?.outputTypeScript).toContain('type: "text"');
+      expect(schema?.outputTypeScript).toContain(
+        "structuredContent?: { [k: string]: unknown; }",
+      );
 
       const result = yield* executor.tools.invoke(
         simpleEcho.id,
