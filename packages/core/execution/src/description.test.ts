@@ -67,6 +67,8 @@ describe("buildExecuteDescription", () => {
 
       // Stable anchor from the workflow preamble.
       expect(description).toContain("Execute TypeScript in a sandboxed runtime");
+      expect(description).not.toContain("## Generative UI");
+      expect(description).not.toContain("render-ui");
       // The namespaces section header.
       expect(description).toContain("## Available namespaces");
       // Each source renders with its ACTUAL id, without display labels or plugin ids.
@@ -93,6 +95,7 @@ describe("buildExecuteDescription", () => {
       const description = yield* buildExecuteDescription(executor);
 
       expect(description).toContain("Execute TypeScript in a sandboxed runtime");
+      expect(description).not.toContain("## Generative UI");
       expect(description).not.toContain("## Available namespaces");
     }),
   );

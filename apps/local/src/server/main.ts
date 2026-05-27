@@ -12,9 +12,11 @@ import {
 } from "@executor-js/api/server";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
+import { filterDynamicUiMcpPlugins } from "@executor-js/plugin-dynamic-ui";
 import { getExecutorBundle } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 import { ErrorCaptureLive } from "./observability";
+import { isGeneratedUiMcpAppsEnabled, makeLocalEnvFeatureFlags } from "./feature-flags";
 
 // ---------------------------------------------------------------------------
 // Local server API.
@@ -98,7 +100,12 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
     dispose: api.dispose,
   };
 
-  const mcp = createMcpRequestHandler({ engine });
+  const featureFlags = makeLocalEnvFeatureFlags();
+  const generatedUiMcpAppsEnabled = await Effect.runPromise(
+    isGeneratedUiMcpAppsEnabled(featureFlags),
+  );
+  const mcpPlugins = filterDynamicUiMcpPlugins(plugins, generatedUiMcpAppsEnabled);
+  const mcp = createMcpRequestHandler({ engine, plugins: mcpPlugins });
 
   return { api: apiHandler, mcp };
 };

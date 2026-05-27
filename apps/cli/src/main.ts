@@ -59,7 +59,14 @@ import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
 
 import { ExecutorApi } from "@executor-js/api";
-import { startServer, runMcpStdioServer, getExecutor } from "@executor-js/local";
+import {
+  startServer,
+  runMcpStdioServer,
+  getExecutorBundle,
+  filterDynamicUiMcpPlugins,
+  isGeneratedUiMcpAppsEnabled,
+  makeLocalEnvFeatureFlags,
+} from "@executor-js/local";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { fetchIntegrations } from "./integrations";
 import {
@@ -758,7 +765,7 @@ const runStdioMcpSession = (input: { readonly elicitationMode: "browser" | "mode
         const restoreWebBaseUrl = installDefaultExecutorWebBaseUrl(baseUrl);
 
         try {
-          const executor = await getExecutor();
+          const executor = await getExecutorBundle();
           const server = await startServer({
             port,
             hostname: host,
@@ -774,10 +781,20 @@ const runStdioMcpSession = (input: { readonly elicitationMode: "browser" | "mode
     );
 
     try {
+      const featureFlags = makeLocalEnvFeatureFlags();
+      const generatedUiMcpAppsEnabled = yield* isGeneratedUiMcpAppsEnabled(featureFlags);
+      const mcpPlugins = filterDynamicUiMcpPlugins(web.executor.plugins, generatedUiMcpAppsEnabled);
+
       yield* Effect.promise(() =>
         runMcpStdioServer({
-          executor: web.executor,
+          executor: web.executor.executor,
           codeExecutor: makeQuickJsExecutor(),
+          plugins: mcpPlugins,
+          renderUiFallbackUrl: (code) => {
+            const url = new URL("/plugins/dynamic-ui/render", web.baseUrl);
+            url.hash = `code=${encodeURIComponent(code)}`;
+            return url.toString();
+          },
           elicitationMode:
             input.elicitationMode === "browser"
               ? {
