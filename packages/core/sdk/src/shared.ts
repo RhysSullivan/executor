@@ -71,6 +71,24 @@ export { SourceDetectionResult, type Source } from "./types";
 export { Usage } from "./usages";
 
 export {
+  DEFAULT_EXECUTOR_SERVER_ORIGIN,
+  DEFAULT_EXECUTOR_SERVER_USERNAME,
+  apiBaseUrlForServerOrigin,
+  getExecutorServerAuthorizationHeader,
+  normalizeExecutorServerConnection,
+  normalizeExecutorServerOrigin,
+  originFromApiBaseUrl,
+  parseExecutorLocalServerManifest,
+  serializeExecutorLocalServerManifest,
+  type ExecutorLocalServerKind,
+  type ExecutorLocalServerManifest,
+  type ExecutorServerAuth,
+  type ExecutorServerConnection,
+  type ExecutorServerConnectionInput,
+  type ExecutorServerConnectionKind,
+} from "./server-connection";
+
+export {
   OAUTH_POPUP_MESSAGE_TYPE,
   isOAuthPopupResult,
   type OAuthPopupResult,

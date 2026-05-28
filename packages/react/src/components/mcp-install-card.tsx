@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import CursorIcon from "@lobehub/icons/es/Cursor/components/Mono";
 import ClaudeIcon from "@lobehub/icons/es/Claude/components/Color";
 import OpenCodeIcon from "@lobehub/icons/es/OpenCode/components/Mono";
@@ -10,6 +10,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsib
 import { NativeSelect, NativeSelectOption } from "./native-select";
 import { cn } from "../lib/utils";
 import { useScopeInfo } from "../api/scope-context";
+import {
+  getExecutorServerAuthorizationHeader,
+  useExecutorServerConnection,
+} from "../api/server-connection";
 
 type TransportMode = "stdio" | "http";
 export type McpElicitationMode = "browser" | "model" | "native";
@@ -33,24 +37,15 @@ export const shellQuoteWord = (value: string): string => {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 };
 
-interface DesktopBridge {
-  readonly getSettings: () => Promise<{
-    readonly port: number;
-    readonly requireAuth: boolean;
-    readonly password: string;
-  }>;
-}
-
-const readDesktopBridge = (): DesktopBridge | null => {
-  if (typeof window === "undefined") return null;
-  const candidate = (window as Window & { readonly executor?: DesktopBridge }).executor;
-  if (!candidate || typeof candidate.getSettings !== "function") return null;
-  return candidate;
+const hasDesktopConnectionBridge = (): boolean => {
+  if (typeof window === "undefined") return false;
+  const candidate = window.executor;
+  return typeof candidate?.getServerConnection === "function";
 };
 
 export const buildMcpHttpEndpoint = (input: {
   readonly origin: string | null;
-  readonly desktop: {
+  readonly desktop?: {
     readonly port: number;
   } | null;
   readonly elicitationMode?: McpElicitationMode;
@@ -69,7 +64,7 @@ export const buildMcpHttpEndpoint = (input: {
 };
 
 const buildBasicAuthHeader = (password: string): string => {
-  // Renderer-only — every browser/Electron renderer has btoa. SSR doesn't
+  // Renderer-only: every browser/Electron renderer has btoa. SSR doesn't
   // render this card, so we don't need a Node fallback here.
   if (typeof globalThis.btoa !== "function") {
     return `Authorization: Basic executor:${password}`;
@@ -87,6 +82,7 @@ export const buildMcpInstallCommand = (input: {
     readonly requireAuth: boolean;
     readonly password: string;
   } | null;
+  readonly authorizationHeader?: string | null;
   readonly elicitationMode?: McpElicitationMode;
   readonly devCliCwd?: string;
 }): string => {
@@ -97,7 +93,9 @@ export const buildMcpInstallCommand = (input: {
       elicitationMode: input.elicitationMode,
     });
     const headerFlags: string[] = [];
-    if (input.desktop?.requireAuth && input.desktop.password) {
+    if (input.authorizationHeader) {
+      headerFlags.push(`--header ${shellQuoteWord(`Authorization: ${input.authorizationHeader}`)}`);
+    } else if (input.desktop?.requireAuth && input.desktop.password) {
       headerFlags.push(`--header ${shellQuoteWord(buildBasicAuthHeader(input.desktop.password))}`);
     }
     const parts = [
@@ -122,38 +120,26 @@ export const buildMcpInstallCommand = (input: {
 };
 
 export function McpInstallCard(props: { className?: string }) {
-  // Desktop hosts ship Electron without putting an `executor` binary on
-  // PATH, and the bundled sidecar is locked to the running app. Force the
-  // HTTP path there — it routes through the running sidecar with the
-  // Basic auth header injected by the renderer.
-  const showStdio = isLocal && readDesktopBridge() === null;
   const [mode, setMode] = useState<TransportMode>("http");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [httpElicitationMode, setHttpElicitationMode] = useState<McpElicitationMode>("model");
-  const [origin, setOrigin] = useState<string | null>(null);
-  const [desktop, setDesktop] = useState<{
-    readonly port: number;
-    readonly requireAuth: boolean;
-    readonly password: string;
-  } | null>(null);
   const scopeInfo = useScopeInfo();
-
-  useEffect(() => {
-    setOrigin(window.location.origin);
-    const bridge = readDesktopBridge();
-    if (bridge) {
-      void bridge.getSettings().then(setDesktop, () => setDesktop(null));
-    }
-  }, []);
+  const serverConnection = useExecutorServerConnection();
+  // Desktop hosts ship Electron without putting an `executor` binary on
+  // PATH, and the bundled sidecar is locked to the running app. Force the
+  // HTTP path there; it routes through the active sidecar connection.
+  const showStdio =
+    isLocal && serverConnection.kind !== "desktop-sidecar" && !hasDesktopConnectionBridge();
 
   const elicitationMode = mode === "stdio" ? "model" : httpElicitationMode;
+  const authorizationHeader = getExecutorServerAuthorizationHeader(serverConnection);
 
   const command = buildMcpInstallCommand({
     mode,
     isDev,
-    origin,
+    origin: serverConnection.origin,
     scopeDir: scopeInfo.dir,
-    desktop,
+    authorizationHeader,
     elicitationMode,
     devCliCwd,
   });

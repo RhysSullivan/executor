@@ -22,9 +22,10 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
+import { HttpClientRequest } from "effect/unstable/http";
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 
-import { createPluginAtomClient } from "./client";
+import { applyPluginAtomClientRequestTransform, createPluginAtomClient } from "./client";
 
 const FooGroup = HttpApiGroup.make("foo").add(
   HttpApiEndpoint.get("ping", "/ping", { success: Schema.String }),
@@ -64,5 +65,16 @@ describe("createPluginAtomClient", () => {
     // before these factories returned anything.
     expect(ping).toBeTruthy();
     expect(set).toBeTruthy();
+  });
+
+  it("can apply dynamic server connection URL and auth to plugin requests", () => {
+    const request = HttpClientRequest.get("/graphql/sources");
+    const transformed = applyPluginAtomClientRequestTransform(request, {
+      baseUrl: () => "https://executor.example/api",
+      authorizationHeader: () => "Bearer key_123",
+    });
+
+    expect(transformed.url).toBe("https://executor.example/api/graphql/sources");
+    expect(transformed.headers.authorization).toBe("Bearer key_123");
   });
 });
