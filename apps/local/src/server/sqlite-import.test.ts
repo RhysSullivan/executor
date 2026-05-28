@@ -24,13 +24,16 @@ import { createSqliteFumaDb, type SqliteFumaDb } from "./sqlite-fumadb";
 
 let workDir: string;
 let sqlite: SqliteFumaDb | null;
+let heldReader: Database | null;
 
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "executor-sqlite-import-"));
   sqlite = null;
+  heldReader = null;
 });
 
 afterEach(async () => {
+  heldReader?.close();
   await sqlite?.close();
   rmSync(workDir, { recursive: true, force: true });
 });
@@ -435,6 +438,46 @@ describe("importSqliteDataToFuma", () => {
     expect(result.imported).toBe(true);
     expect(result.importedRows).toBe(2);
     expect(result.importedTables).toEqual(["source", "blob"]);
+    expect(existsSync(markerPath)).toBe(true);
+
+    sqlite = await createSqliteFumaDb({
+      tables,
+      namespace: "executor_local",
+      path: sqlitePath,
+    });
+    await expect(
+      withQueryContext(sqlite.db, { allowedScopeIds: new Set(["scope_a"]) }).findFirst("source", {
+        where: (b) => b("id", "=", "src_1"),
+      }),
+    ).resolves.toMatchObject({ id: "src_1", scope_id: "scope_a" });
+  });
+
+  it("imports a checkpointed legacy WAL database even when DELETE journal mode is busy", async () => {
+    const sqlitePath = join(workDir, "data.db");
+    const markerPath = join(workDir, "fumadb-sqlite-imported");
+    seedMigratedSqlite(sqlitePath);
+
+    const writer = new Database(sqlitePath);
+    writer.exec("PRAGMA journal_mode = WAL");
+    writer.close();
+
+    heldReader = new Database(sqlitePath, { readonly: true });
+    heldReader.exec("BEGIN");
+    heldReader.query("SELECT * FROM source").all();
+
+    const tables = collectTables([]);
+    const result = await importLegacySqliteIfNeeded({
+      storage: {
+        dataDir: workDir,
+        sqlitePath,
+        importMarkerPath: markerPath,
+      },
+      tables,
+      scopeId: "scope_a",
+    });
+
+    expect(result.imported).toBe(true);
+    expect(result.importedRows).toBe(2);
     expect(existsSync(markerPath)).toBe(true);
 
     sqlite = await createSqliteFumaDb({
