@@ -42,7 +42,7 @@ import type {
   SourceRemovalNotAllowedError,
 } from "./errors";
 import type { OAuthService } from "./oauth";
-import type { PluginStorageFacade } from "./plugin-storage";
+import type { PluginStorageConfig, PluginStorageFacade } from "./plugin-storage";
 import type {
   CreateToolPolicyInput,
   RemoveToolPolicyInput,
@@ -496,6 +496,12 @@ export interface PluginSpec<
    *  and `deps.pluginStorage` are scoped to the plugin id so key collisions
    *  across plugins are structurally impossible. */
   readonly storage: (deps: StorageDeps) => TStore;
+
+  /** Host-owned plugin storage declarations. Plugins declare logical
+   *  collections and indexed JSON fields here; data still lives in the
+   *  executor's shared `plugin_storage` table instead of per-plugin
+   *  adapter schemas. */
+  readonly pluginStorage?: PluginStorageConfig;
 
   /** JSON-serializable config the plugin wants its `./client` bundle to
    *  see. The Vite plugin reads this off each `executor.config.ts` spec

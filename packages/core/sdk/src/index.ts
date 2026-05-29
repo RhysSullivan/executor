@@ -199,6 +199,37 @@ export {
   makeInMemoryBlobStore,
 } from "./blob";
 
+// Plugin storage
+export {
+  definePluginStorageCollection,
+  pluginStorageId,
+  type PluginStorageCollectionDefinition,
+  type PluginStorageCollectionFacade,
+  type PluginStorageCollectionIndexedField,
+  type PluginStorageCollectionKeyInput,
+  type PluginStorageCollectionListInput,
+  type PluginStorageCollectionOrderBy,
+  type PluginStorageCollectionPutInput,
+  type PluginStorageCollectionQueryInput,
+  type PluginStorageCollectionScopedKeyInput,
+  type PluginStorageCollectionWhere,
+  type PluginStorageConfig,
+  type PluginStorageEntry,
+  type PluginStorageFacade,
+  type PluginStorageIndexField,
+  type PluginStorageIndexSpec,
+  type PluginStorageKeyInput,
+  type PluginStorageListInput,
+  type PluginStoragePutInput,
+  type PluginStorageRuntimeCollectionDefinition,
+  type PluginStorageRuntimeIndexSpec,
+  type PluginStorageSchema,
+  type PluginStorageSchemaType,
+  type PluginStorageScopedKeyInput,
+  type PluginStorageWhereFilter,
+  type PluginStorageWhereValue,
+} from "./plugin-storage";
+
 // OAuth 2.1
 export {
   type OAuthService,
@@ -320,15 +351,6 @@ export {
   definePlugin,
   tool,
 } from "./plugin";
-export {
-  pluginStorageId,
-  type PluginStorageEntry,
-  type PluginStorageFacade,
-  type PluginStorageKeyInput,
-  type PluginStorageListInput,
-  type PluginStoragePutInput,
-  type PluginStorageScopedKeyInput,
-} from "./plugin-storage";
 
 // Executor
 export {
