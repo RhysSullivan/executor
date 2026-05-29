@@ -88,6 +88,13 @@ export const connectionsAtom = (scopeId: ScopeId) =>
     reactivityKeys: [ReactivityKey.connections],
   });
 
+export const connectionIdentityAtom = (scopeId: ScopeId, connectionId: ConnectionId) =>
+  ExecutorApiClient.query("connections", "identity", {
+    params: { scopeId, connectionId },
+    timeToLive: "1 minute",
+    reactivityKeys: [ReactivityKey.connections],
+  });
+
 export const secretUsagesAtom = (scopeId: ScopeId, secretId: SecretId) =>
   ExecutorApiClient.query("secrets", "usages", {
     params: { scopeId, secretId },
@@ -129,6 +136,8 @@ export const setSecret = ExecutorApiClient.mutation("secrets", "set");
 export const removeSecret = ExecutorApiClient.mutation("secrets", "remove");
 
 export const removeConnection = ExecutorApiClient.mutation("connections", "remove");
+
+export const updateConnectionIdentity = ExecutorApiClient.mutation("connections", "updateIdentity");
 
 export const removeSource = ExecutorApiClient.mutation("sources", "remove");
 

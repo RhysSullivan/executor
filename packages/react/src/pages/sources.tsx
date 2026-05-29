@@ -6,7 +6,7 @@ import * as Exit from "effect/Exit";
 import { PlusIcon } from "lucide-react";
 import type { SourceDetectionResult } from "@executor-js/sdk/shared";
 import { useSourcePlugins, type SourcePlugin, type SourcePreset } from "@executor-js/sdk/client";
-import { detectSource, sourcesOptimisticAtom } from "../api/atoms";
+import { connectionsAtom, detectSource, sourcesOptimisticAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
 import { McpInstallCard } from "../components/mcp-install-card";
 import { Button } from "../components/button";
@@ -29,7 +29,8 @@ import {
   CardStackEntryMedia,
   CardStackEntryTitle,
 } from "../components/card-stack";
-import { SourceFavicon, sourcePresetIconUrl } from "../components/source-favicon";
+import { sourcePresetIconUrl } from "../components/source-favicon";
+import { SourceIconWithAccount } from "../components/source-icon-with-account";
 import { Skeleton } from "../components/skeleton";
 
 const KIND_TO_PLUGIN_KEY: Record<string, string> = {
@@ -94,6 +95,7 @@ export function SourcesPage() {
                 readonly kind: string;
                 readonly url?: string;
                 readonly runtime?: boolean;
+                readonly connectionIds?: readonly string[];
               }>
             ).filter((source) => !source.runtime);
 
@@ -391,9 +393,13 @@ function SourceGrid(props: {
     kind: string;
     url?: string;
     runtime?: boolean;
+    connectionIds?: readonly string[];
   }[];
 }) {
   const sourcePlugins = useSourcePlugins();
+  const scopeId = useScope();
+  const connectionsResult = useAtomValue(connectionsAtom(scopeId));
+  const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
   const pluginByKind = useMemo(() => {
     const out = new Map<string, SourcePlugin>();
     for (const p of sourcePlugins) out.set(p.key, p);
@@ -407,17 +413,18 @@ function SourceGrid(props: {
           const pluginKey = KIND_TO_PLUGIN_KEY[s.kind] ?? s.kind;
           const plugin = pluginByKind.get(pluginKey);
           const SummaryComponent = plugin?.summary;
+          const connection = connections.find((candidate) =>
+            s.connectionIds?.includes(candidate.id),
+          );
           return (
             <CardStackEntry key={s.id} asChild searchText={`${s.name} ${s.id} ${s.kind}`}>
               <Link to="/sources/$namespace" params={{ namespace: s.id }}>
-                <CardStackEntryMedia>
-                  <SourceFavicon
-                    icon={sourcePresetIconUrl(s, sourcePlugins)}
-                    sourceId={s.id}
-                    url={s.url}
-                    size={32}
-                  />
-                </CardStackEntryMedia>
+                <SourceIconWithAccount
+                  icon={sourcePresetIconUrl(s, sourcePlugins)}
+                  sourceId={s.id}
+                  url={s.url}
+                  connection={connection}
+                />
                 <CardStackEntryContent>
                   <CardStackEntryTitle>{s.name}</CardStackEntryTitle>
                   <CardStackEntryDescription>{s.id}</CardStackEntryDescription>

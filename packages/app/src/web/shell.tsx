@@ -4,10 +4,16 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { sourcesAtom, sourcesOptimisticAtom, toolsAtom } from "@executor-js/react/api/atoms";
+import {
+  connectionsAtom,
+  sourcesAtom,
+  sourcesOptimisticAtom,
+  toolsAtom,
+} from "@executor-js/react/api/atoms";
 import { useScope, useScopeInfo } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
-import { SourceFavicon, sourcePresetIconUrl } from "@executor-js/react/components/source-favicon";
+import { sourcePresetIconUrl } from "@executor-js/react/components/source-favicon";
+import { SourceIconWithAccount } from "@executor-js/react/components/source-icon-with-account";
 import { CommandPalette } from "@executor-js/react/components/command-palette";
 import { useClientPlugins, useSourcePlugins } from "@executor-js/sdk/client";
 import { ServerConnectionMenu } from "./server-connection-menu";
@@ -269,6 +275,8 @@ function PluginNav(props: { pathname: string; onNavigate?: () => void }) {
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
   const sources = useAtomValue(sourcesOptimisticAtom(scopeId));
+  const connectionsResult = useAtomValue(connectionsAtom(scopeId));
+  const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
   const sourcePlugins = useSourcePlugins();
 
   return AsyncResult.match(sources, {
@@ -287,6 +295,9 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
             const detailPath = `/sources/${s.id}`;
             const active =
               props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
+            const connection = connections.find((candidate) =>
+              s.connectionIds?.includes(candidate.id),
+            );
             return (
               <Link
                 key={s.id}
@@ -300,10 +311,12 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
                 ].join(" ")}
               >
-                <SourceFavicon
+                <SourceIconWithAccount
                   icon={sourcePresetIconUrl(s, sourcePlugins)}
                   sourceId={s.id}
                   url={s.url}
+                  connection={connection}
+                  size="sm"
                 />
                 <span className="flex-1 truncate">{s.name}</span>
                 <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
