@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Fidelity suite — locks in every edge case the prior hand-rolled
-// google-discovery oauth.ts handled, so future "simplifications" of the
+// Google OAuth integrations handled, so future "simplifications" of the
 // shared helpers fail loudly instead of silently breaking refresh / parsing /
 // provider-specific quirks.
 // ---------------------------------------------------------------------------

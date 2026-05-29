@@ -129,7 +129,6 @@
         "@executor-js/local": "workspace:*",
         "@executor-js/plugin-desktop-settings": "workspace:*",
         "@executor-js/plugin-file-secrets": "workspace:*",
-        "@executor-js/plugin-google-discovery": "workspace:*",
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-keychain": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
@@ -163,7 +162,6 @@
         "@executor-js/plugin-desktop-settings": "workspace:*",
         "@executor-js/plugin-example": "workspace:*",
         "@executor-js/plugin-file-secrets": "workspace:*",
-        "@executor-js/plugin-google-discovery": "workspace:*",
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-keychain": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
@@ -205,15 +203,10 @@
       "dependencies": {
         "@astrojs/cloudflare": "^13.0.0",
         "@astrojs/react": "^5.0.4",
-        "@executor-js/plugin-google-discovery": "workspace:*",
-        "@executor-js/plugin-graphql": "workspace:*",
-        "@executor-js/plugin-openapi": "workspace:*",
         "@executor-js/react": "workspace:*",
-        "@executor-js/sdk": "workspace:*",
         "@tailwindcss/vite": "^4.2.2",
         "astro": "^6.1.3",
         "clsx": "^2.1.1",
-        "effect": "catalog:",
         "motion": "^12.38.0",
         "posthog-js": "^1.372.5",
         "react": "^19.2.5",
@@ -234,7 +227,6 @@
       "version": "0.0.19",
       "dependencies": {
         "@executor-js/plugin-file-secrets": "workspace:*",
-        "@executor-js/plugin-google-discovery": "workspace:*",
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-keychain": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
@@ -642,41 +634,6 @@
         "tsup": "catalog:",
         "vitest": "catalog:",
       },
-    },
-    "packages/plugins/google-discovery": {
-      "name": "@executor-js/plugin-google-discovery",
-      "version": "1.4.33",
-      "dependencies": {
-        "@executor-js/sdk": "workspace:*",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/atom-react": "catalog:",
-        "@effect/platform-node": "catalog:",
-        "@effect/vitest": "catalog:",
-        "@executor-js/api": "workspace:*",
-        "@executor-js/react": "workspace:*",
-        "@types/node": "catalog:",
-        "@types/react": "catalog:",
-        "bun-types": "catalog:",
-        "react": "catalog:",
-        "tsup": "catalog:",
-        "vitest": "catalog:",
-      },
-      "peerDependencies": {
-        "@effect/atom-react": "catalog:",
-        "@executor-js/api": "workspace:*",
-        "@executor-js/react": "workspace:*",
-        "@tanstack/react-router": "catalog:",
-        "react": "catalog:",
-      },
-      "optionalPeers": [
-        "@effect/atom-react",
-        "@executor-js/api",
-        "@executor-js/react",
-        "@tanstack/react-router",
-        "react",
-      ],
     },
     "packages/plugins/graphql": {
       "name": "@executor-js/plugin-graphql",
@@ -1369,8 +1326,6 @@
     "@executor-js/plugin-example": ["@executor-js/plugin-example@workspace:packages/plugins/example"],
 
     "@executor-js/plugin-file-secrets": ["@executor-js/plugin-file-secrets@workspace:packages/plugins/file-secrets"],
-
-    "@executor-js/plugin-google-discovery": ["@executor-js/plugin-google-discovery@workspace:packages/plugins/google-discovery"],
 
     "@executor-js/plugin-graphql": ["@executor-js/plugin-graphql@workspace:packages/plugins/graphql"],
 

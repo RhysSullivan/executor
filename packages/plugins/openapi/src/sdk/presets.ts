@@ -1,3 +1,5 @@
+import { googleOpenApiPresets } from "./google-presets";
+
 export interface OpenApiPreset {
   readonly id: string;
   readonly name: string;
@@ -7,7 +9,7 @@ export interface OpenApiPreset {
   readonly featured?: boolean;
 }
 
-export const openApiPresets: readonly OpenApiPreset[] = [
+const openApiOnlyPresets: readonly OpenApiPreset[] = [
   {
     id: "stripe",
     name: "Stripe",
@@ -136,4 +138,11 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     url: "https://raw.githubusercontent.com/sonallux/spotify-web-api/refs/heads/main/official-spotify-open-api.yml",
     icon: "https://spotify.com/favicon.ico",
   },
+];
+
+export { googleOpenApiPresets } from "./google-presets";
+
+export const openApiPresets: readonly OpenApiPreset[] = [
+  ...openApiOnlyPresets,
+  ...googleOpenApiPresets,
 ];

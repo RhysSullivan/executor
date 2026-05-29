@@ -222,6 +222,11 @@ const deriveOperationId = (
   (`${method}_${pathTemplate.replace(/[^a-zA-Z0-9]+/g, "_")}`.replace(/^_+|_+$/g, "") ||
     `${method}_operation`);
 
+const explicitToolPath = (operation: OperationObject): string | undefined => {
+  const value = (operation as Record<string, unknown>)["x-executor-toolPath"];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+};
+
 // ---------------------------------------------------------------------------
 // Server extraction
 // ---------------------------------------------------------------------------
@@ -293,6 +298,7 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
       operations.push(
         ExtractedOperation.make({
           operationId: OperationId.make(deriveOperationId(method, pathTemplate, operation)),
+          toolPath: Option.fromNullishOr(explicitToolPath(operation)),
           method,
           pathTemplate,
           summary: Option.fromNullishOr(operation.summary),

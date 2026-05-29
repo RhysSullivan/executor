@@ -95,6 +95,7 @@ export type OperationRequestBody = typeof OperationRequestBody.Type;
 
 export const ExtractedOperation = Schema.Struct({
   operationId: OperationId,
+  toolPath: Schema.OptionFromOptional(Schema.String),
   method: HttpMethod,
   pathTemplate: Schema.String,
   summary: Schema.OptionFromOptional(Schema.String),

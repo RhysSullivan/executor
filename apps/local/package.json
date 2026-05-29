@@ -30,7 +30,6 @@
     "@executor-js/plugin-desktop-settings": "workspace:*",
     "@executor-js/plugin-example": "workspace:*",
     "@executor-js/plugin-file-secrets": "workspace:*",
-    "@executor-js/plugin-google-discovery": "workspace:*",
     "@executor-js/plugin-graphql": "workspace:*",
     "@executor-js/plugin-keychain": "workspace:*",
     "@executor-js/plugin-mcp": "workspace:*",

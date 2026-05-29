@@ -18,7 +18,7 @@ import { workosVaultPlugin, type WorkOSVaultClient } from "@executor-js/plugin-w
 // it has; all fields are optional so `plugins({})` keeps working.
 //
 // Cloud only ships plugins safe to run in a multi-tenant setting — no
-// stdio MCP, no keychain/file-secrets/1password/google-discovery.
+// stdio MCP, no keychain/file-secrets/1password.
 // ---------------------------------------------------------------------------
 
 interface CloudPluginDeps {

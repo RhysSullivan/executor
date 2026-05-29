@@ -1,20 +1,11 @@
-export interface GoogleDiscoveryPreset {
-  readonly id: string;
-  readonly name: string;
-  readonly summary: string;
-  readonly url: string;
-  readonly icon?: string;
-  readonly featured?: boolean;
-}
+import type { OpenApiPreset } from "./presets";
 
 const gd = (service: string, version: string) =>
   `https://www.googleapis.com/discovery/v1/apis/${service}/${version}/rest`;
 
-/** Shared Google "G" logo for services without a dedicated product icon. */
 const GOOGLE_G = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
 
-export const googleDiscoveryPresets: readonly GoogleDiscoveryPreset[] = [
-  // ── Featured (shown in top-level grid) ──────────────────────────────
+export const googleOpenApiPresets: readonly OpenApiPreset[] = [
   {
     id: "google-calendar",
     name: "Google Calendar",
@@ -55,8 +46,6 @@ export const googleDiscoveryPresets: readonly GoogleDiscoveryPreset[] = [
     icon: "https://fonts.gstatic.com/s/i/productlogos/docs_2020q4/v12/192px.svg",
     featured: true,
   },
-
-  // ── Non-featured (shown in collapsed "more" section) ────────────────
   {
     id: "google-slides",
     name: "Google Slides",

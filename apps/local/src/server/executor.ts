@@ -34,6 +34,7 @@ import {
   type LocalSqliteImportResult,
 } from "./sqlite-import";
 import { createSqliteFumaDb } from "./sqlite-fumadb";
+import { oneShotMigrateGoogleDiscoveryToOpenApi } from "./google-discovery-openapi-migration";
 
 interface ResolvedStorage {
   readonly dataDir: string;
@@ -661,10 +662,17 @@ const createLocalExecutorLayer = () => {
         (db) => Effect.promise(() => db.close()).pipe(Effect.ignore),
       );
 
+      const migratedGoogleDiscoverySources = oneShotMigrateGoogleDiscoveryToOpenApi(sqlite.sqlite);
+
       if (importResult.imported) {
         console.warn(
           `[executor] Imported ${importResult.importedRows} row(s) into FumaDB SQLite storage` +
             (importResult.backupPath ? `; moved old DB to ${importResult.backupPath}.` : "."),
+        );
+      }
+      if (migratedGoogleDiscoverySources > 0) {
+        console.warn(
+          `[executor] Migrated ${migratedGoogleDiscoverySources} Google Discovery source(s) to OpenAPI storage.`,
         );
       }
 

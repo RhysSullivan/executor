@@ -36,8 +36,8 @@ describe("SourceFavicon", () => {
         },
         [
           {
-            key: "googleDiscovery",
-            label: "Google Discovery",
+            key: "openapi",
+            label: "OpenAPI",
             add: () => null,
             edit: () => null,
             presets: [
@@ -65,8 +65,8 @@ describe("SourceFavicon", () => {
         },
         [
           {
-            key: "googleDiscovery",
-            label: "Google Discovery",
+            key: "openapi",
+            label: "OpenAPI",
             add: () => null,
             edit: () => null,
             presets: [

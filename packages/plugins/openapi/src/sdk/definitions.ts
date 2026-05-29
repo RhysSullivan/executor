@@ -6,6 +6,8 @@
  * can render with proper nesting.
  */
 
+import { Option } from "effect";
+
 import type { ExtractedOperation } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -220,6 +222,29 @@ export const compileToolDefinitions = (
 ): ToolDefinition[] => {
   const raw = operations.map((op, index) => {
     const operationId = op.operationId;
+    const explicitToolPath = Option.getOrUndefined(op.toolPath);
+    if (explicitToolPath) {
+      const [group = "root", ...leafParts] = explicitToolPath.split(".").filter(Boolean);
+      const leaf = leafParts.join(".") || group;
+      const versionSegment = deriveVersionSegment(op.pathTemplate);
+      const operationHash = stableHash({
+        method: op.method,
+        path: op.pathTemplate,
+        operationId,
+      });
+
+      return {
+        toolPath: explicitToolPath,
+        group,
+        leaf,
+        versionSegment,
+        method: op.method,
+        operationHash,
+        operationIndex: index,
+        operation: op,
+      };
+    }
+
     const group = normalizeGroupSegment(op.tags[0]) ?? derivePathGroup(op.pathTemplate);
     const leaf = deriveLeaf(operationId, op.method, op.pathTemplate, group);
     const versionSegment = deriveVersionSegment(op.pathTemplate);

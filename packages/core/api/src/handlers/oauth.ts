@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Shared OAuth HTTP handlers — thin forwarders over `executor.oauth.*`.
-// Replaces the four per-plugin copies (mcp / openapi / google-discovery
-// each had its own start / complete / callback handler).
+// Replaces the per-plugin copies that each had their own start / complete /
+// callback handler.
 // ---------------------------------------------------------------------------
 
 import { HttpApiBuilder } from "effect/unstable/httpapi";

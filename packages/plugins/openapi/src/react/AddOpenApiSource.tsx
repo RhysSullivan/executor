@@ -140,8 +140,19 @@ const specInputForAdd = (input: string) => {
     }),
   );
   return Exit.isSuccess(parsed)
-    ? { kind: "url" as const, url: value }
+    ? isGoogleDiscoveryUrl(value)
+      ? { kind: "googleDiscovery" as const, url: value }
+      : { kind: "url" as const, url: value }
     : { kind: "blob" as const, value };
+};
+
+const isGoogleDiscoveryUrl = (url: string): boolean => {
+  const trimmed = url.trim();
+  if (!URL.canParse(trimmed)) return false;
+  const parsed = new URL(trimmed);
+  const host = parsed.hostname.toLowerCase();
+  if (!host.endsWith("googleapis.com")) return false;
+  return parsed.pathname.includes("/discovery/") || parsed.pathname.includes("$discovery");
 };
 
 type StrategySelection =

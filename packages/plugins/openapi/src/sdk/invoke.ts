@@ -39,6 +39,22 @@ const readParamValue = (args: Record<string, unknown>, param: OperationParameter
   return undefined;
 };
 
+const primitiveToString = (value: unknown): string =>
+  typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
+
+const queryParamValues = (value: unknown, param: OperationParameter): string[] => {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return [primitiveToString(value)];
+
+  const style = Option.getOrUndefined(param.style) ?? "form";
+  const explode = Option.getOrElse(param.explode, () => true);
+
+  if (explode) return value.map(primitiveToString);
+
+  const separator = style === "spaceDelimited" ? " " : style === "pipeDelimited" ? "|" : ",";
+  return [value.map(primitiveToString).join(separator)];
+};
+
 // ---------------------------------------------------------------------------
 // Path resolution
 // ---------------------------------------------------------------------------
@@ -532,8 +548,9 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   for (const param of operation.parameters) {
     if (param.location !== "query") continue;
     const value = readParamValue(args, param);
-    if (value === undefined || value === null) continue;
-    request = HttpClientRequest.setUrlParam(request, param.name, String(value));
+    for (const paramValue of queryParamValues(value, param)) {
+      request = HttpClientRequest.appendUrlParam(request, param.name, paramValue);
+    }
   }
 
   for (const param of operation.parameters) {

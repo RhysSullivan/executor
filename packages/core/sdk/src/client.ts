@@ -151,8 +151,8 @@ export interface ClientPluginSpec<TId extends string = string> {
   readonly widgets?: readonly WidgetDecl[];
   readonly slots?: Record<string, SlotComponent>;
   /** Source plugin contribution — populated by plugins that expose
-   *  `kind` rows in the core `source` table (openapi, mcp, graphql,
-   *  google-discovery). The host's sources page derives its provider
+   *  `kind` rows in the core `source` table (openapi, mcp, graphql).
+   *  The host's sources page derives its provider
    *  list from the union of every loaded plugin's `sourcePlugin`. */
   readonly sourcePlugin?: SourcePlugin;
   /** Secret provider plugin contribution — populated by plugins that

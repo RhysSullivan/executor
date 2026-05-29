@@ -3200,7 +3200,6 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       // becomes the path segment, so plugins can expose TypeScript-friendly
       // management namespaces without changing their persisted plugin ids:
       //   openapi.addSource -> executor.openapi.addSource
-      //   googleDiscovery.addSource -> executor.googleDiscovery.addSource
       const decls = plugin.staticSources ? plugin.staticSources(extension) : [];
       for (const source of decls) {
         const mountUnderExecutor = source.kind === "executor";

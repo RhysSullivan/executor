@@ -1,4 +1,10 @@
 export { parse, resolveSpecText, fetchSpecText } from "./parse";
+export {
+  convertGoogleDiscoveryToOpenApi,
+  fetchGoogleDiscoveryDocument,
+  isGoogleDiscoveryUrl,
+  type GoogleDiscoveryOpenApiConversion,
+} from "./google-discovery";
 export { extract } from "./extract";
 export { invoke, invokeWithLayer, resolveHeaders, annotationsForOperation } from "./invoke";
 export {

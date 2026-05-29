@@ -3,8 +3,8 @@
 // `/scopes/:scopeId/oauth/{probe,start,complete,callback}` for every
 // plugin that needs OAuth. `pluginId` lives on the request body so the
 // completion callback can route to the right plugin at persist time.
-// Replaces the four per-plugin copies that lived under
-// `/scopes/:scopeId/{mcp,openapi,graphql,google-discovery}/oauth/*`.
+// Replaces the per-plugin copies that lived under
+// `/scopes/:scopeId/{mcp,openapi,graphql}/oauth/*`.
 // ---------------------------------------------------------------------------
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";

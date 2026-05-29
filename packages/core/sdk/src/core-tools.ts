@@ -643,7 +643,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
         tool({
           name: "sources.presets",
           description:
-            "List the same popular source presets shown in Executor web's Connect dialog. Use this before asking the user what to connect; filter with `query` for names like GitHub, Stripe, Axiom, Google Calendar, Linear, or OpenAI. For MCP and GraphQL presets, pass `endpoint` to the probe/add tools. For OpenAPI and Google Discovery presets, pass `url` to the preview/probe and add tools. For stdio MCP presets, use the returned command/args/env.",
+            "List the same popular source presets shown in Executor web's Connect dialog. Use this before asking the user what to connect; filter with `query` for names like GitHub, Stripe, Axiom, Google Calendar, Linear, or OpenAI. For OpenAPI presets, including Google Discovery URLs, pass `url` to the preview/probe and add tools. For MCP and GraphQL presets, pass `endpoint`. For stdio MCP presets, use the returned command/args/env.",
           inputSchema: SourcesPresetsInputStd,
           outputSchema: SourcesPresetsOutputStd,
           execute: (input, { ctx }) =>
@@ -669,7 +669,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
         tool({
           name: "sources.configure",
           description:
-            'Low-level escape hatch for configuring an existing source through its owning plugin. Prefer plugin-specific tools such as `openapi.configureSource`, `graphql.configureSource`, `mcp.configureSource`, or `googleDiscovery.configureSource`; this accepts plugin config as `unknown` for repair and compatibility cases. Use `secrets.create`/`oauth.start` first for sensitive inputs. Pass secret refs as `{kind:"secret", secretId}` and OAuth connections as `{kind:"connection", connectionId}` when the plugin schema supports them.',
+            'Low-level escape hatch for configuring an existing source through its owning plugin. Prefer plugin-specific tools such as `openapi.configureSource`, `graphql.configureSource`, or `mcp.configureSource`; this accepts plugin config as `unknown` for repair and compatibility cases. Use `secrets.create`/`oauth.start` first for sensitive inputs. Pass secret refs as `{kind:"secret", secretId}` and OAuth connections as `{kind:"connection", connectionId}` when the plugin schema supports them.',
           annotations: {
             requiresApproval: true,
             approvalDescription: "Configure an Executor source",

@@ -22,7 +22,6 @@ import { Cause, Effect } from "effect";
 import { SecretId, Scope, ScopeId, SetSecretInput, createExecutor } from "@executor-js/sdk";
 
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
-import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
 import { graphqlPlugin } from "@executor-js/plugin-graphql";
 import { keychainPlugin } from "@executor-js/plugin-keychain";
 import { mcpPlugin } from "@executor-js/plugin-mcp";
@@ -54,9 +53,8 @@ const plugins = [
 
   // Source plugins — these declare their own schemas (tables) and
   // register tools dynamically when the user adds a spec / connects
-  // to a server / runs discovery.
+  // to a server / imports a discovery document.
   graphqlPlugin(),
-  googleDiscoveryPlugin(),
   mcpPlugin({ dangerouslyAllowStdioMCP: false }),
   openApiPlugin(),
 
@@ -172,7 +170,6 @@ const program = Effect.gen(function* () {
   console.log("  executor.fileSecrets     ", typeof executor.fileSecrets);
   console.log("  executor.onepassword     ", typeof executor.onepassword);
   console.log("  executor.graphql         ", typeof executor.graphql);
-  console.log("  executor.googleDiscovery ", typeof executor.googleDiscovery);
   console.log("  executor.mcp             ", typeof executor.mcp);
   console.log("  executor.openapi         ", typeof executor.openapi);
 
@@ -373,7 +370,7 @@ const program = Effect.gen(function* () {
   );
 
   // -------------------------------------------------------------------------
-  // MCP, Google Discovery, 1Password — shown but not exercised (they need
+  // MCP, Google OAuth, 1Password — shown but not exercised (they need
   // real external infrastructure). Their extension methods exist, and
   // calling them would register real dynamic sources the same way.
   // -------------------------------------------------------------------------
@@ -388,7 +385,7 @@ const program = Effect.gen(function* () {
   console.log("  executor.fileSecrets.filePath:   ", executor.fileSecrets.filePath);
 
   // executor.mcp.addSource({ connector: { kind: "remote", endpoint: "..." } });
-  // executor.googleDiscovery.addSource({ discoveryUrl: "..." });
+  // executor.openapi.addSpec({ spec: { kind: "googleDiscovery", url: "..." }, ... });
   // executor.onepassword.configure({ auth: { kind: "desktop-app", accountName: "..." }, vaultId: "..." });
 
   // -------------------------------------------------------------------------

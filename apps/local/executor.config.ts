@@ -1,7 +1,6 @@
 import { defineExecutorConfig } from "@executor-js/sdk";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
-import { googleDiscoveryHttpPlugin } from "@executor-js/plugin-google-discovery/api";
 import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
 import { keychainPlugin } from "@executor-js/plugin-keychain";
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
@@ -22,7 +21,6 @@ export default defineExecutorConfig({
     [
       openApiHttpPlugin(),
       mcpHttpPlugin({ dangerouslyAllowStdioMCP: true }),
-      googleDiscoveryHttpPlugin(),
       graphqlHttpPlugin(),
       keychainPlugin(),
       fileSecretsPlugin(),

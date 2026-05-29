@@ -35,6 +35,11 @@ import {
   OpenApiParseError,
 } from "./errors";
 import { parse, resolveSpecText } from "./parse";
+import {
+  convertGoogleDiscoveryToOpenApi,
+  fetchGoogleDiscoveryDocument,
+  isGoogleDiscoveryUrl,
+} from "./google-discovery";
 import { extract } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
 import { annotationsForOperation, invokeWithLayer } from "./invoke";
@@ -322,6 +327,7 @@ type StaticPreviewSpecOutput = typeof StaticPreviewSpecOutputSchema.Type;
 const OpenApiSpecInputSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("url"), url: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("blob"), value: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("googleDiscovery"), url: Schema.String }),
 ]);
 const OpenApiSecretShapeInputSchema = Schema.Struct({
   kind: Schema.Literal("secret"),
@@ -1186,7 +1192,7 @@ const toOpenApiSourceConfig = (
 };
 
 const specInputToConfigString = (spec: OpenApiSpecInput): string =>
-  spec.kind === "url" ? spec.url : spec.value;
+  spec.kind === "url" || spec.kind === "googleDiscovery" ? spec.url : spec.value;
 
 export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
   type RebuildInput = {
@@ -1367,21 +1373,38 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           // Resolve URL → text and parse BEFORE opening a transaction.
           // Holding `BEGIN` on the pool=1 Postgres connection across a
           // network fetch is the Hyperdrive deadlock path in production.
-          const specText =
-            config.spec.kind === "url"
-              ? yield* resolveSpecText(config.spec.url).pipe(Effect.provide(httpClientLayer))
-              : config.spec.value;
+          const resolvedSpec =
+            config.spec.kind === "googleDiscovery"
+              ? yield* fetchGoogleDiscoveryDocument(config.spec.url).pipe(
+                  Effect.provide(httpClientLayer),
+                  Effect.flatMap((documentText) =>
+                    convertGoogleDiscoveryToOpenApi({
+                      discoveryUrl: config.spec.kind === "googleDiscovery" ? config.spec.url : "",
+                      documentText,
+                    }),
+                  ),
+                )
+              : {
+                  specText:
+                    config.spec.kind === "url"
+                      ? yield* resolveSpecText(config.spec.url).pipe(
+                          Effect.provide(httpClientLayer),
+                        )
+                      : config.spec.value,
+                  baseUrl: config.baseUrl,
+                  oauth2: config.oauth2,
+                };
           return yield* rebuildSource(ctx, {
-            specText,
+            specText: resolvedSpec.specText,
             scope: config.scope,
             sourceUrl: config.spec.kind === "url" ? config.spec.url : undefined,
             name: config.name,
-            baseUrl: config.baseUrl,
+            baseUrl: resolvedSpec.baseUrl || config.baseUrl,
             namespace: config.namespace,
             headers: config.headers,
             queryParams: config.queryParams,
             specFetchCredentials: config.specFetchCredentials,
-            oauth2: config.oauth2,
+            oauth2: config.oauth2 ?? resolvedSpec.oauth2,
           });
         });
 
@@ -1395,9 +1418,20 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
               ctx,
               previewInput.specFetchCredentials,
             );
-            const specText = yield* resolveSpecText(previewInput.spec, credentials).pipe(
-              Effect.provide(httpClientLayer),
-            );
+            const specText = isGoogleDiscoveryUrl(previewInput.spec)
+              ? yield* fetchGoogleDiscoveryDocument(previewInput.spec, credentials).pipe(
+                  Effect.provide(httpClientLayer),
+                  Effect.flatMap((documentText) =>
+                    convertGoogleDiscoveryToOpenApi({
+                      discoveryUrl: previewInput.spec,
+                      documentText,
+                    }),
+                  ),
+                  Effect.map((conversion) => conversion.specText),
+                )
+              : yield* resolveSpecText(previewInput.spec, credentials).pipe(
+                  Effect.provide(httpClientLayer),
+                );
             return yield* previewSpec(specText).pipe(Effect.provide(httpClientLayer));
           }),
 
@@ -1846,6 +1880,28 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           catch: (error) => error,
         }).pipe(Effect.option);
         if (Option.isNone(parsed)) return null;
+        if (isGoogleDiscoveryUrl(trimmed)) {
+          const conversion = yield* fetchGoogleDiscoveryDocument(trimmed).pipe(
+            Effect.provide(httpClientLayer),
+            Effect.flatMap((documentText) =>
+              convertGoogleDiscoveryToOpenApi({ discoveryUrl: trimmed, documentText }),
+            ),
+            Effect.catch(() => Effect.succeed(null)),
+          );
+          if (conversion) {
+            return SourceDetectionResult.make({
+              kind: "openapi",
+              confidence: "high",
+              endpoint: trimmed,
+              name: conversion.title,
+              namespace:
+                conversion.title
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "_")
+                  .replace(/^_+|_+$/g, "") || `google_${conversion.service}`,
+            });
+          }
+        }
         const specText = yield* resolveSpecText(trimmed).pipe(
           Effect.provide(httpClientLayer),
           Effect.catch(() => Effect.succeed(null)),

@@ -12,8 +12,7 @@
 // `ctx.oauth.complete`, and at invoke time the plugin calls
 // `ctx.connections.accessToken(connectionId)` for a fresh Bearer.
 //
-// This replaces four per-plugin state machines (one each in mcp,
-// openapi, google-discovery, graphql) that were all shading the same
+// This replaces per-plugin state machines that were all shading the same
 // lifecycle.
 // ---------------------------------------------------------------------------
 
