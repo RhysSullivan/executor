@@ -30,6 +30,19 @@ describe("MCP install command rendering", () => {
     ).toBe("npx add-mcp http://localhost:4788/mcp --transport http --name executor");
   });
 
+  it("renders active server authorization as an HTTP MCP header", () => {
+    expect(
+      buildMcpInstallCommand({
+        mode: "http",
+        isDev: false,
+        origin: "http://127.0.0.1:4789",
+        authorizationHeader: "Basic abc123",
+      }),
+    ).toBe(
+      "npx add-mcp http://127.0.0.1:4789/mcp --transport http --name executor --header 'Authorization: Basic abc123'",
+    );
+  });
+
   it("uses model-managed resume by default and encodes explicit elicitation modes", () => {
     expect(
       buildMcpHttpEndpoint({

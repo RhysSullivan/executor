@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useAtomValue } from "@effect/atom-react";
+import { Option } from "effect";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import type { ScopeId } from "@executor-js/sdk/shared";
@@ -24,11 +25,27 @@ const ScopeContext = React.createContext<ScopeInfo | null>(null);
  * Provides the server scope to all children.
  * Renders the optional `fallback` until the scope is fetched.
  */
-export function ScopeProvider(props: React.PropsWithChildren<{ fallback?: React.ReactNode }>) {
+export function ScopeProvider(
+  props: React.PropsWithChildren<{
+    fallback?: React.ReactNode;
+    failureFallback?: React.ReactNode;
+  }>,
+) {
   const result = useAtomValue(scopeAtom);
 
   if (AsyncResult.isSuccess(result)) {
     return <ScopeContext.Provider value={result.value}>{props.children}</ScopeContext.Provider>;
+  }
+
+  if (AsyncResult.isFailure(result)) {
+    if (Option.isSome(result.previousSuccess)) {
+      return (
+        <ScopeContext.Provider value={result.previousSuccess.value.value}>
+          {props.children}
+        </ScopeContext.Provider>
+      );
+    }
+    return <>{props.failureFallback ?? props.fallback ?? null}</>;
   }
 
   return <>{props.fallback ?? null}</>;

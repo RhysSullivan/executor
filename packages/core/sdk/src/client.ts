@@ -192,7 +192,31 @@ export interface CreatePluginAtomClientOptions {
    *  when forwarding to the Effect handler) — same convention as the
    *  core `ExecutorApiClient`. */
   readonly baseUrl?: string | (() => string);
+  /** Optional dynamic Authorization header for hosts whose active
+   *  Executor Server Connection requires Basic or Bearer auth. */
+  readonly authorizationHeader?: string | null | (() => string | null);
 }
+
+export interface PluginAtomClientRequestTransformOptions {
+  readonly baseUrl?: () => string;
+  readonly authorizationHeader?: string | null | (() => string | null);
+}
+
+/** @internal */
+export const applyPluginAtomClientRequestTransform = (
+  request: HttpClientRequest.HttpClientRequest,
+  options: PluginAtomClientRequestTransformOptions,
+): HttpClientRequest.HttpClientRequest => {
+  let next = options.baseUrl ? HttpClientRequest.prependUrl(request, options.baseUrl()) : request;
+  const authorization =
+    typeof options.authorizationHeader === "function"
+      ? options.authorizationHeader()
+      : options.authorizationHeader;
+  if (authorization) {
+    next = HttpClientRequest.setHeader(next, "authorization", authorization);
+  }
+  return next;
+};
 
 /**
  * Build a typed reactive client for a plugin's HttpApiGroup.
@@ -211,19 +235,33 @@ export const createPluginAtomClient = <
   group: G,
   options: CreatePluginAtomClientOptions = {},
 ) => {
-  const { baseUrl = "/api" } = options;
+  const { baseUrl = "/api", authorizationHeader } = options;
   const pluginId = group.identifier;
   const bundle = HttpApi.make(`plugin-${pluginId}`).add(group);
+  const getBaseUrl = typeof baseUrl === "function" ? baseUrl : null;
+  const staticBaseUrl = typeof baseUrl === "function" ? undefined : baseUrl;
+  const getAuthorizationHeader =
+    typeof authorizationHeader === "function" ? authorizationHeader : null;
+  const hasAuthorization = authorizationHeader !== undefined && authorizationHeader !== null;
+  const transformClient =
+    getBaseUrl || hasAuthorization
+      ? HttpClient.mapRequest((request) =>
+          applyPluginAtomClientRequestTransform(request, {
+            ...(getBaseUrl ? { baseUrl: getBaseUrl } : {}),
+            ...(getAuthorizationHeader
+              ? { authorizationHeader: getAuthorizationHeader }
+              : authorizationHeader !== undefined
+                ? { authorizationHeader }
+                : {}),
+          }),
+        )
+      : undefined;
+
   return AtomHttpApi.Service<`Plugin_${G["identifier"]}Client`>()(`Plugin_${pluginId}Client`, {
     api: bundle,
     httpClient: FetchHttpClient.layer,
-    ...(typeof baseUrl === "function"
-      ? {
-          transformClient: HttpClient.mapRequest((request) =>
-            HttpClientRequest.prependUrl(request, baseUrl()),
-          ),
-        }
-      : { baseUrl }),
+    ...(staticBaseUrl !== undefined ? { baseUrl: staticBaseUrl } : {}),
+    ...(transformClient ? { transformClient } : {}),
   });
 };
 

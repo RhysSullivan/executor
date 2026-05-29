@@ -1,7 +1,11 @@
 import { createPluginAtomClient } from "@executor-js/sdk/client";
-import { getBaseUrl } from "@executor-js/react/api/base-url";
+import {
+  getExecutorApiBaseUrl,
+  getExecutorServerAuthorizationHeader,
+} from "@executor-js/react/api/server-connection";
 import { OpenApiGroup } from "../api/group";
 
 export const OpenApiClient = createPluginAtomClient(OpenApiGroup, {
-  baseUrl: getBaseUrl,
+  baseUrl: getExecutorApiBaseUrl,
+  authorizationHeader: getExecutorServerAuthorizationHeader,
 });

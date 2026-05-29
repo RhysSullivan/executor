@@ -257,6 +257,20 @@ export {
 } from "./hosted-http-client";
 
 export {
+  DEFAULT_EXECUTOR_SERVER_ORIGIN,
+  DEFAULT_EXECUTOR_SERVER_USERNAME,
+  apiBaseUrlForServerOrigin,
+  getExecutorServerAuthorizationHeader,
+  normalizeExecutorServerConnection,
+  normalizeExecutorServerOrigin,
+  originFromApiBaseUrl,
+  type ExecutorServerAuth,
+  type ExecutorServerConnection,
+  type ExecutorServerConnectionInput,
+  type ExecutorServerConnectionKind,
+} from "./server-connection";
+
+export {
   OAuthDiscoveryError,
   OAuthAuthorizationServerMetadataSchema,
   OAuthClientInformationSchema,
