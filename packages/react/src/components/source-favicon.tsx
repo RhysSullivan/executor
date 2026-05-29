@@ -39,6 +39,35 @@ const normalizeUrl = (url: string | undefined): string | null => {
   }
 };
 
+const googleApiServiceFromUrl = (url: string | undefined): string | null => {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    const segments = parsed.pathname.split("/").filter(Boolean);
+
+    if (
+      hostname === "www.googleapis.com" &&
+      segments[0] === "discovery" &&
+      segments[2] === "apis" &&
+      segments[3]
+    ) {
+      return segments[3];
+    }
+
+    if (hostname === "www.googleapis.com") return segments[0] ?? null;
+
+    const suffix = ".googleapis.com";
+    if (hostname.endsWith(suffix)) {
+      const service = hostname.slice(0, -suffix.length);
+      return service.length > 0 ? service : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
 const normalizeToken = (value: string | undefined): string =>
   value?.toLowerCase().replace(/[^a-z0-9]+/g, "") ?? "";
 
@@ -62,15 +91,18 @@ export function sourcePresetIconUrl(
   const plugin = sourcePlugins.find((p) => p.key === pluginKey);
   const presets = plugin?.presets ?? [];
   const sourceUrl = normalizeUrl(source.url);
+  const sourceGoogleService = googleApiServiceFromUrl(source.url);
   const sourceId = normalizeToken(source.id);
   const sourceName = normalizeToken(source.name);
 
   const preset = presets.find((p) => {
     const presetUrl = normalizeUrl(p.url);
+    const presetGoogleService = googleApiServiceFromUrl(p.url);
     const presetId = normalizeToken(p.id);
     const presetName = normalizeToken(p.name);
     return (
       (sourceUrl !== null && presetUrl === sourceUrl) ||
+      (sourceGoogleService !== null && presetGoogleService === sourceGoogleService) ||
       tokenMatches(sourceId, presetId) ||
       tokenMatches(sourceName, presetName)
     );

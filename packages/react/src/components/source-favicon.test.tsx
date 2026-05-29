@@ -55,6 +55,36 @@ describe("SourceFavicon", () => {
     ).toBe("https://example.com/sheets.svg");
   });
 
+  it("finds Google preset icons from generated API base URLs", () => {
+    expect(
+      sourcePresetIconUrl(
+        {
+          id: "calendar_api",
+          kind: "openapi",
+          name: "Calendar API",
+          url: "https://www.googleapis.com/calendar/v3/",
+        },
+        [
+          {
+            key: "openapi",
+            label: "OpenAPI",
+            add: () => null,
+            edit: () => null,
+            presets: [
+              {
+                id: "google-calendar",
+                name: "Google Calendar",
+                summary: "Calendars.",
+                url: "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
+                icon: "https://example.com/calendar.svg",
+              },
+            ],
+          },
+        ],
+      ),
+    ).toBe("https://example.com/calendar.svg");
+  });
+
   it("finds preset icons from display names with suffixes", () => {
     expect(
       sourcePresetIconUrl(
