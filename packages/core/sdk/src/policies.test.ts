@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Predicate, Result } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 
-import { scopedExecutorTable, type ToolPolicyRow } from "./core-schema";
+import { type ToolPolicyRow } from "./core-schema";
 import { PolicyId, ScopeId } from "./ids";
 import { Scope } from "./scope";
 import { ElicitationResponse, type ElicitationHandler } from "./elicitation";
@@ -268,13 +268,8 @@ const recordingHandler = (calls: { count: number }): ElicitationHandler =>
 const decliningHandler: ElicitationHandler = () =>
   Effect.succeed(ElicitationResponse.make({ action: "decline" }));
 
-const policyTestSchema = {
-  ptest_marker: scopedExecutorTable("ptest_marker", {}),
-};
-
 const policyTestPlugin = definePlugin(() => ({
   id: "ptest" as const,
-  schema: policyTestSchema,
   storage: () => ({}),
   resolveAnnotations: ({ toolRows }) => {
     const out: Record<string, { requiresApproval?: boolean }> = {};

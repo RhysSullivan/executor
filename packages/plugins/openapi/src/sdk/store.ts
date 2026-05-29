@@ -1,7 +1,6 @@
 import { Effect, Option, Predicate, Schema } from "effect";
 
 import {
-  type FumaTables,
   type PluginStorageEntry,
   type StorageDeps,
   type StorageFailure,
@@ -22,9 +21,6 @@ export {
   oauth2ConnectionSlot,
   queryParamBindingSlot,
 } from "./source-contracts";
-
-export const openapiSchema = {} satisfies FumaTables;
-export type OpenapiSchema = typeof openapiSchema;
 
 export interface SourceConfig {
   readonly spec: string;
@@ -228,9 +224,7 @@ export interface OpenapiStore {
   readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 }
 
-export const makeDefaultOpenapiStore = ({
-  pluginStorage,
-}: StorageDeps<OpenapiSchema>): OpenapiStore => {
+export const makeDefaultOpenapiStore = ({ pluginStorage }: StorageDeps): OpenapiStore => {
   const sourceData = (source: StoredSource) => ({
     namespace: source.namespace,
     scope: source.scope,

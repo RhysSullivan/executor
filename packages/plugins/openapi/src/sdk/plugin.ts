@@ -47,7 +47,6 @@ import { previewSpec, type SpecPreview } from "./preview";
 import { openApiPresets } from "./presets";
 import {
   makeDefaultOpenapiStore,
-  openapiSchema,
   type OpenapiStore,
   type SourceConfig,
   type StoredOperation,
@@ -1363,7 +1362,6 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
     id: "openapi" as const,
     packageName: "@executor-js/plugin-openapi",
     sourcePresets: openApiPresets,
-    schema: openapiSchema,
     storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
     extension: (ctx) => {

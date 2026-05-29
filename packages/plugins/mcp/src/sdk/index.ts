@@ -9,13 +9,7 @@ export {
   type McpConfigureSourceInput,
 } from "./plugin";
 
-export {
-  makeMcpStore,
-  mcpSchema,
-  type McpBindingStore,
-  type McpSchema,
-  type McpStoredSource,
-} from "./binding-store";
+export { makeMcpStore, type McpBindingStore, type McpStoredSource } from "./binding-store";
 
 export {
   ConfiguredMcpCredentialValue,

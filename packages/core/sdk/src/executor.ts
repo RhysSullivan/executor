@@ -430,31 +430,14 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
 }
 
 // ---------------------------------------------------------------------------
-// collectTables — merge core tables with every plugin's declared Fuma table.
-// Hosts pass the result to FumaDB when constructing the database client.
+// collectTables — return the executor-owned Fuma table set. Plugins persist
+// through host-owned facades (`pluginStorage`, `blobs`) instead of contributing
+// table definitions.
 // ---------------------------------------------------------------------------
 
-export const collectTables = (plugins: readonly AnyPlugin[]): FumaTables => {
-  const merged: FumaTables = { ...coreSchema };
-  for (const plugin of plugins) {
-    if (!plugin.schema) continue;
-    for (const [tableKey, tableDef] of Object.entries(plugin.schema)) {
-      if (merged[tableKey]) {
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: collectTables is a synchronous configuration API
-        throw new StorageError({
-          message:
-            `Duplicate storage table "${tableKey}" contributed by plugin "${plugin.id}"` +
-            ` (reserved by core or another plugin)`,
-          cause: undefined,
-        });
-      }
-      merged[tableKey] = tableDef as FumaTables[string];
-    }
-  }
-
-  validateExecutorScopePolicyTables(merged);
-
-  return merged;
+export const collectTables = (_plugins: readonly AnyPlugin[]): FumaTables => {
+  validateExecutorScopePolicyTables(coreSchema);
+  return { ...coreSchema };
 };
 
 const validateExecutorScopePolicyTables = (tables: FumaTables): void => {
@@ -3039,10 +3022,6 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         });
       }
 
-      const pluginFuma = makeFumaClient(
-        rootDb,
-        plugin.schema ? { tables: new Set(Object.keys(plugin.schema)) } : { tables: new Set() },
-      );
       const pluginStorage = makePluginStorageFacade({
         core,
         pluginId: plugin.id,
@@ -3050,7 +3029,6 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       });
       const storageDeps: StorageDeps = {
         scopes,
-        fuma: pluginFuma,
         // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
         // sharing a backing BlobStore can't collide or leak on the
         // same `(plugin, key)` pair. The store's `get`/`has` walk the

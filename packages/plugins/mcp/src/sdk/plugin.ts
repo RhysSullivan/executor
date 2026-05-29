@@ -41,12 +41,7 @@ import {
   type HttpConfiguredValueInput,
 } from "@executor-js/sdk/http-source";
 
-import {
-  makeMcpStore,
-  mcpSchema,
-  type McpBindingStore,
-  type McpStoredSource,
-} from "./binding-store";
+import { makeMcpStore, type McpBindingStore, type McpStoredSource } from "./binding-store";
 import { createMcpConnector, type ConnectorInput, type McpConnection } from "./connection";
 import { discoverTools } from "./discover";
 import {
@@ -1303,7 +1298,6 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
     // so the server's `dangerouslyAllowStdioMCP` flag is the single
     // source of truth for both runtime and UI.
     clientConfig: { allowStdio },
-    schema: mcpSchema,
     storage: (deps): McpBindingStore => makeMcpStore(deps),
 
     extension: (ctx) => {

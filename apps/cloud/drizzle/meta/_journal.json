@@ -134,6 +134,13 @@
       "when": 1779199200000,
       "tag": "0018_repair_openapi_oauth_authorization_url",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1780081200000,
+      "tag": "0019_workos_vault_plugin_storage",
+      "breakpoints": true
     }
   ]
 }

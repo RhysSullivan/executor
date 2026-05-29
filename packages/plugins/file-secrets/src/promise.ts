@@ -14,5 +14,5 @@ export type { FileSecretsPluginConfig } from "./index";
 // doesn't re-export Plugin).
 export const fileSecretsPlugin = (
   config?: FileSecretsPluginConfig,
-): Plugin<"fileSecrets", FileSecretsExtension, Record<string, never>, undefined> =>
+): Plugin<"fileSecrets", FileSecretsExtension, Record<string, never>> =>
   fileSecretsPluginEffect(config);

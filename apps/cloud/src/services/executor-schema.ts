@@ -148,17 +148,6 @@ export const blob = pgTable("blob", {
   uniqueIndex("blob_id_uidx").on(table.id)
 ])
 
-export const workos_vault_metadata = pgTable("workos_vault_metadata", {
-  row_id: varchar("row_id", { length: 255 }).primaryKey().notNull().$defaultFn(() => createId()),
-  id: varchar("id", { length: 255 }).notNull(),
-  scope_id: varchar("scope_id", { length: 255 }).notNull(),
-  name: text("name").notNull(),
-  purpose: text("purpose"),
-  created_at: timestamp("created_at").notNull()
-}, (table) => [
-  uniqueIndex("workos_vault_metadata_scope_id_id_uidx").on(table.scope_id, table.id)
-])
-
 export const private_executor_cloud_settings = pgTable("private_executor_cloud_settings", {
   id: varchar("id", { length: 255 }).primaryKey().notNull(),
   version: varchar("version", { length: 255 }).notNull().default("1.0.0")

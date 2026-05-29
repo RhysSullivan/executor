@@ -21,16 +21,13 @@ import {
 } from "./client";
 import { workosVaultPlugin } from "./plugin";
 
-interface VaultMetadataRow {
-  readonly id: string;
+interface VaultMetadataStorageRow {
+  readonly key: string;
   readonly scope_id: string;
-  readonly name: string;
-  readonly purpose: string | null;
-  readonly created_at: Date;
 }
 
-const toVaultMetadataRows = (rows: unknown): readonly VaultMetadataRow[] =>
-  rows as readonly VaultMetadataRow[];
+const toVaultMetadataStorageRows = (rows: unknown): readonly VaultMetadataStorageRow[] =>
+  rows as readonly VaultMetadataStorageRow[];
 
 class FakeNotFoundError extends Error {
   readonly status = 404;
@@ -409,10 +406,15 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
         }),
       );
 
-      const rows = toVaultMetadataRows(
+      const rows = toVaultMetadataStorageRows(
         yield* Effect.promise(() =>
-          config.db.findMany("workos_vault_metadata", {
-            where: (b) => b("id", "=", "api-token"),
+          config.db.findMany("plugin_storage", {
+            where: (b) =>
+              b.and(
+                b("plugin_id", "=", "workosVault"),
+                b("collection", "=", "metadata"),
+                b("key", "=", "api-token"),
+              ),
           }),
         ),
       );

@@ -17,8 +17,6 @@ export {
   type OpenApiSourceRef,
 } from "./plugin";
 export {
-  openapiSchema,
-  type OpenapiSchema,
   type OpenapiStore,
   type StoredOperation,
   type StoredSource,

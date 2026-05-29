@@ -10,9 +10,7 @@ export {
   type GraphqlSourceRef,
 } from "./plugin";
 export {
-  graphqlSchema,
   makeDefaultGraphqlStore,
-  type GraphqlSchema,
   type GraphqlStore,
   type StoredGraphqlSource,
   type StoredOperation,

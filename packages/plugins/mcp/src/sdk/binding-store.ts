@@ -1,16 +1,12 @@
 import { Effect, Option, Predicate, Schema } from "effect";
 
 import {
-  type FumaTables,
   type PluginStorageEntry,
   type StorageDeps,
   type StorageFailure,
 } from "@executor-js/sdk/core";
 
 import { McpStoredSourceData, McpToolBinding } from "./types";
-
-export const mcpSchema = {} satisfies FumaTables;
-export type McpSchema = typeof mcpSchema;
 
 const SOURCE_COLLECTION = "source";
 const BINDING_COLLECTION = "binding";
@@ -131,7 +127,7 @@ const rowToBinding = (
   };
 };
 
-export const makeMcpStore = ({ pluginStorage }: StorageDeps<McpSchema>): McpBindingStore => {
+export const makeMcpStore = ({ pluginStorage }: StorageDeps): McpBindingStore => {
   const listBindingRowsForSourceScope = (namespace: string, scope: string) =>
     pluginStorage
       .list({

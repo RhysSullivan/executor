@@ -48,7 +48,6 @@ import {
 import { invokeWithLayer } from "./invoke";
 import { graphqlPresets } from "./presets";
 import {
-  graphqlSchema,
   makeDefaultGraphqlStore,
   type GraphqlStore,
   type StoredGraphqlSource,
@@ -1066,7 +1065,6 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
     id: "graphql" as const,
     packageName: "@executor-js/plugin-graphql",
     sourcePresets: graphqlPresets,
-    schema: graphqlSchema,
     storage: (deps): GraphqlStore => makeDefaultGraphqlStore(deps),
 
     extension: (ctx) =>
