@@ -64,7 +64,11 @@ export const OAuthAuthorizationCodeStrategy = Schema.Struct({
    *  PKCE without a confidential secret. */
   clientSecretSecretId: Schema.NullOr(Schema.String),
   clientSecretSecretScopeId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Final scope set Executor should remember for this connection. */
   scopes: Schema.Array(Schema.String),
+  /** Optional smaller scope set to send to the authorization server. This is
+   *  useful when one provider scope covers many source-level operation scopes. */
+  authorizationScopes: Schema.optional(Schema.Array(Schema.String)),
   /** Separator between scopes. RFC 6749 says space; some providers
    *  (GitHub classic) use comma. */
   scopeSeparator: Schema.optional(Schema.String),
@@ -88,9 +92,7 @@ export const OAuthAuthorizationCodeExistingClientStrategy = Schema.Struct({
   /** Final scope set Executor should remember for this connection. */
   scopes: Schema.Array(Schema.String),
   /** Optional smaller scope set to send to the authorization server. This is
-   *  for providers such as Google that support incremental authorization via
-   *  `include_granted_scopes=true`: request only newly-missing scopes, but
-   *  keep the connection's full granted-scope model for refresh/source reuse. */
+   *  useful when one provider scope covers many source-level operation scopes. */
   authorizationScopes: Schema.optional(Schema.Array(Schema.String)),
   scopeSeparator: Schema.optional(Schema.String),
   extraAuthorizationParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),

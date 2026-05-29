@@ -61,12 +61,14 @@ layer(TestLayer, { timeout: "15 seconds" })("testing fixtures", (it) => {
           tokenEndpoint: oauth.tokenEndpoint,
           clientIdSecretId: "oauth-client-id",
           clientSecretSecretId: "oauth-client-secret",
-          scopes: ["read"],
+          scopes: ["read", "write"],
+          authorizationScopes: ["read"],
         },
       });
 
       expect(started.authorizationUrl).not.toBeNull();
       const authorizationUrl = started.authorizationUrl ?? "";
+      expect(new URL(authorizationUrl).searchParams.get("scope")).toBe("read");
       const callback = yield* oauth.completeAuthorizationCodeFlow({ authorizationUrl });
       const completed = yield* workspace.executor.oauth.complete({
         state: callback.state,
@@ -75,6 +77,7 @@ layer(TestLayer, { timeout: "15 seconds" })("testing fixtures", (it) => {
       });
 
       expect(completed.connectionId).toBe("test-oauth-authorization-code");
+      expect(completed.scope).toBe("read write");
       const accessToken = yield* workspace.executor.connections.accessToken(completed.connectionId);
       expect(yield* oauth.acceptsAccessToken(accessToken)).toBe(true);
     }),

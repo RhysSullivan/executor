@@ -142,6 +142,7 @@ const AuthorizationCodeSessionPayload = Schema.Struct({
     Schema.withDecodingDefaultType(Effect.succeed(null)),
   ),
   scopes: Schema.Array(Schema.String),
+  authorizationScopes: Schema.optional(Schema.Array(Schema.String)),
   storedScope: Schema.optional(Schema.String),
   scopeSeparator: Schema.optional(Schema.String),
   clientAuth: Schema.Literals(["body", "basic"]),
@@ -615,12 +616,19 @@ export const makeOAuth2Service = (
       const sessionId = scopedSessionId(input.tokenScope, newSessionId());
       const codeVerifier = createPkceCodeVerifier();
       const codeChallenge = yield* Effect.promise(() => createPkceCodeChallenge(codeVerifier));
+      const authorizationScopes =
+        options?.authorizationScopes ?? strategy.authorizationScopes ?? strategy.scopes;
+      const storedScope =
+        options?.storedScope ??
+        (strategy.authorizationScopes
+          ? strategy.scopes.join(strategy.scopeSeparator ?? " ")
+          : undefined);
 
       const authorizationUrl = buildAuthorizationUrl({
         authorizationUrl: strategy.authorizationEndpoint,
         clientId: clientIdRef.value,
         redirectUrl: input.redirectUrl,
-        scopes: options?.authorizationScopes ?? strategy.scopes,
+        scopes: authorizationScopes,
         state: sessionId,
         codeChallenge,
         scopeSeparator: strategy.scopeSeparator,
@@ -645,7 +653,8 @@ export const makeOAuth2Service = (
             }))?.scopeId ?? null)
           : null,
         scopes: [...strategy.scopes],
-        storedScope: options?.storedScope,
+        authorizationScopes: [...authorizationScopes],
+        storedScope,
         scopeSeparator: strategy.scopeSeparator,
         clientAuth: strategy.clientAuth ?? "body",
       };
@@ -1011,7 +1020,7 @@ export const makeOAuth2Service = (
               clientSecretSecretId: payload.clientSecretSecretId,
               clientSecretSecretScopeId: payload.clientSecretSecretScopeId,
               clientAuth: payload.clientAuth,
-              scopes: [...payload.scopes],
+              scopes: [...(payload.authorizationScopes ?? payload.scopes)],
               scopeSeparator: payload.scopeSeparator,
               scope: effectiveOAuthScope,
             };

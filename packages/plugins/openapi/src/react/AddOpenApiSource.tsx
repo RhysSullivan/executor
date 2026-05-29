@@ -204,9 +204,48 @@ const googleAuthorizationParams = (enabled: boolean): Record<string, string> | u
   enabled
     ? {
         access_type: "offline",
-        include_granted_scopes: "true",
       }
     : undefined;
+
+const googleBroadScopeGroups: readonly {
+  readonly broad: string;
+  readonly prefixes: readonly string[];
+}[] = [
+  {
+    broad: "https://mail.google.com/",
+    prefixes: ["https://www.googleapis.com/auth/gmail."],
+  },
+  {
+    broad: "https://www.googleapis.com/auth/calendar",
+    prefixes: ["https://www.googleapis.com/auth/calendar."],
+  },
+  {
+    broad: "https://www.googleapis.com/auth/drive",
+    prefixes: ["https://www.googleapis.com/auth/drive."],
+  },
+];
+
+const compactGoogleOAuthScopes = (scopes: Iterable<string>): string[] => {
+  const ordered = mergeOAuthScopes(
+    [...scopes].map((scope) =>
+      scope === "https://www.googleapis.com/auth/userinfo.email"
+        ? "email"
+        : scope === "https://www.googleapis.com/auth/userinfo.profile"
+          ? "profile"
+          : scope,
+    ),
+  );
+  const present = new Set(ordered);
+  return ordered.filter(
+    (scope) =>
+      !googleBroadScopeGroups.some(
+        (group) =>
+          scope !== group.broad &&
+          present.has(group.broad) &&
+          group.prefixes.some((prefix) => scope.startsWith(prefix)),
+      ),
+  );
+};
 
 type OAuthConnectionChoice = {
   readonly id: ConnectionId;
@@ -890,10 +929,9 @@ export default function AddOpenApiSource(props: {
             selectedOAuth2IsGoogle ? oauth2SelectedScopes : selectedOAuth2Scopes,
           )
         : selectedOAuth2Scopes;
-      const incrementalAuthorizationScopes =
-        existingConnection && selectedOAuth2IsGoogle
-          ? [...existingConnection.missingApiScopes]
-          : undefined;
+      const scopesForProviderAuthorization = selectedOAuth2IsGoogle
+        ? compactGoogleOAuthScopes(scopesForAuthorization)
+        : undefined;
       const extraAuthorizationParams = googleAuthorizationParams(selectedOAuth2IsGoogle);
 
       const tokenUrl = resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl);
@@ -962,8 +1000,8 @@ export default function AddOpenApiSource(props: {
             tokenEndpoint: tokenUrl,
             issuerUrl,
             scopes: scopesForAuthorization,
-            ...(incrementalAuthorizationScopes && incrementalAuthorizationScopes.length > 0
-              ? { authorizationScopes: incrementalAuthorizationScopes }
+            ...(scopesForProviderAuthorization && scopesForProviderAuthorization.length > 0
+              ? { authorizationScopes: scopesForProviderAuthorization }
               : {}),
             extraAuthorizationParams,
           }
@@ -980,6 +1018,9 @@ export default function AddOpenApiSource(props: {
                 ? String(clientSecretSecretScope)
                 : null,
               scopes: scopesForAuthorization,
+              ...(scopesForProviderAuthorization && scopesForProviderAuthorization.length > 0
+                ? { authorizationScopes: scopesForProviderAuthorization }
+                : {}),
               extraAuthorizationParams,
             }
           : null;
@@ -1678,7 +1719,7 @@ export default function AddOpenApiSource(props: {
                             </FieldLabel>
                             <div className="text-[10px] leading-tight text-muted-foreground">
                               Continue with an account you already connected. If permissions are
-                              missing, only the missing access is requested.
+                              missing, Google will confirm access for this source.
                             </div>
                           </div>
                           <div className="space-y-1.5">
