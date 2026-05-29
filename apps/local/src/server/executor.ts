@@ -139,6 +139,11 @@ class LocalExecutorDisposeError extends Data.TaggedError("LocalExecutorDisposeEr
   readonly cause: unknown;
 }> {}
 
+class LocalSqliteCheckpointError extends Data.TaggedError("LocalSqliteCheckpointError")<{
+  readonly path: string;
+  readonly busy: number;
+}> {}
+
 const localExecutorCreateError = (
   operation: LocalExecutorCreateError["operation"],
   cause: unknown,
@@ -288,6 +293,32 @@ const moveSqliteFileSetToBackup = (path: string): string => {
   return backupPath;
 };
 
+const checkpointSqliteForFileMove = (input: {
+  readonly sqlite: Database;
+  readonly path: string;
+}) => {
+  const checkpoint = input.sqlite
+    .query<{ busy: number; log: number; checkpointed: number }, []>(
+      "PRAGMA wal_checkpoint(TRUNCATE)",
+    )
+    .get();
+
+  if (checkpoint && checkpoint.busy !== 0) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: SQLite file replacement is synchronous; callers wrap this native failure into LocalExecutorCreateError
+    throw new LocalSqliteCheckpointError({ path: input.path, busy: checkpoint.busy });
+  }
+
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: DELETE mode is best-effort after a successful checkpoint; an open read handle can reject the mode switch without making the file set unsafe to move
+  try {
+    input.sqlite.exec("PRAGMA journal_mode = DELETE");
+  } catch (cause) {
+    console.warn(
+      `[executor] Checkpointed SQLite WAL for ${input.path}, but could not switch journal mode to DELETE before import. Continuing with the checkpointed file set.`,
+      cause,
+    );
+  }
+};
+
 const writeSqliteImportMarker = (
   markerPath: string,
   input: {
@@ -423,8 +454,7 @@ const prepareLegacySqliteForFumaImport = (input: {
           `Skipping legacy Drizzle replay and importing the existing schema as-is.`,
       );
     }
-    sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    sqlite.exec("PRAGMA journal_mode = DELETE");
+    checkpointSqliteForFileMove({ sqlite, path: input.storage.sqlitePath });
     return { legacySecrets: [] };
   } finally {
     sqlite.close();
@@ -470,8 +500,7 @@ const importMissingMarkedTables = async (input: {
       tables: pickedTables,
       scopeId: input.scopeId,
     });
-    target.sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    target.sqlite.exec("PRAGMA journal_mode = DELETE");
+    checkpointSqliteForFileMove({ sqlite: target.sqlite, path: input.storage.sqlitePath });
     await target.close();
     removeSqliteSidecars(input.storage.sqlitePath);
 
@@ -535,8 +564,7 @@ export const importLegacySqliteIfNeeded = async (options: {
             await withQueryContext(target.db, {
               allowedScopeIds: new Set([scopeId]),
             }).createMany("secret", createLegacySecretRows(scopeId, prepared.legacySecrets));
-            target.sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-            target.sqlite.exec("PRAGMA journal_mode = DELETE");
+            checkpointSqliteForFileMove({ sqlite: target.sqlite, path: storage.sqlitePath });
           } finally {
             await target.close();
             removeSqliteSidecars(storage.sqlitePath);
@@ -602,8 +630,7 @@ export const importLegacySqliteIfNeeded = async (options: {
       tables,
       scopeId,
     });
-    target.sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    target.sqlite.exec("PRAGMA journal_mode = DELETE");
+    checkpointSqliteForFileMove({ sqlite: target.sqlite, path: targetPath });
     await target.close();
     removeSqliteSidecars(targetPath);
 
