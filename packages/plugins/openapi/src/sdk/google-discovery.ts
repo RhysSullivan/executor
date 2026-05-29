@@ -2,7 +2,7 @@
 // Discovery converters currently target Swagger 2.0 or a broad conversion
 // pipeline; this adapter emits the shape Executor parses while preserving
 // Executor-specific tool ids and query semantics.
-import { Effect, Option, Schema, SchemaGetter } from "effect";
+import { Effect, Option, Predicate, Schema, SchemaGetter } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import { OpenApiParseError } from "./errors";
@@ -15,6 +15,106 @@ import type { OAuth2SourceConfig } from "./types";
 import type { SpecFetchCredentials } from "./parse";
 
 const DISCOVERY_SERVICE_HOST = "https://www.googleapis.com/discovery/v1/apis";
+const GOOGLE_OAUTH_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_OAUTH_ISSUER_URL = "https://accounts.google.com";
+const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const OPENAPI_SCHEMA_TYPES = new Set([
+  "array",
+  "boolean",
+  "integer",
+  "null",
+  "number",
+  "object",
+  "string",
+]);
+
+type JsonPrimitive = string | number | boolean | null;
+type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+
+type OpenApiSchemaObject = {
+  readonly $ref?: string;
+  readonly type?: "array" | "boolean" | "integer" | "null" | "number" | "object" | "string";
+  readonly description?: string;
+  readonly title?: string;
+  readonly format?: string;
+  readonly readOnly?: boolean;
+  readonly default?: JsonValue;
+  readonly enum?: readonly JsonValue[];
+  readonly items?: OpenApiSchemaObject;
+  readonly properties?: Record<string, OpenApiSchemaObject>;
+  readonly required?: readonly string[];
+  readonly additionalProperties?: boolean | OpenApiSchemaObject;
+};
+
+type OpenApiParameterObject = {
+  readonly name: string;
+  readonly in: "path" | "query" | "header";
+  readonly required: boolean;
+  readonly description?: string;
+  readonly schema: OpenApiSchemaObject;
+  readonly style?: "form";
+  readonly explode?: boolean;
+};
+
+type OpenApiOperationObject = {
+  readonly operationId: string;
+  readonly "x-executor-toolPath": string;
+  readonly description?: string;
+  readonly parameters: readonly OpenApiParameterObject[];
+  readonly requestBody?: {
+    readonly required: false;
+    readonly content: {
+      readonly "application/json": {
+        readonly schema: OpenApiSchemaObject;
+      };
+    };
+  };
+  readonly responses: {
+    readonly "200": {
+      readonly description: "Successful response";
+      readonly content: {
+        readonly "application/json": {
+          readonly schema: OpenApiSchemaObject;
+        };
+      };
+    };
+  };
+  readonly security?: readonly Record<string, readonly string[]>[];
+  readonly "x-google-scopes": readonly string[];
+};
+
+type OpenApiDocument = {
+  readonly openapi: "3.1.0";
+  readonly info: {
+    readonly title: string;
+    readonly version: string;
+  };
+  readonly servers: readonly { readonly url: string }[];
+  readonly paths: Record<string, Record<string, OpenApiOperationObject>>;
+  readonly components: {
+    readonly schemas: Record<string, OpenApiSchemaObject>;
+    readonly securitySchemes?: Record<
+      string,
+      {
+        readonly type: "oauth2";
+        readonly flows: {
+          readonly authorizationCode: {
+            readonly authorizationUrl: string;
+            readonly tokenUrl: string;
+            readonly scopes: Record<string, string>;
+          };
+        };
+      }
+    >;
+  };
+  readonly security?: readonly Record<string, readonly string[]>[];
+  readonly "x-executor-origin": {
+    readonly kind: "googleDiscovery";
+    readonly discoveryUrl: string;
+    readonly service: string;
+    readonly version: string;
+  };
+};
 
 const TextOption = Schema.OptionFromOptional(Schema.Trim).pipe(
   Schema.decode({
@@ -180,64 +280,117 @@ export const fetchGoogleDiscoveryDocument = Effect.fn("OpenApi.fetchGoogleDiscov
   },
 );
 
-const schemaRef = (name: string) => `#/$defs/${name}`;
+const schemaRef = (name: string) => `#/components/schemas/${name}`;
 
-const discoverySchemaToJsonSchema = (raw: unknown): unknown => {
-  if (!raw || typeof raw !== "object") return {};
-  const schema = raw as Record<string, unknown>;
+const discoveryDescription = (value: unknown): string | undefined =>
+  typeof value === "string"
+    ? value
+    : Option.isOption(value) && Option.isSome(value)
+      ? typeof value.value === "string"
+        ? value.value
+        : undefined
+      : undefined;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const jsonValue = (value: unknown): JsonValue | undefined => {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const values = value.map(jsonValue);
+    return values.every(Predicate.isNotUndefined) ? values : undefined;
+  }
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value).flatMap(([key, item]) => {
+    const converted = jsonValue(item);
+    return converted === undefined ? [] : [[key, converted] as const];
+  });
+  return Object.fromEntries(entries);
+};
+
+const stringArray = (value: unknown): readonly string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((item): item is string => typeof item === "string");
+  return strings.length === value.length ? strings : undefined;
+};
+
+const schemaType = (value: unknown): OpenApiSchemaObject["type"] | undefined =>
+  typeof value === "string" && OPENAPI_SCHEMA_TYPES.has(value)
+    ? (value as OpenApiSchemaObject["type"])
+    : undefined;
+
+const discoverySchemaToOpenApiSchema = (raw: unknown): OpenApiSchemaObject => {
+  if (!isRecord(raw)) return {};
+  const schema = raw;
   if (typeof schema.$ref === "string") return { $ref: schemaRef(schema.$ref) };
 
-  const out: Record<string, unknown> = {};
-  for (const key of ["description", "format", "readOnly", "default", "enum"]) {
-    if (schema[key] !== undefined) out[key] = schema[key];
-  }
+  const description = discoveryDescription(schema.description);
+  const title = discoveryDescription(schema.title);
+  const defaultValue = jsonValue(schema.default);
+  const enumValues = Array.isArray(schema.enum)
+    ? schema.enum.map(jsonValue).filter(Predicate.isNotUndefined)
+    : [];
+  const format = typeof schema.format === "string" ? schema.format : undefined;
+  const readOnly = typeof schema.readOnly === "boolean" ? schema.readOnly : undefined;
+  const type = schemaType(schema.type);
 
-  if (schema.type === "array") {
-    return { ...out, type: "array", items: discoverySchemaToJsonSchema(schema.items) };
+  const base = {
+    ...(description !== undefined ? { description } : {}),
+    ...(title !== undefined ? { title } : {}),
+    ...(format !== undefined ? { format } : {}),
+    ...(readOnly !== undefined ? { readOnly } : {}),
+    ...(defaultValue !== undefined ? { default: defaultValue } : {}),
+    ...(enumValues.length > 0 ? { enum: enumValues } : {}),
+  } satisfies OpenApiSchemaObject;
+
+  if (type === "array") {
+    return { ...base, type: "array", items: discoverySchemaToOpenApiSchema(schema.items) };
   }
 
   const properties = schema.properties;
   if (
-    schema.type === "object" ||
-    (properties && typeof properties === "object" && !Array.isArray(properties)) ||
+    type === "object" ||
+    (isRecord(properties) && Object.keys(properties).length > 0) ||
     schema.additionalProperties !== undefined
   ) {
-    const convertedProperties =
-      properties && typeof properties === "object" && !Array.isArray(properties)
-        ? Object.fromEntries(
-            Object.entries(properties).map(([name, value]) => [
-              name,
-              discoverySchemaToJsonSchema(value),
-            ]),
-          )
-        : undefined;
+    const convertedProperties = isRecord(properties)
+      ? Object.fromEntries(
+          Object.entries(properties).map(([name, value]) => [
+            name,
+            discoverySchemaToOpenApiSchema(value),
+          ]),
+        )
+      : undefined;
+    const required = stringArray(schema.required);
+    const additionalProperties =
+      schema.additionalProperties === undefined
+        ? undefined
+        : typeof schema.additionalProperties === "boolean"
+          ? schema.additionalProperties
+          : discoverySchemaToOpenApiSchema(schema.additionalProperties);
     return {
-      ...out,
+      ...base,
       type: "object",
       ...(convertedProperties && Object.keys(convertedProperties).length > 0
         ? { properties: convertedProperties }
         : {}),
-      ...(Array.isArray(schema.required) && schema.required.length > 0
-        ? { required: schema.required }
-        : {}),
-      ...(schema.additionalProperties === undefined
-        ? {}
-        : {
-            additionalProperties:
-              typeof schema.additionalProperties === "boolean"
-                ? schema.additionalProperties
-                : discoverySchemaToJsonSchema(schema.additionalProperties),
-          }),
+      ...(required && required.length > 0 ? { required } : {}),
+      ...(additionalProperties !== undefined ? { additionalProperties } : {}),
     };
   }
 
-  return typeof schema.type === "string" && schema.type !== "any"
-    ? { ...out, type: schema.type }
-    : out;
+  return type !== undefined ? { ...base, type } : base;
 };
 
-const parameterSchema = (parameter: DiscoveryParameter): unknown => {
-  const base = discoverySchemaToJsonSchema(parameter);
+const parameterSchema = (parameter: DiscoveryParameter): OpenApiSchemaObject => {
+  const base = discoverySchemaToOpenApiSchema(parameter);
   return parameter.repeated
     ? {
         type: "array",
@@ -293,7 +446,7 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
 
     const baseUrl = new URL(document.servicePath || "", rootUrl).toString();
     const title = Option.getOrElse(document.title, () => `${service} ${version}`);
-    const paths: Record<string, Record<string, unknown>> = {};
+    const paths: Record<string, Record<string, OpenApiOperationObject>> = {};
     const allMethods = [
       ...Object.values(document.methods ?? {}).map((raw) => decodeDiscoveryMethod(raw)),
       ...Object.values(document.resources ?? {}).flatMap(collectMethods),
@@ -316,22 +469,30 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
         if (parameter.location) mergedParameters.set(name, parameter);
       }
       const methodScopes = method.scopes ?? [];
+      const methodDescription = Option.getOrUndefined(method.description);
 
       paths[path] ??= {};
       paths[path]![method.httpMethod.toLowerCase()] = {
         operationId: toolPath,
         "x-executor-toolPath": toolPath,
-        description: Option.getOrUndefined(method.description),
-        parameters: [...mergedParameters.entries()].map(([name, parameter]) => ({
-          name,
-          in: parameter.location,
-          required: parameter.location === "path" ? true : parameter.required === true,
-          description: Option.getOrUndefined(parameter.description),
-          schema: parameterSchema(parameter),
-          ...(parameter.location === "query"
-            ? { style: "form", explode: parameter.repeated === true }
-            : {}),
-        })),
+        ...(methodDescription !== undefined ? { description: methodDescription } : {}),
+        parameters: [...mergedParameters.entries()].flatMap(([name, parameter]) => {
+          const location = parameter.location;
+          if (!location) return [];
+          const description = Option.getOrUndefined(parameter.description);
+          return [
+            {
+              name,
+              in: location,
+              required: location === "path" ? true : parameter.required === true,
+              ...(description !== undefined ? { description } : {}),
+              schema: parameterSchema(parameter),
+              ...(location === "query"
+                ? { style: "form" as const, explode: parameter.repeated === true }
+                : {}),
+            },
+          ];
+        }),
         ...(method.request?.$ref
           ? {
               requestBody: {
@@ -367,17 +528,18 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
             kind: "oauth2",
             securitySchemeName,
             flow: "authorizationCode",
-            authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-            issuerUrl: "https://accounts.google.com",
-            tokenUrl: "https://oauth2.googleapis.com/token",
+            authorizationUrl: GOOGLE_OAUTH_AUTHORIZATION_URL,
+            issuerUrl: GOOGLE_OAUTH_ISSUER_URL,
+            tokenUrl: GOOGLE_OAUTH_TOKEN_URL,
             clientIdSlot: oauth2ClientIdSlot(securitySchemeName),
             clientSecretSlot: oauth2ClientSecretSlot(securitySchemeName),
             connectionSlot: oauth2ConnectionSlot(securitySchemeName),
             scopes: Object.keys(scopes),
+            identityScopes: ["openid", "email", "profile"],
           }
         : undefined;
 
-    const spec = {
+    const spec: OpenApiDocument = {
       openapi: "3.1.0",
       info: {
         title,
@@ -389,7 +551,7 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
         schemas: Object.fromEntries(
           Object.entries(document.schemas ?? {}).map(([name, schema]) => [
             name,
-            discoverySchemaToJsonSchema(schema),
+            discoverySchemaToOpenApiSchema(schema),
           ]),
         ),
         ...(oauth2
@@ -399,8 +561,8 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
                   type: "oauth2",
                   flows: {
                     authorizationCode: {
-                      authorizationUrl: oauth2.authorizationUrl,
-                      tokenUrl: oauth2.tokenUrl,
+                      authorizationUrl: GOOGLE_OAUTH_AUTHORIZATION_URL,
+                      tokenUrl: GOOGLE_OAUTH_TOKEN_URL,
                       scopes,
                     },
                   },

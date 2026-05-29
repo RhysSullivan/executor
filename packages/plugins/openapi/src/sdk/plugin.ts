@@ -1347,9 +1347,15 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         sourceScope: effective.specFetchCredentialsSource.scope,
         credentials: resolvedConfig.specFetchCredentials,
       });
-      const specText = yield* resolveSpecText(sourceUrl, credentials).pipe(
-        Effect.provide(httpClientLayer),
-      );
+      const specText = isGoogleDiscoveryUrl(sourceUrl)
+        ? yield* fetchGoogleDiscoveryDocument(sourceUrl, credentials).pipe(
+            Effect.provide(httpClientLayer),
+            Effect.flatMap((documentText) =>
+              convertGoogleDiscoveryToOpenApi({ discoveryUrl: sourceUrl, documentText }),
+            ),
+            Effect.map((conversion) => conversion.specText),
+          )
+        : yield* resolveSpecText(sourceUrl, credentials).pipe(Effect.provide(httpClientLayer));
       yield* rebuildSource(ctx, {
         specText,
         scope,
@@ -1401,7 +1407,10 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           return yield* rebuildSource(ctx, {
             specText: resolvedSpec.specText,
             scope: config.scope,
-            sourceUrl: config.spec.kind === "url" ? config.spec.url : undefined,
+            sourceUrl:
+              config.spec.kind === "url" || config.spec.kind === "googleDiscovery"
+                ? config.spec.url
+                : undefined,
             name: config.name,
             baseUrl: resolvedSpec.baseUrl || config.baseUrl,
             namespace: config.namespace,
