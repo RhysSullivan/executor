@@ -57,11 +57,10 @@ interface DesktopProfileStorageBridge {
   readonly setServerProfiles: (value: string) => Promise<void>;
 }
 
-const browserStorage = () => (typeof window === "undefined" ? null : window.localStorage);
+const browserStorage = () => globalThis.window?.localStorage ?? null;
 
 const desktopProfileStorageBridge = (): DesktopProfileStorageBridge | null => {
-  if (typeof window === "undefined") return null;
-  const bridge = window.executor;
+  const bridge = globalThis.window?.executor;
   if (
     !bridge ||
     typeof bridge.getServerProfiles !== "function" ||
@@ -79,8 +78,7 @@ const readBrowserProfiles = (): ExecutorServerProfilesSnapshot =>
   readExecutorServerProfiles(browserStorage());
 
 const clearBrowserProfiles = (): void => {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(EXECUTOR_SERVER_PROFILES_STORAGE_KEY);
+  browserStorage()?.removeItem(EXECUTOR_SERVER_PROFILES_STORAGE_KEY);
 };
 
 const readStoredProfiles = (): Promise<ExecutorServerProfilesSnapshot> => {
