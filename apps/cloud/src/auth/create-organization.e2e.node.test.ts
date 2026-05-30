@@ -7,7 +7,7 @@ import {
   makeCloudAuthApiTestState,
 } from "./cloud-auth-api.test-context";
 import { makeWorkOSTestMembership, makeWorkOSTestState } from "./workos.test-layer";
-import { makeAutumnTestState } from "../services/autumn.test-layer";
+import { makeAutumnTestState } from "../extensions/billing/service.test-layer";
 
 describe("create organization API", () => {
   it.effect("lets a paid user create another organization through the HTTP API client", () => {

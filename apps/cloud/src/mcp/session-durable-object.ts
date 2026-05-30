@@ -20,7 +20,7 @@ import {
   type ExecutionEngine,
   type ResumeResponse,
 } from "@executor-js/execution";
-import type { DrizzleDb, DbServiceShape } from "../services/db";
+import type { DrizzleDb, DbServiceShape } from "../db/db";
 
 // The DO only needs the neutral boot-scoped service (WorkOSClient). It never
 // bills, so it does NOT depend on any billing service — `CloudExecutionStackLayer`
@@ -30,10 +30,10 @@ import type { DrizzleDb, DbServiceShape } from "../services/db";
 import { CoreSharedServices } from "../api/core-shared-services";
 import { UserStoreService } from "../auth/context";
 import { resolveOrganization } from "../auth/organization";
-import { DbService, combinedSchema, resolveConnectionString } from "../services/db";
-import { CloudExecutionStackLayer, makeExecutionStack } from "../services/execution-stack";
-import { makeMcpWorkerTransport, type McpWorkerTransport } from "../services/mcp-worker-transport";
-import { DoTelemetryLive } from "../services/telemetry";
+import { DbService, combinedSchema, resolveConnectionString } from "../db/db";
+import { CloudExecutionStackLayer, makeExecutionStack } from "../engine/execution-stack";
+import { makeMcpWorkerTransport, type McpWorkerTransport } from "../mcp/worker-transport";
+import { DoTelemetryLive } from "../observability/telemetry";
 import { captureCause } from "../observability";
 import { INTERNAL_ACCOUNT_ID_HEADER, INTERNAL_ORGANIZATION_ID_HEADER } from "./do-headers";
 

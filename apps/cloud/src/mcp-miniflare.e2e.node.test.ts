@@ -33,7 +33,7 @@ import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { unstable_dev, type Unstable_DevWorker } from "wrangler";
 import { serveOpenApiHttpApiTestServer } from "@executor-js/plugin-openapi/testing";
 
-import { makeTestBearer } from "./test-bearer";
+import { makeTestBearer } from "./testing/test-bearer";
 
 // ---------------------------------------------------------------------------
 // Upstream test API — declared once via Effect's `HttpApi` so the spec the
@@ -116,7 +116,7 @@ const UpstreamLive = Layer.effect(
 
 // ---------------------------------------------------------------------------
 // Telemetry receiver — a node HTTP server on a random port that speaks
-// OTLP/JSON. The Effect OTLPTraceExporter in `services/telemetry.ts`
+// OTLP/JSON. The Effect OTLPTraceExporter in `observability/telemetry.ts`
 // posts JSON bodies to it (confirmed via
 // `@opentelemetry/exporter-trace-otlp-http` — `Content-Type:
 // application/json` + `JsonTraceSerializer`). We parse resourceSpans →
@@ -276,7 +276,7 @@ const WorkerLive = Layer.effect(Worker)(
     // become observable in the test process.
     return yield* Effect.acquireRelease(
       Effect.promise(() =>
-        unstable_dev(resolve(__dirname, "./test-worker.ts"), {
+        unstable_dev(resolve(__dirname, "./testing/test-worker.ts"), {
           config: resolve(__dirname, "../wrangler.miniflare.jsonc"),
           experimental: { disableExperimentalWarning: true },
           ip: "127.0.0.1",

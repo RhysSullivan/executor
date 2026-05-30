@@ -8,7 +8,7 @@
 // Deliberately billing-FREE: this module is reached by the MCP session DO bundle
 // (via `mcp/auth.ts`), which must not transitively import any billing config
 // (`autumn.config` / `atmn`). The free-organizations-per-user limit predicates —
-// which DO depend on the Autumn plan config — live in `services/autumn-plans.ts`.
+// which DO depend on the Autumn plan config — live in `extensions/billing/plans.ts`.
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";

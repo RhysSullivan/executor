@@ -12,13 +12,13 @@
 import { env } from "cloudflare:workers";
 import { Context, Effect, Layer, Predicate } from "effect";
 
-import { createCachedRemoteJWKSet } from "../jwks-cache";
+import { createCachedRemoteJWKSet } from "../auth/jwks-cache";
 import { ApiKeyService } from "../auth/api-keys";
 import { BEARER_PREFIX } from "../auth/bearer";
 import { authorizeOrganization } from "../auth/organization";
 import { UserStoreService } from "../auth/context";
 import { CoreSharedServices } from "../api/core-shared-services";
-import { DbService } from "../services/db";
+import { DbService } from "../db/db";
 import { bearerChallenge } from "./responses";
 import { McpJwtVerificationError, verifyWorkOSMcpAccessToken, type VerifiedToken } from "./jwt";
 

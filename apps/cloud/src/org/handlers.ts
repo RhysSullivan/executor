@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { AuthContext } from "@executor-js/api/server";
 import { env } from "cloudflare:workers";
 import { WorkOSClient } from "../auth/workos";
-import { AutumnService } from "../services/autumn";
+import { AutumnService } from "../extensions/billing/service";
 import { Forbidden, OrgHttpApi } from "./api";
 
 // ---------------------------------------------------------------------------

@@ -12,8 +12,8 @@ import { readdirSync } from "node:fs";
 import type { Subprocess } from "bun";
 import { setOAuthCompletionListener } from "@executor-js/api";
 import { consumeOAuthResult, publishOAuthResult } from "./oauth-result-store";
-import { startIntegrationsRefresh } from "./server/integrations";
-import { getServerHandlers } from "./server/main";
+import { startIntegrationsRefresh } from "./integrations";
+import { getServerHandlers } from "./main";
 import {
   DEFAULT_ALLOWED_HOSTS,
   hasFileExtension,

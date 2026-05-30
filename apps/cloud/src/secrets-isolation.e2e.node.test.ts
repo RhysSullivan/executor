@@ -31,7 +31,7 @@ import { Effect, Result } from "effect";
 
 import { ScopeId, SecretId } from "@executor-js/sdk";
 
-import { asUser, testUserOrgScopeId } from "./services/__test-harness__/api-harness";
+import { asUser, testUserOrgScopeId } from "./testing/api-harness";
 
 const uniq = () => crypto.randomUUID().slice(0, 8);
 const nextOrgId = () => `org_iso_${uniq()}`;

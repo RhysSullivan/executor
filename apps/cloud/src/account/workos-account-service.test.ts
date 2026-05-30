@@ -10,7 +10,7 @@ import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
 import type { Session } from "../auth/middleware";
 import { WorkOSClient, type WorkOSClientService } from "../auth/workos";
-import { AutumnService } from "../services/autumn";
+import { AutumnService } from "../extensions/billing/service";
 import { AccountCaller, workosAccountProvider } from "./workos-account-service";
 
 // ---------------------------------------------------------------------------

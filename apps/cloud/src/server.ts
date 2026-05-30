@@ -10,7 +10,7 @@ import * as Sentry from "@sentry/cloudflare";
 import handler from "@tanstack/react-start/server-entry";
 
 import { McpSessionDO as McpSessionDOBase } from "./mcp/session-durable-object";
-import { flushTracerProvider, installTracerProvider } from "./services/telemetry";
+import { flushTracerProvider, installTracerProvider } from "./observability/telemetry";
 
 // ---------------------------------------------------------------------------
 // Sentry config
@@ -32,7 +32,7 @@ const sentryOptions = (env: Env) => ({
 // ---------------------------------------------------------------------------
 // Durable Object — wrapped with Sentry so DO errors land in Sentry (inits the
 // client inside the DO isolate, which plain `Sentry.captureException` cannot
-// do on its own). OTEL is installed through Effect layers (services/telemetry),
+// do on its own). OTEL is installed through Effect layers (observability/telemetry),
 // not a global fetch wrapper.
 // ---------------------------------------------------------------------------
 
@@ -45,7 +45,7 @@ export const McpSessionDO = Sentry.instrumentDurableObjectWithSentry(
 // Worker fetch handler
 //
 // We open a single `http.server <METHOD>` span at the worker boundary using
-// the same WebTracerProvider that `services/telemetry.ts` already installs for
+// the same WebTracerProvider that `observability/telemetry.ts` already installs for
 // Effect-driven spans. This restores the per-request envelope span that was
 // previously emitted by `@microlabs/otel-cf-workers` and lost in the alchemy
 // migration — without the OTel-SDK version-conflict that package would now

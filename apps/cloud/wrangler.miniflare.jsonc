@@ -7,7 +7,7 @@
   "name": "executor-cloud-miniflare",
   "compatibility_date": "2025-06-01",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "src/test-worker.ts",
+  "main": "src/testing/test-worker.ts",
   "vars": {
     "DATABASE_URL": "postgresql://postgres:postgres@127.0.0.1:5434/postgres",
     "EXECUTOR_DIRECT_DATABASE_URL": "true",

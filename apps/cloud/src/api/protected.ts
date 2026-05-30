@@ -12,14 +12,14 @@ import {
   type IdentityFailure,
 } from "@executor-js/api/server";
 
-import { cloudPlugins, type CloudPlugins } from "./cloud-plugins";
+import { cloudPlugins, type CloudPlugins } from "../plugins";
 import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
 import { cloudIdentityFailureStrategy, workosIdentityLayer } from "../auth/workos-auth-provider";
-import { AutumnService } from "../services/autumn";
-import { DbService } from "../services/db";
+import { AutumnService } from "../extensions/billing/service";
+import { DbService } from "../db/db";
 import { CoreSharedServices } from "./core-shared-services";
-import { CloudMeteredExecutionStackLayer } from "./execution-stack-metered";
+import { CloudMeteredExecutionStackLayer } from "../engine/execution-stack-metered";
 import { ProtectedCloudApiLive, RequestScopedServicesLive } from "./layers";
 
 // Re-exported for `protected-api-key-auth.node.test.ts`, which asserts the

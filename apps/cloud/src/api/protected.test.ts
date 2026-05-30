@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import type { ExecutionEngine } from "@executor-js/execution";
-import { withExecutionUsageTracking } from "./execution-usage";
+import { withExecutionUsageTracking } from "../engine/execution-usage";
 
 const makeBaseEngine = (): ExecutionEngine =>
   ({

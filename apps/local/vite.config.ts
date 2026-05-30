@@ -35,13 +35,13 @@ const APP_ROOT = fileURLToPath(new URL("../../packages/app/", import.meta.url));
  * during development, so you don't need a separate server process.
  */
 function executorApiPlugin(): Plugin {
-  let handlers: import("./src/server/main").ServerHandlers | null = null;
+  let handlers: import("./src/main").ServerHandlers | null = null;
 
   return {
     name: "executor-api",
     configureServer(server) {
       server.watcher.on("change", (path) => {
-        if (path.includes("/src/server/") || path.endsWith("/executor.config.ts")) {
+        if (path.includes("/apps/local/src/") || path.endsWith("/executor.config.ts")) {
           handlers = null;
         }
       });
@@ -55,7 +55,7 @@ function executorApiPlugin(): Plugin {
         // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Vite middleware must convert handler failures into HTTP 500 responses
         try {
           if (!handlers) {
-            const { getServerHandlers } = await import("./src/server/main");
+            const { getServerHandlers } = await import("./src/main");
             handlers = await getServerHandlers();
           }
 

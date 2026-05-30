@@ -4,12 +4,12 @@ import { HttpRouter } from "effect/unstable/http";
 import { RouterConfigLive } from "@executor-js/api/server";
 
 import { UserStoreService } from "../auth/context";
-import { DbService } from "../services/db";
+import { DbService } from "../db/db";
 import { makeAccountApiLive } from "../account/account-api";
 
-import { AutumnRoutesLive } from "./autumn";
-import { CloudDocsLive } from "./docs";
-import { ApiErrorLoggingLive } from "./error-logging";
+import { AutumnRoutesLive } from "../extensions/billing/route";
+import { CloudDocsLive } from "../extensions/docs";
+import { ApiErrorLoggingLive } from "../observability/error-logging";
 import {
   BootSharedServices,
   OrgApiLive,

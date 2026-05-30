@@ -13,8 +13,8 @@ import { UserStoreService } from "../auth/context";
 import type { Session } from "../auth/middleware";
 import { WorkOSClient } from "../auth/workos";
 import { authorizeOrganization } from "../auth/organization";
-import { AutumnService } from "../services/autumn";
-import { getMemberLimitForPlan, selectActiveMemberLimitPlan } from "../services/autumn-plans";
+import { AutumnService } from "../extensions/billing/service";
+import { getMemberLimitForPlan, selectActiveMemberLimitPlan } from "../extensions/billing/plans";
 
 // The per-request resolved caller, injected by the cookie-only session
 // middleware in `account-api.ts`. Carries the authenticated WorkOS session, or

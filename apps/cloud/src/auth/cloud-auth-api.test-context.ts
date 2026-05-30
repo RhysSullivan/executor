@@ -7,7 +7,7 @@ import {
   AutumnTestLayer,
   makeAutumnTestState,
   type AutumnTestState,
-} from "../services/autumn.test-layer";
+} from "../extensions/billing/service.test-layer";
 import { ApiKeyServiceTestLayer } from "./api-keys.test-layer";
 import {
   makeUserStoreTestState,

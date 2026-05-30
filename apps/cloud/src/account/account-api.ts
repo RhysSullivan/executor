@@ -11,8 +11,8 @@ import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
 import { sessionFromSealed, type Session } from "../auth/middleware";
 import { WorkOSClient } from "../auth/workos";
-import { AutumnService } from "../services/autumn";
-import { DbService } from "../services/db";
+import { AutumnService } from "../extensions/billing/service";
+import { DbService } from "../db/db";
 import { AccountCaller, workosAccountProvider } from "./workos-account-service";
 
 // ---------------------------------------------------------------------------

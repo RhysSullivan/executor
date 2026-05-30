@@ -16,12 +16,12 @@ import { UserStoreService } from "./context";
 import { env } from "cloudflare:workers";
 import { WorkOSError } from "./errors";
 import { WorkOSClient } from "./workos";
-import { AutumnService } from "../services/autumn";
+import { AutumnService } from "../extensions/billing/service";
 import {
   hasPaidOrganizationSubscription,
   isOverFreeOrganizationLimit,
   shouldApplyFreeOrganizationLimit,
-} from "../services/autumn-plans";
+} from "../extensions/billing/plans";
 import { authorizeOrganization } from "./organization";
 import type {
   McpSessionApprovalResult,

@@ -3,26 +3,26 @@ import { HttpServer } from "effect/unstable/http";
 
 import { DbProvider, ExecutorApp } from "@executor-js/api/server";
 
-import { cloudPlugins } from "./api/cloud-plugins";
+import { cloudPlugins } from "./plugins";
 import { CoreSharedServices } from "./api/core-shared-services";
-import { makeCloudExtensionRoutes } from "./api/extension-routes";
+import { makeCloudExtensionRoutes } from "./extensions/routes";
 import { RequestScopedServicesLive } from "./api/layers";
-import { CloudMeteringEngineDecorator } from "./api/execution-stack-metered";
+import { CloudMeteringEngineDecorator } from "./engine/execution-stack-metered";
 import { workosAccountMiddleware } from "./account/account-api";
 import { ApiKeyService } from "./auth/api-keys";
 import { cloudIdentityFailureStrategy, workosIdentityLayer } from "./auth/workos-auth-provider";
-import { DbService } from "./services/db";
+import { DbService } from "./db/db";
 import { cloudMcpAuth, cloudMcpReporter, cloudMcpSessions } from "./mcp";
 import { McpSessionDO } from "./mcp/session-durable-object";
 import { ErrorCaptureLive } from "./observability";
-import { AutumnService } from "./services/autumn";
+import { AutumnService } from "./extensions/billing/service";
 import {
   CloudCodeExecutorProvider,
   CloudDbProvider,
   CloudHostConfig,
   CloudPluginsProvider,
-} from "./services/execution-stack";
-import { WorkerTelemetryLive } from "./services/telemetry";
+} from "./engine/execution-stack";
+import { WorkerTelemetryLive } from "./observability/telemetry";
 
 // ===========================================================================
 // The Executor CLOUD app, as ONE `ExecutorApp.make` call.
@@ -32,7 +32,7 @@ import { WorkerTelemetryLive } from "./services/telemetry";
 // the Cloudflare dynamic-worker code substrate, MCP served by a Durable-Object
 // session store (the DO surfaced via `config.mcpExport`), console+Sentry error
 // capture — and Autumn BILLING entering ONLY as extensions: the engine
-// metering decorator, the account seat-gate, the `/api/autumn/*` proxy route,
+// metering decorator, the account seat-gate, the `/extensions/billing/route/*` proxy route,
 // and the createOrganization free-limit gate. `diff` against
 // `apps/host-selfhost/src/app.ts` is the entire product difference.
 //
@@ -135,5 +135,5 @@ export const CloudAppLayer = appLayer;
 export const cloudMcpExport = mcpExport;
 
 // The unified cloud web handler: serves /api/*, /api/auth/*, /mcp,
-// /.well-known/*, /api/docs — everything the worker dispatches.
+// /.well-known/*, /extensions/docs — everything the worker dispatches.
 export const cloudApiHandler = toWebHandler;

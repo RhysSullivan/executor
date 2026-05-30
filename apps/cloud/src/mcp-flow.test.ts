@@ -28,7 +28,7 @@ import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare
 import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
 
-import { makeTestBearer } from "./test-bearer";
+import { makeTestBearer } from "./testing/test-bearer";
 
 // ---------------------------------------------------------------------------
 // Constants

@@ -3,7 +3,7 @@
 // The `McpSessionDO` in mcp-session.ts wires several things that previously
 // had zero integration coverage:
 //   - `createScopedExecutor` against a real FumaDB/Drizzle handle (the 2026-04-16
-//     prod outage was a schema spread bug here; see services/db.schema.test.ts)
+//     prod outage was a schema spread bug here; see db/db.schema.test.ts)
 //   - `createExecutionEngine` with an in-process code executor
 //   - `createExecutorMcpServer` for the MCP request surface
 //   - Real `@modelcontextprotocol/sdk` Client → server round-trips
@@ -36,8 +36,8 @@ import {
 import { FetchHttpClient } from "effect/unstable/http";
 import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 import executorConfig from "../executor.config";
-import { DbService } from "./services/db";
-import { createDrizzleFumaDb } from "./services/fuma";
+import { DbService } from "./db/db";
+import { createDrizzleFumaDb } from "./db/fuma";
 
 // ---------------------------------------------------------------------------
 // Test-only plugin: exposes one in-memory tool that elicits once. Lets the

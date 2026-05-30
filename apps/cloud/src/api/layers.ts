@@ -11,15 +11,15 @@ import {
   CloudSessionAuthHandlers,
   NonProtectedApi,
 } from "../auth/handlers";
-import { DbService } from "../services/db";
-import { WorkerTelemetryLive } from "../services/telemetry";
+import { DbService } from "../db/db";
+import { WorkerTelemetryLive } from "../observability/telemetry";
 import { OrgHttpApi } from "../org/api";
 import { OrgHandlers } from "../org/handlers";
 import { ErrorCaptureLive } from "../observability";
 
-import { AutumnService } from "../services/autumn";
+import { AutumnService } from "../extensions/billing/service";
 
-import { cloudPlugins } from "./cloud-plugins";
+import { cloudPlugins } from "../plugins";
 import { CoreSharedServices } from "./core-shared-services";
 
 const DbLive = DbService.Live;

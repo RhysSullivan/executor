@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect";
-import { makeUserStore } from "../services/user-store";
-import { DbService } from "../services/db";
+import { makeUserStore } from "../auth/user-store";
+import { DbService } from "../db/db";
 import { UserStoreError, tryPromiseService, withServiceLogging } from "./errors";
 
 // ---------------------------------------------------------------------------
