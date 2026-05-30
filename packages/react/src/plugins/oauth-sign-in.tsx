@@ -12,6 +12,7 @@ import {
   reserveOAuthPopup,
   type OAuthPopupResult,
 } from "../api/oauth-popup";
+import { connectionWriteKeys } from "../api/reactivity-keys";
 
 type DesktopBridge = {
   readonly openExternal: (url: string) => Promise<void>;
@@ -227,7 +228,10 @@ export function useOAuthPopupFlow<
           return;
         }
 
-        const refreshExit = await doOAuthConnectionCompleted({ tokenScope: input.tokenScope });
+        const refreshExit = await doOAuthConnectionCompleted({
+          tokenScope: input.tokenScope,
+          reactivityKeys: connectionWriteKeys,
+        });
         if (Exit.isFailure(refreshExit)) {
           const message = messageFromExit(refreshExit, "Failed to refresh connection");
           reportHandledError(refreshExit.cause, {

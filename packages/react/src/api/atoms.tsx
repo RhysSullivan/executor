@@ -181,6 +181,7 @@ export const cancelOAuth = ExecutorApiClient.mutation("oauth", "cancel");
 
 export const oauthConnectionCompleted = ExecutorApiClient.runtime.fn<{
   readonly tokenScope: string;
+  readonly reactivityKeys: typeof connectionWriteKeys;
 }>()(() => Effect.void, {
   reactivityKeys: connectionWriteKeys,
 });
