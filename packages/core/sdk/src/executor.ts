@@ -3975,8 +3975,12 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const secretsStatus = (id: string): Effect.Effect<"resolved" | "missing", StorageFailure> =>
       Effect.gen(function* () {
         const rows = yield* secretRowsForId(id);
-        if (rows.some((row) => row.owned_by_connection_id)) return "missing";
+        // Connection-owned rows are managed through their connection, not the
+        // picker — skip them (as `secretsList` does) rather than letting one
+        // poison the whole status. A co-existing org-default value still
+        // resolves the secret.
         for (const row of rows) {
+          if (row.owned_by_connection_id) continue;
           if (yield* secretRouteHasBackingValue(row)) return "resolved";
         }
 
