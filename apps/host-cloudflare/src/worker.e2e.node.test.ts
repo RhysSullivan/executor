@@ -83,25 +83,45 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
     expect(res.status).toBe(200);
   });
 
-  it("serves an MCP initialize handshake at /mcp", async () => {
-    const res = await worker.fetch("/mcp", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-03-26",
-          capabilities: {},
-          clientInfo: { name: "test", version: "1" },
+  it("invokes the execute tool over MCP (initialize → tools/call → QuickJS)", async () => {
+    const accept = "application/json, text/event-stream";
+    const rpc = (sessionId: string | null, body: unknown) =>
+      worker.fetch("/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept,
+          ...(sessionId ? { "mcp-session-id": sessionId } : {}),
         },
-      }),
+        body: JSON.stringify(body),
+      });
+
+    const init = await rpc(null, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "test", version: "1" },
+      },
     });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("mcp-session-id")).toBeTruthy();
+    expect(init.status).toBe(200);
+    const sessionId = init.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    await rpc(sessionId, { jsonrpc: "2.0", method: "notifications/initialized" });
+
+    const call = await rpc(sessionId, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "execute", arguments: { code: "export default 6 * 7" } },
+    });
+    expect(call.status).toBe(200);
+    const result = (await call.json()) as {
+      result?: { structuredContent?: { result?: number } };
+    };
+    expect(result.result?.structuredContent?.result).toBe(42);
   }, 60_000);
 });
