@@ -10,7 +10,9 @@
     "typecheck": "tsgo --noEmit",
     "cf-typegen": "wrangler types",
     "deploy:setup": "bash scripts/deploy.sh",
-    "vendor-wasm": "bun run scripts/vendor-quickjs-wasm.ts"
+    "vendor-wasm": "bun run scripts/vendor-quickjs-wasm.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@effect/atom-react": "catalog:",
@@ -47,6 +49,8 @@
     "@vitejs/plugin-react": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "wrangler": "^4.95.0"
+    "wrangler": "^4.95.0",
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
   }
 }

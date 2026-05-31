@@ -179,6 +179,7 @@
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20250410.0",
+        "@effect/vitest": "catalog:",
         "@executor-js/vite-plugin": "workspace:*",
         "@tailwindcss/vite": "catalog:",
         "@tanstack/router-plugin": "^1.167.12",
@@ -188,6 +189,7 @@
         "@vitejs/plugin-react": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",
+        "vitest": "catalog:",
         "wrangler": "^4.95.0",
       },
     },
