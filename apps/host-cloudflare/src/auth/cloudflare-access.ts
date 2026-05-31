@@ -18,6 +18,37 @@ import type { CloudflareConfig } from "../config";
 // ---------------------------------------------------------------------------
 
 /**
+ * Map verified Access JWT claims onto the neutral `Principal`. Pure (no JWT
+ * verification) so it is unit-testable. Handles both human identities (email +
+ * sub, optional groups) and SERVICE TOKENS — machine/API-key auth via the
+ * `CF-Access-Client-Id`/`-Secret` headers — which carry `common_name` (the
+ * token's client id) instead of email/sub. Single-tenant: every principal
+ * belongs to the one configured org; admin comes from the email allowlist.
+ */
+export const principalFromAccessClaims = (
+  claims: Record<string, unknown>,
+  config: CloudflareConfig,
+): Principal => {
+  const email = typeof claims.email === "string" ? claims.email : "";
+  const sub = typeof claims.sub === "string" && claims.sub.length > 0 ? claims.sub : "";
+  const commonName = typeof claims.common_name === "string" ? claims.common_name : "";
+  const nameClaim = claims[config.accessNameClaim];
+  const groupsClaim = claims[config.accessGroupsClaim];
+  const groups = Array.isArray(groupsClaim) ? groupsClaim.map(String) : [];
+  const isAdmin = email.length > 0 && config.adminEmails.includes(email.toLowerCase());
+
+  return {
+    accountId: sub || email || commonName,
+    organizationId: config.organizationId,
+    organizationName: config.organizationName,
+    email,
+    name: typeof nameClaim === "string" ? nameClaim : commonName || null,
+    avatarUrl: null,
+    roles: isAdmin ? ["admin", ...groups] : groups.length > 0 ? groups : ["member"],
+  };
+};
+
+/**
  * Resolve a request to its verified `Principal`, or `null` when the Access
  * assertion is missing/invalid. The single source of truth for "who is this
  * request", shared by the `IdentityProvider` (the API gate) and the MCP auth
@@ -55,22 +86,7 @@ export const makeAccessVerifier = (config: CloudflareConfig) => {
       }).pipe(Effect.orElseSucceed(() => null));
       if (!verified) return null;
 
-      const claims = verified.payload as Record<string, unknown>;
-      const email = typeof claims.email === "string" ? claims.email : "";
-      const nameClaim = claims[config.accessNameClaim];
-      const groupsClaim = claims[config.accessGroupsClaim];
-      const groups = Array.isArray(groupsClaim) ? groupsClaim.map(String) : [];
-      const isAdmin = email.length > 0 && config.adminEmails.includes(email.toLowerCase());
-
-      return {
-        accountId: typeof claims.sub === "string" && claims.sub.length > 0 ? claims.sub : email,
-        organizationId: config.organizationId,
-        organizationName: config.organizationName,
-        email,
-        name: typeof nameClaim === "string" ? nameClaim : null,
-        avatarUrl: null,
-        roles: isAdmin ? ["admin", ...groups] : groups.length > 0 ? groups : ["member"],
-      } satisfies Principal;
+      return principalFromAccessClaims(verified.payload as Record<string, unknown>, config);
     });
 
   return { verify };
