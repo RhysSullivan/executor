@@ -1,0 +1,91 @@
+import { Effect } from "effect";
+
+import { createExecutorMcpServer } from "@executor-js/host-mcp/tool-server";
+import type { ExecutorDbHandle } from "@executor-js/api/server";
+import {
+  McpSessionDOBase,
+  type BuiltMcpServer,
+  type McpSessionInit,
+  type SessionMeta,
+} from "@executor-js/cloudflare/mcp/durable-object";
+
+import { loadConfig, type CloudflareConfig, type CloudflareEnv } from "../config";
+import { makeCloudflarePlugins, type CloudflarePlugins } from "../plugins";
+import { createD1ExecutorDb } from "../db/d1";
+import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execution";
+import { preloadQuickJs } from "../quickjs";
+
+// ---------------------------------------------------------------------------
+// Cloudflare (self-host) MCP Session Durable Object — the host-cloudflare
+// binding of the shared `McpSessionDOBase` (@executor-js/cloudflare). Identical
+// base to cloud; the ONLY differences are the injected dependencies:
+//   - openSessionDb     → a long-lived D1 `ExecutorDbHandle` (same FumaDB
+//                         assembly the HTTP path uses), adapted to the base's
+//                         `end` disposal contract.
+//   - resolveSessionMeta → single-tenant: the org is fixed in config, so no
+//                         lookup — just stamp the configured org name.
+//   - buildMcpServer    → the QuickJS execution stack + the MCP tool server.
+// host-cf has no OTel/Sentry, so it keeps the base's default no-op telemetry +
+// error seams. Replacing the prior in-memory store with this DO is what fixes
+// `tools/list` failing across Worker isolates (a session created on one isolate
+// was invisible to the next; the DO id == session id routes them all back).
+// ---------------------------------------------------------------------------
+
+// The long-lived D1 handle, adapted to the base's `end` contract. D1 owns its
+// own lifecycle (the binding is the connection), so `end` is `close` — a no-op.
+type CfSessionDbHandle = ExecutorDbHandle & { readonly end: () => Promise<void> };
+
+export class McpSessionDO extends McpSessionDOBase<CfSessionDbHandle> {
+  private readonly cfEnv: CloudflareEnv;
+  private readonly cfConfig: CloudflareConfig;
+  private readonly cfPlugins: CloudflarePlugins;
+
+  // `ctx`'s type is taken from the base constructor so it tracks whichever
+  // `@cloudflare/workers-types` the shared package resolves (avoids a
+  // cross-version `DurableObjectState` mismatch at the `super` call).
+  constructor(ctx: ConstructorParameters<typeof McpSessionDOBase>[0], env: CloudflareEnv) {
+    super(ctx, env);
+    this.cfEnv = env;
+    this.cfConfig = loadConfig(env);
+    this.cfPlugins = makeCloudflarePlugins(this.cfConfig.secretKey);
+  }
+
+  protected override async openSessionDb(): Promise<CfSessionDbHandle> {
+    const handle = await createD1ExecutorDb(this.cfEnv.DB, this.cfEnv.BLOBS, this.cfPlugins);
+    return { ...handle, end: () => handle.close() };
+  }
+
+  protected override resolveSessionMeta(token: McpSessionInit): Effect.Effect<SessionMeta> {
+    // Single-tenant: every Access principal belongs to the one configured org,
+    // so there is nothing to resolve — stamp the configured org name.
+    return Effect.succeed({
+      organizationId: token.organizationId,
+      organizationName: this.cfConfig.organizationName,
+      userId: token.userId,
+      elicitationMode: token.elicitationMode,
+    } satisfies SessionMeta);
+  }
+
+  protected override buildMcpServer(
+    sessionMeta: SessionMeta,
+    dbHandle: CfSessionDbHandle,
+  ): Effect.Effect<BuiltMcpServer> {
+    const config = this.cfConfig;
+    return Effect.gen(function* () {
+      // QuickJS-WASM must be loaded before the executor layer builds it (the
+      // default variant can't fetch its .wasm on Workers). Idempotent per isolate.
+      yield* Effect.promise(() => preloadQuickJs());
+      const { engine } = yield* makeExecutionStack(
+        sessionMeta.userId,
+        sessionMeta.organizationId,
+        sessionMeta.organizationName,
+      ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle)));
+      const mcpServer = yield* createExecutorMcpServer({ engine });
+      return { mcpServer, engine } satisfies BuiltMcpServer;
+    }).pipe(
+      Effect.withSpan("McpSessionDO.buildMcpServer"),
+      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: a runtime-build failure surfaces as the base's tapCause/cleanup defect
+      Effect.orDie,
+    );
+  }
+}

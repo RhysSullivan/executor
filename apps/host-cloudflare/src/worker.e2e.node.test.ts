@@ -128,6 +128,49 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
     expect(res.status).toBe(200);
   });
 
+  it("lists tools on a follow-up request after a fresh initialize (DO session survives across requests)", async () => {
+    // The production regression: `initialize` creates the session, then a
+    // SEPARATE `tools/list` request must find it. With the old in-process store a
+    // second Worker isolate never saw the session and this returned "Not
+    // connected"; the MCP-session Durable Object (id == session id) routes the
+    // follow-up back to the same isolate, so the tool list comes through.
+    const accept = "application/json, text/event-stream";
+    const rpc = (sessionId: string | null, body: unknown) =>
+      worker.fetch("/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept,
+          ...(sessionId ? { "mcp-session-id": sessionId } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+    const init = await rpc(null, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "test", version: "1" },
+      },
+    });
+    expect(init.status).toBe(200);
+    const sessionId = init.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    await rpc(sessionId, { jsonrpc: "2.0", method: "notifications/initialized" });
+
+    const list = await rpc(sessionId, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+    expect(list.status).toBe(200);
+    const listed = (await list.json()) as {
+      result?: { tools?: ReadonlyArray<{ name: string }> };
+    };
+    const toolNames = listed.result?.tools?.map((t) => t.name) ?? [];
+    expect(toolNames).toContain("execute");
+  }, 60_000);
+
   it("invokes the execute tool over MCP (initialize → tools/call → QuickJS)", async () => {
     const accept = "application/json, text/event-stream";
     const rpc = (sessionId: string | null, body: unknown) =>

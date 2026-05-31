@@ -1,22 +1,14 @@
 import type { Layer } from "effect";
 
-import type { ExecutorDbHandle } from "@executor-js/api/server";
 import type { McpAuthProvider, McpErrorReporter, McpSessionStore } from "@executor-js/host-mcp";
 
-import type { CloudflareConfig } from "../config";
+import type { CloudflareConfig, CloudflareEnv } from "../config";
 import { cloudflareAccessMcpAuth } from "./auth";
-import {
-  cloudflareMcpReporter,
-  cloudflareMcpSessions,
-  makeCloudflareMcpSessionStore,
-} from "./session-store";
+import { cloudflareMcpReporter, makeCloudflareMcpSessionStore } from "./session-store";
 
 export { cloudflareAccessMcpAuth } from "./auth";
-export {
-  cloudflareMcpReporter,
-  cloudflareMcpSessions,
-  makeCloudflareMcpSessionStore,
-} from "./session-store";
+export { cloudflareMcpReporter, makeCloudflareMcpSessionStore } from "./session-store";
+export { McpSessionDO } from "./session-durable-object";
 
 // ---------------------------------------------------------------------------
 // The Cloudflare MCP serving seams, fed to `ExecutorApp.make`'s `mcp` group.
@@ -27,8 +19,8 @@ export {
 // error-reporter override:
 //   - McpAuthProvider  -> `cloudflareAccessMcpAuth`: validate the Access JWT
 //                         (same identity as the API gate); no MCP OAuth.
-//   - McpSessionStore  -> `cloudflareMcpSessions`: the shared in-process store
-//                         over the QuickJS engine + long-lived D1 handle.
+//   - McpSessionStore  -> the shared Durable-Object dispatcher over the host's
+//                         `MCP_SESSION` namespace (cross-isolate, same as cloud).
 //   - McpErrorReporter -> `cloudflareMcpReporter`: route 500 defects through the
 //                         host's console capture.
 // ---------------------------------------------------------------------------
@@ -36,28 +28,22 @@ export {
 export interface CloudflareMcpSeams {
   /** Validate the Access JWT to an MCP `AuthOutcome`; declares no discovery routes. */
   readonly auth: Layer.Layer<McpAuthProvider>;
-  /** The in-process session store seam (dispatch + lifetime). */
+  /** The Durable-Object session store seam (dispatch + lifetime). */
   readonly sessions: Layer.Layer<McpSessionStore>;
   /** Route 500 defects through the host's console `ErrorCapture`. */
   readonly reporter: Layer.Layer<McpErrorReporter>;
-  /** Dispose all live in-process MCP sessions at shutdown (not a seam). */
-  readonly close: () => Promise<void>;
 }
 
 /**
- * Build the Cloudflare MCP serving seams over the long-lived D1 handle. Returns
- * the three seam Layers plus the `close()` lifetime hook (no-op on Workers,
- * where the isolate is torn down wholesale, but kept for parity with self-host).
+ * Build the Cloudflare MCP serving seams over the host's `MCP_SESSION` Durable
+ * Object namespace. No per-session DB handle is threaded here — each session DO
+ * opens its own D1 handle in its own isolate.
  */
 export const makeCloudflareMcpSeams = (
   config: CloudflareConfig,
-  dbHandle: ExecutorDbHandle,
-): CloudflareMcpSeams => {
-  const sessionStore = makeCloudflareMcpSessionStore(config, dbHandle);
-  return {
-    auth: cloudflareAccessMcpAuth(config),
-    sessions: cloudflareMcpSessions(sessionStore),
-    reporter: cloudflareMcpReporter,
-    close: sessionStore.close,
-  };
-};
+  env: CloudflareEnv,
+): CloudflareMcpSeams => ({
+  auth: cloudflareAccessMcpAuth(config),
+  sessions: makeCloudflareMcpSessionStore(env),
+  reporter: cloudflareMcpReporter,
+});

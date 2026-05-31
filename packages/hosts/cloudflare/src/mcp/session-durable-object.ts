@@ -188,8 +188,14 @@ export abstract class McpSessionDOBase<
   // -------------------------------------------------------------------------
 
   /** Open the per-session DB handle the runtime holds for this session's
-   *  lifetime (postgres.js for cloud, the D1 handle for host-cloudflare). */
-  protected abstract openSessionDb(): TDbHandle;
+   *  lifetime (postgres.js for cloud, the D1 handle for host-cloudflare). May be
+   *  async — host-cloudflare runs an idempotent schema bring-up when it opens. */
+  protected abstract openSessionDb(): TDbHandle | Promise<TDbHandle>;
+
+  /** Resolve `openSessionDb` (sync or async) into the Effect chain. */
+  private openSessionDbHandle(): Effect.Effect<TDbHandle> {
+    return Effect.promise(() => Promise.resolve(this.openSessionDb()));
+  }
 
   /** Resolve + validate the session owner into the meta persisted to storage.
    *  Owns its own short-lived DB/services (it runs once per session create). */
@@ -379,7 +385,7 @@ export abstract class McpSessionDOBase<
       if (!sessionMeta) return false;
 
       yield* self.closeRuntime();
-      const dbHandle = self.openSessionDb();
+      const dbHandle = yield* self.openSessionDbHandle();
       yield* self.installRuntime(sessionMeta, {
         dbHandle,
         enableJsonResponse: true,
@@ -429,7 +435,7 @@ export abstract class McpSessionDOBase<
       }
 
       yield* self.closeRuntime();
-      const dbHandle = self.openSessionDb();
+      const dbHandle = yield* self.openSessionDbHandle();
       yield* self.installRuntime(sessionMeta, {
         dbHandle,
         // GET always returns an SSE stream regardless of this option, but the
@@ -465,7 +471,7 @@ export abstract class McpSessionDOBase<
       if (!sessionMeta) return;
 
       yield* self.closeRuntime();
-      const dbHandle = self.openSessionDb();
+      const dbHandle = yield* self.openSessionDbHandle();
       yield* self.installRuntime(sessionMeta, {
         dbHandle,
         enableJsonResponse: true,
@@ -541,7 +547,7 @@ export abstract class McpSessionDOBase<
     return Effect.gen(function* () {
       const sessionMeta = yield* self.resolveAndStoreSessionMeta(token);
 
-      self.dbHandle = self.openSessionDb();
+      self.dbHandle = yield* self.openSessionDbHandle();
       // POST responses go out as JSON so `transport.handleRequest()` awaits
       // every MCP tool callback before resolving — keeps engine spans inside
       // the outer `handleRequest` Effect's fiber so `currentRequestSpan` is

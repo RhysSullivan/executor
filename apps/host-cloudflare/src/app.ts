@@ -43,7 +43,9 @@ export const makeCloudflareApp = async (env: CloudflareEnv) => {
   // per-request scoped executor reads through the DbProvider seam).
   const dbHandle = await createD1ExecutorDb(env.DB, env.BLOBS, plugins);
   const identityLayer = cloudflareAccessIdentityLayer(config);
-  const mcp = makeCloudflareMcpSeams(config, dbHandle);
+  // MCP runs through the `MCP_SESSION` Durable Object (cross-isolate sessions);
+  // each session DO opens its own D1 handle, so it takes `env`, not `dbHandle`.
+  const mcp = makeCloudflareMcpSeams(config, env);
 
   const { appLayer, toWebHandler } = ExecutorApp.make({
     plugins,

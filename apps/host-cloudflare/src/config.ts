@@ -1,4 +1,4 @@
-import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import type { D1Database, DurableObjectNamespace, R2Bucket } from "@cloudflare/workers-types";
 
 // ---------------------------------------------------------------------------
 // Cloudflare host config. Unlike self-host (process.env + a data dir), a Worker
@@ -16,6 +16,10 @@ export interface CloudflareEnv {
   readonly DB: D1Database;
   /** R2 bucket binding — holds values too large for a D1 row (~1-2MB cap). */
   readonly BLOBS?: R2Bucket;
+  /** MCP session Durable Object namespace — one addressable isolate per MCP
+   *  session (the DO id IS the session id), so a session survives across the
+   *  Worker's stateless isolates. */
+  readonly MCP_SESSION: DurableObjectNamespace;
   /** Zero Trust team domain, e.g. `your-team.cloudflareaccess.com`. */
   readonly ACCESS_TEAM_DOMAIN: string;
   /** The Access application's AUD tag (the JWT audience to verify). */
