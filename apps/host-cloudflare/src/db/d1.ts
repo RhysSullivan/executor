@@ -60,6 +60,10 @@ export const createD1ExecutorDb = async (
   const { db: fumaDb, fuma } = createExecutorFumaDb(drizzleDb, {
     ...options,
     interactiveTransactions: false,
+    // D1 caps bound parameters at 100 per query; createMany batches to fit
+    // (otherwise a wide table like `tool` overflows with "too many SQL
+    // variables" when a source derives many tools).
+    maxBoundParameters: 100,
   });
 
   return {

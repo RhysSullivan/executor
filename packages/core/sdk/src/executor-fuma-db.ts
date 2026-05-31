@@ -52,6 +52,12 @@ export interface CreateExecutorFumaDbOptions<TTables extends FumaTables = FumaTa
    * transactions.
    */
   readonly interactiveTransactions?: boolean;
+  /**
+   * Maximum bound parameters per query (Cloudflare D1: 100). When set,
+   * `createMany` batches so `rows * columns` stays within it. Unset for
+   * libSQL/Postgres (no tight cap).
+   */
+  readonly maxBoundParameters?: number;
 }
 
 /**
@@ -81,6 +87,7 @@ export const createExecutorFumaDb = <const TTables extends FumaTables>(
       db: drizzleDb,
       provider: options.provider,
       interactiveTransactions: options.interactiveTransactions,
+      maxBoundParameters: options.maxBoundParameters,
     }),
   );
 

@@ -32,6 +32,13 @@ export interface DrizzleConfig {
    * statement, no atomic rollback).
    */
   interactiveTransactions?: boolean;
+  /**
+   * Maximum bound parameters per query the engine accepts. When set, multi-row
+   * `createMany` inserts are batched so `rows * columns` stays within it.
+   * Cloudflare D1 caps this at 100; libSQL/Postgres leave it unset (no tight
+   * cap), keeping the row-count batch.
+   */
+  maxBoundParameters?: number;
 }
 
 export function drizzleAdapter(options: DrizzleConfig): FumaDBAdapter {
@@ -42,7 +49,13 @@ export function drizzleAdapter(options: DrizzleConfig): FumaDBAdapter {
   return {
     name: "drizzle",
     createORM(schema) {
-      return fromDrizzle(schema, options.db, options.provider, interactiveTransactions);
+      return fromDrizzle(
+        schema,
+        options.db,
+        options.provider,
+        interactiveTransactions,
+        options.maxBoundParameters
+      );
     },
     // assume the database is sync with Drizzle schema
     async getSchemaVersion() {
