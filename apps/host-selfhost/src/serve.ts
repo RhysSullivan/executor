@@ -50,10 +50,8 @@ if (import.meta.main) {
     await startServer();
   } catch (error) {
     // oxlint-disable-next-line executor/no-instanceof-error, executor/no-unknown-error-message -- boundary: format an arbitrary thrown startup error for the container log
-    console.error(
-      "[executor] failed to start:",
-      error instanceof Error ? (error.stack ?? error.message) : error,
-    );
+    const detail = error instanceof Error ? (error.stack ?? error.message) : error;
+    console.error("[executor] failed to start:", detail);
     process.exit(1);
   }
 }

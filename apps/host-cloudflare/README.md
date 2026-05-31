@@ -4,14 +4,14 @@ Executor as a single Cloudflare Worker. The fourth app on the shared
 `ExecutorApp.make` facade (alongside cloud, self-host, and local) — same code
 paths, different injected providers:
 
-| Seam            | Cloudflare provider                                              |
-| --------------- | --------------------------------------------------------------- |
-| **identity**    | Cloudflare Access JWT (`Cf-Access-Jwt-Assertion`) — no app login |
-| **db**          | D1 (SQLite) via the shared FumaDB assembly                      |
-| **engine**      | QuickJS-WASM, in-Worker (no extra binding)                      |
-| **mcp**         | Access-JWT auth + the shared in-process session store           |
-| **account**     | `/account/me` from the Access principal (members/keys → Access) |
-| **web**         | the shared multiplayer SPA (Workers Static Assets)              |
+| Seam         | Cloudflare provider                                              |
+| ------------ | ---------------------------------------------------------------- |
+| **identity** | Cloudflare Access JWT (`Cf-Access-Jwt-Assertion`) — no app login |
+| **db**       | D1 (SQLite) via the shared FumaDB assembly                       |
+| **engine**   | QuickJS-WASM, in-Worker (no extra binding)                       |
+| **mcp**      | Access-JWT auth + the shared in-process session store            |
+| **account**  | `/account/me` from the Access principal (members/keys → Access)  |
+| **web**      | the shared multiplayer SPA (Workers Static Assets)               |
 
 Single-tenant: every Access-verified principal belongs to the one configured
 org. Members and credentials are managed in Cloudflare Access, not in-app.
