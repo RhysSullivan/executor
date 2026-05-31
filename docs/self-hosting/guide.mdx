@@ -1,0 +1,117 @@
+---
+title: Self-Hosting
+description: Run Executor on your own infrastructure in a single container.
+---
+
+Executor self-hosts as **one container** — the database (SQLite/libSQL), the
+QuickJS code sandbox, and the MCP server all run in-process. There is no separate
+database, worker, or proxy to operate, and no required configuration: a bare
+`docker compose up` boots a working instance and walks you through creating the
+admin account in the browser.
+
+## Quick start
+
+From a clone of the repository:
+
+```bash
+cd apps/host-selfhost
+docker compose up -d --build
+```
+
+Then open [http://localhost:4788](http://localhost:4788). On a fresh instance
+you'll see a **setup screen** — create the first admin account, and you're in.
+
+That's the whole install. The container persists its data (database and
+generated keys) in the `executor-data` volume, so it survives restarts and
+upgrades.
+
+### Without compose
+
+The compose file just wraps the Dockerfile. To build and run it directly:
+
+```bash
+# Build context is the repo root (the Bun workspace install needs every member).
+docker build -f apps/host-selfhost/Dockerfile -t executor-selfhost .
+
+docker run -d -p 4788:4788 -v executor-data:/data executor-selfhost
+```
+
+## First-run setup
+
+The **first person to open the instance creates the admin account** — no
+environment variables, no passwords in logs. That account becomes the owner of
+the instance's single organization. Once it exists, the setup screen is replaced
+by sign-in, and self-service signup is closed.
+
+If you'd rather provision the admin ahead of time (CI / infra-as-code), set
+**both** `EXECUTOR_BOOTSTRAP_ADMIN_EMAIL` and `EXECUTOR_BOOTSTRAP_ADMIN_PASSWORD`
+before first boot; the instance then skips the browser setup and creates that
+admin as the owner.
+
+## Inviting people
+
+Open signup is off — after the first admin, people join by redeeming an
+**invite link**.
+
+1. Sign in as the admin and open **Admin** in the nav.
+2. Under **Invite links**, create a link (optionally with a label and a role).
+3. Send the `/join/<code>` link to the person however you like — Slack, email,
+   in person. The link itself is the credential; no mail server is involved.
+4. They open it, pick their own name/email/password, and land in the
+   organization. Each link is **single-use** and can be revoked while pending.
+
+From the same Admin page you can change a member's role or remove them.
+
+## Configuration
+
+Every setting is optional. Put overrides in `apps/host-selfhost/.env` (compose
+loads it automatically) or pass them as `-e` flags to `docker run`. See
+`.env.example` for the full list.
+
+| Variable                                                               | Default                           | Purpose                                                                                                                                                                   |
+| ---------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXECUTOR_WEB_BASE_URL`                                                | `http://localhost:4788`           | The public URL browsers use to reach the instance. Must match exactly (scheme + host + port) or browser logins are rejected. Set this when serving behind a domain / TLS. |
+| `BETTER_AUTH_SECRET`                                                   | generated + persisted             | Session secret. Auto-generated under the data volume if unset; set it (≥ 32 chars) to manage it yourself. Rotating it signs everyone out.                                 |
+| `EXECUTOR_BOOTSTRAP_ADMIN_EMAIL` / `EXECUTOR_BOOTSTRAP_ADMIN_PASSWORD` | unset                             | Set **both** to pre-create the admin instead of the browser setup.                                                                                                        |
+| `EXECUTOR_ORG_NAME` / `EXECUTOR_ORG_SLUG`                              | `Default` / `default`             | Name and slug for the single organization.                                                                                                                                |
+| `EXECUTOR_ALLOW_LOCAL_NETWORK`                                         | `false`                           | Allow sandboxed code to reach loopback / private network addresses. Off by default.                                                                                       |
+| `PORT` / `EXECUTOR_HOST`                                               | `4788` / `0.0.0.0` (in the image) | Bind port and address.                                                                                                                                                    |
+| `EXECUTOR_DATA_DIR`                                                    | `/data` (in the image)            | Where the database and keys live.                                                                                                                                         |
+
+## Reverse proxy and HTTPS
+
+For anything beyond a local trial, terminate TLS at a reverse proxy (Caddy,
+nginx, Traefik) in front of the container and set `EXECUTOR_WEB_BASE_URL` to your
+public `https://…` URL. That value must match the address users actually load —
+it's what cookie-based browser logins are checked against.
+
+The container exposes `GET /api/health` (a readiness probe used by the built-in
+Docker healthcheck) if your proxy or orchestrator wants one.
+
+## Backup and restore
+
+All state lives in the data volume (`/data`): the SQLite database plus the
+generated secret keys. Back it up by copying that directory while the container
+is stopped (or with your volume tooling):
+
+```bash
+docker compose stop
+docker run --rm -v executor-data:/data -v "$PWD":/backup busybox \
+  tar czf /backup/executor-backup.tgz -C /data .
+docker compose start
+```
+
+Restore by extracting the archive back into a fresh `executor-data` volume
+before starting the container. Keep the backup safe: it contains your secret
+keys as well as your data.
+
+## Upgrading
+
+```bash
+cd apps/host-selfhost
+git pull
+docker compose up -d --build
+```
+
+The data volume is reused, so your database and accounts carry over. Schema
+migrations run idempotently at boot.

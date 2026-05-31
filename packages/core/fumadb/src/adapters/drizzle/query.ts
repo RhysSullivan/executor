@@ -169,7 +169,8 @@ function mapQueryResult(table: AnyTable, result: Record<string, unknown>) {
 export function fromDrizzle(
   schema: AnySchema,
   _db: unknown,
-  provider: SQLProvider
+  provider: SQLProvider,
+  interactiveTransactions: boolean = true
 ): AbstractQuery<AnySchema> {
   const [db, drizzleTables] = parseDrizzle(_db);
 
@@ -392,10 +393,19 @@ export function fromDrizzle(
       await query;
     },
     async transaction(run) {
+      // Some SQLite-compatible engines (Cloudflare D1) reject interactive
+      // transactions — both raw BEGIN/COMMIT and the driver's `.transaction()`.
+      // When disabled, run the operations directly against the same connection:
+      // each statement auto-commits, so there is no atomic rollback (the
+      // engine's constraint, not ours). libSQL/Postgres keep real transactions.
+      if (!interactiveTransactions) {
+        return run(fromDrizzle(schema, _db, provider, interactiveTransactions));
+      }
+
       if (provider === "sqlite") {
         await executeRaw("BEGIN");
         try {
-          const result = await run(fromDrizzle(schema, _db, provider));
+          const result = await run(fromDrizzle(schema, _db, provider, interactiveTransactions));
           await executeRaw("COMMIT");
           return result;
         } catch (e) {
@@ -404,7 +414,9 @@ export function fromDrizzle(
         }
       }
 
-      return db.transaction((tx) => run(fromDrizzle(schema, tx, provider)));
+      return db.transaction((tx) =>
+        run(fromDrizzle(schema, tx, provider, interactiveTransactions))
+      );
     },
   });
 }

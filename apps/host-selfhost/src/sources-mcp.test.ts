@@ -8,6 +8,7 @@ import { afterAll, expect, test } from "@effect/vitest";
 import { makeScopedExecutor } from "@executor-js/api/server";
 
 import { createSelfHostDb, SelfHostDb } from "./db/self-host-db";
+import { mintInviteCode } from "./testing/mint-invite";
 import { SelfHostScopedExecutorSeams } from "./execution";
 import type { SelfHostPlugins } from "./plugins";
 
@@ -77,11 +78,17 @@ const addOrgSource = async (organizationId: string): Promise<void> => {
 };
 
 test("a user's MCP execute sandbox can reach an org source's tools", async () => {
+  const inviteCode = await mintInviteCode(handler);
   const su = await handler(
     new Request(`${BASE}/api/auth/sign-up/email`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "u@srcmcp.test", password: "password-12345678", name: "U" }),
+      body: JSON.stringify({
+        email: "u@srcmcp.test",
+        password: "password-12345678",
+        name: "U",
+        inviteCode,
+      }),
     }),
   );
   const token = su.headers.get("set-auth-token") ?? "";

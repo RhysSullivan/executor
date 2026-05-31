@@ -1182,6 +1182,16 @@ const toOpenApiSourceConfig = (
   }
   return {
     kind: "openapi",
+    // TODO(storage): the entire resolved spec is inlined into the persisted
+    // source config (and thus a single plugin_storage row). Large specs (e.g.
+    // Vercel's ~7MB) exceed per-value limits on some backends (Cloudflare D1
+    // caps a value at ~1-2MB -> SQLITE_TOOBIG). It should instead be written
+    // through the executor's `blobs` (BlobStore) seam, storing only a reference
+    // here, so large specs live in object storage (R2/S3/filesystem) rather than
+    // a relational row. For `kind: "url"` sources the spec is also re-fetchable,
+    // so we could store just the URL + a content hash and rehydrate on refresh.
+    // (The Cloudflare host currently works around this with an R2 offload wrapper
+    // in apps/host-cloudflare/src/db; this is the proper plugin-level fix.)
     spec: specInputToConfigString(config.spec),
     baseUrl: config.baseUrl,
     namespace,

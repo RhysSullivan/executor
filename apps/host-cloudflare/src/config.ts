@@ -1,0 +1,86 @@
+import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+
+// ---------------------------------------------------------------------------
+// Cloudflare host config. Unlike self-host (process.env + a data dir), a Worker
+// receives its bindings + vars per request as `env`, so config is derived from
+// that object — there is no process.env, no filesystem, no boot-time secret
+// generation. Identity comes entirely from Cloudflare Access in front of the
+// Worker; the only real secret is the at-rest secret-encryption key.
+// ---------------------------------------------------------------------------
+
+export const CLOUDFLARE_NAMESPACE = "executor_cloudflare";
+export const CLOUDFLARE_SCHEMA_VERSION = "1.0.0";
+
+export interface CloudflareEnv {
+  /** D1 database binding — the app's SQLite store. */
+  readonly DB: D1Database;
+  /** R2 bucket binding — holds values too large for a D1 row (~1-2MB cap). */
+  readonly BLOBS?: R2Bucket;
+  /** Zero Trust team domain, e.g. `your-team.cloudflareaccess.com`. */
+  readonly ACCESS_TEAM_DOMAIN: string;
+  /** The Access application's AUD tag (the JWT audience to verify). */
+  readonly ACCESS_AUD: string;
+  /** Claim holding the display name (default `name`). */
+  readonly ACCESS_NAME_CLAIM?: string;
+  /** Claim holding the user's groups (default `groups`). */
+  readonly ACCESS_GROUPS_CLAIM?: string;
+  /** Comma-separated emails granted the admin role. */
+  readonly ADMIN_EMAILS?: string;
+  /** The single organization id/name every authenticated user belongs to. */
+  readonly SELF_HOSTED_ORG_ID?: string;
+  readonly SELF_HOSTED_ORG_NAME?: string;
+  /** At-rest secret-encryption key (a `wrangler secret`, NOT a var). */
+  readonly EXECUTOR_SECRET_KEY?: string;
+  readonly ALLOW_LOCAL_NETWORK?: string;
+  readonly VITE_PUBLIC_SITE_URL?: string;
+  /**
+   * Dev/single-user escape hatch: when "true", skip Cloudflare Access entirely
+   * and treat every request as a fixed admin. For local `wrangler dev` and
+   * unattended validation only — NEVER set on a deployment that isn't already
+   * behind Access, or the instance is wide open.
+   */
+  readonly ENABLE_DEV_AUTH?: string;
+}
+
+export interface CloudflareConfig {
+  readonly accessTeamDomain: string;
+  readonly accessAud: string;
+  readonly accessNameClaim: string;
+  readonly accessGroupsClaim: string;
+  readonly adminEmails: readonly string[];
+  readonly organizationId: string;
+  readonly organizationName: string;
+  readonly secretKey: string;
+  readonly allowLocalNetwork: boolean;
+  readonly webBaseUrl: string;
+  readonly enableDevAuth: boolean;
+}
+
+const splitLower = (value: string | undefined): readonly string[] =>
+  (value ?? "")
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part.length > 0);
+
+export const loadConfig = (env: CloudflareEnv): CloudflareConfig => {
+  const secretKey = env.EXECUTOR_SECRET_KEY?.trim();
+  if (!secretKey || secretKey.length < 16) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: the Worker must not boot without the at-rest secret key
+    throw new Error(
+      "EXECUTOR_SECRET_KEY must be set (wrangler secret put EXECUTOR_SECRET_KEY) — it encrypts stored secrets at rest in D1",
+    );
+  }
+  return {
+    accessTeamDomain: env.ACCESS_TEAM_DOMAIN.replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+    accessAud: env.ACCESS_AUD,
+    accessNameClaim: env.ACCESS_NAME_CLAIM ?? "name",
+    accessGroupsClaim: env.ACCESS_GROUPS_CLAIM ?? "groups",
+    adminEmails: splitLower(env.ADMIN_EMAILS),
+    organizationId: env.SELF_HOSTED_ORG_ID ?? "default",
+    organizationName: env.SELF_HOSTED_ORG_NAME ?? "Default",
+    secretKey,
+    allowLocalNetwork: env.ALLOW_LOCAL_NETWORK === "true",
+    webBaseUrl: env.VITE_PUBLIC_SITE_URL ?? "https://localhost",
+    enableDevAuth: env.ENABLE_DEV_AUTH === "true",
+  };
+};

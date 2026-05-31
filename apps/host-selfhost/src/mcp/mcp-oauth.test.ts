@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterAll, expect, test } from "@effect/vitest";
 
+import { mintInviteCode } from "../testing/mint-invite";
+
 process.env.EXECUTOR_DATA_DIR = mkdtempSync(join(tmpdir(), "eh-env-"));
 process.env.BETTER_AUTH_SECRET = "env-test-secret-0123456789-abcdefghij-klmnop";
 process.env.EXECUTOR_BOOTSTRAP_ADMIN_EMAIL = "admin@env.test";
@@ -55,11 +57,12 @@ test("an unauthenticated /mcp request returns 401 with a WWW-Authenticate challe
 const json = async (res: Response) => (await res.json()) as Record<string, unknown>;
 
 const signUp = async (email: string): Promise<string> => {
+  const inviteCode = await mintInviteCode(handler);
   const res = await handler(
     new Request(`${BASE}/api/auth/sign-up/email`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password: "password-12345678", name: email }),
+      body: JSON.stringify({ email, password: "password-12345678", name: email, inviteCode }),
     }),
   );
   expect(res.status).toBe(200);

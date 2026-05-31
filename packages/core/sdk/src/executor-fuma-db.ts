@@ -44,6 +44,14 @@ export interface CreateExecutorFumaDbOptions<TTables extends FumaTables = FumaTa
   readonly namespace: string;
   readonly version: string;
   readonly provider: ExecutorDbProvider;
+  /**
+   * Whether the engine supports interactive transactions (BEGIN/COMMIT).
+   * Defaults to `true`. Cloudflare D1 must pass `false` — it rejects
+   * interactive transactions, so the adapter runs transaction callbacks
+   * directly (auto-commit per statement). libSQL/Postgres keep real
+   * transactions.
+   */
+  readonly interactiveTransactions?: boolean;
 }
 
 /**
@@ -72,6 +80,7 @@ export const createExecutorFumaDb = <const TTables extends FumaTables>(
     drizzleAdapter({
       db: drizzleDb,
       provider: options.provider,
+      interactiveTransactions: options.interactiveTransactions,
     }),
   );
 

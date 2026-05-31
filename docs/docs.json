@@ -87,6 +87,15 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Self-Host",
+        "groups": [
+          {
+            "group": "Self-Host",
+            "pages": ["self-hosting/guide"]
+          }
+        ]
       }
     ]
   }

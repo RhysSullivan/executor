@@ -14,9 +14,11 @@ import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as PoliciesRouteImport } from './routes/policies'
 import { Route as ConnectionsRouteImport } from './routes/connections'
 import { Route as ApiKeysRouteImport } from './routes/api-keys'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SourcesNamespaceRouteImport } from './routes/sources.$namespace'
 import { Route as ResumeExecutionIdRouteImport } from './routes/resume.$executionId'
+import { Route as JoinCodeRouteImport } from './routes/join.$code'
 import { Route as SourcesAddPluginKeyRouteImport } from './routes/sources.add.$pluginKey'
 import { Route as PluginsPluginIdSplatRouteImport } from './routes/plugins.$pluginId.$'
 
@@ -45,6 +47,11 @@ const ApiKeysRoute = ApiKeysRouteImport.update({
   path: '/api-keys',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -60,6 +67,11 @@ const ResumeExecutionIdRoute = ResumeExecutionIdRouteImport.update({
   path: '/resume/$executionId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JoinCodeRoute = JoinCodeRouteImport.update({
+  id: '/join/$code',
+  path: '/join/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SourcesAddPluginKeyRoute = SourcesAddPluginKeyRouteImport.update({
   id: '/sources/add/$pluginKey',
   path: '/sources/add/$pluginKey',
@@ -73,11 +85,13 @@ const PluginsPluginIdSplatRoute = PluginsPluginIdSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/api-keys': typeof ApiKeysRoute
   '/connections': typeof ConnectionsRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
+  '/join/$code': typeof JoinCodeRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
   '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
@@ -85,11 +99,13 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/api-keys': typeof ApiKeysRoute
   '/connections': typeof ConnectionsRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
+  '/join/$code': typeof JoinCodeRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
   '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
@@ -98,11 +114,13 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/api-keys': typeof ApiKeysRoute
   '/connections': typeof ConnectionsRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
+  '/join/$code': typeof JoinCodeRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
   '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
@@ -112,11 +130,13 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/api-keys'
     | '/connections'
     | '/policies'
     | '/secrets'
     | '/tools'
+    | '/join/$code'
     | '/resume/$executionId'
     | '/sources/$namespace'
     | '/plugins/$pluginId/$'
@@ -124,11 +144,13 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/api-keys'
     | '/connections'
     | '/policies'
     | '/secrets'
     | '/tools'
+    | '/join/$code'
     | '/resume/$executionId'
     | '/sources/$namespace'
     | '/plugins/$pluginId/$'
@@ -136,11 +158,13 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/api-keys'
     | '/connections'
     | '/policies'
     | '/secrets'
     | '/tools'
+    | '/join/$code'
     | '/resume/$executionId'
     | '/sources/$namespace'
     | '/plugins/$pluginId/$'
@@ -149,11 +173,13 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   ApiKeysRoute: typeof ApiKeysRoute
   ConnectionsRoute: typeof ConnectionsRoute
   PoliciesRoute: typeof PoliciesRoute
   SecretsRoute: typeof SecretsRoute
   ToolsRoute: typeof ToolsRoute
+  JoinCodeRoute: typeof JoinCodeRoute
   ResumeExecutionIdRoute: typeof ResumeExecutionIdRoute
   SourcesNamespaceRoute: typeof SourcesNamespaceRoute
   PluginsPluginIdSplatRoute: typeof PluginsPluginIdSplatRoute
@@ -197,6 +223,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiKeysRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -218,6 +251,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResumeExecutionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/join/$code': {
+      id: '/join/$code'
+      path: '/join/$code'
+      fullPath: '/join/$code'
+      preLoaderRoute: typeof JoinCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sources/add/$pluginKey': {
       id: '/sources/add/$pluginKey'
       path: '/sources/add/$pluginKey'
@@ -237,11 +277,13 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   ApiKeysRoute: ApiKeysRoute,
   ConnectionsRoute: ConnectionsRoute,
   PoliciesRoute: PoliciesRoute,
   SecretsRoute: SecretsRoute,
   ToolsRoute: ToolsRoute,
+  JoinCodeRoute: JoinCodeRoute,
   ResumeExecutionIdRoute: ResumeExecutionIdRoute,
   SourcesNamespaceRoute: SourcesNamespaceRoute,
   PluginsPluginIdSplatRoute: PluginsPluginIdSplatRoute,

@@ -20,29 +20,7 @@ export const seedOrgAndAdmin = async (
   client: Client,
   config: SelfHostConfig,
 ): Promise<{ organizationId: string; organizationName: string }> => {
-  const adminEmail = config.bootstrapAdminEmail ?? "admin@localhost";
-
-  // 1. Bootstrap admin (idempotent: look up by email first).
-  // oxlint-disable-next-line executor/no-double-cast -- boundary: the SELECT column is the schema contract for the Better Auth `user` row read off the libSQL client
-  const existingUser = (
-    await client.execute({ sql: "SELECT id FROM user WHERE email = ?", args: [adminEmail] })
-  ).rows[0] as unknown as { id: string } | undefined;
-  let adminId = existingUser?.id;
-  if (!adminId) {
-    const password = config.bootstrapAdminPassword ?? randomBytes(18).toString("base64url");
-    const created = await auth.api.createUser({
-      body: { email: adminEmail, password, name: config.bootstrapAdminName, role: "admin" },
-    });
-    adminId = created.user.id;
-    if (!config.bootstrapAdminPassword) {
-      console.warn(
-        `[executor] created bootstrap admin "${adminEmail}" with a generated password: ${password}\n` +
-          `[executor] set EXECUTOR_BOOTSTRAP_ADMIN_PASSWORD to choose your own and silence this.`,
-      );
-    }
-  }
-
-  // 2. The single organization (idempotent: look up by slug first).
+  // Idempotent: once the single organization exists, boot is past first-run.
   // oxlint-disable-next-line executor/no-double-cast -- boundary: the SELECT columns are the schema contract for the Better Auth `organization` row read off the libSQL client
   const existingOrg = (
     await client.execute({
@@ -54,14 +32,48 @@ export const seedOrgAndAdmin = async (
     return { organizationId: existingOrg.id, organizationName: existingOrg.name };
   }
 
-  // System action: pass userId so the org is created with no session and the
-  // admin becomes its owner (creates the membership row).
-  const org = await auth.api.createOrganization({
-    body: { name: config.organizationName, slug: config.orgSlug, userId: adminId },
-  });
-  if (!org) {
-    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: org creation must succeed for a usable instance
-    throw new Error("Failed to create the bootstrap organization");
+  // Headless bootstrap: when BOTH admin email and password are set, pre-create
+  // that admin as the org owner (CI / infra-as-code). Otherwise fall through to
+  // the turnkey path so the first browser visitor claims the instance.
+  if (config.bootstrapAdminEmail && config.bootstrapAdminPassword) {
+    // oxlint-disable-next-line executor/no-double-cast -- boundary: the SELECT column is the schema contract for the Better Auth `user` row read off the libSQL client
+    const existingUser = (
+      await client.execute({
+        sql: "SELECT id FROM user WHERE email = ?",
+        args: [config.bootstrapAdminEmail],
+      })
+    ).rows[0] as unknown as { id: string } | undefined;
+    let adminId = existingUser?.id;
+    if (!adminId) {
+      const created = await auth.api.createUser({
+        body: {
+          email: config.bootstrapAdminEmail,
+          password: config.bootstrapAdminPassword,
+          name: config.bootstrapAdminName,
+          role: "admin",
+        },
+      });
+      adminId = created.user.id;
+    }
+    // Pass userId so the org is created with no session and the admin becomes
+    // its owner (creates the membership row).
+    const org = await auth.api.createOrganization({
+      body: { name: config.organizationName, slug: config.orgSlug, userId: adminId },
+    });
+    if (!org) {
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: org creation must succeed for a usable instance
+      throw new Error("Failed to create the bootstrap organization");
+    }
+    return { organizationId: org.id, organizationName: config.organizationName };
   }
-  return { organizationId: org.id, organizationName: config.organizationName };
+
+  // Turnkey first-run: create the single organization with NO members. The
+  // first person to open the app signs up ungated and becomes the owner (the
+  // signup gate enforces this — an org with zero members is unclaimed).
+  const organizationId = randomBytes(16).toString("hex");
+  await client.execute({
+    sql: "INSERT INTO organization (id, name, slug, createdAt) VALUES (?, ?, ?, ?)",
+    args: [organizationId, config.organizationName, config.orgSlug, new Date().toISOString()],
+  });
+  return { organizationId, organizationName: config.organizationName };
 };

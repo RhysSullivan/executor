@@ -1,0 +1,72 @@
+import { createRootRoute } from "@tanstack/react-router";
+import { useEffect, type ReactNode } from "react";
+
+import { ExecutorProvider } from "@executor-js/react/api/provider";
+import { ExecutorPluginsProvider } from "@executor-js/sdk/client";
+import { Toaster } from "@executor-js/react/components/sonner";
+import { AuthProvider, useAuth } from "@executor-js/react/multiplayer/auth-context";
+import { Shell, defaultShellNavItems } from "@executor-js/react/multiplayer/shell";
+import { plugins as clientPlugins } from "virtual:executor/plugins-client";
+
+// ---------------------------------------------------------------------------
+// Cloudflare root: the SAME shared multiplayer composition as cloud / self-host
+// (AuthProvider → Shell → pages), with Cloudflare Access as the identity.
+//
+// Access authenticates the human at the edge BEFORE the request reaches the
+// Worker, so there is no in-app login or first-run setup. `/account/me` (the
+// CF AccountProvider) reflects the Access principal, so the auth gate only ever
+// resolves to authenticated; the unauthenticated branch can only happen when
+// Access isn't in front yet (or a JWT expired) — we bounce to the Access login.
+//
+// API keys + members are managed in Cloudflare Access, not in-app, so the
+// API-keys footer is hidden (`apiKeysTo={null}`) and the nav is the default set.
+// ---------------------------------------------------------------------------
+
+export const Route = createRootRoute({
+  component: RootComponent,
+});
+
+// Sign-out is a redirect to Access's logout endpoint (it clears the Access
+// session cookie); the next request re-prompts the Access login.
+const signOut = () => {
+  window.location.href = "/cdn-cgi/access/logout";
+};
+
+const Loading = ({ label }: { label: string }) => (
+  <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+    {label}
+  </div>
+);
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const auth = useAuth();
+
+  // Access already authenticated the user at the edge; an unauthenticated state
+  // means there's no live Access session (gate not configured, or expired) —
+  // send them through the Access login, which returns to the app with a JWT.
+  useEffect(() => {
+    if (auth.status === "unauthenticated") {
+      window.location.href = "/cdn-cgi/access/login";
+    }
+  }, [auth.status]);
+
+  if (auth.status === "authenticated") return <>{children}</>;
+  return (
+    <Loading label={auth.status === "unauthenticated" ? "Redirecting to sign in…" : "Loading…"} />
+  );
+}
+
+function RootComponent() {
+  return (
+    <AuthProvider>
+      <AuthGate>
+        <ExecutorProvider>
+          <ExecutorPluginsProvider plugins={clientPlugins}>
+            <Shell onSignOut={signOut} navItems={defaultShellNavItems} apiKeysTo={null} />
+            <Toaster />
+          </ExecutorPluginsProvider>
+        </ExecutorProvider>
+      </AuthGate>
+    </AuthProvider>
+  );
+}

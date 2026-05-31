@@ -24,16 +24,25 @@ export interface DrizzleConfig {
    */
   db: unknown;
   provider: Exclude<Provider, "cockroachdb" | "mongodb" | "mssql" | "convex">;
+  /**
+   * Whether the underlying engine supports interactive transactions
+   * (BEGIN/COMMIT or the driver's `.transaction()`). Defaults to `true`.
+   * Set `false` for Cloudflare D1, which rejects interactive transactions —
+   * the adapter then runs transaction callbacks directly (auto-commit per
+   * statement, no atomic rollback).
+   */
+  interactiveTransactions?: boolean;
 }
 
 export function drizzleAdapter(options: DrizzleConfig): FumaDBAdapter {
   const settingsTableName = (namespace: string) =>
     `private_${namespace}_settings`;
+  const interactiveTransactions = options.interactiveTransactions ?? true;
 
   return {
     name: "drizzle",
     createORM(schema) {
-      return fromDrizzle(schema, options.db, options.provider);
+      return fromDrizzle(schema, options.db, options.provider, interactiveTransactions);
     },
     // assume the database is sync with Drizzle schema
     async getSchemaVersion() {

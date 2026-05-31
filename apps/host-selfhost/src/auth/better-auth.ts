@@ -1,4 +1,5 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { APIError } from "better-auth/api";
 import { admin, bearer, mcp, organization } from "better-auth/plugins";
 import { apiKey } from "@better-auth/api-key";
 import { type Client } from "@libsql/client";
@@ -7,6 +8,22 @@ import { Context } from "effect";
 
 import { loadConfig } from "../config";
 import { seedOrgAndAdmin } from "./seed";
+import { consumeInviteCode, ensureInviteCodeTable, findRedeemableCode } from "./invites";
+
+// The self-service signup gate: present only on the live (phase-2) auth
+// instance, so the bootstrap seed's `createUser` — which
+// runs on the gate-free phase-1 instance — is never blocked. `getAuth` is
+// late-bound because the hooks call `auth.api.addMember` AFTER the instance they
+// belong to is constructed (the closure resolves it at request time).
+interface SignupGate {
+  readonly client: Client;
+  readonly organizationId: string;
+  readonly getAuth: () => Auth | null;
+}
+
+// Only self-service email signups are code-gated. Server/admin-initiated user
+// creation (the seed, or a future admin "add user") flows through other paths.
+const SIGNUP_PATH = "/sign-up/email";
 
 // ---------------------------------------------------------------------------
 // Better Auth instance over the SAME libSQL `file:` URL as the FumaDB executor
@@ -36,12 +53,14 @@ import { seedOrgAndAdmin } from "./seed";
 // session/user shapes (activeOrganizationId, role, createUser, ...).
 // ---------------------------------------------------------------------------
 
-const makeAuthOptions = (url: string, organizationId: string) => {
+const makeAuthOptions = (url: string, organizationId: string, gate?: SignupGate) => {
   const config = loadConfig();
+  // Always resolved (generated + persisted when no env is set); this guards only
+  // an explicitly-set env secret that is too weak.
   const secret = config.authSecret;
-  if (!secret || secret.length < 32) {
-    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: a multi-user auth server must not boot without a strong session secret
-    throw new Error("BETTER_AUTH_SECRET (or AUTH_SECRET) must be set and at least 32 characters");
+  if (secret.length < 32) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: a multi-user auth server must not boot with a weak session secret
+    throw new Error("BETTER_AUTH_SECRET (or AUTH_SECRET), if set, must be at least 32 characters");
   }
   return {
     database: { dialect: new LibsqlDialect({ url }), type: "sqlite" as const },
@@ -72,20 +91,103 @@ const makeAuthOptions = (url: string, organizationId: string) => {
       session: {
         create: {
           // Single-org instance: pin every session to the one organization, so
-          // every authenticated user resolves to the org scope. (Membership
-          // rows are only created for the bootstrap admin via createOrganization;
-          // the pin — not a member row — is what scope derivation reads.)
+          // every authenticated user resolves to the org scope.
           before: async (session: Record<string, unknown>) => ({
             data: { ...session, activeOrganizationId: organizationId },
           }),
         },
       },
+      // The signup gate. First-run: an org with ZERO members is unclaimed, so
+      // the first signup is admitted ungated and becomes the owner. After that,
+      // `before` rejects a signup without a valid, unused, unexpired invite code
+      // and `after` makes the new user a real `member` + burns the code.
+      ...(gate
+        ? {
+            user: {
+              create: {
+                before: async (_user, context) => {
+                  if (context?.path !== SIGNUP_PATH) return;
+                  if (await orgHasNoMembers(gate)) return; // first user claims the org
+                  const code = inviteCodeFrom(context);
+                  if (!code) {
+                    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: a Better Auth create hook rejects a request by throwing APIError
+                    throw new APIError("FORBIDDEN", {
+                      message: "An invite code is required to sign up.",
+                    });
+                  }
+                  if (!(await findRedeemableCode(gate.client, code))) {
+                    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: a Better Auth create hook rejects a request by throwing APIError
+                    throw new APIError("FORBIDDEN", {
+                      message: "That invite code is invalid, already used, or expired.",
+                    });
+                  }
+                },
+                after: async (user, context) => {
+                  if (context?.path !== SIGNUP_PATH) return;
+                  const auth = gate.getAuth();
+                  if (!auth) return;
+                  // First user into an empty org becomes its owner (no code).
+                  if (await orgHasNoMembers(gate)) {
+                    await auth.api.addMember({
+                      body: { userId: user.id, role: "owner", organizationId: gate.organizationId },
+                    });
+                    return;
+                  }
+                  const code = inviteCodeFrom(context);
+                  if (!code) return;
+                  const redeemable = await findRedeemableCode(gate.client, code);
+                  if (!redeemable) return;
+                  await auth.api.addMember({
+                    body: {
+                      userId: user.id,
+                      role: redeemable.role,
+                      organizationId: gate.organizationId,
+                    },
+                  });
+                  await consumeInviteCode(gate.client, code, {
+                    usedBy: user.id,
+                    usedByEmail: user.email,
+                  });
+                },
+              },
+            },
+          }
+        : {}),
     },
   } satisfies BetterAuthOptions;
 };
 
-const createAuthInstance = (url: string, organizationId: string) =>
-  betterAuth(makeAuthOptions(url, organizationId));
+// The invite code rides on the signup request body (`{ name, email, password,
+// inviteCode }`); Better Auth reads the body loosely, so a non-schema field
+// survives to the create hook's endpoint context.
+const inviteCodeFrom = (context: { body?: unknown }): string | undefined => {
+  const body = context.body;
+  if (body && typeof body === "object" && "inviteCode" in body) {
+    const code = (body as { inviteCode?: unknown }).inviteCode;
+    if (typeof code === "string" && code.trim().length > 0) return code;
+  }
+  return undefined;
+};
+
+// Count org members via Better Auth's OWN adapter — the SAME connection that
+// `addMember` writes through. SelfHostDb opens a SEPARATE libSQL connection
+// whose snapshot can lag Better Auth's writes (observed under Bun: a just-added
+// member is invisible to that connection for a while), so any membership read
+// that gates behaviour MUST go through here to stay consistent with the writes.
+export const countOrgMembers = (auth: Auth, organizationId: string): Promise<number> =>
+  auth.$context.then(({ adapter }) =>
+    adapter.count({ model: "member", where: [{ field: "organizationId", value: organizationId }] }),
+  );
+
+// True when the single org has no members yet — the unclaimed first-run state.
+const orgHasNoMembers = async (gate: SignupGate): Promise<boolean> => {
+  const auth = gate.getAuth();
+  if (!auth) return true;
+  return (await countOrgMembers(auth, gate.organizationId)) === 0;
+};
+
+const createAuthInstance = (url: string, organizationId: string, gate?: SignupGate) =>
+  betterAuth(makeAuthOptions(url, organizationId, gate));
 
 export type Auth = ReturnType<typeof createAuthInstance>;
 
@@ -114,15 +216,19 @@ export class BetterAuth extends Context.Service<BetterAuth, BetterAuthHandle>()(
 export const buildBetterAuth = async (url: string, client: Client): Promise<BetterAuthHandle> => {
   const config = loadConfig();
 
-  // Phase 1: bootstrap instance (placeholder org), create tables, seed.
-  // `runMigrations()` flows through the LibsqlDialect and is idempotent.
+  // Phase 1: bootstrap instance (placeholder org, NO signup gate), create
+  // tables, seed. `runMigrations()` flows through the LibsqlDialect and is
+  // idempotent; the gate-free instance lets the seed's `createUser` through.
   const bootstrap = createAuthInstance(url, "");
   await (await bootstrap.$context).runMigrations();
+  await ensureInviteCodeTable(client);
   const { organizationId, organizationName } = await seedOrgAndAdmin(bootstrap, client, config);
 
-  // Phase 2: rebuild with the real org id so the session-pin hook is correct.
-  // Migrations are already applied; this instance opens its own dialect
-  // connection to the same file.
-  const auth = createAuthInstance(url, organizationId);
+  // Phase 2: the live instance — real org id (session pin) + the signup gate.
+  // `getAuth` resolves to this very instance, so the gate's `after` hook can
+  // call `auth.api.addMember` once a code is redeemed.
+  let auth: Auth | null = null;
+  const gate: SignupGate = { client, organizationId, getAuth: () => auth };
+  auth = createAuthInstance(url, organizationId, gate);
   return { auth, organizationId, organizationName, handler: auth.handler };
 };

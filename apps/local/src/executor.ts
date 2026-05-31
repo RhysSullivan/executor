@@ -50,7 +50,7 @@ const localNamespace = "executor_local";
 // temp folder because drizzle's migrator accepts a folder path.
 const resolveMigrationsFolder = (): string => {
   if (!embeddedMigrations) {
-    return join(import.meta.dirname, "../../drizzle");
+    return join(import.meta.dirname, "../drizzle");
   }
 
   const dir = fs.mkdtempSync(join(tmpdir(), "executor-migrations-"));

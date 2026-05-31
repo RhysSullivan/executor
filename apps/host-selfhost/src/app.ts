@@ -5,6 +5,8 @@ import { Layer } from "effect";
 import { composePluginApi, ExecutorApp, textFailureStrategy } from "@executor-js/api/server";
 
 import { resolveAuthProviders } from "./auth";
+import { makeSelfHostAdminApiLayer } from "./admin/handlers";
+import { makeSelfHostSystemApiLayer } from "./system/handlers";
 import { selfHostAccountMiddleware } from "./account";
 import { loadConfig, SELF_HOST_NAMESPACE, SELF_HOST_SCHEMA_VERSION } from "./config";
 import { createSelfHostDb, SelfHostDb, SelfHostDbProvider } from "./db/self-host-db";
@@ -75,6 +77,10 @@ export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
       routes: [
         // Better Auth owns /api/auth/* — the full path reaches it unmodified.
         HttpRouter.add("*", "/api/auth/*", HttpEffect.fromWebHandler(authHandler)),
+        // App-local admin (invite-code) API, served under /api/admin/*.
+        makeSelfHostAdminApiLayer({ betterAuth, db: dbHandle, mountPrefix: "/api" }),
+        // Public system API: /api/health + /api/setup-status (unauthenticated).
+        makeSelfHostSystemApiLayer({ betterAuth, db: dbHandle, mountPrefix: "/api" }),
         // Swagger UI at /docs, over the /api-prefixed spec (matches the served paths).
         HttpApiSwagger.layer(composePluginApi(selfHostPlugins).prefix("/api"), { path: "/docs" }),
       ],

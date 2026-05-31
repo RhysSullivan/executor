@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterAll, expect, test } from "@effect/vitest";
 
+import { mintInviteCode } from "./testing/mint-invite";
+
 // Real Better Auth path with multiple accounts.
 process.env.EXECUTOR_DATA_DIR = mkdtempSync(join(tmpdir(), "eh-multi-"));
 process.env.BETTER_AUTH_SECRET = "multi-user-secret-0123456789-abcdefghij-klmn";
@@ -18,11 +20,12 @@ afterAll(() => dispose());
 const BASE = "http://localhost:4788";
 
 const signUp = async (email: string): Promise<string> => {
+  const inviteCode = await mintInviteCode(handler);
   const res = await handler(
     new Request(`${BASE}/api/auth/sign-up/email`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password: "password-12345678", name: email }),
+      body: JSON.stringify({ email, password: "password-12345678", name: email, inviteCode }),
     }),
   );
   expect(res.status).toBe(200);

@@ -25,9 +25,10 @@ export interface SelfHostConfig {
    * internal network unless an operator opts in.
    */
   readonly allowLocalNetwork: boolean;
-  // Better Auth (slice 3). authSecret is undefined unless configured; the auth
-  // layer fails loud at boot if it is needed but missing/too short.
-  readonly authSecret: string | undefined;
+  // Better Auth session secret. Always resolved (env, else generated + persisted
+  // under the data dir) so a single-container deploy boots with no env; the auth
+  // layer still validates an explicitly-set env secret is long enough.
+  readonly authSecret: string;
   readonly bootstrapAdminEmail: string | undefined;
   readonly bootstrapAdminPassword: string | undefined;
   readonly bootstrapAdminName: string;
@@ -69,6 +70,36 @@ export const resolveSecretKey = (): string => {
   return generated;
 };
 
+let cachedAuthSecret: string | undefined;
+
+/**
+ * Better Auth session secret. Prefers BETTER_AUTH_SECRET / AUTH_SECRET;
+ * otherwise generates and persists a strong random secret under the data dir on
+ * first boot (so a single-container deploy boots with no env and keeps sessions
+ * valid across restarts). Memoized; mirrors {@link resolveSecretKey}.
+ */
+export const resolveAuthSecret = (): string => {
+  if (cachedAuthSecret) return cachedAuthSecret;
+  const fromEnv = (process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET)?.trim();
+  if (fromEnv) {
+    cachedAuthSecret = fromEnv;
+    return fromEnv;
+  }
+  const keyPath = join(resolveDataDir(), "auth-secret.key");
+  if (existsSync(keyPath)) {
+    cachedAuthSecret = readFileSync(keyPath, "utf8").trim();
+    return cachedAuthSecret;
+  }
+  mkdirSync(resolveDataDir(), { recursive: true });
+  const generated = randomBytes(32).toString("base64");
+  writeFileSync(keyPath, generated, { mode: 0o600 });
+  console.warn(
+    `[executor] generated a session secret at ${keyPath}. Set BETTER_AUTH_SECRET to manage it explicitly (rotating it signs everyone out).`,
+  );
+  cachedAuthSecret = generated;
+  return generated;
+};
+
 export const loadConfig = (): SelfHostConfig => {
   const port = Number.parseInt(process.env.PORT ?? "4788", 10);
   const dataDir = resolveDataDir();
@@ -78,7 +109,7 @@ export const loadConfig = (): SelfHostConfig => {
     dbPath: process.env.EXECUTOR_DB_PATH ?? join(dataDir, "data.db"),
     webBaseUrl: process.env.EXECUTOR_WEB_BASE_URL ?? `http://localhost:${port}`,
     allowLocalNetwork: process.env.EXECUTOR_ALLOW_LOCAL_NETWORK === "true",
-    authSecret: process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET,
+    authSecret: resolveAuthSecret(),
     bootstrapAdminEmail: process.env.EXECUTOR_BOOTSTRAP_ADMIN_EMAIL,
     bootstrapAdminPassword: process.env.EXECUTOR_BOOTSTRAP_ADMIN_PASSWORD,
     bootstrapAdminName: process.env.EXECUTOR_BOOTSTRAP_ADMIN_NAME ?? "Admin",

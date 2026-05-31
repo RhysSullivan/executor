@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterAll, expect, test } from "@effect/vitest";
 
+import { mintInviteCode } from "../testing/mint-invite";
+
 process.env.EXECUTOR_DATA_DIR = mkdtempSync(join(tmpdir(), "eh-mcp-"));
 process.env.BETTER_AUTH_SECRET = "mcp-test-secret-0123456789-abcdefghij-klmnop";
 process.env.EXECUTOR_BOOTSTRAP_ADMIN_EMAIL = "admin@mcp.test";
@@ -17,11 +19,12 @@ afterAll(() => dispose());
 const BASE = "http://localhost:4788";
 
 const signUp = async (email: string): Promise<string> => {
+  const inviteCode = await mintInviteCode(handler);
   const res = await handler(
     new Request(`${BASE}/api/auth/sign-up/email`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password: "password-12345678", name: email }),
+      body: JSON.stringify({ email, password: "password-12345678", name: email, inviteCode }),
     }),
   );
   expect(res.status).toBe(200);

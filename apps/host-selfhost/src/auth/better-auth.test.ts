@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterAll, expect, test } from "@effect/vitest";
 
+import { mintInviteCode } from "../testing/mint-invite";
+
 // Real Better Auth path: set a secret + bootstrap admin before importing.
 process.env.EXECUTOR_DATA_DIR = mkdtempSync(join(tmpdir(), "eh-auth-"));
 process.env.BETTER_AUTH_SECRET = "test-secret-0123456789-abcdefghijklmnop-qrstuv";
@@ -50,6 +52,7 @@ test("migrations create both the Better Auth and FumaDB executor schema regions"
 });
 
 test("sign-up issues a bearer token and resolves to a per-user org-pinned scope", async () => {
+  const inviteCode = await mintInviteCode(handler);
   const signUp = await handler(
     new Request(`${BASE}/api/auth/sign-up/email`, {
       method: "POST",
@@ -58,6 +61,7 @@ test("sign-up issues a bearer token and resolves to a per-user org-pinned scope"
         email: "member@test.local",
         password: "member-password-123",
         name: "Member",
+        inviteCode,
       }),
     }),
   );

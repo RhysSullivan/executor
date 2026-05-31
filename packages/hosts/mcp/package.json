@@ -11,6 +11,10 @@
     "./tool-server": {
       "types": "./src/tool-server.ts",
       "default": "./src/tool-server.ts"
+    },
+    "./in-memory-session-store": {
+      "types": "./src/in-memory-session-store.ts",
+      "default": "./src/in-memory-session-store.ts"
     }
   },
   "scripts": {

@@ -10,7 +10,7 @@
 #     -v executor-data:/data executor-selfhost
 #
 # SQLite (libSQL, file:/data/...) lives in /data, QuickJS + MCP run in-process —
-# so unlike windmill there's no postgres/worker/proxy to orchestrate.
+# so there's no postgres/worker/proxy to orchestrate.
 
 # ── Build stage: install the workspace + build the SPA ──────────────────────
 FROM oven/bun:1 AS build
@@ -34,6 +34,9 @@ WORKDIR /app/apps/host-selfhost
 RUN mkdir -p /data
 VOLUME ["/data"]
 EXPOSE 4788
+# Readiness probe against the public /api/health endpoint (a trivial DB ping).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+  CMD bun -e "fetch('http://127.0.0.1:4788/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 # serve.ts binds the Effect AppLayer (API + /mcp + /api/auth + /docs) and serves
 # the built SPA from ./dist — one process.
 CMD ["bun", "run", "src/serve.ts"]
