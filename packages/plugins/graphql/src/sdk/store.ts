@@ -2,7 +2,6 @@ import { Effect, Option, Predicate, Schema } from "effect";
 
 import {
   ConfiguredCredentialBinding,
-  type FumaTables,
   type PluginStorageEntry,
   type StorageDeps,
   type StorageFailure,
@@ -13,9 +12,6 @@ import {
   OperationBinding,
   type ConfiguredGraphqlCredentialValue,
 } from "./types";
-
-export const graphqlSchema = {} satisfies FumaTables;
-export type GraphqlSchema = typeof graphqlSchema;
 
 export interface StoredGraphqlSource {
   readonly namespace: string;
@@ -177,9 +173,7 @@ export interface GraphqlStore {
   readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 }
 
-export const makeDefaultGraphqlStore = ({
-  pluginStorage,
-}: StorageDeps<GraphqlSchema>): GraphqlStore => {
+export const makeDefaultGraphqlStore = ({ pluginStorage }: StorageDeps): GraphqlStore => {
   const listOperationRowsForSourceScope = (sourceId: string, scope: string) =>
     pluginStorage
       .list({

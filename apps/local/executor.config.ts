@@ -10,8 +10,8 @@ import { desktopSettingsPlugin } from "@executor-js/plugin-desktop-settings/serv
 // ---------------------------------------------------------------------------
 // Single source of truth for the local app's plugin list.
 //
-// Consumed by the host runtime. The runtime passes the merged plugin tables
-// to FumaDB directly; there is no separate Executor schema-generation step.
+// Consumed by the host runtime. Executor owns the storage tables; plugins use
+// host-provided storage facades instead of contributing schema.
 //
 // First-party and third-party plugins use the same import-and-call flow.
 // ---------------------------------------------------------------------------

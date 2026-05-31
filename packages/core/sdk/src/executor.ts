@@ -32,11 +32,13 @@ import { makeFumaBlobStore, pluginBlobStore } from "./blob";
 import { coreToolsPlugin } from "./core-tools";
 import {
   ConnectionProviderState,
+  ConnectionIdentityOverride,
   ConnectionRef,
   ConnectionRefreshError,
   type ConnectionProvider,
   type ConnectionRefreshResult,
   type CreateConnectionInput,
+  type UpdateConnectionIdentityInput,
   type RemoveConnectionInput,
   type UpdateConnectionTokensInput,
 } from "./connections";
@@ -120,8 +122,13 @@ import type {
 } from "./plugin";
 import {
   pluginStorageId,
+  type PluginStorageCollectionData,
+  type PluginStorageCollectionDefinition,
+  type PluginStorageCollectionQueryInput,
   type PluginStorageEntry,
   type PluginStorageFacade,
+  type PluginStorageRuntimeCollectionDefinition,
+  type PluginStorageRuntimeIndexSpec,
 } from "./plugin-storage";
 import type { Scope } from "./scope";
 import { RemoveSecretInput, SecretRef, SetSecretInput, type SecretProvider } from "./secrets";
@@ -308,10 +315,13 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
     readonly updateTokens: (
       input: UpdateConnectionTokensInput,
     ) => Effect.Effect<ConnectionRef, ConnectionNotFoundError | StorageFailure>;
-    readonly setConnectionLabel: (
+    readonly setIdentityLabel: (
       id: string,
       label: string | null,
     ) => Effect.Effect<void, ConnectionNotFoundError | StorageFailure>;
+    readonly setIdentityOverride: (
+      input: UpdateConnectionIdentityInput,
+    ) => Effect.Effect<ConnectionRef, ConnectionNotFoundError | StorageFailure>;
     readonly accessToken: (
       id: string,
     ) => Effect.Effect<
@@ -435,31 +445,14 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
 }
 
 // ---------------------------------------------------------------------------
-// collectTables — merge core tables with every plugin's declared Fuma table.
-// Hosts pass the result to FumaDB when constructing the database client.
+// collectTables — return the executor-owned Fuma table set. Plugins persist
+// through host-owned facades (`pluginStorage`, `blobs`) instead of contributing
+// table definitions.
 // ---------------------------------------------------------------------------
 
-export const collectTables = (plugins: readonly AnyPlugin[]): FumaTables => {
-  const merged: FumaTables = { ...coreSchema };
-  for (const plugin of plugins) {
-    if (!plugin.schema) continue;
-    for (const [tableKey, tableDef] of Object.entries(plugin.schema)) {
-      if (merged[tableKey]) {
-        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: collectTables is a synchronous configuration API
-        throw new StorageError({
-          message:
-            `Duplicate storage table "${tableKey}" contributed by plugin "${plugin.id}"` +
-            ` (reserved by core or another plugin)`,
-          cause: undefined,
-        });
-      }
-      merged[tableKey] = tableDef as FumaTables[string];
-    }
-  }
-
-  validateExecutorScopePolicyTables(merged);
-
-  return merged;
+export const collectTables = (_plugins: readonly AnyPlugin[]): FumaTables => {
+  validateExecutorScopePolicyTables(coreSchema);
+  return { ...coreSchema };
 };
 
 const validateExecutorScopePolicyTables = (tables: FumaTables): void => {
@@ -512,7 +505,7 @@ const createDefaultMemoryDb = (tables: FumaTables): ExecutorDb => {
 // Row → public projection conversions
 // ---------------------------------------------------------------------------
 
-const rowToSource = (row: SourceRow): Source => ({
+const rowToSource = (row: SourceRow, connectionIds: readonly string[] = []): Source => ({
   id: row.id,
   scopeId: row.scope_id,
   kind: row.kind,
@@ -522,6 +515,7 @@ const rowToSource = (row: SourceRow): Source => ({
   canRemove: Boolean(row.can_remove),
   canRefresh: Boolean(row.can_refresh),
   canEdit: Boolean(row.can_edit),
+  connectionIds,
   runtime: false,
 });
 
@@ -535,6 +529,7 @@ const staticDeclToSource = (decl: StaticSourceDecl, pluginId: string): Source =>
   canRemove: decl.canRemove ?? false,
   canRefresh: decl.canRefresh ?? false,
   canEdit: decl.canEdit ?? false,
+  connectionIds: [],
   runtime: true,
 });
 
@@ -547,6 +542,7 @@ const decodeJsonColumn = (value: unknown): unknown => {
 };
 
 const decodeProviderState = Schema.decodeUnknownOption(ConnectionProviderState);
+const decodeConnectionIdentityOverride = Schema.decodeUnknownOption(ConnectionIdentityOverride);
 
 const rowToTool = (row: ToolRow, annotations?: ToolAnnotations): ToolView => ({
   id: row.id,
@@ -823,6 +819,108 @@ const pluginStorageEntryFromRow = <T>(row: CoreRow<"plugin_storage">): PluginSto
   updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
 });
 
+const pluginStorageIndexSpecFields = (spec: PluginStorageRuntimeIndexSpec): readonly string[] =>
+  typeof spec === "string" ? [spec] : spec;
+
+const pluginStorageCollectionIndexedFields = (
+  definition: PluginStorageRuntimeCollectionDefinition,
+): ReadonlySet<string> =>
+  new Set(definition.indexes.flatMap((spec) => pluginStorageIndexSpecFields(spec)));
+
+const pluginStorageQueryValidationError = (
+  definition: PluginStorageRuntimeCollectionDefinition,
+  query: PluginStorageCollectionQueryInput<PluginStorageCollectionDefinition> | undefined,
+): StorageError | null => {
+  if (!query) return null;
+
+  const indexedFields = pluginStorageCollectionIndexedFields(definition);
+  const fields = new Set<string>([
+    ...Object.keys(query.where ?? {}),
+    ...(query.orderBy ?? []).map((order) => order.field),
+  ]);
+  for (const field of fields) {
+    if (!indexedFields.has(field)) {
+      return new StorageError({
+        message: `Plugin storage collection "${definition.name}" cannot query field "${field}" because it is not declared as an index`,
+        cause: undefined,
+      });
+    }
+  }
+
+  if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 0)) {
+    return new StorageError({
+      message: `Plugin storage collection "${definition.name}" received an invalid query limit`,
+      cause: undefined,
+    });
+  }
+  if (query.offset !== undefined && (!Number.isInteger(query.offset) || query.offset < 0)) {
+    return new StorageError({
+      message: `Plugin storage collection "${definition.name}" received an invalid query offset`,
+      cause: undefined,
+    });
+  }
+
+  return null;
+};
+
+const isPluginStorageRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const pluginStorageWhereOperators = ["eq", "in", "gt", "gte", "lt", "lte"] as const;
+
+const isPluginStorageWhereFilter = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  isPluginStorageRecord(value) && pluginStorageWhereOperators.some((operator) => operator in value);
+
+const pluginStorageComparableValue = (value: unknown): string | number | boolean | null => {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (value == null) return null;
+  return JSON.stringify(value);
+};
+
+const comparePluginStorageValues = (left: unknown, right: unknown): number => {
+  const leftValue = pluginStorageComparableValue(left);
+  const rightValue = pluginStorageComparableValue(right);
+  if (leftValue === rightValue) return 0;
+  if (leftValue === null) return -1;
+  if (rightValue === null) return 1;
+  if (typeof leftValue === "number" && typeof rightValue === "number") {
+    return leftValue - rightValue;
+  }
+  return String(leftValue).localeCompare(String(rightValue));
+};
+
+const pluginStorageDataField = (data: unknown, field: string): unknown =>
+  isPluginStorageRecord(data) ? data[field] : undefined;
+
+const matchesPluginStorageWhereValue = (actual: unknown, expected: unknown): boolean => {
+  if (!isPluginStorageWhereFilter(expected)) return Object.is(actual, expected);
+
+  if ("eq" in expected && !Object.is(actual, expected.eq)) return false;
+  if ("in" in expected) {
+    const values = expected.in;
+    if (!Array.isArray(values) || !values.some((value) => Object.is(actual, value))) return false;
+  }
+  if ("gt" in expected && !(comparePluginStorageValues(actual, expected.gt) > 0)) return false;
+  if ("gte" in expected && !(comparePluginStorageValues(actual, expected.gte) >= 0)) return false;
+  if ("lt" in expected && !(comparePluginStorageValues(actual, expected.lt) < 0)) return false;
+  if ("lte" in expected && !(comparePluginStorageValues(actual, expected.lte) <= 0)) return false;
+
+  return true;
+};
+
+const rowMatchesPluginStorageWhere = (
+  row: CoreRow<"plugin_storage">,
+  where: Readonly<Record<string, unknown>> | undefined,
+): boolean => {
+  if (!where) return true;
+  return Object.entries(where).every(([field, expected]) =>
+    matchesPluginStorageWhereValue(pluginStorageDataField(row.data, field), expected),
+  );
+};
+
 const makePluginStorageFacade = (input: {
   readonly core: ReturnType<typeof makeCoreDb>;
   readonly pluginId: string;
@@ -850,7 +948,158 @@ const makePluginStorageFacade = (input: {
       .pipe(Effect.map((rows) => sortByScopePrecedence(rows)[0] ?? null))
       .pipe(Effect.map((row) => (row ? pluginStorageEntryFromRow<T>(row) : null)));
 
+  const queryCollection = <TDefinition extends PluginStorageCollectionDefinition>(
+    definition: TDefinition,
+    queryInput?: PluginStorageCollectionQueryInput<TDefinition>,
+  ) =>
+    Effect.gen(function* () {
+      const validationError = pluginStorageQueryValidationError(
+        definition,
+        queryInput as
+          | PluginStorageCollectionQueryInput<PluginStorageCollectionDefinition>
+          | undefined,
+      );
+      if (validationError) return yield* validationError;
+
+      const rows = yield* input.core.findMany("plugin_storage", {
+        where: whereFor(definition.name),
+      });
+      const filtered = sortByScopePrecedence(rows)
+        .filter((row) =>
+          queryInput?.keyPrefix === undefined ? true : row.key.startsWith(queryInput.keyPrefix),
+        )
+        .filter((row) =>
+          rowMatchesPluginStorageWhere(
+            row,
+            queryInput?.where as Readonly<Record<string, unknown>> | undefined,
+          ),
+        );
+
+      const sorted =
+        queryInput?.orderBy && queryInput.orderBy.length > 0
+          ? [...filtered].sort((left, right) => {
+              for (const order of queryInput.orderBy ?? []) {
+                const direction = order.direction === "desc" ? -1 : 1;
+                const compared =
+                  comparePluginStorageValues(
+                    pluginStorageDataField(left.data, order.field),
+                    pluginStorageDataField(right.data, order.field),
+                  ) * direction;
+                if (compared !== 0) return compared;
+              }
+              return (
+                input.scopeIds.indexOf(left.scope_id) - input.scopeIds.indexOf(right.scope_id) ||
+                left.key.localeCompare(right.key)
+              );
+            })
+          : filtered;
+
+      const offset = queryInput?.offset ?? 0;
+      const limited =
+        queryInput?.limit === undefined
+          ? sorted.slice(offset)
+          : sorted.slice(offset, offset + queryInput.limit);
+      return limited.map((row) =>
+        pluginStorageEntryFromRow<PluginStorageCollectionData<TDefinition>>(row),
+      );
+    });
+
   return {
+    collection: (definition) => ({
+      get: (storageInput) =>
+        getVisible(definition.name, storageInput.key) as Effect.Effect<
+          PluginStorageEntry<PluginStorageCollectionData<typeof definition>> | null,
+          StorageFailure
+        >,
+      getAtScope: (storageInput) =>
+        input.core
+          .findFirst("plugin_storage", {
+            where: byScopedId(
+              storageInput.scope,
+              pluginStorageId({
+                pluginId: input.pluginId,
+                collection: definition.name,
+                key: storageInput.key,
+              }),
+            ),
+          })
+          .pipe(
+            Effect.map((row) =>
+              row
+                ? pluginStorageEntryFromRow<PluginStorageCollectionData<typeof definition>>(row)
+                : null,
+            ),
+          ),
+      list: (storageInput) =>
+        queryCollection(definition, {
+          keyPrefix: storageInput?.keyPrefix,
+        }),
+      put: (storageInput) =>
+        Effect.gen(function* () {
+          if (!input.scopeIds.includes(storageInput.scope)) {
+            return yield* new StorageError({
+              message: `Unknown plugin storage target scope: ${storageInput.scope}`,
+              cause: undefined,
+            });
+          }
+          const row = yield* input.core.findFirst("plugin_storage", {
+            where: byScopedId(
+              storageInput.scope,
+              pluginStorageId({
+                pluginId: input.pluginId,
+                collection: definition.name,
+                key: storageInput.key,
+              }),
+            ),
+          });
+          if (row) {
+            const now = new Date();
+            yield* input.core.updateMany("plugin_storage", {
+              where: byScopedId(storageInput.scope, row.id),
+              set: {
+                data: storageInput.data,
+                updated_at: now,
+              },
+            });
+            return pluginStorageEntryFromRow({
+              ...row,
+              data: storageInput.data,
+              updated_at: now,
+            });
+          }
+
+          const now = new Date();
+          const created = yield* input.core.create("plugin_storage", {
+            id: pluginStorageId({
+              pluginId: input.pluginId,
+              collection: definition.name,
+              key: storageInput.key,
+            }),
+            scope_id: storageInput.scope,
+            plugin_id: input.pluginId,
+            collection: definition.name,
+            key: storageInput.key,
+            data: storageInput.data,
+            created_at: now,
+            updated_at: now,
+          });
+          return pluginStorageEntryFromRow(created);
+        }),
+      query: (queryInput) => queryCollection(definition, queryInput),
+      count: (queryInput) =>
+        queryCollection(definition, queryInput).pipe(Effect.map((entries) => entries.length)),
+      remove: (storageInput) =>
+        input.core.deleteMany("plugin_storage", {
+          where: byScopedId(
+            storageInput.scope,
+            pluginStorageId({
+              pluginId: input.pluginId,
+              collection: definition.name,
+              key: storageInput.key,
+            }),
+          ),
+        }),
+    }),
     get: (storageInput) => getVisible(storageInput.collection, storageInput.key),
     getAtScope: (storageInput) =>
       input.core
@@ -1762,6 +2011,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         expiresAt: row.expires_at != null ? Number(row.expires_at) : null,
         oauthScope: row.scope ?? null,
         providerState: Option.getOrNull(decodeProviderState(decodeJsonColumn(row.provider_state))),
+        identityOverride: Option.getOrNull(
+          decodeConnectionIdentityOverride(decodeJsonColumn(row.identity_override)),
+        ),
         createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
         updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
       });
@@ -1937,6 +2189,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               expires_at: input.expiresAt ?? null,
               scope: input.oauthScope ?? null,
               provider_state: input.providerState ?? null,
+              identity_override: null,
               created_at: now,
               updated_at: now,
             });
@@ -1951,6 +2204,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               expiresAt: input.expiresAt,
               oauthScope: input.oauthScope,
               providerState: input.providerState,
+              identityOverride: null,
               createdAt: now,
               updatedAt: now,
             });
@@ -2030,7 +2284,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         return yield* connectionsUpdateTokensForRow(input, row);
       });
 
-    const connectionsSetConnectionLabel = (
+    const connectionsSetIdentityLabel = (
       id: string,
       label: string | null,
     ): Effect.Effect<void, ConnectionNotFoundError | StorageFailure> =>
@@ -2048,6 +2302,39 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             updated_at: new Date(),
           },
         });
+      });
+
+    const connectionsSetIdentityOverride = (
+      input: UpdateConnectionIdentityInput,
+    ): Effect.Effect<ConnectionRef, ConnectionNotFoundError | StorageFailure> =>
+      Effect.gen(function* () {
+        yield* assertScopeInStack("connection identity targetScope", input.targetScope);
+        const row = yield* findConnectionRowAtScope({
+          connectionId: input.id,
+          scopeId: input.targetScope,
+        });
+        if (!row) {
+          return yield* new ConnectionNotFoundError({
+            connectionId: input.id,
+          });
+        }
+        yield* core.updateMany("connection", {
+          where: byScopedId(input.targetScope, input.id),
+          set: {
+            identity_override: input.identityOverride,
+            updated_at: new Date(),
+          },
+        });
+        const updated = yield* findConnectionRowAtScope({
+          connectionId: input.id,
+          scopeId: input.targetScope,
+        });
+        if (!updated) {
+          return yield* new ConnectionNotFoundError({
+            connectionId: input.id,
+          });
+        }
+        return rowToConnection(updated);
       });
 
     const connectionsRemove = (
@@ -3044,10 +3331,6 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         });
       }
 
-      const pluginFuma = makeFumaClient(
-        rootDb,
-        plugin.schema ? { tables: new Set(Object.keys(plugin.schema)) } : { tables: new Set() },
-      );
       const pluginStorage = makePluginStorageFacade({
         core,
         pluginId: plugin.id,
@@ -3055,7 +3338,6 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       });
       const storageDeps: StorageDeps = {
         scopes,
-        fuma: pluginFuma,
         // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
         // sharing a backing BlobStore can't collide or leak on the
         // same `(plugin, key)` pair. The store's `get`/`has` walk the
@@ -3179,7 +3461,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             Effect.sync(() => Array.from(connectionProviders.keys()) as readonly string[]),
           create: (input) => connectionsCreate(input),
           updateTokens: (input) => connectionsUpdateTokens(input),
-          setConnectionLabel: (id, label) => connectionsSetConnectionLabel(id, label),
+          setIdentityLabel: (id, label) => connectionsSetIdentityLabel(id, label),
+          setIdentityOverride: (input) => connectionsSetIdentityOverride(input),
           accessToken: (id) => connectionsAccessToken(id),
           accessTokenAtScope: (id, scope) => connectionsAccessTokenAtScope(id, scope),
           remove: (input) => connectionsRemove(input),
@@ -3319,11 +3602,32 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           }
         }
         const dynamicDeduped = [...byId.values()];
+        const sourceKeys = new Set(dynamicDeduped.map((row) => `${row.scope_id}\u0000${row.id}`));
+        const sourceConnectionIds = new Map<string, string[]>();
+        if (sourceKeys.size > 0) {
+          const bindingRows = yield* core.findMany("credential_binding", {
+            where: scopedWhere(scopeIds, (b) => b("kind", "=", "connection")),
+          });
+          for (const row of bindingRows as readonly CredentialBindingRow[]) {
+            if (!row.connection_id) continue;
+            const key = `${String(row.source_scope_id)}\u0000${String(row.source_id)}`;
+            if (!sourceKeys.has(key)) continue;
+            const connectionId = String(row.connection_id);
+            const values = sourceConnectionIds.get(key) ?? [];
+            if (!values.includes(connectionId)) values.push(connectionId);
+            sourceConnectionIds.set(key, values);
+          }
+        }
         const staticList: Source[] = [];
         for (const { source, pluginId } of staticSources.values()) {
           staticList.push(staticDeclToSource(source, pluginId));
         }
-        const merged = [...staticList, ...dynamicDeduped.map(rowToSource)];
+        const merged = [
+          ...staticList,
+          ...dynamicDeduped.map((row) =>
+            rowToSource(row, sourceConnectionIds.get(`${row.scope_id}\u0000${row.id}`) ?? []),
+          ),
+        ];
         yield* Effect.annotateCurrentSpan({
           "executor.sources.static_count": staticList.length,
           "executor.sources.dynamic_count": dynamicDeduped.length,
@@ -4203,7 +4507,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         list: connectionsList,
         create: connectionsCreate,
         updateTokens: connectionsUpdateTokens,
-        setConnectionLabel: connectionsSetConnectionLabel,
+        setIdentityLabel: connectionsSetIdentityLabel,
+        setIdentityOverride: connectionsSetIdentityOverride,
         accessToken: connectionsAccessToken,
         accessTokenAtScope: connectionsAccessTokenAtScope,
         remove: connectionsRemove,

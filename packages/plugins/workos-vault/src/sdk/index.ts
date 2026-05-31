@@ -18,9 +18,7 @@ export {
   defaultWorkOSVaultContextForScope,
   makeWorkOSVaultSecretProvider,
   makeWorkosVaultStore,
-  workosVaultSchema,
   type WorkOSVaultContextForScope,
   type WorkOSVaultSecretProviderOptions,
-  type WorkosVaultSchema,
   type WorkosVaultStore,
 } from "./secret-store";

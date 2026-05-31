@@ -3,7 +3,7 @@ import type { Context, Layer } from "effect";
 import type { HttpClient } from "effect/unstable/http";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
-import type { FumaTables, IFumaClient, StorageFailure, TablesToFumaSchema } from "./fuma-runtime";
+import type { StorageFailure } from "./fuma-runtime";
 
 import type { PluginBlobStore } from "./blob";
 import type {
@@ -12,6 +12,7 @@ import type {
   ConnectionRefreshError,
   CreateConnectionInput,
   RemoveConnectionInput,
+  UpdateConnectionIdentityInput,
   UpdateConnectionTokensInput,
 } from "./connections";
 import type {
@@ -42,7 +43,7 @@ import type {
   SourceRemovalNotAllowedError,
 } from "./errors";
 import type { OAuthService } from "./oauth";
-import type { PluginStorageFacade } from "./plugin-storage";
+import type { PluginStorageConfig, PluginStorageFacade } from "./plugin-storage";
 import type {
   CreateToolPolicyInput,
   RemoveToolPolicyInput,
@@ -55,12 +56,11 @@ import type { Usage, UsagesForConnectionInput, UsagesForSecretInput } from "./us
 
 // ---------------------------------------------------------------------------
 // StorageDeps — backing passed to a plugin's `storage` factory. Plugins see
-// FumaDB through the Effect boundary, narrowed to their declared tables. Scope
-// behavior is domain code, not hidden adapter behavior: reads should include
-// `scopedWhere(...)` and writes stamp an explicit `scope_id`.
+// host-owned storage facades only. Scope behavior is domain code, not hidden
+// adapter behavior: writes name their target scope through facade inputs.
 // ---------------------------------------------------------------------------
 
-export interface StorageDeps<TTables extends FumaTables | undefined = FumaTables> {
+export interface StorageDeps {
   /**
    * Precedence-ordered scope stack visible to this executor. Innermost
    * first. Reads on scoped tables walk every scope; writes require the
@@ -68,8 +68,6 @@ export interface StorageDeps<TTables extends FumaTables | undefined = FumaTables
    * row payload, via `options.scope` on the blob store).
    */
   readonly scopes: readonly Scope[];
-  /** Plugin-facing FumaDB query boundary. */
-  readonly fuma: IFumaClient<TablesToFumaSchema<TTables>>;
   readonly blobs: PluginBlobStore;
   readonly pluginStorage: PluginStorageFacade;
 }
@@ -228,10 +226,13 @@ export interface PluginCtx<TStore = unknown> {
     readonly updateTokens: (
       input: UpdateConnectionTokensInput,
     ) => Effect.Effect<ConnectionRef, ConnectionNotFoundError | StorageFailure>;
-    readonly setConnectionLabel: (
+    readonly setIdentityLabel: (
       id: string,
       label: string | null,
     ) => Effect.Effect<void, ConnectionNotFoundError | StorageFailure>;
+    readonly setIdentityOverride: (
+      input: UpdateConnectionIdentityInput,
+    ) => Effect.Effect<ConnectionRef, ConnectionNotFoundError | StorageFailure>;
     /** Get a guaranteed-fresh access token. Calls the provider's
      *  `refresh` handler if `expires_at` is in the past / within the
      *  refresh skew window. */
@@ -466,8 +467,8 @@ export interface SourcePresetCatalogEntry extends SourcePreset {
 // ---------------------------------------------------------------------------
 
 // Defaults are `any` for slots that surface in contravariant positions
-// (storage/extension callbacks consume `TStore`/`TSchema`; `staticSources`
-// closes over `TExtension` via `NoInfer`). `any` is bivariant, so
+// (storage/extension callbacks consume `TStore`; `staticSources` closes
+// over `TExtension` via `NoInfer`). `any` is bivariant, so
 // `Plugin<string>` is a structural supertype of every concrete plugin
 // — `AnyPlugin = Plugin<string>` keeps the generic explosion contained
 // to this single declaration. Concrete specs ignore the defaults; TS
@@ -480,8 +481,6 @@ export interface PluginSpec<
   TExtension extends object = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TStore = any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TSchema extends FumaTables | undefined = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TExtensionService extends Context.Service<any, any> | undefined = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -497,16 +496,16 @@ export interface PluginSpec<
    *  plugins that ship a `./client` entry; can be omitted for SDK-only
    *  plugins (no client bundle = nothing to resolve). */
   readonly packageName?: string;
-  /** Plugin-declared schema. Merged with coreSchema and other plugins'
-   *  tables at executor startup via `collectTables`. The type flows
-   *  into the `storage` factory's `deps.fuma` as a FumaDB query boundary so
-   *  plugins get narrowed table names + typed rows for free. */
-  readonly schema?: TSchema;
-  /** Build the plugin's typed store from backing. `deps.fuma` is
-   *  already narrowed to this plugin's tables; `deps.blobs` is already
-   *  scoped to the plugin id so key collisions across plugins are
-   *  structurally impossible. */
-  readonly storage: (deps: StorageDeps<TSchema>) => TStore;
+  /** Build the plugin's typed store from host-owned backing. `deps.blobs`
+   *  and `deps.pluginStorage` are scoped to the plugin id so key collisions
+   *  across plugins are structurally impossible. */
+  readonly storage: (deps: StorageDeps) => TStore;
+
+  /** Host-owned plugin storage declarations. Plugins declare logical
+   *  collections and indexed JSON fields here; data still lives in the
+   *  executor's shared `plugin_storage` table instead of per-plugin
+   *  adapter schemas. */
+  readonly pluginStorage?: PluginStorageConfig;
 
   /** JSON-serializable config the plugin wants its `./client` bundle to
    *  see. The Vite plugin reads this off each `executor.config.ts` spec
@@ -700,13 +699,11 @@ export interface Plugin<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TStore = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TSchema extends FumaTables | undefined = any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TExtensionService extends Context.Service<any, any> | undefined = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   THandlersLayer extends Layer.Layer<any, any, any> = any,
   TGroup extends HttpApiGroup.Any = HttpApiGroup.Any,
-> extends PluginSpec<TId, TExtension, TStore, TSchema, TExtensionService, THandlersLayer, TGroup> {}
+> extends PluginSpec<TId, TExtension, TStore, TExtensionService, THandlersLayer, TGroup> {}
 
 // ---------------------------------------------------------------------------
 // definePlugin — factory-returning-spec. Options from the author factory
@@ -719,7 +716,6 @@ export type ConfiguredPlugin<
   TExtension extends object,
   TStore,
   TOptions extends object,
-  TSchema extends FumaTables | undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TExtensionService extends Context.Service<any, any> | undefined = undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -727,16 +723,15 @@ export type ConfiguredPlugin<
   TGroup extends HttpApiGroup.Any = HttpApiGroup.Any,
 > = (
   options?: TOptions & {
-    readonly storage?: (deps: StorageDeps<TSchema>) => TStore;
+    readonly storage?: (deps: StorageDeps) => TStore;
   },
-) => Plugin<TId, TExtension, TStore, TSchema, TExtensionService, THandlersLayer, TGroup>;
+) => Plugin<TId, TExtension, TStore, TExtensionService, THandlersLayer, TGroup>;
 
 // eslint-disable-next-line @typescript-eslint/ban-types
 export function definePlugin<
   TId extends string,
   TExtension extends object,
   TStore,
-  TSchema extends FumaTables | undefined = undefined,
   TOptions extends object = {},
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TExtensionService extends Context.Service<any, any> | undefined = undefined,
@@ -746,23 +741,14 @@ export function definePlugin<
 >(
   authorFactory: (
     options?: TOptions,
-  ) => PluginSpec<TId, TExtension, TStore, TSchema, TExtensionService, THandlersLayer, TGroup>,
-): ConfiguredPlugin<
-  TId,
-  TExtension,
-  TStore,
-  TOptions,
-  TSchema,
-  TExtensionService,
-  THandlersLayer,
-  TGroup
-> {
+  ) => PluginSpec<TId, TExtension, TStore, TExtensionService, THandlersLayer, TGroup>,
+): ConfiguredPlugin<TId, TExtension, TStore, TOptions, TExtensionService, THandlersLayer, TGroup> {
   return (options) => {
     const {
       storage: storageOverride,
       ...rest
     }: {
-      storage?: (deps: StorageDeps<TSchema>) => TStore;
+      storage?: (deps: StorageDeps) => TStore;
       [key: string]: unknown;
     } = options ?? {};
 

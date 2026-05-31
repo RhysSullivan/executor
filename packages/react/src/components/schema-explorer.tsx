@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { ChevronRight } from "lucide-react";
+import * as Option from "effect/Option";
 import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
 
 // ---------------------------------------------------------------------------
@@ -19,8 +20,8 @@ type JsonSchema = {
   const?: unknown;
   $ref?: string;
   $defs?: Record<string, JsonSchema>;
-  description?: string;
-  title?: string;
+  description?: SchemaText;
+  title?: SchemaText;
   default?: unknown;
   nullable?: boolean;
   format?: string;
@@ -35,6 +36,16 @@ export const safeSchemaValueLabel = (value: unknown): string => {
   } catch {
     return "[unavailable]";
   }
+};
+
+type SchemaText = string | Option.Option<string>;
+
+const schemaText = (value: SchemaText | undefined): string | undefined => {
+  if (typeof value === "string") return value;
+  if (Option.isOption(value) && Option.isSome(value)) {
+    return value.value;
+  }
+  return undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -181,8 +192,8 @@ const mergeAllOf = (schemas: JsonSchema[], root: JsonSchema): JsonSchema => {
     if (resolved.required) {
       merged.required = [...(merged.required ?? []), ...resolved.required];
     }
-    if (resolved.description && !merged.description) {
-      merged.description = resolved.description;
+    if (schemaText(resolved.description) && !schemaText(merged.description)) {
+      merged.description = schemaText(resolved.description);
     }
   }
   return merged;
@@ -215,7 +226,8 @@ function PropertyRow(props: {
   const expandable = isExpandable(schema, root);
   const typeLabel = getTypeLabel(schema, root);
   const description =
-    schema.description ?? (schema.$ref ? resolveRef(schema.$ref, root)?.description : undefined);
+    schemaText(schema.description) ??
+    (schema.$ref ? schemaText(resolveRef(schema.$ref, root)?.description) : undefined);
 
   const handleToggle = useCallback(() => {
     if (!open && !resolved && schema.$ref) {
@@ -373,7 +385,7 @@ function PropertyChildren(props: { schema: JsonSchema; root: JsonSchema; depth: 
           {variants.map((variant, i) => (
             <PropertyRow
               key={i}
-              name={variant.title ?? `option ${i + 1}`}
+              name={schemaText(variant.title) ?? `option ${i + 1}`}
               schema={variant}
               root={root}
               required={false}

@@ -15,6 +15,7 @@ export {
   SecretResolutionError,
   SecretOwnedByConnectionError,
   SecretInUseError,
+  ConnectionNotFoundError,
   ConnectionInUseError,
 } from "./errors";
 
@@ -57,18 +58,40 @@ export {
 } from "./credential-bindings";
 
 export {
+  definePluginStorageCollection,
   pluginStorageId,
+  type PluginStorageCollectionDefinition,
+  type PluginStorageCollectionFacade,
+  type PluginStorageCollectionIndexedField,
+  type PluginStorageCollectionKeyInput,
+  type PluginStorageCollectionListInput,
+  type PluginStorageCollectionOrderBy,
+  type PluginStorageCollectionPutInput,
+  type PluginStorageCollectionQueryInput,
+  type PluginStorageCollectionScopedKeyInput,
+  type PluginStorageCollectionWhere,
+  type PluginStorageConfig,
   type PluginStorageEntry,
   type PluginStorageFacade,
+  type PluginStorageIndexField,
+  type PluginStorageIndexSpec,
   type PluginStorageKeyInput,
   type PluginStorageListInput,
   type PluginStoragePutInput,
+  type PluginStorageRuntimeCollectionDefinition,
+  type PluginStorageRuntimeIndexSpec,
+  type PluginStorageSchema,
+  type PluginStorageSchemaType,
   type PluginStorageScopedKeyInput,
+  type PluginStorageWhereFilter,
+  type PluginStorageWhereValue,
 } from "./plugin-storage";
 
 export { SourceDetectionResult, type Source } from "./types";
 
 export { Usage } from "./usages";
+
+export { ConnectionIdentityOverride, UpdateConnectionIdentityInput } from "./connections";
 
 export {
   DEFAULT_EXECUTOR_SERVER_ORIGIN,

@@ -7,9 +7,10 @@ import {
 } from "@executor-js/sdk/shared";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Effect from "effect/Effect";
 
 import { ExecutorApiClient } from "./client";
-import { ReactivityKey } from "./reactivity-keys";
+import { connectionWriteKeys, ReactivityKey } from "./reactivity-keys";
 
 // ---------------------------------------------------------------------------
 // Scope — fetched from the server
@@ -88,6 +89,13 @@ export const connectionsAtom = (scopeId: ScopeId) =>
     reactivityKeys: [ReactivityKey.connections],
   });
 
+export const connectionIdentityAtom = (scopeId: ScopeId, connectionId: ConnectionId) =>
+  ExecutorApiClient.query("connections", "identity", {
+    params: { scopeId, connectionId },
+    timeToLive: "1 minute",
+    reactivityKeys: [ReactivityKey.connections],
+  });
+
 export const secretUsagesAtom = (scopeId: ScopeId, secretId: SecretId) =>
   ExecutorApiClient.query("secrets", "usages", {
     params: { scopeId, secretId },
@@ -130,6 +138,8 @@ export const removeSecret = ExecutorApiClient.mutation("secrets", "remove");
 
 export const removeConnection = ExecutorApiClient.mutation("connections", "remove");
 
+export const updateConnectionIdentity = ExecutorApiClient.mutation("connections", "updateIdentity");
+
 export const removeSource = ExecutorApiClient.mutation("sources", "remove");
 
 export const refreshSource = ExecutorApiClient.mutation("sources", "refresh");
@@ -168,6 +178,13 @@ export const startOAuth = ExecutorApiClient.mutation("oauth", "start");
 export const completeOAuth = ExecutorApiClient.mutation("oauth", "complete");
 
 export const cancelOAuth = ExecutorApiClient.mutation("oauth", "cancel");
+
+export const oauthConnectionCompleted = ExecutorApiClient.runtime.fn<{
+  readonly tokenScope: string;
+  readonly reactivityKeys: typeof connectionWriteKeys;
+}>()(() => Effect.void, {
+  reactivityKeys: connectionWriteKeys,
+});
 
 export const createPolicy = ExecutorApiClient.mutation("policies", "create");
 

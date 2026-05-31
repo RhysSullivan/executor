@@ -1,17 +1,12 @@
-import { Effect } from "effect";
+import { Effect, Option, Predicate, Schema } from "effect";
 
 import {
-  dateColumn,
-  type FumaRow,
-  type FumaTables,
-  nullableTextColumn,
+  type PluginStorageEntry,
   parseUserOrgScopeId,
-  scopedExecutorTable,
   StorageError,
   type SecretProvider,
   type StorageDeps,
   type StorageFailure,
-  textColumn,
 } from "@executor-js/sdk/core";
 
 import {
@@ -33,22 +28,53 @@ const MAX_KEK_NOT_READY_ATTEMPTS = 20;
 const KEK_NOT_READY_BACKOFF_MS = 1000;
 
 // ---------------------------------------------------------------------------
-// Metadata schema — the plugin owns its own table for secret metadata
-// (name, purpose, created_at). Values still live in WorkOS Vault; this
-// table just tracks what we know about and lets us enumerate.
+// Metadata storage — values live in WorkOS Vault; regular plugin storage
+// tracks what we know about and lets us enumerate.
 // ---------------------------------------------------------------------------
 
-export const workosVaultSchema = {
-  workos_vault_metadata: scopedExecutorTable("workos_vault_metadata", {
-    name: textColumn("name"),
-    purpose: nullableTextColumn("purpose"),
-    created_at: dateColumn("created_at"),
-  }),
-} satisfies FumaTables;
+const METADATA_COLLECTION = "metadata";
 
-export type WorkosVaultSchema = typeof workosVaultSchema;
+const WorkosVaultMetadataData = Schema.Struct({
+  name: Schema.String,
+  purpose: Schema.NullOr(Schema.String),
+  createdAt: Schema.DateFromString,
+});
 
-type MetadataRow = FumaRow<WorkosVaultSchema["workos_vault_metadata"]>;
+type WorkosVaultMetadataDataEncoded = typeof WorkosVaultMetadataData.Encoded;
+
+type MetadataRow = {
+  readonly id: string;
+  readonly scope_id: string;
+  readonly name: string;
+  readonly purpose: string | null;
+  readonly created_at: Date;
+};
+
+const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+const decodeMetadataData = Schema.decodeUnknownOption(WorkosVaultMetadataData);
+
+const coerceJson = (value: unknown): unknown => {
+  if (typeof value !== "string") return value;
+  return Option.getOrElse(decodeJson(value), () => value);
+};
+
+const metadataData = (row: MetadataRow): WorkosVaultMetadataDataEncoded => ({
+  name: row.name,
+  purpose: row.purpose,
+  createdAt: row.created_at.toISOString(),
+});
+
+const entryToMetadataRow = (entry: PluginStorageEntry): MetadataRow | null =>
+  Option.match(decodeMetadataData(coerceJson(entry.data)), {
+    onNone: () => null,
+    onSome: (data) => ({
+      id: entry.key,
+      scope_id: String(entry.scopeId),
+      name: data.name,
+      purpose: data.purpose,
+      created_at: data.createdAt,
+    }),
+  });
 
 // ---------------------------------------------------------------------------
 // WorkosVaultStore — typed metadata-store the plugin uses internally.
@@ -61,76 +87,41 @@ export interface WorkosVaultStore {
   readonly list: () => Effect.Effect<readonly MetadataRow[], StorageFailure>;
 }
 
-export const makeWorkosVaultStore = (deps: StorageDeps<WorkosVaultSchema>): WorkosVaultStore => {
-  const { fuma } = deps;
-  const scopeIds = deps.scopes.map((scope) => String(scope.id));
+export const makeWorkosVaultStore = (deps: StorageDeps): WorkosVaultStore => {
+  const { pluginStorage } = deps;
 
-  // Every read/write to a specific row pins BOTH `id` and `scope_id`.
-  // Scope is a normal FumaDB predicate here, not hidden behavior.
   const findScoped = (id: string, scope: string) =>
-    fuma
-      .use("workos_vault_metadata.findFirst", (db) =>
-        db.findFirst("workos_vault_metadata", {
-          where: (b) => b.and(b("id", "=", id), b("scope_id", "=", scope)),
-        }),
-      )
-      .pipe(Effect.map((row): MetadataRow | null => row ?? null));
+    pluginStorage
+      .getAtScope({ scope, collection: METADATA_COLLECTION, key: id })
+      .pipe(Effect.map((entry): MetadataRow | null => (entry ? entryToMetadataRow(entry) : null)));
 
   return {
     get: (id, scope) => findScoped(id, scope),
     upsert: (row) =>
-      Effect.gen(function* () {
-        const existing = yield* findScoped(row.id, row.scope_id);
-        if (existing) {
-          yield* fuma.use("workos_vault_metadata.updateMany", (db) =>
-            db.updateMany("workos_vault_metadata", {
-              where: (b) => b.and(b("id", "=", row.id), b("scope_id", "=", row.scope_id)),
-              set: {
-                name: row.name,
-                purpose: row.purpose ?? null,
-              },
-            }),
-          );
-          return;
-        }
-        yield* fuma
-          .use("workos_vault_metadata.create", (db) =>
-            db.create("workos_vault_metadata", {
-              id: row.id,
-              scope_id: row.scope_id,
-              name: row.name,
-              purpose: row.purpose ?? null,
-              created_at: row.created_at,
-            }),
-          )
-          .pipe(Effect.asVoid);
-      }),
+      pluginStorage
+        .put({
+          scope: row.scope_id,
+          collection: METADATA_COLLECTION,
+          key: row.id,
+          data: metadataData(row),
+        })
+        .pipe(Effect.asVoid),
     remove: (id, scope) =>
       Effect.gen(function* () {
         const existing = yield* findScoped(id, scope);
         if (!existing) return false;
-        yield* fuma.use("workos_vault_metadata.deleteMany", (db) =>
-          db.deleteMany("workos_vault_metadata", {
-            where: (b) => b.and(b("id", "=", id), b("scope_id", "=", scope)),
-          }),
-        );
+        yield* pluginStorage.remove({ scope, collection: METADATA_COLLECTION, key: id });
         return true;
       }),
     list: () =>
-      fuma
-        .use("workos_vault_metadata.findMany", (db) =>
-          db.findMany("workos_vault_metadata", {
-            where: (b) =>
-              scopeIds.length === 1
-                ? b("scope_id", "=", scopeIds[0]!)
-                : b("scope_id", "in", [...scopeIds]),
-          }),
-        )
-        .pipe(
-          Effect.map((rows): readonly MetadataRow[] =>
-            [...rows].sort((l, r) => l.created_at.getTime() - r.created_at.getTime()),
-          ),
+      pluginStorage.list({ collection: METADATA_COLLECTION }).pipe(
+        Effect.map((rows): readonly MetadataRow[] =>
+          rows
+            .map(entryToMetadataRow)
+            .filter(Predicate.isNotNull)
+            .sort((l, r) => l.created_at.getTime() - r.created_at.getTime()),
         ),
+      ),
   };
 };
 

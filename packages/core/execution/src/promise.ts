@@ -116,8 +116,8 @@ const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
     list: () => fromPromise(() => pe.connections.list()),
     create: (input) => fromPromise(() => pe.connections.create(input)),
     updateTokens: (input) => fromPromise(() => pe.connections.updateTokens(input)),
-    setConnectionLabel: (id, label) =>
-      fromPromise(() => pe.connections.setConnectionLabel(id, label)),
+    setIdentityLabel: (id, label) => fromPromise(() => pe.connections.setIdentityLabel(id, label)),
+    setIdentityOverride: (input) => fromPromise(() => pe.connections.setIdentityOverride(input)),
     accessToken: (id) => fromPromise(() => pe.connections.accessToken(id)),
     accessTokenAtScope: (id, scope) =>
       fromPromise(() => pe.connections.accessTokenAtScope(id, scope)),

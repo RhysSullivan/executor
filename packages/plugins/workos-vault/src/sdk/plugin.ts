@@ -12,7 +12,6 @@ import {
   WORKOS_VAULT_PROVIDER_KEY,
   makeWorkOSVaultSecretProvider,
   makeWorkosVaultStore,
-  workosVaultSchema,
   type WorkOSVaultContextForScope,
   type WorkosVaultStore,
 } from "./secret-store";
@@ -67,7 +66,6 @@ const buildClient = (
 export const workosVaultPlugin = definePlugin((options?: WorkOSVaultPluginOptions) => ({
   id: "workosVault" as const,
   packageName: "@executor-js/plugin-workos-vault",
-  schema: workosVaultSchema,
   storage: (deps): WorkosVaultPluginStore => makeWorkosVaultStore(deps),
 
   extension: makeWorkOSVaultExtension,

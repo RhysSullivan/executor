@@ -9,12 +9,12 @@ import { collectTables } from "@executor-js/api/server";
 import {
   boolColumn,
   dateColumn,
-  definePlugin,
   jsonColumn,
   nullableBigintColumn,
   nullableTextColumn,
   scopedExecutorTable,
   textColumn,
+  type FumaTables,
 } from "@executor-js/sdk";
 import { withQueryContext } from "fumadb/query";
 
@@ -167,12 +167,6 @@ const lateSchema = {
   }),
 };
 
-const latePlugin = definePlugin(() => ({
-  id: "late" as const,
-  schema: lateSchema,
-  storage: () => ({}),
-}))();
-
 const ImportMarkerForTest = Schema.Struct({
   importedTables: Schema.Array(Schema.String),
 });
@@ -189,12 +183,6 @@ const legacyShapeSchema = {
     note: nullableTextColumn("note"),
   }),
 };
-
-const legacyShapePlugin = definePlugin(() => ({
-  id: "legacy-shape" as const,
-  schema: legacyShapeSchema,
-  storage: () => ({}),
-}))();
 
 describe("importSqliteDataToFuma", () => {
   it("imports current SQLite rows into FumaDB SQLite without replacing source files", async () => {
@@ -357,7 +345,10 @@ describe("importSqliteDataToFuma", () => {
       );
     db.close();
 
-    const tables = collectTables([legacyShapePlugin]);
+    const tables: FumaTables = {
+      ...collectTables([]),
+      ...legacyShapeSchema,
+    };
     sqlite = await createSqliteFumaDb({
       tables,
       namespace: "executor_local_test",
@@ -499,7 +490,7 @@ describe("importSqliteDataToFuma", () => {
     ).resolves.toMatchObject({ id: "src_1", scope_id: "scope_a" });
   });
 
-  it("imports newly-loaded plugin tables from the original backup after the first cutover", async () => {
+  it("imports newly-available tables from the original backup after the first cutover", async () => {
     const sqlitePath = join(workDir, "data.db");
     const markerPath = join(workDir, "fumadb-sqlite-imported");
     await seedMigratedSqlite(sqlitePath);
@@ -530,7 +521,10 @@ describe("importSqliteDataToFuma", () => {
     });
     expect(firstResult.importedTables).not.toContain("late_item");
 
-    const allTables = collectTables([latePlugin]);
+    const allTables: FumaTables = {
+      ...collectTables([]),
+      ...lateSchema,
+    };
     const secondResult = await importLegacySqliteIfNeeded({
       storage: {
         dataDir: workDir,
@@ -556,7 +550,7 @@ describe("importSqliteDataToFuma", () => {
     ).resolves.toEqual([{ id: "late_1", value: "from-backup" }]);
   });
 
-  it("marks newly-loaded empty plugin tables so startup does not retry backup imports", async () => {
+  it("marks newly-available empty tables so startup does not retry backup imports", async () => {
     const sqlitePath = join(workDir, "data.db");
     const markerPath = join(workDir, "fumadb-sqlite-imported");
     await seedMigratedSqlite(sqlitePath);
@@ -572,7 +566,10 @@ describe("importSqliteDataToFuma", () => {
     });
     expect(firstResult.importedTables).not.toContain("late_item");
 
-    const allTables = collectTables([latePlugin]);
+    const allTables: FumaTables = {
+      ...collectTables([]),
+      ...lateSchema,
+    };
     const secondResult = await importLegacySqliteIfNeeded({
       storage: {
         dataDir: workDir,

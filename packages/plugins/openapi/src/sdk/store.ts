@@ -1,7 +1,6 @@
 import { Effect, Option, Predicate, Schema } from "effect";
 
 import {
-  type FumaTables,
   type PluginStorageEntry,
   type StorageDeps,
   type StorageFailure,
@@ -23,12 +22,10 @@ export {
   queryParamBindingSlot,
 } from "./source-contracts";
 
-export const openapiSchema = {} satisfies FumaTables;
-export type OpenapiSchema = typeof openapiSchema;
-
 export interface SourceConfig {
   readonly spec: string;
   readonly sourceUrl?: string;
+  readonly googleDiscoveryUrls?: readonly string[];
   readonly baseUrl?: string;
   readonly namespace?: string;
   readonly headers?: Record<string, ConfiguredHeaderValue>;
@@ -84,6 +81,7 @@ const SpecFetchCredentialsStorage = Schema.Struct({
 const SourceConfigStorage = Schema.Struct({
   spec: Schema.String,
   sourceUrl: Schema.optional(Schema.String),
+  googleDiscoveryUrls: Schema.optional(Schema.Array(Schema.String)),
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(ConfiguredHeaderMapStorage),
@@ -145,6 +143,7 @@ const normalizeConfiguredMap = (
 const encodeSourceConfig = (config: SourceConfig): Record<string, unknown> => ({
   spec: config.spec,
   ...(config.sourceUrl ? { sourceUrl: config.sourceUrl } : {}),
+  ...(config.googleDiscoveryUrls ? { googleDiscoveryUrls: config.googleDiscoveryUrls } : {}),
   ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
   ...(config.namespace ? { namespace: config.namespace } : {}),
   ...(config.headers ? { headers: config.headers } : {}),
@@ -165,6 +164,7 @@ const rowToSource = (row: PluginStorageEntry): StoredSource | null => {
     config: {
       spec: stored.config.spec,
       sourceUrl: stored.config.sourceUrl,
+      googleDiscoveryUrls: stored.config.googleDiscoveryUrls,
       baseUrl: stored.config.baseUrl,
       namespace: stored.config.namespace,
       headers: normalizeConfiguredMap(stored.config.headers),
@@ -228,9 +228,7 @@ export interface OpenapiStore {
   readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 }
 
-export const makeDefaultOpenapiStore = ({
-  pluginStorage,
-}: StorageDeps<OpenapiSchema>): OpenapiStore => {
+export const makeDefaultOpenapiStore = ({ pluginStorage }: StorageDeps): OpenapiStore => {
   const sourceData = (source: StoredSource) => ({
     namespace: source.namespace,
     scope: source.scope,

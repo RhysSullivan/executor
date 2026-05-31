@@ -1,5 +1,6 @@
 export { parse, resolveSpecText, fetchSpecText } from "./parse";
 export {
+  convertGoogleDiscoveryBundleToOpenApi,
   convertGoogleDiscoveryToOpenApi,
   fetchGoogleDiscoveryDocument,
   isGoogleDiscoveryUrl,
@@ -17,8 +18,6 @@ export {
   type OpenApiSourceRef,
 } from "./plugin";
 export {
-  openapiSchema,
-  type OpenapiSchema,
   type OpenapiStore,
   type StoredOperation,
   type StoredSource,

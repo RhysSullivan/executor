@@ -14,6 +14,10 @@
 //     assembly. It stays in the SDK because the SDK's own sqlite test backend
 //     builds its handle with it; the host layer re-exports it (and pairs it
 //     with the `DbProvider` Effect seam) from `@executor-js/api/server`.
+//   - `assertSupportedOAuthEndpointUrl` / `OAUTH2_DEFAULT_TIMEOUT_MS`: the OAuth
+//     endpoint SSRF guard + default fetch timeout. The SDK's own OAuth flow uses
+//     them; the host's connection-identity handler reuses the same guard/timeout
+//     when fetching OIDC userinfo, so they surface here (not the plugin barrel).
 // ---------------------------------------------------------------------------
 
 export {
@@ -21,6 +25,8 @@ export {
   makeHostedHttpClientLayer,
   type HostedHttpClientOptions,
 } from "./hosted-http-client";
+
+export { OAUTH2_DEFAULT_TIMEOUT_MS, assertSupportedOAuthEndpointUrl } from "./oauth-helpers";
 
 export {
   createExecutorFumaDb,

@@ -13,5 +13,4 @@ export type { KeychainPluginConfig } from "./index";
 // root specifier (which doesn't re-export Plugin).
 export const keychainPlugin = (
   config?: KeychainPluginConfig,
-): Plugin<"keychain", KeychainExtension, Record<string, never>, undefined> =>
-  keychainPluginEffect(config);
+): Plugin<"keychain", KeychainExtension, Record<string, never>> => keychainPluginEffect(config);

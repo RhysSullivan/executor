@@ -2,7 +2,6 @@ import { describe, expect, it } from "@effect/vitest";
 import { Data, Effect, Predicate, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 
-import { scopedExecutorTable, textColumn } from "./core-schema";
 import { ElicitationResponse } from "./elicitation";
 import { ToolNotFoundError } from "./errors";
 import { createExecutor } from "./executor";
@@ -27,35 +26,34 @@ const testScope = Scope.make({
   createdAt: new Date(),
 });
 
-const txSchema = {
-  executor_tx_item: scopedExecutorTable("executor_tx_item", {
-    value: textColumn("value"),
-  }),
-};
-
-type TxItemRow = {
-  readonly id: string;
-  readonly scope_id: string;
-  readonly value: string;
-};
-
 const txPlugin = definePlugin(() => ({
   id: "tx" as const,
-  schema: txSchema,
-  storage: ({ fuma }) => ({
-    create: (row: TxItemRow) =>
-      fuma.use("tx.item.create", (db) => db.create("executor_tx_item", row)).pipe(Effect.asVoid),
+  storage: ({ pluginStorage }) => ({
+    create: (input: { readonly id: string; readonly scope: string; readonly value: string }) =>
+      pluginStorage
+        .put({
+          collection: "item",
+          key: input.id,
+          scope: input.scope,
+          data: { value: input.value },
+        })
+        .pipe(Effect.asVoid),
     list: () =>
-      fuma.use("tx.item.list", (db) =>
-        db.findMany("executor_tx_item", {
-          select: ["id", "scope_id", "value"],
-          orderBy: ["id", "asc"],
-        }),
+      pluginStorage.list<{ readonly value: string }>({ collection: "item" }).pipe(
+        Effect.map((rows) =>
+          rows
+            .map((row) => ({
+              id: row.key,
+              scope_id: String(row.scopeId),
+              value: row.data.value,
+            }))
+            .sort((a, b) => a.id.localeCompare(b.id)),
+        ),
       ),
   }),
   extension: (ctx) => ({
     seed: (id: string, value: string, scope = String(ctx.scopes[0]!.id)) =>
-      ctx.storage.create({ id, scope_id: scope, value }),
+      ctx.storage.create({ id, scope, value }),
     list: () => ctx.storage.list(),
     failAfterPluginAndCoreWrites: () =>
       ctx.transaction(
@@ -63,7 +61,7 @@ const txPlugin = definePlugin(() => ({
           const scope = String(ctx.scopes[0]!.id);
           yield* ctx.storage.create({
             id: "tx-row",
-            scope_id: scope,
+            scope,
             value: "created-before-failure",
           });
           yield* ctx.core.sources.register({
@@ -76,17 +74,6 @@ const txPlugin = definePlugin(() => ({
           return yield* new TestPluginError({ message: "rollback" });
         }),
       ),
-    catchDuplicateCreate: () =>
-      Effect.gen(function* () {
-        const scope = String(ctx.scopes[0]!.id);
-        yield* ctx.storage.create({ id: "dup", scope_id: scope, value: "first" });
-        return yield* ctx.storage.create({ id: "dup", scope_id: scope, value: "second" }).pipe(
-          Effect.as({ caught: false as const, model: null as string | null }),
-          Effect.catchTag("UniqueViolationError", (error) =>
-            Effect.succeed({ caught: true as const, model: error.model ?? null }),
-          ),
-        );
-      }),
   }),
 }))();
 
@@ -258,17 +245,6 @@ describe("createExecutor", () => {
       expect(yield* executor.tx.list()).toEqual([]);
       expect(yield* executor.sources.list()).toEqual([]);
       expect(yield* executor.tools.list()).toEqual([]);
-    }),
-  );
-
-  it.effect("keeps FumaDB unique violations catchable inside plugin code", () =>
-    Effect.gen(function* () {
-      const executor = yield* makeTestExecutor({ plugins: [txPlugin] as const });
-
-      const result = yield* executor.tx.catchDuplicateCreate();
-
-      expect(result.caught).toBe(true);
-      expect(result.model).toContain("tx.item.create");
     }),
   );
 

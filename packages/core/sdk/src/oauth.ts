@@ -64,7 +64,11 @@ export const OAuthAuthorizationCodeStrategy = Schema.Struct({
    *  PKCE without a confidential secret. */
   clientSecretSecretId: Schema.NullOr(Schema.String),
   clientSecretSecretScopeId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Final scope set Executor should remember for this connection. */
   scopes: Schema.Array(Schema.String),
+  /** Optional smaller scope set to send to the authorization server. This is
+   *  useful when one provider scope covers many source-level operation scopes. */
+  authorizationScopes: Schema.optional(Schema.Array(Schema.String)),
   /** Separator between scopes. RFC 6749 says space; some providers
    *  (GitHub classic) use comma. */
   scopeSeparator: Schema.optional(Schema.String),
@@ -76,6 +80,25 @@ export const OAuthAuthorizationCodeStrategy = Schema.Struct({
   clientAuth: Schema.optional(Schema.Literals(["body", "basic"])),
 });
 export type OAuthAuthorizationCodeStrategy = typeof OAuthAuthorizationCodeStrategy.Type;
+
+/** Authorization-code flow that reuses the client credentials recorded on
+ *  an existing OAuth connection. Used for incremental authorization where
+ *  the user is granting more scopes to the same account/provider. */
+export const OAuthAuthorizationCodeExistingClientStrategy = Schema.Struct({
+  kind: Schema.Literal("authorization-code-existing-client"),
+  authorizationEndpoint: Schema.String,
+  tokenEndpoint: Schema.optional(Schema.String),
+  issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Final scope set Executor should remember for this connection. */
+  scopes: Schema.Array(Schema.String),
+  /** Optional smaller scope set to send to the authorization server. This is
+   *  useful when one provider scope covers many source-level operation scopes. */
+  authorizationScopes: Schema.optional(Schema.Array(Schema.String)),
+  scopeSeparator: Schema.optional(Schema.String),
+  extraAuthorizationParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+});
+export type OAuthAuthorizationCodeExistingClientStrategy =
+  typeof OAuthAuthorizationCodeExistingClientStrategy.Type;
 
 /** RFC 6749 §4.4 client credentials — no user redirect, no PKCE. Used
  *  for server-to-server integrations where the plugin has both
@@ -100,6 +123,7 @@ export type OAuthClientCredentialsStrategy = typeof OAuthClientCredentialsStrate
 export const OAuthStrategy = Schema.Union([
   OAuthDynamicDcrStrategy,
   OAuthAuthorizationCodeStrategy,
+  OAuthAuthorizationCodeExistingClientStrategy,
   OAuthClientCredentialsStrategy,
 ]);
 export type OAuthStrategy = typeof OAuthStrategy.Type;

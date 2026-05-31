@@ -174,9 +174,11 @@ export { Usage, type UsagesForSecretInput, type UsagesForConnectionInput } from 
 // Connections
 export {
   ConnectionRef,
+  ConnectionIdentityOverride,
   ConnectionProviderState,
   CreateConnectionInput,
   RemoveConnectionInput,
+  UpdateConnectionIdentityInput,
   UpdateConnectionTokensInput,
   TokenMaterial,
   ConnectionRefreshError,
@@ -201,6 +203,37 @@ export {
 // (`makeFumaBlobStore`/`makeInMemoryBlobStore`) are SDK-internal: `createExecutor`
 // wires the blob store, plugins only ever receive a `PluginBlobStore`.
 export { type BlobStore, type PluginBlobStore, pluginBlobStore } from "./blob";
+
+// Plugin storage
+export {
+  definePluginStorageCollection,
+  pluginStorageId,
+  type PluginStorageCollectionDefinition,
+  type PluginStorageCollectionFacade,
+  type PluginStorageCollectionIndexedField,
+  type PluginStorageCollectionKeyInput,
+  type PluginStorageCollectionListInput,
+  type PluginStorageCollectionOrderBy,
+  type PluginStorageCollectionPutInput,
+  type PluginStorageCollectionQueryInput,
+  type PluginStorageCollectionScopedKeyInput,
+  type PluginStorageCollectionWhere,
+  type PluginStorageConfig,
+  type PluginStorageEntry,
+  type PluginStorageFacade,
+  type PluginStorageIndexField,
+  type PluginStorageIndexSpec,
+  type PluginStorageKeyInput,
+  type PluginStorageListInput,
+  type PluginStoragePutInput,
+  type PluginStorageRuntimeCollectionDefinition,
+  type PluginStorageRuntimeIndexSpec,
+  type PluginStorageSchema,
+  type PluginStorageSchemaType,
+  type PluginStorageScopedKeyInput,
+  type PluginStorageWhereFilter,
+  type PluginStorageWhereValue,
+} from "./plugin-storage";
 
 // OAuth 2.1
 export {
@@ -281,15 +314,6 @@ export {
   definePlugin,
   tool,
 } from "./plugin";
-export {
-  pluginStorageId,
-  type PluginStorageEntry,
-  type PluginStorageFacade,
-  type PluginStorageKeyInput,
-  type PluginStorageListInput,
-  type PluginStoragePutInput,
-  type PluginStorageScopedKeyInput,
-} from "./plugin-storage";
 
 // Executor
 //
@@ -325,10 +349,12 @@ export {
   type ExecutorPluginsFactory,
 } from "./config";
 
-// NOTE: the JSON-schema `$ref` helpers (`./schema-refs`) and the TypeScript
+// NOTE: the JSON-schema `$ref` helpers (`./schema-refs`) and most TypeScript
 // preview generators (`./schema-types`) are SDK-internal — `./schema-types`
-// consumes `./schema-refs`, and `buildToolTypeScriptPreview` is used only inside
-// `createExecutor`. No plugin imports them, so they are off the barrel.
+// consumes `./schema-refs` and is used inside `createExecutor`. The one
+// exception is `buildToolTypeScriptPreview`: plugins assert the TS preview of
+// their derived tools (the openapi Google-discovery suite), so it is exported.
+export { buildToolTypeScriptPreview } from "./schema-types";
 
 // Wire-level HTTP error schemas usable by plugin HttpApiGroup definitions.
 export { InternalError } from "./api-errors";
