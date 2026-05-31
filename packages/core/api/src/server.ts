@@ -28,6 +28,11 @@ export {
   type EngineDecoratorShape,
   type EngineStackIdentity,
 } from "./server/execution-stack";
+export {
+  makeMcpBuildServer,
+  makeConsoleMcpErrorReporter,
+  type McpExecutionStackLayer,
+} from "./server/mcp-build";
 // Host-composition seams re-homed out of `@executor-js/sdk` (the plugin-author
 // contract) into this host surface. The pure FumaDB assembly (`createExecutorFumaDb`
 // + its types) keeps its definition in the SDK for the sqlite test backend and is
