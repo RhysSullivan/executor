@@ -31,8 +31,9 @@
 // forward (any method, session-id present).
 // ---------------------------------------------------------------------------
 
+import * as Sentry from "@sentry/cloudflare";
 import { env } from "cloudflare:workers";
-import { Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 
 import {
   McpSessionStore,
@@ -40,7 +41,16 @@ import {
   type McpDispatchResult,
 } from "@executor-js/host-mcp";
 
-import { peekAndAnnotate } from "./response-peek";
+import { peekAndAnnotate } from "@executor-js/cloudflare/mcp/response-peek";
+
+// Cloud's Sentry capture for a JSON-RPC internal (-32603) error the response
+// peeker surfaces — injected into the shared `peekAndAnnotate`.
+class McpInternalJsonRpcError extends Data.TaggedError("McpInternalJsonRpcError")<{
+  readonly message: string;
+}> {}
+const reportInternalErrorToSentry = (message: string): void => {
+  Sentry.captureException(new McpInternalJsonRpcError({ message }));
+};
 import {
   currentPropagationHeaders,
   readElicitationMode,
@@ -79,7 +89,9 @@ const forwardToExistingSession = (
         },
       }),
     );
-    const annotated = peek ? yield* peekAndAnnotate(raw) : raw;
+    const annotated = peek
+      ? yield* peekAndAnnotate(raw, { onInternalError: reportInternalErrorToSentry })
+      : raw;
     return withMcpResponseHeaders(annotated);
   });
 
@@ -117,7 +129,7 @@ const createSession = (request: Request, token: VerifiedTokenHeaders): Effect.Ef
         },
       }),
     );
-    const annotated = yield* peekAndAnnotate(raw);
+    const annotated = yield* peekAndAnnotate(raw, { onInternalError: reportInternalErrorToSentry });
     return withMcpResponseHeaders(annotated);
   });
 

@@ -1,19 +1,18 @@
-import * as Sentry from "@sentry/cloudflare";
 import { Cause, Data, Effect, Exit, Option, Schema } from "effect";
 
-import { jsonRpcWebResponse } from "./responses";
+import { jsonRpcErrorBody } from "@executor-js/host-mcp";
 
-const SSE_PEEK_TIMEOUT_MS = 10_000;
+const DEFAULT_SSE_PEEK_TIMEOUT_MS = 10_000;
+
+/** Observe a JSON-RPC internal error (-32603) seen on a peeked response. The
+ *  host injects this (cloud: Sentry capture; host-cloudflare: console / omit). */
+export type OnInternalJsonRpcError = (message: string) => void;
 
 class ResponseBodyTimeoutError extends Data.TaggedError("ResponseBodyTimeoutError")<{
   readonly timeoutMs: number;
 }> {}
 
 class ResponseBodyReadError extends Data.TaggedError("ResponseBodyReadError") {}
-
-class McpInternalJsonRpcError extends Data.TaggedError("McpInternalJsonRpcError")<{
-  readonly message: string;
-}> {}
 
 const ResponseBodyTimeoutErrorData = Schema.Struct({
   _tag: Schema.Literal("ResponseBodyTimeoutError"),
@@ -179,7 +178,7 @@ const responseReadFailure = (error: unknown) =>
       "mcp.peek_response.timed_out": timedOut,
       "mcp.peek_response.error": timedOut ? "ResponseBodyTimeoutError" : "ResponseBodyReadError",
     });
-    return jsonRpcWebResponse(
+    return jsonRpcErrorBody(
       timedOut ? 504 : 500,
       -32001,
       timedOut
@@ -188,14 +187,26 @@ const responseReadFailure = (error: unknown) =>
     );
   });
 
-const reportInternalJsonRpcError = (payload: JsonRpcResponseBody | null) =>
+const reportInternalJsonRpcError = (
+  payload: JsonRpcResponseBody | null,
+  onInternalError: OnInternalJsonRpcError | undefined,
+) =>
   Effect.sync(() => {
     if (payload?.error?.code !== -32603) return;
-    const message = payload.error["message"] ?? "unknown";
-    Sentry.captureException(new McpInternalJsonRpcError({ message }));
+    onInternalError?.(payload.error["message"] ?? "unknown");
   });
 
-export const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
+export interface PeekAndAnnotateOptions {
+  /** Observe a JSON-RPC -32603 internal error (cloud injects Sentry capture). */
+  readonly onInternalError?: OnInternalJsonRpcError;
+  /** SSE body read timeout (defaults to 10s). */
+  readonly sseTimeoutMs?: number;
+}
+
+export const peekAndAnnotate = (
+  response: Response,
+  options: PeekAndAnnotateOptions = {},
+): Effect.Effect<Response> =>
   Effect.gen(function* () {
     const contentType = response.headers.get("content-type") ?? "";
     if (response.status === 202) {
@@ -208,7 +219,7 @@ export const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
     }
 
     const isSseResponse = contentType.includes("text/event-stream");
-    const timeoutMs = isSseResponse ? SSE_PEEK_TIMEOUT_MS : null;
+    const timeoutMs = isSseResponse ? (options.sseTimeoutMs ?? DEFAULT_SSE_PEEK_TIMEOUT_MS) : null;
     const textExit = yield* Effect.exit(
       Effect.tryPromise({
         try: () => readResponseText(response, timeoutMs),
@@ -242,7 +253,7 @@ export const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
     });
     const attrs = jsonRpcResponseAttrs(payload);
     if (Object.keys(attrs).length > 0) yield* Effect.annotateCurrentSpan(attrs);
-    yield* reportInternalJsonRpcError(payload);
+    yield* reportInternalJsonRpcError(payload, options.onInternalError);
 
     return new Response(text, {
       status: response.status,
