@@ -161,6 +161,45 @@ const resolveKeyringNative = (t: Target): string | null => {
   }
 };
 
+/**
+ * Resolve the platform-specific `@libsql/<target>` native binding for a target.
+ *
+ * The local server's SQLite driver (libSQL) loads its `.node` via a dynamic
+ * `require('@libsql/<target>')`, which `bun build --compile` can't bundle into
+ * bunfs (same limitation as keyring). We copy the right `.node` next to the
+ * executor as `libsql.node`; main.ts redirects the bare require to it.
+ */
+const LIBSQL_NATIVE_VERSION = "0.5.29";
+const resolveLibsqlNative = (t: Target): string | null => {
+  const platformMap: Record<string, string> = {
+    "darwin-arm64": "darwin-arm64",
+    "darwin-x64": "darwin-x64",
+    // The compiled binary runs on Bun, which libSQL's loader treats as glibc
+    // (its musl->gnu workaround), so non-musl linux targets need the -gnu binding.
+    "linux-arm64": "linux-arm64-gnu",
+    "linux-x64": "linux-x64-gnu",
+    "linux-arm64-musl": "linux-arm64-musl",
+    "linux-x64-musl": "linux-x64-musl",
+    "win32-arm64": "win32-arm64-msvc",
+    "win32-x64": "win32-x64-msvc",
+  };
+  const key = [t.os, t.arch, t.abi].filter(Boolean).join("-");
+  const target = platformMap[key];
+  if (!target) return null;
+  const pkg = `@libsql/${target}`;
+  try {
+    const req = createRequire(join(repoRoot, "apps/local", "package.json"));
+    const pkgJson = req.resolve(`${pkg}/package.json`);
+    return join(dirname(pkgJson), "index.node");
+  } catch {
+    const bunPath = join(
+      repoRoot,
+      `node_modules/.bun/${pkg.replace("/", "+")}@${LIBSQL_NATIVE_VERSION}/node_modules/${pkg}/index.node`,
+    );
+    return existsSync(bunPath) ? bunPath : null;
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Build mode
 // ---------------------------------------------------------------------------
@@ -308,6 +347,13 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
       const keyringNative = resolveKeyringNative(target);
       if (keyringNative && existsSync(keyringNative)) {
         await cp(keyringNative, join(binDir, "keyring.node"));
+      }
+
+      // Copy the libSQL native binding next to executor — same bunfs limitation
+      // as keyring; main.ts redirects `require('@libsql/<plat>')` to it.
+      const libsqlNative = resolveLibsqlNative(target);
+      if (libsqlNative && existsSync(libsqlNative)) {
+        await cp(libsqlNative, join(binDir, "libsql.node"));
       }
 
       // Smoke test on current platform

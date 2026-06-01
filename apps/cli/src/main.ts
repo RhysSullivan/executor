@@ -1,3 +1,7 @@
+// MUST be first: publishes the colocated libSQL/keyring native `.node` paths
+// before any import (e.g. `@executor-js/local` → libSQL) eagerly loads them.
+import "./native-bindings";
+
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -6,24 +10,6 @@ import { dirname, join, resolve } from "node:path";
 const execDir = dirname(process.execPath);
 if (process.env.PATH && !process.env.PATH.includes(execDir)) {
   process.env.PATH = `${execDir}:${process.env.PATH}`;
-}
-
-// Point the keychain plugin at the colocated @napi-rs/keyring binding.
-// bun --compile doesn't include .node files in bunfs, so the loader's
-// normal `require('@napi-rs/keyring-<plat>-<arch>')` walk fails inside the
-// binary. We can't use NAPI_RS_NATIVE_LIBRARY_PATH because @napi-rs/keyring
-// 1.2.0 has a bug where the env-var branch assigns to a local variable that
-// gets overwritten before the binding is returned. build.ts copies the
-// platform .node next to the executor; the keychain plugin reads this var
-// and loads the file directly via createRequire, bypassing the broken
-// loader.
-const keyringNodeOnDisk = join(execDir, "keyring.node");
-if (
-  typeof Bun !== "undefined" &&
-  !process.env.EXECUTOR_KEYRING_NATIVE_PATH &&
-  (await Bun.file(keyringNodeOnDisk).exists())
-) {
-  process.env.EXECUTOR_KEYRING_NATIVE_PATH = keyringNodeOnDisk;
 }
 
 // Pre-load QuickJS WASM for compiled binaries — must run before server imports
