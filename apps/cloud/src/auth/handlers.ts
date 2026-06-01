@@ -10,7 +10,7 @@ import {
   McpSessionForbiddenError,
 } from "./api";
 import { NoOrganization } from "@executor-js/api/server";
-import { SessionContext } from "./middleware";
+import { SessionContext, SessionCookies } from "./middleware";
 import { UserStoreService } from "./context";
 import { env } from "cloudflare:workers";
 import { WorkOSError } from "./errors";
@@ -288,7 +288,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
             payload.organizationId,
           );
           if (refreshed) {
-            session.cookies.set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
+            (yield* SessionCookies).set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
           }
         }),
       )
@@ -355,11 +355,11 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
                 verifiedOrgId: verified?.organizationId ?? null,
               },
             );
-            session.cookies.set("wos-session", "", DELETE_COOKIE_OPTIONS);
+            (yield* SessionCookies).set("wos-session", "", DELETE_COOKIE_OPTIONS);
             return yield* new WorkOSError();
           }
 
-          session.cookies.set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
+          (yield* SessionCookies).set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
           return { id: org.id, name: org.name };
         }),
       )
@@ -448,11 +448,11 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
               refreshReturnedSession: refreshed != null,
               verifiedOrgId: verified?.organizationId ?? null,
             });
-            session.cookies.set("wos-session", "", DELETE_COOKIE_OPTIONS);
+            (yield* SessionCookies).set("wos-session", "", DELETE_COOKIE_OPTIONS);
             return yield* new WorkOSError();
           }
 
-          session.cookies.set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
+          (yield* SessionCookies).set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
           return { id: org.id, name: org.name };
         }),
       )

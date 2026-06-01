@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 
-import { noopCookieWriter, SessionAuth, SessionContext, type Session } from "./middleware";
+import { SessionAuth, SessionContext, SessionCookies, type Session } from "./middleware";
 
 export type SessionTestContext = Session;
 
@@ -14,11 +14,16 @@ export const makeSessionTestContext = (
   organizationId: "org_existing_1",
   sealedSession: "test_session",
   refreshedSession: null,
-  cookies: noopCookieWriter,
   ...overrides,
 });
 
 export const SessionAuthTestLayer = (session: Session = makeSessionTestContext()) =>
   Layer.succeed(SessionAuth)({
-    cookie: (httpEffect) => Effect.provideService(httpEffect, SessionContext, session),
+    cookie: (httpEffect) =>
+      httpEffect.pipe(
+        Effect.provideService(SessionContext, session),
+        // The session handlers driven via this layer don't assert cookie output;
+        // a no-op setter satisfies the SessionCookies the middleware provides.
+        Effect.provideService(SessionCookies, { set: () => {} }),
+      ),
   });

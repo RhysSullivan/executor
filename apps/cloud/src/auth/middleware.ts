@@ -29,20 +29,6 @@ export type SessionCookieOptions = NonNullable<
   Parameters<typeof HttpServerResponse.setCookieUnsafe>[3]
 >;
 
-// A request-scoped cookie queue. Typed `.handle()` handlers (e.g. the WorkOS
-// session-refresh on `switchOrganization`/`createOrganization`) return DATA, not
-// an `HttpServerResponse`, so they can't attach a `Set-Cookie` directly. They
-// queue cookies here; `SessionAuthLive` drains the queue onto the outgoing
-// response. This replaces the old `@tanstack/react-start/server` `setCookie`
-// import — the one thing that pulled TanStack Start into the backend graph.
-export type SessionCookieWriter = {
-  /** Queue a `Set-Cookie` to apply to the response. */
-  readonly set: (name: string, value: string, options: SessionCookieOptions) => void;
-};
-
-/** No-op writer for `Session` producers that never re-set the cookie (the account API). */
-export const noopCookieWriter: SessionCookieWriter = { set: () => {} };
-
 export type Session = {
   readonly accountId: string;
   readonly email: string;
@@ -52,12 +38,29 @@ export type Session = {
   readonly organizationId: string | null;
   readonly sealedSession: string;
   readonly refreshedSession: string | null;
-  /** Queue cookie writes from a typed handler; applied to the response by `SessionAuthLive`. */
-  readonly cookies: SessionCookieWriter;
 };
 
 export class SessionContext extends Context.Service<SessionContext, Session>()(
   "@executor-js/cloud/Session",
+) {}
+
+// A request-scoped cookie setter, provided ALONGSIDE `SessionContext` by
+// `SessionAuth` (see its `provides` below). Typed `.handle()` handlers — the
+// WorkOS session-refresh on switchOrganization / createOrganization /
+// acceptInvitation — return DATA, not an `HttpServerResponse`, so they can't
+// attach a `Set-Cookie` directly. They `yield* SessionCookies` and queue writes;
+// `SessionAuthLive` drains the queue onto the outgoing response. It's a SEPARATE
+// service, not a field on `Session`, so the session DATA stays pure — `OrgAuth`
+// and the account API build a `Session` but never write cookies, so they carry
+// no writer. This replaces the old `@tanstack/react-start/server` `setCookie`
+// import (the one thing that pulled TanStack Start into the backend graph).
+export type SessionCookieSetter = {
+  /** Queue a `Set-Cookie` to apply to the response. */
+  readonly set: (name: string, value: string, options: SessionCookieOptions) => void;
+};
+
+export class SessionCookies extends Context.Service<SessionCookies, SessionCookieSetter>()(
+  "@executor-js/cloud/SessionCookies",
 ) {}
 
 /**
@@ -90,7 +93,6 @@ export const sealedSessionDisplayName = (result: SealedSessionResult): string | 
 export const sessionFromSealed = (
   result: SealedSessionResult,
   sealedSessionFallback: string,
-  cookies: SessionCookieWriter = noopCookieWriter,
 ): Session => ({
   accountId: result.userId,
   email: result.email,
@@ -99,16 +101,17 @@ export const sessionFromSealed = (
   organizationId: result.organizationId ?? null,
   sealedSession: result.refreshedSession ?? sealedSessionFallback,
   refreshedSession: result.refreshedSession ?? null,
-  cookies,
 });
 
 // ---------------------------------------------------------------------------
-// SessionAuth — resolves the WorkOS session cookie, provides SessionContext
+// SessionAuth — resolves the WorkOS session cookie; provides SessionContext AND
+// the SessionCookies setter (so a typed handler can queue a session-cookie
+// refresh that SessionAuthLive applies to the response).
 // ---------------------------------------------------------------------------
 
 export class SessionAuth extends HttpApiMiddleware.Service<
   SessionAuth,
-  { provides: SessionContext }
+  { provides: SessionContext | SessionCookies }
 >()("SessionAuth", {
   error: Unauthorized,
   security: {

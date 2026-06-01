@@ -12,9 +12,10 @@ import {
   OrgAuth,
   SessionAuth,
   SessionContext,
+  SessionCookies,
   sessionFromSealed,
   type SessionCookieOptions,
-  type SessionCookieWriter,
+  type SessionCookieSetter,
 } from "./middleware";
 import { WorkOSClient } from "./workos";
 
@@ -35,9 +36,9 @@ export const SessionAuthLive = Layer.effect(
 
           // Per-request cookie queue. Typed `.handle()` session handlers (the
           // WorkOS session-refresh on switchOrganization / createOrganization /
-          // pendingInvitations) return DATA, so they can't attach a Set-Cookie
-          // themselves — they queue writes on `session.cookies` and we drain the
-          // queue onto the response below. This is what lets `handlers.ts` drop
+          // acceptInvitation) return DATA, so they can't attach a Set-Cookie
+          // themselves — they `yield* SessionCookies` and queue writes, which we
+          // drain onto the response below. This is what lets `handlers.ts` drop
           // the `@tanstack/react-start/server` `setCookie` import (the sole thing
           // that pulled TanStack Start into the backend / Durable-Object graph).
           const pending: Array<{
@@ -45,14 +46,17 @@ export const SessionAuthLive = Layer.effect(
             readonly value: string;
             readonly options: SessionCookieOptions;
           }> = [];
-          const cookies: SessionCookieWriter = {
+          const cookieSetter: SessionCookieSetter = {
             set: (name, value, options) => {
               pending.push({ name, value, options });
             },
           };
 
-          const session = sessionFromSealed(result, Redacted.value(credential), cookies);
-          const response = yield* Effect.provideService(httpEffect, SessionContext, session);
+          const session = sessionFromSealed(result, Redacted.value(credential));
+          const response = yield* httpEffect.pipe(
+            Effect.provideService(SessionContext, session),
+            Effect.provideService(SessionCookies, cookieSetter),
+          );
           return pending.reduce(
             (res, c) => HttpServerResponse.setCookieUnsafe(res, c.name, c.value, c.options),
             response,
