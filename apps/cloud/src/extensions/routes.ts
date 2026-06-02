@@ -47,7 +47,7 @@ import { ApiErrorLoggingLive } from "../observability/error-logging";
 // plane). Derived from the ambient router, exactly as `ExecutorApp.make` builds
 // its own internal prefixed view for the protected API.
 const apiPrefixedRouter = Layer.effect(HttpRouter.HttpRouter)(
-  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) => router.prefixed("/api")),
+  Effect.map(HttpRouter.HttpRouter, (router) => router.prefixed("/api")),
 );
 
 // The full cloud OpenAPI spec, prefixed so the served paths match `/api/*`.

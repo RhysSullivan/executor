@@ -382,7 +382,7 @@ export const make = <
   const prefix = config.mountPrefix;
   const prefixedRouter = prefix
     ? Layer.effect(HttpRouter.HttpRouter)(
-        Effect.map(HttpRouter.HttpRouter.asEffect(), (router) => router.prefixed(prefix)),
+        Effect.map(HttpRouter.HttpRouter, (router) => router.prefixed(prefix)),
       )
     : undefined;
 
@@ -399,7 +399,7 @@ export const make = <
   const authenticate = (
     request: Request,
   ): Effect.Effect<Principal, IdentityFailure, IdentityProvider> =>
-    Effect.flatMap(IdentityProvider.asEffect(), (provider) => provider.authenticate(request));
+    Effect.flatMap(IdentityProvider, (provider) => provider.authenticate(request));
 
   // The per-request layer combined into the middleware: cloud's `requestScoped`
   // (the postgres socket) with `providers.identity` PROVIDE-MERGEd over it, so the

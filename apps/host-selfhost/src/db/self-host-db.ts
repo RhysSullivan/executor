@@ -168,7 +168,7 @@ export const SelfHostDbProvider: Layer.Layer<DbProvider, never, SelfHostDb> = La
   DbProvider,
 )(
   Effect.map(
-    SelfHostDb.asEffect(),
+    SelfHostDb,
     (handle): ExecutorDbHandle => ({
       db: handle.db,
       fuma: handle.fuma,

@@ -74,7 +74,7 @@ const AccountProviderMiddleware = HttpRouter.middleware<{ provides: AccountProvi
         // over the per-request `UserStoreService` (postgres socket) supplied by
         // the combined request-scoped layer.
         const accountProvider = yield* Effect.provide(
-          AccountProvider.asEffect(),
+          AccountProvider,
           workosAccountProvider.pipe(
             Layer.provide(ApiKeyService.WorkOS),
             Layer.provide(Layer.succeed(AccountCaller)({ session })),

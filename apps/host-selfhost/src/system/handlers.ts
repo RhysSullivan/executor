@@ -54,7 +54,7 @@ export const makeSelfHostSystemApiLayer = ({
   mountPrefix,
 }: SelfHostSystemApiDeps) => {
   const prefixedRouter = Layer.effect(HttpRouter.HttpRouter)(
-    Effect.map(HttpRouter.HttpRouter.asEffect(), (router) => router.prefixed(mountPrefix)),
+    Effect.map(HttpRouter.HttpRouter, (router) => router.prefixed(mountPrefix)),
   );
   return HttpApiBuilder.layer(SystemHttpApi).pipe(
     Layer.provide(SystemHandlers),

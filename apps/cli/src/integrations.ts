@@ -9,7 +9,7 @@ import {
 
 import { USER_AGENT } from "./installation";
 
-const refreshRegistry = IntegrationsRegistry.asEffect().pipe(
+const refreshRegistry = IntegrationsRegistry.pipe(
   Effect.flatMap((service) => service.refresh()),
   Effect.asVoid,
 );

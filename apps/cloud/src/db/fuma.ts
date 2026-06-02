@@ -55,7 +55,7 @@ export const cloudDbProviderLayer = (
   tables: FumaTables,
 ): Layer.Layer<DbProvider, never, DbService> =>
   Layer.effect(DbProvider)(
-    Effect.map(DbService.asEffect(), ({ db }): ExecutorDbHandle => {
+    Effect.map(DbService, ({ db }): ExecutorDbHandle => {
       const fuma = createDrizzleFumaDb({
         db,
         tables,

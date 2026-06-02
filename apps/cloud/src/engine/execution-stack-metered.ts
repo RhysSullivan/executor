@@ -33,7 +33,7 @@ import { withExecutionUsageTracking } from "./execution-usage";
 // user-facing execution.
 export const CloudMeteringEngineDecorator: Layer.Layer<EngineDecorator, never, AutumnService> =
   Layer.effect(EngineDecorator)(
-    Effect.map(AutumnService.asEffect(), (autumn): EngineDecorator["Service"] => ({
+    Effect.map(AutumnService, (autumn): EngineDecorator["Service"] => ({
       decorate: (engine, identity: EngineStackIdentity) =>
         withExecutionUsageTracking(identity.organizationId, engine, (organizationId) =>
           Effect.runFork(autumn.trackExecution(organizationId)),

@@ -28,7 +28,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const requestHeaders = Effect.map(
-  HttpServerRequest.HttpServerRequest.asEffect(),
+  HttpServerRequest.HttpServerRequest,
   (request): Headers => new Headers({ ...request.headers }),
 );
 
@@ -127,7 +127,7 @@ export const makeSelfHostAdminApiLayer = ({
   mountPrefix,
 }: SelfHostAdminApiDeps) => {
   const prefixedRouter = Layer.effect(HttpRouter.HttpRouter)(
-    Effect.map(HttpRouter.HttpRouter.asEffect(), (router) => router.prefixed(mountPrefix)),
+    Effect.map(HttpRouter.HttpRouter, (router) => router.prefixed(mountPrefix)),
   );
   return HttpApiBuilder.layer(AdminHttpApi).pipe(
     Layer.provide(AdminHandlers),

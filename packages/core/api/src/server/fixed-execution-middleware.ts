@@ -103,7 +103,7 @@ export const makeFixedExecutionMiddleware = <
   }>()(
     Effect.gen(function* () {
       const captured = yield* Effect.context<RCapture>();
-      const { executor, engine, extensions } = yield* FixedExecutionProvider.asEffect();
+      const { executor, engine, extensions } = yield* FixedExecutionProvider;
       return (httpEffect) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;

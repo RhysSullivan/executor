@@ -14,7 +14,7 @@ import { AccountProvider, type AccountHeaders } from "./service";
 // ---------------------------------------------------------------------------
 
 const requestHeaders = Effect.map(
-  HttpServerRequest.HttpServerRequest.asEffect(),
+  HttpServerRequest.HttpServerRequest,
   (req): AccountHeaders => ({ ...req.headers }),
 );
 

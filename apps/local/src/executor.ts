@@ -750,7 +750,7 @@ const createLocalExecutorLayer = () => {
 export const createExecutorHandle = async () => {
   const layer = createLocalExecutorLayer();
   const runtime = ManagedRuntime.make(layer);
-  const bundle = await runtime.runPromise(LocalExecutorTag.asEffect());
+  const bundle = await runtime.runPromise(LocalExecutorTag);
 
   return {
     executor: bundle.executor,

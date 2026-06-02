@@ -71,7 +71,7 @@ const ExecutionStackMiddleware = makeExecutionStackMiddleware<
 >({
   plugins: cloudPlugins,
   authenticate: (request) =>
-    IdentityProvider.asEffect().pipe(Effect.flatMap((provider) => provider.authenticate(request))),
+    IdentityProvider.pipe(Effect.flatMap((provider) => provider.authenticate(request))),
   strategy: cloudIdentityFailureStrategy,
   stackLayer: CloudMeteredExecutionStackLayer,
 });

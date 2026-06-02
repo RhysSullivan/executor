@@ -242,9 +242,9 @@ const serveOAuthTestHttpApp = (
   Effect.gen(function* () {
     const context = yield* Layer.build(
       Layer.fresh(
-        HttpServer.serve(
-          HttpServerRequest.HttpServerRequest.asEffect().pipe(Effect.flatMap(handler)),
-        ).pipe(Layer.provideMerge(NodeHttpServer.layerTest)),
+        HttpServer.serve(HttpServerRequest.HttpServerRequest.pipe(Effect.flatMap(handler))).pipe(
+          Layer.provideMerge(NodeHttpServer.layerTest),
+        ),
       ),
     ).pipe(Effect.mapError((address) => new OAuthTestServerAddressError({ address })));
     const server = Context.get(context, HttpServer.HttpServer);

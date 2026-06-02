@@ -28,5 +28,5 @@ const integrationsRuntime = ManagedRuntime.make(
  * absorbed inside the forked fiber and the layer's catchCause handlers.
  */
 export const startIntegrationsRefresh = (): void => {
-  integrationsRuntime.runFork(IntegrationsRegistry.asEffect());
+  integrationsRuntime.runFork(IntegrationsRegistry);
 };

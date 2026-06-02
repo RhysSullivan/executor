@@ -85,7 +85,7 @@ const ServerHandlersLive = Layer.effect(ServerHandlersService)(
 const serverHandlersRuntime = ManagedRuntime.make(ServerHandlersLive);
 
 export const getServerHandlers = (): Promise<ServerHandlers> =>
-  serverHandlersRuntime.runPromise(ServerHandlersService.asEffect());
+  serverHandlersRuntime.runPromise(ServerHandlersService);
 
 export const disposeServerHandlers = async (): Promise<void> => {
   await Effect.runPromise(

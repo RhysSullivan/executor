@@ -24,6 +24,6 @@ export class UserStoreService extends Context.Service<UserStoreService, UserStor
   "@executor-js/cloud/UserStoreService",
 ) {
   static Live = Layer.effect(this)(
-    Effect.map(DbService.asEffect(), ({ db }) => makeService(makeUserStore(db))),
+    Effect.map(DbService, ({ db }) => makeService(makeUserStore(db))),
   );
 }

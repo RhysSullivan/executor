@@ -80,7 +80,7 @@ export const serveTestHttpApp = (
   EffectScope.Scope
 > =>
   makeTestHttpServer(
-    HttpServer.serve(HttpServerRequest.HttpServerRequest.asEffect().pipe(Effect.flatMap(handler))),
+    HttpServer.serve(HttpServerRequest.HttpServerRequest.pipe(Effect.flatMap(handler))),
   );
 
 export const serveTestHttpServerLayer = (
