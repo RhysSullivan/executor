@@ -628,6 +628,10 @@ export abstract class McpSessionDOBase<
       Effect.tapCause((cause) =>
         Effect.gen(function* () {
           console.error("[mcp-session] init failed:", Cause.pretty(cause));
+          // Report to the host's error sink (cloud → Sentry). init() runs on
+          // the prototype, which Sentry's auto-wrap doesn't cover, so capture
+          // here explicitly rather than relying on prototype instrumentation.
+          self.captureCause(cause);
           // Annotate `McpSessionDO.init` (the active span here — `doInit` opens
           // none of its own) so the surviving, flushed span names the frame.
           yield* self.recordCauseOnSpan(cause);

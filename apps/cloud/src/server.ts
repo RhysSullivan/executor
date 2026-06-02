@@ -22,11 +22,12 @@ const sentryOptions = (env: Env) => ({
   enableLogs: true,
   sendDefaultPii: true,
   skipOpenTelemetrySetup: true,
-  // Our DO methods (init/handleRequest/alarm) live on the prototype, not on
-  // the instance. Sentry's default DO auto-wrap only visits own properties,
-  // which misses prototype methods — so errors thrown inside init() never
-  // reach Sentry. This flag opts into prototype-method instrumentation.
-  instrumentPrototypeMethods: true,
+  // NOTE: do NOT enable `instrumentPrototypeMethods`. It walks the DO prototype
+  // and reads every property — including accessors — to find methods to wrap,
+  // which invokes the `sessionId` getter with `this` bound to the prototype
+  // (where `ctx` is undefined) and throws during construction, 500ing every
+  // session create / cold restore. The DO captures its own errors via the
+  // `captureCause` seam (→ Sentry) instead.
 });
 
 // ---------------------------------------------------------------------------
