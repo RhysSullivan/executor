@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import {
   InternalError,
@@ -99,28 +99,52 @@ export const SourcesApi = HttpApiGroup.make("sources")
       params: ScopeParams,
       success: Schema.Array(SourceResponse),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.list",
+        summary: "List Sources",
+        description: "Lists all configured sources available within the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.delete("remove", "/scopes/:scopeId/sources/:sourceId", {
       params: SourceParams,
       success: SourceRemoveResponse,
       error: [InternalError, SourceRemovalNotAllowed],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.remove",
+        summary: "Remove Source",
+        description: "Removes the specified source from the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("refresh", "/scopes/:scopeId/sources/:sourceId/refresh", {
       params: SourceParams,
       success: SourceRefreshResponse,
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.refresh",
+        summary: "Refresh Source",
+        description: "Refreshes the specified source to update its tools and metadata.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("tools", "/scopes/:scopeId/sources/:sourceId/tools", {
       params: SourceParams,
       success: Schema.Array(ToolMetadataResponse),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.tools",
+        summary: "List Source Tools",
+        description: "Lists the tools provided by the specified source within the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("detect", "/scopes/:scopeId/sources/detect", {
@@ -128,7 +152,14 @@ export const SourcesApi = HttpApiGroup.make("sources")
       payload: DetectRequest,
       success: Schema.Array(DetectResultResponse),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.detect",
+        summary: "Detect Source",
+        description:
+          "Detects candidate source configurations for the supplied URL within the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("configure", "/scopes/:scopeId/sources/configure", {
@@ -136,7 +167,13 @@ export const SourcesApi = HttpApiGroup.make("sources")
       payload: ConfigureSourceRequest,
       success: Schema.Unknown,
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.configure",
+        summary: "Configure Source",
+        description: "Configures a source with the provided settings within the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get(
@@ -147,6 +184,12 @@ export const SourcesApi = HttpApiGroup.make("sources")
         success: Schema.Array(CredentialBindingRef),
         error: InternalError,
       },
+    ).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.listBindings",
+        summary: "List Source Bindings",
+        description: "Lists the credential bindings for a source relative to the given base scope.",
+      }),
     ),
   )
   .add(
@@ -155,7 +198,13 @@ export const SourcesApi = HttpApiGroup.make("sources")
       payload: SetSourceCredentialBindingInput,
       success: CredentialBindingRef,
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.setBinding",
+        summary: "Set Source Binding",
+        description: "Creates or updates a credential binding for a source within the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("removeBinding", "/scopes/:scopeId/source-bindings/remove", {
@@ -163,7 +212,13 @@ export const SourcesApi = HttpApiGroup.make("sources")
       payload: RemoveSourceCredentialBindingInput,
       success: Schema.Struct({ removed: Schema.Boolean }),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.removeBinding",
+        summary: "Remove Source Binding",
+        description: "Removes a credential binding for a source within the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("replaceBindings", "/scopes/:scopeId/source-bindings/replace", {
@@ -171,5 +226,12 @@ export const SourcesApi = HttpApiGroup.make("sources")
       payload: ReplaceSourceCredentialBindingsInput,
       success: Schema.Array(CredentialBindingRef),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "sources.replaceBindings",
+        summary: "Replace Source Bindings",
+        description:
+          "Replaces the full set of credential bindings for a source within the given scope.",
+      }),
+    ),
   );

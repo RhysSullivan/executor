@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import {
   InternalError,
@@ -61,21 +61,40 @@ export const SecretsApi = HttpApiGroup.make("secrets")
       params: ScopeParams,
       success: Schema.Array(SecretRefResponse),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "secrets.list",
+        summary: "List Secrets",
+        description: "Lists the secret references stored in the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("listAll", "/scopes/:scopeId/secrets/all", {
       params: ScopeParams,
       success: Schema.Array(SecretRefResponse),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "secrets.listAll",
+        summary: "List All Secrets",
+        description: "Lists all secret references for the given scope, including inherited ones.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("status", "/scopes/:scopeId/secrets/:secretId/status", {
       params: SecretParams,
       success: SecretStatusResponse,
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "secrets.status",
+        summary: "Secret Status",
+        description:
+          "Reports whether the secret in the given scope is currently resolved or missing.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("set", "/scopes/:scopeId/secrets", {
@@ -83,19 +102,38 @@ export const SecretsApi = HttpApiGroup.make("secrets")
       payload: SetSecretPayload,
       success: SecretRefResponse,
       error: [InternalError, SecretResolution],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "secrets.set",
+        summary: "Set Secret",
+        description:
+          "Creates or updates a secret value in the given scope and returns its reference.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.delete("remove", "/scopes/:scopeId/secrets/:secretId", {
       params: SecretParams,
       success: Schema.Struct({ removed: Schema.Boolean }),
       error: [InternalError, SecretNotFound, SecretOwnedByConnection, SecretInUse],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "secrets.remove",
+        summary: "Remove Secret",
+        description: "Deletes the secret identified by secretId from the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("usages", "/scopes/:scopeId/secrets/:secretId/usages", {
       params: SecretParams,
       success: Schema.Array(Usage),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "secrets.usages",
+        summary: "Secret Usages",
+        description: "Lists the usages that reference the secret in the given scope.",
+      }),
+    ),
   );

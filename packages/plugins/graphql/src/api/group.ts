@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { InternalError, ScopeId } from "@executor-js/sdk/shared";
 
@@ -99,14 +99,28 @@ export const GraphqlGroup = HttpApiGroup.make("graphql")
       payload: AddSourcePayload,
       success: AddSourceResponse,
       error: GraphqlErrors,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "graphql.addSource",
+        summary: "Add GraphQL Source",
+        description:
+          "Registers a GraphQL source in the given scope by introspecting its endpoint and returns the namespace and number of tools extracted.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("getSource", "/scopes/:scopeId/graphql/sources/:namespace", {
       params: SourceParams,
       success: Schema.NullOr(StoredSourceSchema),
       error: GraphqlErrors,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "graphql.getSource",
+        summary: "Get GraphQL Source",
+        description:
+          "Retrieves the stored GraphQL source for the given scope and namespace, or null if no such source exists.",
+      }),
+    ),
   );
 // Plugin domain errors carry their own HTTP status (4xx);
 // `InternalError` is the shared opaque 500 translated at the HTTP edge.

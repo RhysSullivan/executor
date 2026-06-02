@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { InternalError, PolicyId, ScopeId, ToolPolicyActionSchema } from "@executor-js/sdk/shared";
 
@@ -47,7 +47,13 @@ export const PoliciesApi = HttpApiGroup.make("policies")
       params: ScopeParams,
       success: Schema.Array(ToolPolicyResponse),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "policies.list",
+        summary: "List Policies",
+        description: "Lists all tool policies for the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("create", "/scopes/:scopeId/policies", {
@@ -55,7 +61,14 @@ export const PoliciesApi = HttpApiGroup.make("policies")
       payload: CreateToolPolicyPayload,
       success: ToolPolicyResponse,
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "policies.create",
+        summary: "Create Policy",
+        description:
+          "Creates a tool policy targeting a scope with a pattern, action, and optional position.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.patch("update", "/scopes/:scopeId/policies/:policyId", {
@@ -63,12 +76,25 @@ export const PoliciesApi = HttpApiGroup.make("policies")
       payload: UpdateToolPolicyPayload,
       success: ToolPolicyResponse,
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "policies.update",
+        summary: "Update Policy",
+        description:
+          "Updates the target scope, pattern, action, or position of an existing tool policy.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.delete("remove", "/scopes/:scopeId/policies/:policyId", {
       params: PolicyParams,
       success: Schema.Struct({ removed: Schema.Boolean }),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "policies.remove",
+        summary: "Remove Policy",
+        description: "Deletes the tool policy identified by policy ID within the given scope.",
+      }),
+    ),
   );

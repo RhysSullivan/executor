@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { InternalError, ScopeId, SecretBackedMap } from "@executor-js/sdk/shared";
 
@@ -110,7 +110,14 @@ export const McpGroup = HttpApiGroup.make("mcp")
       payload: ProbeEndpointPayload,
       success: ProbeEndpointResponse,
       error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "mcp.probeEndpoint",
+        summary: "Probe MCP Endpoint",
+        description:
+          "Probes a remote MCP endpoint within a scope to report connectivity, OAuth requirements, dynamic registration support, server name, and tool count without persisting a source.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("addSource", "/scopes/:scopeId/mcp/sources", {
@@ -118,7 +125,14 @@ export const McpGroup = HttpApiGroup.make("mcp")
       payload: AddSourcePayload,
       success: AddSourceResponse,
       error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "mcp.addSource",
+        summary: "Add MCP Source",
+        description:
+          "Registers a new MCP source (remote or stdio transport) in a scope, connecting to discover its tools and returning the assigned namespace and discovered tool count.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("removeSource", "/scopes/:scopeId/mcp/sources/remove", {
@@ -126,7 +140,14 @@ export const McpGroup = HttpApiGroup.make("mcp")
       payload: NamespacePayload,
       success: RemoveSourceResponse,
       error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "mcp.removeSource",
+        summary: "Remove MCP Source",
+        description:
+          "Removes the MCP source identified by the given namespace from a scope and reports whether it was removed.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("refreshSource", "/scopes/:scopeId/mcp/sources/refresh", {
@@ -134,14 +155,28 @@ export const McpGroup = HttpApiGroup.make("mcp")
       payload: NamespacePayload,
       success: RefreshSourceResponse,
       error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "mcp.refreshSource",
+        summary: "Refresh MCP Source",
+        description:
+          "Reconnects to the MCP source identified by the given namespace in a scope to re-discover its tools and returns the updated tool count.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("getSource", "/scopes/:scopeId/mcp/sources/:namespace", {
       params: SourceParams,
       success: Schema.NullOr(McpStoredSourceSchema),
       error: [InternalError, McpConnectionError, McpToolDiscoveryError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "mcp.getSource",
+        summary: "Get MCP Source",
+        description:
+          "Returns the stored MCP source for the given namespace in a scope, or null when no source with that namespace exists.",
+      }),
+    ),
   );
 // Errors declared once at the group level — every endpoint inherits.
 // Plugin domain errors carry their own HttpApiSchema status (4xx);

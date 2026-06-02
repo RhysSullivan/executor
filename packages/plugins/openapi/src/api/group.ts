@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import {
   ConnectionId,
@@ -161,7 +161,14 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
       payload: PreviewSpecPayload,
       success: SpecPreview,
       error: DomainErrors,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "openapi.previewSpec",
+        summary: "Preview Spec",
+        description:
+          "Parses a raw OpenAPI spec for the given scope and returns a preview of the operations it would expose without persisting a source.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("addSpec", "/scopes/:scopeId/openapi/specs", {
@@ -169,14 +176,28 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
       payload: AddSpecPayload,
       success: AddSpecResponse,
       error: DomainErrors,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "openapi.addSpec",
+        summary: "Add Spec",
+        description:
+          "Registers an OpenAPI spec as a source under the given scope and namespace, returning the resulting namespace and number of tools generated.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("getSource", "/scopes/:scopeId/openapi/sources/:namespace", {
       params: SourceParams,
       success: Schema.NullOr(StoredSourceSchema),
       error: DomainErrors,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "openapi.getSource",
+        summary: "Get Source",
+        description:
+          "Returns the stored OpenAPI source for the given scope and namespace, or null when no source is registered.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("configure", "/scopes/:scopeId/openapi/configure", {
@@ -184,5 +205,12 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
       payload: ConfigurePayload,
       success: Schema.Array(CredentialBindingRef),
       error: DomainErrors,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "openapi.configure",
+        summary: "Configure Source",
+        description:
+          "Binds credentials (headers, query params, spec-fetch credentials, and OAuth2 settings) for an OpenAPI source in the given scope and returns the resulting credential binding references.",
+      }),
+    ),
   );

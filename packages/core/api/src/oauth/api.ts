@@ -7,7 +7,7 @@
 // `/scopes/:scopeId/{mcp,openapi,graphql}/oauth/*`.
 // ---------------------------------------------------------------------------
 
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 
 import {
@@ -137,7 +137,14 @@ export const OAuthApi = HttpApiGroup.make("oauth")
       payload: ProbePayload,
       success: ProbeResponse,
       error: [InternalError, OAuthProbeError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "oauth.probe",
+        summary: "Probe OAuth Endpoint",
+        description:
+          "Probes an endpoint to discover its OAuth resource and authorization server metadata and whether it supports dynamic client registration.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("start", "/scopes/:scopeId/oauth/start", {
@@ -145,7 +152,14 @@ export const OAuthApi = HttpApiGroup.make("oauth")
       payload: StartPayload,
       success: StartResponse,
       error: [InternalError, OAuthStartError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "oauth.start",
+        summary: "Start OAuth Flow",
+        description:
+          "Starts an OAuth flow by persisting a session and returning an authorization URL, or minting the connection inline for client-credentials strategies.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("complete", "/scopes/:scopeId/oauth/complete", {
@@ -153,7 +167,14 @@ export const OAuthApi = HttpApiGroup.make("oauth")
       payload: CompletePayload,
       success: CompleteResponse,
       error: [InternalError, OAuthCompleteError, OAuthSessionNotFoundError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "oauth.complete",
+        summary: "Complete OAuth Flow",
+        description:
+          "Completes an OAuth flow by exchanging the authorization code for tokens, minting the connection, and dropping the session.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("cancel", "/scopes/:scopeId/oauth/cancel", {
@@ -161,12 +182,26 @@ export const OAuthApi = HttpApiGroup.make("oauth")
       payload: CancelPayload,
       success: CancelResponse,
       error: [InternalError, OAuthSessionNotFoundError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "oauth.cancel",
+        summary: "Cancel OAuth Flow",
+        description:
+          "Cancels an in-flight OAuth session without exchanging the authorization code.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("callback", "/oauth/callback", {
       query: CallbackUrlParams,
       success: HtmlResponse,
       error: [InternalError, OAuthCompleteError, OAuthSessionNotFoundError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "oauth.callback",
+        summary: "OAuth Redirect Callback",
+        description:
+          "Handles the OAuth redirect with state and code query params and renders popup HTML that posts the completion result back to the opener.",
+      }),
+    ),
   );

@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { InternalError, ScopeId, ToolId, ToolNotFoundError } from "@executor-js/sdk/shared";
 
@@ -53,12 +53,25 @@ export const ToolsApi = HttpApiGroup.make("tools")
       params: { scopeId: PathParams.scopeId },
       success: Schema.Array(ToolMetadataResponse),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "tools.list",
+        summary: "List Tools",
+        description: "Lists metadata for all tools discovered within the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("schema", "/scopes/:scopeId/tools/:toolId/schema", {
       params: PathParams,
       success: ToolSchemaResponse,
       error: [InternalError, ToolNotFound],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "tools.schema",
+        summary: "Get Tool Schema",
+        description:
+          "Returns the input and output schema definitions for a specific tool in the scope.",
+      }),
+    ),
   );

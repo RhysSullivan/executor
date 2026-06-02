@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { InternalError, ScopeId } from "@executor-js/sdk/shared";
 
@@ -52,7 +52,14 @@ export const OnePasswordGroup = HttpApiGroup.make("onepassword")
       params: ScopeParams,
       success: GetConfigResponse,
       error: [InternalError, OnePasswordError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "onepassword.getConfig",
+        summary: "Get Config",
+        description:
+          "Returns the 1Password configuration for the given scope, or null if none is configured.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.put("configure", "/scopes/:scopeId/onepassword/config", {
@@ -60,21 +67,39 @@ export const OnePasswordGroup = HttpApiGroup.make("onepassword")
       payload: ConfigurePayload,
       success: Schema.Void,
       error: [InternalError, OnePasswordError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "onepassword.configure",
+        summary: "Configure 1Password",
+        description: "Sets the 1Password configuration for the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.delete("removeConfig", "/scopes/:scopeId/onepassword/config", {
       params: ScopeParams,
       success: Schema.Void,
       error: [InternalError, OnePasswordError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "onepassword.removeConfig",
+        summary: "Remove Config",
+        description: "Deletes the 1Password configuration for the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("status", "/scopes/:scopeId/onepassword/status", {
       params: ScopeParams,
       success: ConnectionStatus,
       error: [InternalError, OnePasswordError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "onepassword.status",
+        summary: "Connection Status",
+        description: "Reports the current 1Password connection status for the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("listVaults", "/scopes/:scopeId/onepassword/vaults", {
@@ -82,5 +107,12 @@ export const OnePasswordGroup = HttpApiGroup.make("onepassword")
       query: ListVaultsParams,
       success: ListVaultsResponse,
       error: [InternalError, OnePasswordError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "onepassword.listVaults",
+        summary: "List Vaults",
+        description:
+          "Lists the 1Password vaults available for the given scope and authentication method.",
+      }),
+    ),
   );

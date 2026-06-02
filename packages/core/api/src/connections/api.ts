@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 
 import {
@@ -64,28 +64,54 @@ export const ConnectionsApi = HttpApiGroup.make("connections")
       params: ScopeParams,
       success: Schema.Array(ConnectionRefResponse),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "connections.list",
+        summary: "List Connections",
+        description: "Lists all provider connections belonging to the given scope.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.delete("remove", "/scopes/:scopeId/connections/:connectionId", {
       params: ConnectionParams,
       success: Schema.Struct({ removed: Schema.Boolean }),
       error: [InternalError, ConnectionInUse],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "connections.remove",
+        summary: "Remove Connection",
+        description:
+          "Deletes the specified connection from the scope, failing if it is still in use.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("usages", "/scopes/:scopeId/connections/:connectionId/usages", {
       params: ConnectionParams,
       success: Schema.Array(Usage),
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "connections.usages",
+        summary: "List Connection Usages",
+        description: "Returns the usage records associated with the specified connection.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("identity", "/scopes/:scopeId/connections/:connectionId/identity", {
       params: ConnectionParams,
       success: ConnectionIdentityResponse,
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "connections.identity",
+        summary: "Get Connection Identity",
+        description:
+          "Resolves the identity details and availability status for the specified connection.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.patch("updateIdentity", "/scopes/:scopeId/connections/:connectionId/identity", {
@@ -93,5 +119,11 @@ export const ConnectionsApi = HttpApiGroup.make("connections")
       payload: UpdateConnectionIdentityPayload,
       success: ConnectionRefResponse,
       error: [InternalError, ConnectionNotFound],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "connections.updateIdentity",
+        summary: "Update Connection Identity",
+        description: "Sets or clears the manual identity override for the specified connection.",
+      }),
+    ),
   );

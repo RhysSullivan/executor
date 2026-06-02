@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 
 import { InternalError } from "@executor-js/sdk/shared";
@@ -58,14 +58,28 @@ export const ExecutionsApi = HttpApiGroup.make("executions")
       params: ExecutionParams,
       success: PausedExecutionInfo,
       error: [InternalError, ExecutionNotFoundError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "executions.getPaused",
+        summary: "Get Paused Execution",
+        description:
+          "Retrieve the text and structured output of a paused execution by its execution ID.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("execute", "/executions", {
       payload: ExecuteRequest,
       success: ExecuteResponse,
       error: InternalError,
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "executions.execute",
+        summary: "Execute Code",
+        description:
+          "Run the provided code and return either a completed result or a paused execution awaiting input.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("resume", "/executions/:executionId/resume", {
@@ -73,5 +87,12 @@ export const ExecutionsApi = HttpApiGroup.make("executions")
       payload: ResumeRequest,
       success: ResumeResponse,
       error: [InternalError, ExecutionNotFoundError],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "executions.resume",
+        summary: "Resume Execution",
+        description:
+          "Resume a paused execution by accepting, declining, or cancelling it, optionally providing content.",
+      }),
+    ),
   );

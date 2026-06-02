@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { InternalError, ScopeId } from "@executor-js/sdk/shared";
 
@@ -27,5 +27,12 @@ export const ScopeApi = HttpApiGroup.make("scope").add(
   HttpApiEndpoint.get("info", "/scope", {
     success: ScopeInfoResponse,
     error: InternalError,
-  }),
+  }).annotateMerge(
+    OpenApi.annotations({
+      identifier: "scope.info",
+      summary: "Scope Info",
+      description:
+        "Returns the current scope's id, name, directory, and its full parent scope stack.",
+    }),
+  ),
 );

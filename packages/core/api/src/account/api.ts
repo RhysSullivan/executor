@@ -1,4 +1,4 @@
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 
 // ---------------------------------------------------------------------------
@@ -170,53 +170,106 @@ export const AccountApi = HttpApiGroup.make("account")
     HttpApiEndpoint.get("me", "/account/me", {
       success: AccountMeResponse,
       error: [AccountError, AccountUnauthorized],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.me",
+        summary: "Current Account",
+        description: "Returns the authenticated user and their current organization (if any).",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("listApiKeys", "/account/api-keys", {
       success: ApiKeysResponse,
       error: [AccountError, AccountUnauthorized, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.listApiKeys",
+        summary: "List API Keys",
+        description: "Lists the API keys for the current organization, each with a masked value.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("createApiKey", "/account/api-keys", {
       payload: CreateApiKeyBody,
       success: CreatedApiKeyResponse,
       error: [AccountError, AccountUnauthorized, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.createApiKey",
+        summary: "Create API Key",
+        description:
+          "Creates a named API key for the current organization and returns its one-time plaintext value.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.delete("revokeApiKey", "/account/api-keys/:apiKeyId", {
       params: ApiKeyParams,
       success: SuccessResponse,
       error: [AccountError, AccountUnauthorized, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.revokeApiKey",
+        summary: "Revoke API Key",
+        description: "Revokes the API key identified by the given id for the current organization.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("listMembers", "/account/members", {
       success: OrgMembersResponse,
       error: [AccountError, AccountUnauthorized, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.listMembers",
+        summary: "List Members",
+        description:
+          "Lists the members of the current organization along with optional seat usage.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.get("listRoles", "/account/roles", {
       success: OrgRolesResponse,
       error: [AccountError, AccountUnauthorized, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.listRoles",
+        summary: "List Roles",
+        description:
+          "Lists the roles available for assigning to members of the current organization.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.post("inviteMember", "/account/members/invite", {
       payload: InviteMemberBody,
       success: InviteMemberResponse,
       error: [AccountError, AccountUnauthorized, AccountForbidden, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.inviteMember",
+        summary: "Invite Member",
+        description:
+          "Invites a user by email to the current organization, optionally with a specific role.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.delete("removeMember", "/account/members/:membershipId", {
       params: MembershipParams,
       success: SuccessResponse,
       error: [AccountError, AccountUnauthorized, AccountForbidden, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.removeMember",
+        summary: "Remove Member",
+        description:
+          "Removes the membership identified by the given id from the current organization.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.patch("updateMemberRole", "/account/members/:membershipId/role", {
@@ -224,14 +277,26 @@ export const AccountApi = HttpApiGroup.make("account")
       payload: UpdateMemberRoleBody,
       success: SuccessResponse,
       error: [AccountError, AccountUnauthorized, AccountForbidden, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.updateMemberRole",
+        summary: "Update Member Role",
+        description: "Updates the role of the membership identified by the given id.",
+      }),
+    ),
   )
   .add(
     HttpApiEndpoint.patch("updateOrgName", "/account/name", {
       payload: UpdateOrgNameBody,
       success: UpdateOrgNameResponse,
       error: [AccountError, AccountUnauthorized, AccountForbidden, AccountNoOrganization],
-    }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "account.updateOrgName",
+        summary: "Update Org Name",
+        description: "Updates the display name of the current organization.",
+      }),
+    ),
   );
 
 /**
