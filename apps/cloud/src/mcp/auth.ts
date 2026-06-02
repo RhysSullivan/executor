@@ -16,9 +16,9 @@ import { createCachedRemoteJWKSet } from "../auth/jwks-cache";
 import { ApiKeyService } from "../auth/api-keys";
 import { BEARER_PREFIX } from "../auth/bearer";
 import { authorizeOrganization } from "../auth/organization";
-import { UserStoreService } from "../auth/context";
+import { makeUserStoreLayer } from "../auth/context";
 import { CoreSharedServices } from "../auth/workos";
-import { DbService } from "../db/db";
+import { makeDbLayer } from "../db/db";
 import { bearerChallenge } from "./responses";
 import { McpJwtVerificationError, verifyWorkOSMcpAccessToken, type VerifiedToken } from "./jwt";
 
@@ -150,15 +150,25 @@ const verifyJwt = (token: string) =>
     audience: WORKOS_CLIENT_ID,
   });
 
-const DbLive = DbService.Live;
-const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
-const McpOrganizationAuthServices = Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
+// Built FRESH per `authorize` call. `McpOrganizationAuthLive` is constructed
+// once by the facade but `authorize` runs on every MCP request; a shared
+// `DbService.Live` would open its postgres socket on the first request and
+// illegally reuse it on later ones ("Cannot perform I/O on behalf of a
+// different request"), failing the org lookup on every follow-up — the
+// "connected · tools fetch failed" symptom. A fresh DB + UserStore layer per
+// call gives each request its own request-scoped socket. `CoreSharedServices`
+// (WorkOS, no per-request socket) stays shared.
+const makeMcpOrganizationAuthServices = () => {
+  const dbLive = makeDbLayer();
+  const userStoreLive = makeUserStoreLayer().pipe(Layer.provide(dbLive));
+  return Layer.mergeAll(dbLive, userStoreLive, CoreSharedServices);
+};
 
 export const McpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth)({
   authorize: (accountId, organizationId) =>
     authorizeOrganization(accountId, organizationId).pipe(
       Effect.map((org) => org !== null),
-      Effect.provide(McpOrganizationAuthServices),
+      Effect.provide(makeMcpOrganizationAuthServices()),
     ),
 });
 

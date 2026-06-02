@@ -93,3 +93,18 @@ export class DbService extends Context.Service<DbService, DbServiceShape>()(
     Effect.acquireRelease(Effect.sync(makePostgresResource), (resource) => resource.close()),
   );
 }
+
+/**
+ * A FRESH `DbService` layer (a new layer value on every call). Provide this
+ * — rather than the shared `DbService.Live` — anywhere a service is built ONCE
+ * by the facade but invoked across many Workers requests (e.g. the MCP
+ * org-authorization seam). A single shared `DbService.Live` opens its postgres
+ * socket on the first request and reuses it on later ones, which Cloudflare
+ * forbids ("Cannot perform I/O on behalf of a different request"). A distinct
+ * layer value per call gets its own request-scoped socket, acquired and
+ * released within that request.
+ */
+export const makeDbLayer = (): Layer.Layer<DbService> =>
+  Layer.effect(DbService)(
+    Effect.acquireRelease(Effect.sync(makePostgresResource), (resource) => resource.close()),
+  );
