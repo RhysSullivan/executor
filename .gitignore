@@ -58,6 +58,12 @@ apps/desktop/resources/
 # cloud local dev database
 .pglite
 apps/cloud/.dev-db/
+apps/cloud/.e2e-db/
+
+# playwright e2e artifacts
+test-results/
+playwright-report/
+.last-run.json
 .claude/
 .nitro/
 .output/
