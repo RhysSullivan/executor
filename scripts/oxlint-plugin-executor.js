@@ -31,6 +31,7 @@ import preferEffectPredicate from "./oxlint-plugin-executor/rules/prefer-effect-
 import preferSchemaInferredTypes from "./oxlint-plugin-executor/rules/prefer-schema-inferred-types.js";
 import preferYieldTaggedError from "./oxlint-plugin-executor/rules/prefer-yield-tagged-error.js";
 import preferValueInferredExtensionTypes from "./oxlint-plugin-executor/rules/prefer-value-inferred-extension-types.js";
+import requireEffectFnName from "./oxlint-plugin-executor/rules/require-effect-fn-name.js";
 import requireReactivityKeys from "./oxlint-plugin-executor/rules/require-reactivity-keys.js";
 
 export default {
@@ -44,6 +45,7 @@ export default {
     "no-cross-package-relative-imports": noCrossPackageRelativeImports,
     "no-direct-cloud-executor-schema-import": noDirectCloudExecutorSchemaImport,
     "require-reactivity-keys": requireReactivityKeys,
+    "require-effect-fn-name": requireEffectFnName,
     "no-effect-escape-hatch": noEffectEscapeHatch,
     "no-effect-internal-tags": noEffectInternalTags,
     "no-error-constructor": noErrorConstructor,

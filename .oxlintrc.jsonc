@@ -9,6 +9,7 @@
     "executor/no-cross-package-relative-imports": "error",
     "executor/no-direct-cloud-executor-schema-import": "error",
     "executor/require-reactivity-keys": "error",
+    "executor/require-effect-fn-name": "error",
     "executor/no-effect-escape-hatch": "error",
     "executor/no-effect-internal-tags": "error",
     "executor/no-error-constructor": "error",

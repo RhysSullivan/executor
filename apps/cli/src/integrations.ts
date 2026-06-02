@@ -1,4 +1,5 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { Observability } from "@executor-js/sdk/observability";
 import { FetchHttpClient } from "effect/unstable/http";
 import { BunFileSystem } from "@effect/platform-bun";
 
@@ -26,6 +27,7 @@ export const fetchIntegrations = (): void => {
     integrationsRegistryLayer({ userAgent: USER_AGENT, recurring: false }).pipe(
       Layer.provide(FetchHttpClient.layer),
       Layer.provide(BunFileSystem.layer),
+      Layer.provideMerge(Observability.layer),
     ),
   );
   runtime.runFork(

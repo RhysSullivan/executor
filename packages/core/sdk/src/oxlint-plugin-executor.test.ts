@@ -181,4 +181,36 @@ describe("executor oxlint plugin", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("Found 0 warnings and 0 errors.");
   });
+
+  it("rejects Effect.fn without a string span name", async () => {
+    const result = await runOxlintOn(
+      "unnamed-effect-fn.ts",
+      `
+        import { Effect } from "effect";
+
+        export const run = Effect.fn(function* () {
+          return yield* Effect.succeed(1);
+        });
+      `,
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("executor(require-effect-fn-name)");
+  });
+
+  it("allows Effect.fn with a string span name", async () => {
+    const result = await runOxlintOn(
+      "named-effect-fn.ts",
+      `
+        import { Effect } from "effect";
+
+        export const run = Effect.fn("Demo.run")(function* () {
+          return yield* Effect.succeed(1);
+        });
+      `,
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Found 0 warnings and 0 errors.");
+  });
 });

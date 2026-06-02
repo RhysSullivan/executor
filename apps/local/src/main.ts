@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
+import { Observability } from "@executor-js/sdk/observability";
 
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
@@ -82,7 +83,9 @@ const ServerHandlersLive = Layer.effect(ServerHandlersService)(
   ),
 );
 
-const serverHandlersRuntime = ManagedRuntime.make(ServerHandlersLive);
+const serverHandlersRuntime = ManagedRuntime.make(
+  ServerHandlersLive.pipe(Layer.provideMerge(Observability.layer)),
+);
 
 export const getServerHandlers = (): Promise<ServerHandlers> =>
   serverHandlersRuntime.runPromise(ServerHandlersService);

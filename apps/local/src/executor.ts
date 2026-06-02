@@ -1,4 +1,5 @@
 import { Context, Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Observability } from "@executor-js/sdk/observability";
 import { type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
@@ -749,7 +750,7 @@ const createLocalExecutorLayer = () => {
 
 export const createExecutorHandle = async () => {
   const layer = createLocalExecutorLayer();
-  const runtime = ManagedRuntime.make(layer);
+  const runtime = ManagedRuntime.make(layer.pipe(Layer.provideMerge(Observability.layer)));
   const bundle = await runtime.runPromise(LocalExecutorTag);
 
   return {

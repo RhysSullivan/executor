@@ -1,4 +1,5 @@
 import { Layer, ManagedRuntime } from "effect";
+import { Observability } from "@executor-js/sdk/observability";
 import { FetchHttpClient } from "effect/unstable/http";
 import { NodeFileSystem } from "@effect/platform-node";
 
@@ -18,6 +19,7 @@ const integrationsRuntime = ManagedRuntime.make(
   integrationsRegistryLayer({ userAgent: USER_AGENT }).pipe(
     Layer.provide(FetchHttpClient.layer),
     Layer.provide(NodeFileSystem.layer),
+    Layer.provideMerge(Observability.layer),
   ),
 );
 

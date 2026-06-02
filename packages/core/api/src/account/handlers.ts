@@ -2,7 +2,13 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpServerRequest } from "effect/unstable/http";
 import { Effect } from "effect";
 
-import { AccountHttpApi } from "./api";
+import {
+  AccountHttpApi,
+  type CreateApiKeyBody,
+  type InviteMemberBody,
+  type UpdateMemberRoleBody,
+  type UpdateOrgNameBody,
+} from "./api";
 import { AccountProvider, type AccountHeaders } from "./service";
 
 // ---------------------------------------------------------------------------
@@ -11,6 +17,10 @@ import { AccountProvider, type AccountHeaders } from "./service";
 // both cloud and self-host serve identical routes — only the service impl
 // differs. The neutral errors thrown by the service map directly to their HTTP
 // statuses (401/403/500) via the contract annotations.
+//
+// Each handler is an `Effect.fn("account.<endpoint>")` so it opens a named
+// trace span / fiber. The `ctx` parameter is annotated explicitly because the
+// endpoint-input type does not flow through `Effect.fn` by inference.
 // ---------------------------------------------------------------------------
 
 const requestHeaders = Effect.map(
@@ -20,68 +30,83 @@ const requestHeaders = Effect.map(
 
 export const AccountHandlers = HttpApiBuilder.group(AccountHttpApi, "account", (handlers) =>
   handlers
-    .handle("me", () =>
-      Effect.gen(function* () {
+    .handle(
+      "me",
+      Effect.fn("account.me")(function* () {
         const headers = yield* requestHeaders;
         return yield* (yield* AccountProvider).me(headers);
       }),
     )
-    .handle("listApiKeys", () =>
-      Effect.gen(function* () {
+    .handle(
+      "listApiKeys",
+      Effect.fn("account.listApiKeys")(function* () {
         const headers = yield* requestHeaders;
         return yield* (yield* AccountProvider).listApiKeys(headers);
       }),
     )
-    .handle("createApiKey", ({ payload }) =>
-      Effect.gen(function* () {
+    .handle(
+      "createApiKey",
+      Effect.fn("account.createApiKey")(function* (ctx: { payload: typeof CreateApiKeyBody.Type }) {
         const headers = yield* requestHeaders;
-        return yield* (yield* AccountProvider).createApiKey(headers, payload.name);
+        return yield* (yield* AccountProvider).createApiKey(headers, ctx.payload.name);
       }),
     )
-    .handle("revokeApiKey", ({ params }) =>
-      Effect.gen(function* () {
+    .handle(
+      "revokeApiKey",
+      Effect.fn("account.revokeApiKey")(function* (ctx: { params: { apiKeyId: string } }) {
         const headers = yield* requestHeaders;
-        return yield* (yield* AccountProvider).revokeApiKey(headers, params.apiKeyId);
+        return yield* (yield* AccountProvider).revokeApiKey(headers, ctx.params.apiKeyId);
       }),
     )
-    .handle("listMembers", () =>
-      Effect.gen(function* () {
+    .handle(
+      "listMembers",
+      Effect.fn("account.listMembers")(function* () {
         const headers = yield* requestHeaders;
         return yield* (yield* AccountProvider).listMembers(headers);
       }),
     )
-    .handle("listRoles", () =>
-      Effect.gen(function* () {
+    .handle(
+      "listRoles",
+      Effect.fn("account.listRoles")(function* () {
         const headers = yield* requestHeaders;
         return yield* (yield* AccountProvider).listRoles(headers);
       }),
     )
-    .handle("inviteMember", ({ payload }) =>
-      Effect.gen(function* () {
+    .handle(
+      "inviteMember",
+      Effect.fn("account.inviteMember")(function* (ctx: { payload: typeof InviteMemberBody.Type }) {
         const headers = yield* requestHeaders;
-        return yield* (yield* AccountProvider).inviteMember(headers, payload);
+        return yield* (yield* AccountProvider).inviteMember(headers, ctx.payload);
       }),
     )
-    .handle("removeMember", ({ params }) =>
-      Effect.gen(function* () {
+    .handle(
+      "removeMember",
+      Effect.fn("account.removeMember")(function* (ctx: { params: { membershipId: string } }) {
         const headers = yield* requestHeaders;
-        return yield* (yield* AccountProvider).removeMember(headers, params.membershipId);
+        return yield* (yield* AccountProvider).removeMember(headers, ctx.params.membershipId);
       }),
     )
-    .handle("updateMemberRole", ({ params, payload }) =>
-      Effect.gen(function* () {
+    .handle(
+      "updateMemberRole",
+      Effect.fn("account.updateMemberRole")(function* (ctx: {
+        params: { membershipId: string };
+        payload: typeof UpdateMemberRoleBody.Type;
+      }) {
         const headers = yield* requestHeaders;
         return yield* (yield* AccountProvider).updateMemberRole(
           headers,
-          params.membershipId,
-          payload.roleSlug,
+          ctx.params.membershipId,
+          ctx.payload.roleSlug,
         );
       }),
     )
-    .handle("updateOrgName", ({ payload }) =>
-      Effect.gen(function* () {
+    .handle(
+      "updateOrgName",
+      Effect.fn("account.updateOrgName")(function* (ctx: {
+        payload: typeof UpdateOrgNameBody.Type;
+      }) {
         const headers = yield* requestHeaders;
-        return yield* (yield* AccountProvider).updateOrgName(headers, payload.name);
+        return yield* (yield* AccountProvider).updateOrgName(headers, ctx.payload.name);
       }),
     ),
 );

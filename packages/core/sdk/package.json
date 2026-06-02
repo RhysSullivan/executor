@@ -23,7 +23,8 @@
     "./http-source": "./src/http-source.ts",
     "./promise": "./src/promise.ts",
     "./client": "./src/client.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./observability": "./src/observability.ts"
   },
   "publishConfig": {
     "access": "public",
