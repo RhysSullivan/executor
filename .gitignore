@@ -45,8 +45,12 @@ personal-notes/
 *.har.executor
 executor.har
 .executor/
-# Per-app dev runtime dirs (local SQLite DB + generated dev secret.key) — never commit
-.executor-dev/
+# Per-app dev runtime data dirs (local SQLite DB + generated secret.key) — never
+# commit. Glob covers .executor-dev (cloud/cloudflare dev) AND .executor-selfhost
+# (the self-host data dir) and any future .executor-<role> dir.
+.executor-*/
+# Belt-and-suspenders: never commit a generated session/at-rest key, wherever it lands.
+secret.key
 
 # desktop app build artifacts
 apps/desktop/resources/
