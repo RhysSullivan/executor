@@ -55,12 +55,25 @@ enabled — the self-hosted executor hub from
 - Deleted single-org libSQL machinery: `auth/seed.ts`, `auth/invites.ts`,
   `db/self-host-db.ts`, `admin/`, `testing/`.
 
-## Pending (next phases — see the plan)
+## SSO bridge (Phases 1–2) — implemented
 
-- **Boot / e2e**: stand the Bun server up against Postgres and exercise sign-in,
-  org create, source add, per-org API key, and `/mcp` with a Bearer key.
-- **SSO bridge (Phase 1)**: nice-chatbot as OIDC provider; verify the
-  `genericOAuth` handshake + org/role claim mapping end-to-end.
-- **nice-chatbot integration**: `/executor` (subdomain) reverse proxy, org sync,
-  and registering the per-org MCP endpoint in `MCPClientsManager`.
+- **Client (host-nice):** `genericOAuth` provider `nice-chatbot` (env-gated on
+  `EXECUTOR_OIDC_*`); `mapProfileToUser` stashes the org claim; a
+  `user.create.after` hook find-or-creates the Executor org by slug and adds the
+  user with the mapped role (`super_admin|admin → owner|admin`, else `member`).
+  No-ops for email/password. Typecheck clean; boot + signup verified unregressed.
+- **Provider (nice-chatbot):** `oidcProvider` plugin + `getAdditionalUserInfoClaim`
+  emitting `organization_id/name/slug/role`. nice-chatbot also adds the
+  `/executor` proxy, an org-scoped MCP registration helper (Phase 3), and a
+  source-registration helper (Phase 4) — all typecheck-clean.
+
+## Pending (runtime / operational — not code gaps)
+
+- Exercise the **browser OAuth handshake** end-to-end with both apps deployed +
+  `EXECUTOR_OIDC_*` / `EXECUTOR_COOKIE_DOMAIN` configured.
+- **Source migration (Phase 4):** run `registerExecutorSource` against a live
+  host-nice to move connectors/MCP/ACD tools into Executor sources; bridge OAuth
+  → connections/secrets; set write policies to approval.
+- **Phase 5 cutover:** retire duplicate hand-written tools once a team is fully
+  served by Executor.
 - Re-enable a multi-org test suite (the single-org tests were removed).
