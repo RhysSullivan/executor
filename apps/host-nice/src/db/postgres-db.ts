@@ -96,17 +96,21 @@ export const createPostgresExecutorDb = async <const TTables extends FumaTables>
     version,
     provider: "postgresql",
   });
-  // Natural postgres-js type (structurally an `ExecutableDrizzleDb`, like the
-  // libSQL path); only the exported handle field is widened to `DrizzleFumaDb`.
   const drizzleDb = drizzle(sql, { schema: runtimeSchema });
 
   // Idempotent schema bring-up (the drizzle adapter has no versioned migrator).
-  await ensureDrizzleRuntimeSchemaFromTables(drizzleDb, {
-    tables: options.tables,
-    namespace: options.namespace,
-    version,
-    provider: "postgresql",
-  });
+  // Only `ensure` requires the structural `ExecutableDrizzleDb`; postgres-js's
+  // `transaction` generics don't match it nominally though they do at runtime
+  // (the smoke test proves the migration), so cast this one argument.
+  await ensureDrizzleRuntimeSchemaFromTables(
+    drizzleDb as unknown as Parameters<typeof ensureDrizzleRuntimeSchemaFromTables>[0],
+    {
+      tables: options.tables,
+      namespace: options.namespace,
+      version,
+      provider: "postgresql",
+    },
+  );
 
   const { db, fuma } = createExecutorFumaDb(drizzleDb, {
     tables: options.tables,

@@ -31,6 +31,27 @@ import { loadConfig, type HostNiceConfig, type OidcConfig } from "../config";
 
 const SIGNED_OUT_REDIRECT = "/login";
 
+// Phase 2 (consumer): SSO login carries the user's team + role as OIDC claims
+// (nice-chatbot's getAdditionalUserInfoClaim). `mapProfileToUser` only maps user
+// fields, so the org claim is stashed here (keyed by email) during the OAuth
+// callback and consumed by the user.create.after hook to provision Executor org
+// membership. Inert for email/password logins (the map stays empty).
+interface OrgClaim {
+  readonly orgId: string;
+  readonly orgName?: string;
+  readonly orgSlug?: string;
+  readonly role?: string;
+}
+const pendingOrgClaims = new Map<string, OrgClaim>();
+let liveAuth: Auth | null = null;
+
+const str = (v: unknown): string | undefined =>
+  typeof v === "string" && v.length > 0 ? v : undefined;
+
+/** Map a nice-chatbot role to an Executor org role. */
+const toOrgRole = (role: string | undefined): "owner" | "admin" | "member" =>
+  role === "super_admin" || role === "admin" ? "admin" : "member";
+
 /** The nice-chatbot OIDC provider config for `genericOAuth`, when configured. */
 const niceChatbotProvider = (oidc: OidcConfig) => ({
   providerId: "nice-chatbot",
@@ -38,7 +59,49 @@ const niceChatbotProvider = (oidc: OidcConfig) => ({
   clientSecret: oidc.clientSecret,
   discoveryUrl: `${oidc.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`,
   scopes: ["openid", "profile", "email"],
+  mapProfileToUser: (profile: Record<string, unknown>) => {
+    const email = str(profile.email);
+    const orgId = str(profile.organization_id);
+    if (email && orgId) {
+      pendingOrgClaims.set(email.toLowerCase(), {
+        orgId,
+        orgName: str(profile.organization_name),
+        orgSlug: str(profile.organization_slug),
+        role: str(profile.organization_role),
+      });
+    }
+    return {};
+  },
 });
+
+/**
+ * Provision Executor org membership from a stashed SSO claim. Find-or-create the
+ * Executor org by slug (stable across systems), then add the user with the
+ * mapped role. Best-effort: never block login.
+ */
+const provisionOrgFromClaim = async (userId: string, email: string): Promise<void> => {
+  const claim = pendingOrgClaims.get(email.toLowerCase());
+  if (!claim || !liveAuth) return;
+  pendingOrgClaims.delete(email.toLowerCase());
+  const auth = liveAuth;
+  const { adapter } = await auth.$context;
+  const slug = claim.orgSlug ?? claim.orgId;
+  let org = await adapter.findOne<{ id: string }>({
+    model: "organization",
+    where: [{ field: "slug", value: slug }],
+  });
+  if (!org) {
+    const created = await auth.api.createOrganization({
+      body: { name: claim.orgName ?? slug, slug, userId },
+    });
+    org = created ? { id: created.id } : null;
+    if (org) return; // creator is owner; membership already exists
+  }
+  if (!org) return;
+  await auth.api.addMember({
+    body: { userId, organizationId: org.id, role: toOrgRole(claim.role) },
+  });
+};
 
 const makeAuthOptions = (url: string, schema: string, config: HostNiceConfig) => {
   const secret = config.authSecret;
@@ -85,6 +148,17 @@ const makeAuthOptions = (url: string, schema: string, config: HostNiceConfig) =>
       mcp({ loginPage: SIGNED_OUT_REDIRECT }),
       genericOAuth({ config: oauthConfig }),
     ],
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user: { id: string; email: string }) => {
+            // Provision Executor org membership from the SSO claim on first
+            // login. No-op for email/password (no stashed claim).
+            await provisionOrgFromClaim(user.id, user.email);
+          },
+        },
+      },
+    },
   } satisfies BetterAuthOptions;
 };
 
@@ -181,6 +255,9 @@ const maybeBootstrap = async (
 export const buildBetterAuth = async (url: string, schema: string): Promise<BetterAuthHandle> => {
   const config = loadConfig();
   const auth = createAuthInstance(url, schema, config);
+  // Late-bind for the SSO org-provisioning hook (needs the constructed instance
+  // to call auth.api.createOrganization / addMember).
+  liveAuth = auth;
   await (await auth.$context).runMigrations();
   const defaultOrganizationId = await maybeBootstrap(auth, config);
   return { auth, defaultOrganizationId, handler: auth.handler };
