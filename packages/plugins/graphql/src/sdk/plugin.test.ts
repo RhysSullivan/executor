@@ -358,6 +358,29 @@ describe("graphqlPlugin real protocol server", () => {
     }),
   );
 
+  it.effect("sends named operations derived from the field name", () =>
+    Effect.gen(function* () {
+      const server = yield* serveGreetingServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: server.endpoint,
+        scope: TEST_SCOPE,
+        namespace: "named_ops",
+      });
+      yield* server.clearRequests;
+
+      yield* executor.tools.invoke("named_ops.query.hello", { name: "Ada" });
+      yield* executor.tools.invoke("named_ops.mutation.setGreeting", { message: "hi" });
+
+      const requests = yield* server.requests;
+      expect(requests[0]?.payload.query).toMatch(/^query Hello\b/);
+      expect(requests[1]?.payload.query).toMatch(/^mutation SetGreeting\b/);
+    }),
+  );
+
   it.effect("surfaces non-2xx invocation responses as ToolResult.fail", () =>
     Effect.gen(function* () {
       const server = yield* serveTestHttpApp((request) =>
