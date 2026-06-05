@@ -233,6 +233,7 @@ export function ToolTree(props: {
   }, [policies]);
   const [search, setSearch] = useState("");
   const [manualOpen, setManualOpen] = useState<Set<string>>(() => new Set());
+  const [manualClosed, setManualClosed] = useState<Set<string>>(() => new Set());
   const searchRef = useRef<HTMLInputElement>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);
 
@@ -259,15 +260,16 @@ export function ToolTree(props: {
     const set = new Set(manualOpen);
     if (selectedToolId) {
       const parts = selectedToolId.split(".");
-      // Progressively add ancestor paths (best-effort, based on dotted name).
+      // Progressively add ancestor paths (best-effort, based on dotted name),
+      // unless the user explicitly closed that group.
       let acc = "";
       for (let i = 0; i < parts.length - 1; i++) {
         acc = acc ? `${acc}.${parts[i]}` : parts[i]!;
-        set.add(acc);
+        if (!manualClosed.has(acc)) set.add(acc);
       }
     }
     return set;
-  }, [tree, manualOpen, selectedToolId, terms.length]);
+  }, [tree, manualOpen, manualClosed, selectedToolId, terms.length]);
 
   const rows = useMemo(() => {
     const acc: Row[] = [];
@@ -276,10 +278,17 @@ export function ToolTree(props: {
   }, [tree, openSet]);
 
   const toggleGroup = (path: string) => {
+    const isOpen = openSet.has(path);
     setManualOpen((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
+      if (isOpen) next.delete(path);
       else next.add(path);
+      return next;
+    });
+    setManualClosed((prev) => {
+      const next = new Set(prev);
+      if (isOpen) next.add(path);
+      else next.delete(path);
       return next;
     });
   };
