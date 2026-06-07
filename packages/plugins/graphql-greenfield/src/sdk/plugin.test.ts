@@ -272,7 +272,9 @@ describe("graphqlPlugin integration + connection lifecycle", () => {
       });
 
       const listRemovableToolAddresses = Effect.map(executor.tools.list(), (tools) =>
-        tools.map((t) => String(t.address)).filter((address) => address.startsWith("tools.removable.")),
+        tools
+          .map((t) => String(t.address))
+          .filter((address) => address.startsWith("tools.removable.")),
       );
 
       expect((yield* listRemovableToolAddresses).length).toBe(2);
