@@ -187,3 +187,81 @@ export const googleOpenApiPresets: readonly GoogleOpenApiPreset[] = [
 export const googleStandardUserOAuthPresets = googleOpenApiPresets.filter(
   (preset) => preset.oauthAudience === "standard-user",
 );
+
+// ---------------------------------------------------------------------------
+// Representative consent scopes per preset.
+//
+// The picker shows the OAuth consent a user is about to grant BEFORE connecting
+// (the "View scopes" panel), but the authoritative scope list only exists in
+// each API's live Discovery document — which the add flow fetches lazily at
+// `addSpec` time. To preview consent without N network round-trips, each preset
+// declares the broad top-level scope(s) a full integration grants. These flow
+// through `googleOAuthConsentBatches` (which compacts sub-scopes under their
+// broad parent), so the previewed grant matches the unioned scopes the bundle
+// converter ultimately stores. Grounded against each API's published Discovery
+// `auth.oauth2.scopes`.
+// ---------------------------------------------------------------------------
+
+export const googleOAuthConsentScopes: Readonly<Record<string, readonly string[]>> = {
+  "google-calendar": ["https://www.googleapis.com/auth/calendar"],
+  "google-gmail": ["https://mail.google.com/"],
+  "google-sheets": ["https://www.googleapis.com/auth/spreadsheets"],
+  "google-drive": ["https://www.googleapis.com/auth/drive"],
+  "google-docs": ["https://www.googleapis.com/auth/documents"],
+  "google-slides": ["https://www.googleapis.com/auth/presentations"],
+  "google-forms": ["https://www.googleapis.com/auth/forms.body"],
+  "google-tasks": ["https://www.googleapis.com/auth/tasks"],
+  "google-people": ["https://www.googleapis.com/auth/contacts"],
+  "google-chat": ["https://www.googleapis.com/auth/chat.spaces"],
+  "google-keep": ["https://www.googleapis.com/auth/keep"],
+  "google-youtube-data": ["https://www.googleapis.com/auth/youtube"],
+  "google-search-console": ["https://www.googleapis.com/auth/webmasters"],
+  "google-classroom": ["https://www.googleapis.com/auth/classroom.courses"],
+  "google-admin-directory": ["https://www.googleapis.com/auth/admin.directory.user"],
+  "google-admin-reports": ["https://www.googleapis.com/auth/admin.reports.audit.readonly"],
+  "google-apps-script": ["https://www.googleapis.com/auth/script.projects"],
+  "google-bigquery": ["https://www.googleapis.com/auth/bigquery"],
+  "google-cloud-resource-manager": ["https://www.googleapis.com/auth/cloud-platform"],
+};
+
+export const googleOAuthConsentScopesForPreset = (presetId: string): readonly string[] =>
+  googleOAuthConsentScopes[presetId] ?? [];
+
+// ---------------------------------------------------------------------------
+// Resolve a stored/normalized Discovery URL back to its preset, so a bundled
+// `google` integration can surface each selected API's `oauthAudience` (e.g. a
+// caution on a connection's auth method when admin-only or unsupported-consent
+// APIs are part of the bundle).
+// ---------------------------------------------------------------------------
+
+const normalizeGooglePresetUrl = (url: string): string => {
+  const trimmed = url.trim();
+  if (!URL.canParse(trimmed)) return trimmed.replace(/\/$/, "");
+  const parsed = new URL(trimmed);
+  parsed.hash = "";
+  parsed.searchParams.sort();
+  return parsed.toString().replace(/\/$/, "");
+};
+
+const googlePresetsByNormalizedUrl: ReadonlyMap<string, GoogleOpenApiPreset> = new Map(
+  googleOpenApiPresets.flatMap((preset) =>
+    preset.url ? [[normalizeGooglePresetUrl(preset.url), preset] as const] : [],
+  ),
+);
+
+export const googlePresetForDiscoveryUrl = (url: string): GoogleOpenApiPreset | undefined =>
+  googlePresetsByNormalizedUrl.get(normalizeGooglePresetUrl(url));
+
+/** The distinct caution-tier audiences (`workspace-admin`, `unsupported-user`)
+ *  among the supplied Discovery URLs — the ones whose consent the user should be
+ *  warned about. Returns `[]` when every URL is a standard/advanced API. */
+export const googleAudienceWarningsForUrls = (
+  urls: readonly string[],
+): readonly GoogleOpenApiOAuthAudience[] => {
+  const seen = new Set<GoogleOpenApiOAuthAudience>();
+  for (const url of urls) {
+    const audience = googlePresetForDiscoveryUrl(url)?.oauthAudience;
+    if (audience === "workspace-admin" || audience === "unsupported-user") seen.add(audience);
+  }
+  return [...seen];
+};

@@ -175,7 +175,9 @@ export const makeExecutionStackMiddleware = <
             resolved.organizationName,
           ).pipe(
             Effect.provide(options.stackLayer),
-            Effect.provideService(RequestWebOrigin, { origin: new URL(webRequest.url).origin }),
+            Effect.provideService(RequestWebOrigin, {
+              origin: requestWebOriginFromRequest(webRequest),
+            }),
           );
           return yield* httpEffect.pipe(
             Effect.provideService(AuthContext, auth),
@@ -197,3 +199,36 @@ export const makeExecutionStackMiddleware = <
 const isPrincipal = (
   value: Principal | HttpServerResponse.HttpServerResponse,
 ): value is Principal => !HttpServerResponse.isHttpServerResponse(value);
+
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+const parseOrigin = (value: string): URL | null => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: new URL() throws on malformed origin; no Effect equivalent for this sync parse
+  try {
+    const parsed = new URL(value);
+    parsed.pathname = "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const isLoopbackOrigin = (value: URL): boolean => LOOPBACK_HOSTNAMES.has(value.hostname);
+
+const originString = (value: URL): string => value.origin;
+
+export const requestWebOriginFromRequest = (request: Request): string => {
+  const requestUrl = new URL(request.url);
+  const requestOrigin = requestUrl.origin;
+  const browserOriginHeader = request.headers.get("origin");
+  if (!browserOriginHeader) return requestOrigin;
+
+  const browserOrigin = parseOrigin(browserOriginHeader);
+  if (!browserOrigin) return requestOrigin;
+  if (!isLoopbackOrigin(requestUrl) || !isLoopbackOrigin(browserOrigin)) return requestOrigin;
+  if (requestUrl.protocol !== browserOrigin.protocol) return requestOrigin;
+  if (requestUrl.port !== browserOrigin.port) return requestOrigin;
+  return originString(browserOrigin);
+};

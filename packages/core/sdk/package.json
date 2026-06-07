@@ -20,10 +20,10 @@
     "./core": "./src/index.ts",
     "./shared": "./src/shared.ts",
     "./host-internal": "./src/host-internal.ts",
-    "./http-source": "./src/http-source.ts",
     "./promise": "./src/promise.ts",
     "./client": "./src/client.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./migration": "./src/migration-spec.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -52,12 +52,6 @@
           "default": "./dist/host-internal.js"
         }
       },
-      "./http-source": {
-        "import": {
-          "types": "./dist/http-source.d.ts",
-          "default": "./dist/http-source.js"
-        }
-      },
       "./client": {
         "import": {
           "types": "./dist/client.d.ts",
@@ -68,6 +62,12 @@
         "import": {
           "types": "./dist/testing.d.ts",
           "default": "./dist/testing.js"
+        }
+      },
+      "./migration": {
+        "import": {
+          "types": "./dist/migration-spec.d.ts",
+          "default": "./dist/migration-spec.js"
         }
       }
     }

@@ -1,166 +1,184 @@
-// Secrets endpoints — set / list / status / remove round-trip
-// and error fidelity within a single org.
+// Connection endpoints — create / list / get / remove round-trip and error
+// fidelity within a single org (v2).
+//
+// Ports the v1 "secrets api" suite. In v2 a connection IS the credential:
+// owner-scoped, bound 1:1 to an integration, identified by (owner, integration,
+// name). There is no scope id and no separate secret value endpoint — the value
+// is stored through the connection's provider and never echoed back.
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result } from "effect";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { Schema } from "effect";
 
-import { ScopeId, SecretId } from "@executor-js/sdk";
+import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk";
+import { makeOpenApiHttpApiTestAddSpecPayload } from "@executor-js/plugin-openapi/testing";
 
-import { asOrg, fetchForOrg, TEST_BASE_URL } from "../testing/api-harness";
+import { asOrg } from "../testing/api-harness";
 
-describe("secrets api (HTTP)", () => {
-  it.effect("set → list → status returns secret metadata", () =>
+const PingApi = HttpApi.make("connectionsApiTest")
+  .add(
+    HttpApiGroup.make("default", { topLevel: true }).add(
+      HttpApiEndpoint.get("ping", "/ping", { success: Schema.Unknown }),
+    ),
+  )
+  .annotateMerge(OpenApi.annotations({ title: "Connections API Test", version: "1.0.0" }));
+
+const TEMPLATE_API_KEY = AuthTemplateSlug.make("apiKey");
+
+// Registers a minimal openapi integration so connections have something to bind
+// to, then returns its slug.
+const registerIntegration = (org: string) =>
+  Effect.gen(function* () {
+    const slug = IntegrationSlug.make(`ns_${crypto.randomUUID().replace(/-/g, "_")}`);
+    yield* asOrg(org, (client) =>
+      client.openapi.addSpec({
+        payload: makeOpenApiHttpApiTestAddSpecPayload(PingApi, {
+          slug,
+          baseUrl: "http://example.com",
+        }),
+      }),
+    );
+    return slug;
+  });
+
+describe("connections api (HTTP)", () => {
+  it.effect("create → list → get returns connection metadata without the value", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
-      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
+      const integration = yield* registerIntegration(org);
+      const name = ConnectionName.make(`conn_${crypto.randomUUID().slice(0, 8)}`);
 
       const secretValue = "sk-test-abc";
-      const setRef = yield* asOrg(org, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(org) },
-          payload: { id: SecretId.make(id), name: "My API Token", value: secretValue },
-        }),
-      );
-      expect(setRef.id).toBe(id);
-      expect(setRef.scopeId).toBe(org);
-      expect(JSON.stringify(setRef)).not.toContain(secretValue);
-
-      const list = yield* asOrg(org, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(org) } }),
-      );
-      expect(list.find((s) => s.id === id)?.name).toBe("My API Token");
-      expect(JSON.stringify(list)).not.toContain(secretValue);
-
-      const status = yield* asOrg(org, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
-        }),
-      );
-      expect(status.status).toBe("resolved");
-    }),
-  );
-
-  it.effect("resolve is not available through the public API", () =>
-    Effect.gen(function* () {
-      const org = `org_${crypto.randomUUID()}`;
-      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
-
-      yield* asOrg(org, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(org) },
-          payload: { id: SecretId.make(id), name: "n", value: "v" },
-        }),
-      );
-
-      const response = yield* Effect.promise(() =>
-        fetchForOrg(org)(`${TEST_BASE_URL}/scopes/${org}/secrets/${id}/resolve`),
-      );
-      expect(response.status).toBe(404);
-    }),
-  );
-
-  it.effect("status is resolved for an existing secret, missing for an unknown id", () =>
-    Effect.gen(function* () {
-      const org = `org_${crypto.randomUUID()}`;
-      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
-
-      yield* asOrg(org, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(org) },
-          payload: { id: SecretId.make(id), name: "n", value: "v" },
-        }),
-      );
-
-      const resolvedStatus = yield* asOrg(org, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
-        }),
-      );
-      expect(resolvedStatus.status).toBe("resolved");
-
-      const missingStatus = yield* asOrg(org, (client) =>
-        client.secrets.status({
-          params: {
-            scopeId: ScopeId.make(org),
-            secretId: SecretId.make(`missing_${crypto.randomUUID().slice(0, 8)}`),
+      const created = yield* asOrg(org, (client) =>
+        client.connections.create({
+          payload: {
+            owner: "org",
+            name,
+            integration,
+            template: TEMPLATE_API_KEY,
+            identityLabel: "My API Token",
+            value: secretValue,
           },
         }),
       );
-      expect(missingStatus.status).toBe("missing");
+      expect(created.name).toBe(name);
+      expect(created.owner).toBe("org");
+      expect(JSON.stringify(created)).not.toContain(secretValue);
+
+      const list = yield* asOrg(org, (client) =>
+        client.connections.list({ query: { integration } }),
+      );
+      expect(list.find((c) => c.name === name)?.identityLabel).toBe("My API Token");
+      expect(JSON.stringify(list)).not.toContain(secretValue);
+
+      const fetched = yield* asOrg(org, (client) =>
+        client.connections.get({ params: { owner: "org", integration, name } }),
+      );
+      expect(fetched.name).toBe(name);
+      expect(fetched.integration).toBe(integration);
     }),
   );
 
-  it.effect("remove deletes the secret; subsequent status is missing and list drops it", () =>
+  it.effect("get on an unknown connection fails with ConnectionNotFoundError", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
-      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
+      const integration = yield* registerIntegration(org);
+      const missing = ConnectionName.make(`missing_${crypto.randomUUID().slice(0, 8)}`);
+
+      const result = yield* asOrg(org, (client) =>
+        client.connections
+          .get({ params: { owner: "org", integration, name: missing } })
+          .pipe(Effect.result),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("remove deletes the connection; list drops it and get fails", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const integration = yield* registerIntegration(org);
+      const name = ConnectionName.make(`conn_${crypto.randomUUID().slice(0, 8)}`);
 
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
-          yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(org) },
-            payload: { id: SecretId.make(id), name: "n", value: "v" },
+          yield* client.connections.create({
+            payload: { owner: "org", name, integration, template: TEMPLATE_API_KEY, value: "v" },
           });
-          yield* client.secrets.remove({
-            params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+          const removed = yield* client.connections.remove({
+            params: { owner: "org", integration, name },
           });
+          expect(removed.removed).toBe(true);
         }),
       );
 
       const list = yield* asOrg(org, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(org) } }),
+        client.connections.list({ query: { integration } }),
       );
-      expect(list.map((s) => s.id)).not.toContain(id);
+      expect(list.map((c) => c.name)).not.toContain(name);
 
-      const afterStatus = yield* asOrg(org, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
-        }),
+      const afterGet = yield* asOrg(org, (client) =>
+        client.connections.get({ params: { owner: "org", integration, name } }).pipe(Effect.result),
       );
-      expect(afterStatus.status).toBe("missing");
+      expect(Result.isFailure(afterGet)).toBe(true);
     }),
   );
 
-  it.effect("remove on an unknown id is a no-op (idempotent)", () =>
+  it.effect("remove on an unknown connection fails with ConnectionNotFoundError", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
-      const missing = `missing_${crypto.randomUUID().slice(0, 8)}`;
+      const integration = yield* registerIntegration(org);
+      const missing = ConnectionName.make(`missing_${crypto.randomUUID().slice(0, 8)}`);
 
       const result = yield* asOrg(org, (client) =>
-        client.secrets
-          .remove({ params: { scopeId: ScopeId.make(org), secretId: SecretId.make(missing) } })
+        client.connections
+          .remove({ params: { owner: "org", integration, name: missing } })
           .pipe(Effect.result),
       );
-      expect(Result.isSuccess(result)).toBe(true);
+      expect(Result.isFailure(result)).toBe(true);
     }),
   );
 
-  it.effect("set with the same id twice updates the visible metadata", () =>
+  it.effect("create with the same (owner, integration, name) twice updates the metadata", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
-      const id = `sec_${crypto.randomUUID().slice(0, 8)}`;
+      const integration = yield* registerIntegration(org);
+      const name = ConnectionName.make(`conn_${crypto.randomUUID().slice(0, 8)}`);
 
       const first = yield* asOrg(org, (client) =>
         Effect.gen(function* () {
-          yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(org) },
-            payload: { id: SecretId.make(id), name: "first", value: "first-value" },
+          yield* client.connections.create({
+            payload: {
+              owner: "org",
+              name,
+              integration,
+              template: TEMPLATE_API_KEY,
+              identityLabel: "first",
+              value: "first-value",
+            },
           });
-          return yield* client.secrets.list({ params: { scopeId: ScopeId.make(org) } });
+          return yield* client.connections.list({ query: { integration } });
         }),
       );
-      expect(first.find((s) => s.id === id)?.name).toBe("first");
+      expect(first.find((c) => c.name === name)?.identityLabel).toBe("first");
 
       const second = yield* asOrg(org, (client) =>
         Effect.gen(function* () {
-          yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(org) },
-            payload: { id: SecretId.make(id), name: "updated", value: "second-value" },
+          yield* client.connections.create({
+            payload: {
+              owner: "org",
+              name,
+              integration,
+              template: TEMPLATE_API_KEY,
+              identityLabel: "updated",
+              value: "second-value",
+            },
           });
-          return yield* client.secrets.list({ params: { scopeId: ScopeId.make(org) } });
+          return yield* client.connections.list({ query: { integration } });
         }),
       );
-      expect(second.find((s) => s.id === id)?.name).toBe("updated");
+      expect(second.find((c) => c.name === name)?.identityLabel).toBe("updated");
     }),
   );
 });

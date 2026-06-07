@@ -798,6 +798,10 @@ export const beginDynamicAuthorization = (
       });
     }
 
+    // EXPLICIT registration shape (not a fallback of optional input): this DCR
+    // flow always registers the interactive authorization_code + refresh_token
+    // grants and the `code` response type. If the AS rejects refresh_token the
+    // registration request fails loudly rather than silently downgrading.
     const baseClientMetadata: DynamicClientMetadata = {
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],

@@ -106,7 +106,16 @@ export const popupDocument = <TAuth>(
 ${detailsHtml}
 </main>
 <script>
-(()=>{const p=${serialized};try{if(window.opener)window.opener.postMessage(p,window.location.origin);if("BroadcastChannel"in window){const c=new BroadcastChannel("${escapedChannel}");c.postMessage(p);setTimeout(()=>c.close(),100)}}finally{if(p.ok)setTimeout(()=>window.close(),150)}})();
+(()=>{const p=${serialized};
+// Three same-origin completion channels, each isolated so one failing doesn't
+// block the others. postMessage is severed when the provider's consent page set
+// COOP (window.opener becomes null), and BroadcastChannel can be partitioned/
+// raced by the auto-close — so localStorage (a 'storage' event on the opener) is
+// the reliable fallback. The opener settles on whichever lands first.
+try{if(window.opener)window.opener.postMessage(p,window.location.origin)}catch(e){}
+try{if("BroadcastChannel"in window){const c=new BroadcastChannel("${escapedChannel}");c.postMessage(p);setTimeout(()=>c.close(),100)}}catch(e){}
+try{localStorage.setItem("${escapedChannel}",JSON.stringify(p))}catch(e){}
+if(p.ok)setTimeout(()=>window.close(),400);})();
 </script>
 </body></html>`;
 };

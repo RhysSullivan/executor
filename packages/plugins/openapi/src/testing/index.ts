@@ -13,7 +13,19 @@ import {
   OpenApi,
 } from "effect/unstable/httpapi";
 import { OAuthTestServer, serveTestHttpServerLayer } from "@executor-js/sdk/testing";
-import { isToolResult } from "@executor-js/sdk/core";
+import {
+  AuthTemplateSlug,
+  ConnectionName,
+  IntegrationSlug,
+  ProviderItemId,
+  ProviderKey,
+  ToolAddress,
+  isToolResult,
+  type Connection,
+  type CreateConnectionInput,
+  type Owner,
+  type ToolAddress as ToolAddressType,
+} from "@executor-js/sdk/core";
 import type { OpenApiPluginExtension, OpenApiSpecConfig } from "../sdk/plugin";
 
 export class OpenApiTestServerAddressError extends Data.TaggedError(
@@ -80,49 +92,105 @@ export interface OpenApiEchoTestServerShape extends OpenApiTestServerShape {
   readonly clearRequests: Effect.Effect<void>;
 }
 
-export type OpenApiTestSourceOptions = Omit<
-  OpenApiSpecConfig,
-  "spec" | "baseUrl" | "name" | "namespace"
-> & {
+export type OpenApiTestSourceOptions = Omit<OpenApiSpecConfig, "spec" | "baseUrl" | "slug"> & {
   readonly baseUrl?: string | null;
-  readonly name?: string;
-  readonly namespace?: string;
+  readonly slug?: string;
 };
 
 export type OpenApiHttpApiTestSourceOptions = Omit<
   OpenApiSpecConfig,
-  "spec" | "name" | "namespace" | "baseUrl"
+  "spec" | "slug" | "baseUrl"
 > & {
-  readonly name?: string;
-  readonly namespace?: string;
+  readonly slug?: string;
   readonly baseUrl?: string | null;
   readonly specBaseUrl?: string;
   readonly transformSpec?: (spec: Record<string, unknown>) => Record<string, unknown>;
 };
 
-type OpenApiHttpApiAddSpecCredentialInput =
-  | string
-  | {
-      readonly kind: "secret";
-      readonly prefix?: string;
-    };
-
-type OpenApiHttpApiAddSpecCredentialsInput = {
-  readonly headers?: Record<string, OpenApiHttpApiAddSpecCredentialInput>;
-  readonly queryParams?: Record<string, OpenApiHttpApiAddSpecCredentialInput>;
+type OpenApiHttpApiAddSpecHeadersInput = {
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
 };
 
 export type OpenApiHttpApiTestAddSpecPayloadOptions = Omit<
   OpenApiHttpApiTestSourceOptions,
-  "scope" | "headers" | "queryParams" | "specFetchCredentials"
+  "headers" | "queryParams"
 > &
-  OpenApiHttpApiAddSpecCredentialsInput & {
-    readonly specFetchCredentials?: OpenApiHttpApiAddSpecCredentialsInput;
-  };
+  OpenApiHttpApiAddSpecHeadersInput;
 
 export type OpenApiTestSourceExecutor = {
   readonly openapi: Pick<OpenApiPluginExtension, "addSpec">;
 };
+
+// ---------------------------------------------------------------------------
+// v2 connection helper. In v2 a connection IS the credential and tools are
+// produced per-connection — so a test that invokes an openapi tool must
+// (1) addSpec to register the integration and (2) create a connection so the
+// tools are stamped + persisted. This helper does both and returns the
+// invokable address builder.
+// ---------------------------------------------------------------------------
+
+export type OpenApiTestConnectionExecutor = {
+  readonly openapi: Pick<OpenApiPluginExtension, "addSpec">;
+  readonly connections: {
+    readonly create: (input: CreateConnectionInput) => Effect.Effect<Connection, unknown>;
+  };
+};
+
+export interface OpenApiTestConnectionOptions {
+  readonly slug?: string;
+  readonly owner?: Owner;
+  readonly connection?: string;
+  readonly template?: string;
+  /** Inline credential value. Defaults to a throwaway token via the in-memory
+   *  provider's `from` path is avoided — pass `value` to store a real secret. */
+  readonly value?: string;
+  readonly baseUrl?: string | null;
+}
+
+export interface OpenApiTestConnection {
+  readonly slug: string;
+  readonly owner: Owner;
+  readonly connection: string;
+  readonly address: (tool: string) => ToolAddressType;
+}
+
+/** addSpec + connections.create from a raw server spec; returns an address
+ *  builder for `executor.execute`. */
+export const addOpenApiTestConnection = (
+  executor: OpenApiTestConnectionExecutor,
+  server: OpenApiTestServerShape,
+  sourceOptions: OpenApiTestSourceOptions,
+  connectionOptions: OpenApiTestConnectionOptions = {},
+): Effect.Effect<OpenApiTestConnection, unknown> =>
+  Effect.gen(function* () {
+    const config = makeOpenApiTestSourceConfig(server, sourceOptions);
+    const result = yield* executor.openapi.addSpec(config);
+    const slug = String(result.slug);
+    const owner: Owner = connectionOptions.owner ?? "org";
+    const connection = connectionOptions.connection ?? "main";
+    const template = connectionOptions.template ?? "apiKey";
+    yield* executor.connections.create({
+      owner,
+      name: ConnectionName.make(connection),
+      integration: IntegrationSlug.make(slug),
+      template: AuthTemplateSlug.make(template),
+      ...(connectionOptions.value !== undefined
+        ? { value: connectionOptions.value }
+        : {
+            from: {
+              provider: ProviderKey.make("memory"),
+              id: ProviderItemId.make(`${slug}-token`),
+            },
+          }),
+    } satisfies CreateConnectionInput);
+    return {
+      slug,
+      owner,
+      connection,
+      address: (tool: string) => ToolAddress.make(`tools.${slug}.${owner}.${connection}.${tool}`),
+    };
+  });
 
 export interface OpenApiTestSpecOptions {
   readonly baseUrl?: string;
@@ -145,14 +213,13 @@ export const makeOpenApiTestSourceConfig = (
   server: OpenApiTestServerShape,
   options: OpenApiTestSourceOptions,
 ): OpenApiSpecConfig => {
-  const { baseUrl, ...rest } = options;
+  const { baseUrl, slug, ...rest } = options;
   return {
     ...rest,
     spec: { kind: "blob", value: server.specJson },
-    name: rest.name ?? "Test API",
-    namespace: rest.namespace ?? "test_api",
+    slug: slug ?? "test_api",
     ...(baseUrl === null ? {} : { baseUrl: baseUrl ?? server.baseUrl }),
-  } as OpenApiSpecConfig;
+  } satisfies OpenApiSpecConfig;
 };
 
 export const addOpenApiTestSource = (
@@ -165,17 +232,16 @@ export const makeOpenApiHttpApiTestSourceConfig = (
   api: HttpApi.Any,
   options: OpenApiHttpApiTestSourceOptions,
 ): OpenApiSpecConfig => {
-  const { baseUrl, specBaseUrl, transformSpec, ...config } = options;
+  const { baseUrl, specBaseUrl, transformSpec, slug, ...config } = options;
   return {
     ...config,
     spec: {
       kind: "blob",
       value: makeOpenApiTestSpecJson(api, { baseUrl: specBaseUrl, transformSpec }),
     },
-    name: config.name ?? "Test API",
-    namespace: config.namespace ?? "test_api",
+    slug: slug ?? "test_api",
     ...(baseUrl === null ? {} : { baseUrl: baseUrl ?? specBaseUrl ?? "https://api.example.test" }),
-  } as OpenApiSpecConfig;
+  } satisfies OpenApiSpecConfig;
 };
 
 export const addOpenApiHttpApiTestSource = (
@@ -188,21 +254,16 @@ export const makeOpenApiHttpApiTestAddSpecPayload = (
   api: HttpApi.Any,
   options: OpenApiHttpApiTestAddSpecPayloadOptions,
 ) => {
-  const { ...sourceOptions } = options;
-  const config = makeOpenApiHttpApiTestSourceConfig(api, {
-    ...sourceOptions,
-    scope: "unused-http-helper-scope",
-  });
+  const { headers, queryParams, ...sourceOptions } = options;
+  const config = makeOpenApiHttpApiTestSourceConfig(api, sourceOptions);
   return {
     spec: config.spec,
-    namespace: config.namespace,
-    name: config.name,
+    slug: config.slug,
     baseUrl: config.baseUrl,
-    ...(sourceOptions.headers !== undefined ? { headers: sourceOptions.headers } : {}),
-    ...(sourceOptions.queryParams !== undefined ? { queryParams: sourceOptions.queryParams } : {}),
-    ...(config.oauth2 !== undefined ? { oauth2: config.oauth2 } : {}),
-    ...(sourceOptions.specFetchCredentials !== undefined
-      ? { specFetchCredentials: sourceOptions.specFetchCredentials }
+    ...(headers !== undefined ? { headers } : {}),
+    ...(queryParams !== undefined ? { queryParams } : {}),
+    ...(config.authenticationTemplate !== undefined
+      ? { authenticationTemplate: config.authenticationTemplate }
       : {}),
   };
 };

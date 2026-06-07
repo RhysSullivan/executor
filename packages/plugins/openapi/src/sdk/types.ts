@@ -1,16 +1,43 @@
 import { Schema } from "effect";
-import { ScopedSecretCredentialInput, SecretBackedValue } from "@executor-js/sdk/shared";
-import {
-  OAuth2Flow as HttpOAuth2Flow,
-  OAuth2SourceConfig as SharedOAuth2SourceConfig,
-  type OAuth2FlowType,
-  type OAuth2SourceConfigType,
-} from "@executor-js/sdk/http-source";
+import type { AuthTemplateSlug } from "@executor-js/sdk/shared";
+import type { OAuthAuthentication } from "@executor-js/sdk/shared";
 
-export const OAuth2Flow = HttpOAuth2Flow;
-export type OAuth2Flow = OAuth2FlowType;
-export const OAuth2SourceConfig = SharedOAuth2SourceConfig;
-export type OAuth2SourceConfig = OAuth2SourceConfigType;
+// ---------------------------------------------------------------------------
+// Auth-template model (ported from the v2 scaffold `openapi/types.ts`).
+//
+// The apiKey template is HTTP-transport-specific: it declares where the user's
+// credential goes on the outbound request (headers / query params) via the
+// `variable()` templating below. That placement is why it lives with the
+// openapi plugin rather than in core. The oauth template is mechanism-intrinsic
+// and comes from core (`OAuthAuthentication`); an integration's `Authentication`
+// union composes the two. Client credentials (clientId/secret) live on the core
+// `OAuthClient`, not here.
+// ---------------------------------------------------------------------------
+
+export type AuthenticationVariable = {
+  readonly type: "variable";
+  readonly name: string;
+};
+
+/** A literal string, or a parts-array mixing literals and variable refs. */
+export type AuthenticationTemplateValue = string | readonly (string | AuthenticationVariable)[];
+
+export const variable = (name: string): AuthenticationVariable => ({
+  type: "variable",
+  name,
+});
+
+/** The variable name the resolved credential value renders into. */
+export const TOKEN_VARIABLE = "token" as const;
+
+export type APIKeyAuthentication = {
+  readonly slug: AuthTemplateSlug;
+  readonly type: "apiKey";
+  readonly headers?: Record<string, AuthenticationTemplateValue>;
+  readonly queryParams?: Record<string, AuthenticationTemplateValue>;
+};
+
+export type Authentication = OAuthAuthentication | APIKeyAuthentication;
 
 // ---------------------------------------------------------------------------
 // Branded IDs
@@ -147,53 +174,6 @@ export type OperationBinding = typeof OperationBinding.Type;
 
 // ---------------------------------------------------------------------------
 // Invocation
-// ---------------------------------------------------------------------------
-
-/**
- * A header value — either a static string or a reference to a secret.
- * Stored as JSON-serializable data.
- */
-export const HeaderValue = SecretBackedValue;
-export type HeaderValue = typeof HeaderValue.Type;
-
-export const ConfiguredHeaderBinding = Schema.Struct({
-  kind: Schema.Literal("binding"),
-  slot: Schema.String,
-  prefix: Schema.optional(Schema.String),
-}).annotate({ identifier: "OpenApiConfiguredHeaderBinding" });
-export type ConfiguredHeaderBinding = typeof ConfiguredHeaderBinding.Type;
-
-export const ConfiguredHeaderValue = Schema.Union([Schema.String, ConfiguredHeaderBinding]);
-export type ConfiguredHeaderValue = typeof ConfiguredHeaderValue.Type;
-
-export const OpenApiCredentialInput = Schema.Union([
-  ScopedSecretCredentialInput,
-  HeaderValue,
-  ConfiguredHeaderValue,
-]);
-export type OpenApiCredentialInput = typeof OpenApiCredentialInput.Type;
-
-// ---------------------------------------------------------------------------
-// OAuth2 source config — carries source-owned slots and API-level config to
-// kick off a fresh sign-in from the source detail UI without needing any
-// one user's live connection to still exist.
-//
-// Split of responsibilities:
-//   - The Source owns: the OAuth config (tokenUrl, authorizationUrl,
-//     client credential slots, connection slot, scopes, flow,
-//     securitySchemeName).
-//     Values are a property of the target API, identical for every user
-//     signing into this source. Source-owned = reconnect works even if
-//     the connection row has been removed.
-//   - The Connection owns: live access/refresh tokens, token expiry,
-//     provider state the refresh path reads from. The connection's
-//     `providerState` caches the refresh-relevant bits of the config
-//     so the refresh loop never reaches back into source storage.
-//
-// This is a deliberate small duplication (scopes + tokenUrl and the static
-// client credential ids referenced by slots appear in source bindings and
-// connection providerState). The values are static per source so the two
-// copies can't drift under normal reconnect flows.
 // ---------------------------------------------------------------------------
 
 export const InvocationResult = Schema.Struct({

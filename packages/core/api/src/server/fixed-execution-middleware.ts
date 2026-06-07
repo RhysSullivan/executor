@@ -4,17 +4,17 @@
 //
 // The per-request `ExecutionStackMiddleware` resolves a `Principal` and then
 // builds a FRESH per-(user, org) executor each request via `makeExecutionStack`
-// -> `makeScopedExecutor` -> `makeUserOrgScopeStack(accountId, organizationId,
-// organizationName)`. That is the cloud / self-host model: a 2-level
-// `[user-org:…, org]` scope stack derived from identity.
+// -> `makeScopedExecutor`, binding `{ tenant: organizationId, subject:
+// accountId }`. That is the cloud / self-host model: a per-request executor
+// derived from identity.
 //
 // Local is structurally different: ONE executor is built once at boot over a
-// SINGLE scope derived from the working directory (`<basename>-<hash>`), with
+// SINGLE tenant derived from the working directory, with
 // `oauthEndpointUrlPolicy: { allowHttp: true }`, and shared across every request
-// (and the in-process MCP). There is no (user, org) and no per-request scope.
-// Forcing local through the scope-stack middleware would (a) swap its cwd scope
-// for a synthetic `user-org:` scope key — orphaning existing `~/.executor` data
-// — and (b) silently drop `allowHttp`.
+// (and the in-process MCP). There is no per-request (user, org) binding. Forcing
+// local through the scoped middleware would (a) swap its cwd tenant for a
+// synthetic identity-derived one — orphaning existing `~/.executor` data — and
+// (b) silently drop `allowHttp`.
 //
 // So a host whose execution is a single boot executor supplies a
 // `FixedExecutionProvider` (the pre-built executor + engine) and this middleware

@@ -10,6 +10,11 @@
 // The assertion is intentionally on the final execution payload, not the
 // plugin facade, so reviewers can see that model-visible tool results carry
 // auth guidance instead of an opaque internal tool error.
+//
+// v2: a connection IS the credential. addSpec registers the integration with an
+// apiKey auth template; a connection is then created whose value cannot resolve
+// (a `from` reference to a missing provider item). Invoking one of that
+// connection's tools surfaces `credential_secret_missing` to the model.
 // ---------------------------------------------------------------------------
 
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
@@ -45,7 +50,17 @@ import {
 } from "@executor-js/plugin-openapi/api";
 import { makeOpenApiHttpApiTestAddSpecPayload } from "@executor-js/plugin-openapi/testing";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
-import { Scope, ScopeId, createExecutor } from "@executor-js/sdk";
+import {
+  AuthTemplateSlug,
+  ConnectionName,
+  IntegrationSlug,
+  ProviderItemId,
+  ProviderKey,
+  Subject,
+  Tenant,
+  createExecutor,
+} from "@executor-js/sdk";
+import { memoryCredentialsPlugin } from "@executor-js/sdk/testing";
 
 import { ErrorCaptureLive } from "./observability";
 import { createSqliteFumaDb } from "./db/sqlite-fumadb";
@@ -64,17 +79,22 @@ type TestApiShape =
     ? HttpApiClient.Client<Groups, never>
     : never;
 
+const API_KEY_TEMPLATE = "apiKey";
+
 interface Harness {
   readonly fetch: typeof globalThis.fetch;
-  readonly scopeId: ScopeId;
+  readonly addConnection: (input: {
+    readonly integration: string;
+    readonly connection: string;
+  }) => Promise<void>;
   readonly dispose: () => Promise<void>;
 }
 
 const startHarness = async (tmpDir: string): Promise<Harness> => {
-  const scopeId = ScopeId.make(`test-${randomBytes(4).toString("hex")}`);
   const plugins = [
     openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
     fileSecretsPlugin({ directory: tmpDir }),
+    memoryCredentialsPlugin(),
   ] as const;
   const sqlite = await createSqliteFumaDb({
     tables: collectTables(),
@@ -84,13 +104,8 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
 
   const executor = await Effect.runPromise(
     createExecutor({
-      scopes: [
-        Scope.make({
-          id: scopeId,
-          name: "test",
-          createdAt: new Date(),
-        }),
-      ],
+      tenant: Tenant.make(`test-${randomBytes(4).toString("hex")}`),
+      subject: Subject.make("local"),
       db: sqlite.db,
       plugins,
       onElicitation: "accept-all",
@@ -125,7 +140,24 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
       webHandler(
         input instanceof Request ? input : new Request(input, init),
       )) as typeof globalThis.fetch,
-    scopeId,
+    // Create an org connection whose value cannot resolve: a `from` reference
+    // to a memory-provider item that was never stored resolves to `null`, so
+    // tool invocation surfaces `credential_secret_missing`.
+    addConnection: (input) =>
+      Effect.runPromise(
+        executor.connections
+          .create({
+            owner: "org",
+            name: ConnectionName.make(input.connection),
+            integration: IntegrationSlug.make(input.integration),
+            template: AuthTemplateSlug.make(API_KEY_TEMPLATE),
+            from: {
+              provider: ProviderKey.make("memory"),
+              id: ProviderItemId.make(`${input.integration}-missing`),
+            },
+          })
+          .pipe(Effect.asVoid),
+      ),
     dispose: async () => {
       await Effect.runPromise(Effect.ignore(Effect.tryPromise(() => disposeHandler())));
       await Effect.runPromise(
@@ -138,7 +170,9 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
 
 const run = <A, E>(body: (client: TestApiShape) => Effect.Effect<A, E>): Effect.Effect<A, E> =>
   Effect.gen(function* () {
-    const client = yield* HttpApiClient.make(TestApi, { baseUrl: TEST_BASE_URL });
+    const client = yield* HttpApiClient.make(TestApi, {
+      baseUrl: TEST_BASE_URL,
+    });
     return yield* body(client);
   }).pipe(
     Effect.provide(
@@ -162,7 +196,7 @@ const expectModelVisibleAuthFailure = (execution: ExecuteResult) => {
     result: {
       ok: false,
       error: {
-        code: "credential_binding_missing",
+        code: "credential_secret_missing",
         details: {
           category: "authentication",
           recovery: {
@@ -189,29 +223,37 @@ afterAll(async () => {
 });
 
 describe("local auth tool failures", () => {
-  it.effect("local propagates missing credential binding as model-visible auth failure", () =>
+  it.effect("local propagates missing credential value as model-visible auth failure", () =>
     Effect.gen(function* () {
-      const namespace = `auth_${randomBytes(4).toString("hex")}`;
+      const integration = `auth_${randomBytes(4).toString("hex")}`;
+      const connection = "main";
       yield* run((client) =>
         client.openapi.addSpec({
-          params: { scopeId: harness.scopeId },
           payload: {
             ...makeOpenApiHttpApiTestAddSpecPayload(MissingAuthSourceApi, {
-              namespace,
-              headers: {
-                Authorization: { kind: "secret", prefix: "Bearer " },
-              },
+              slug: integration,
+              authenticationTemplate: [
+                {
+                  slug: AuthTemplateSlug.make(API_KEY_TEMPLATE),
+                  type: "apiKey" as const,
+                  headers: {
+                    Authorization: ["Bearer ", { type: "variable" as const, name: "token" }],
+                  },
+                },
+              ],
             }),
             baseUrl: "https://api.example.test",
           },
         }),
       );
 
+      yield* Effect.promise(() => harness.addConnection({ integration, connection }));
+
       const execution = yield* run((client) =>
         client.executions.execute({
           payload: {
             code: [
-              `const result = await tools.${namespace}.default.ping({});`,
+              `const result = await tools.${integration}.org.${connection}.default.ping({});`,
               "return result;",
             ].join("\n"),
           },

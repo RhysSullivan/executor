@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Effect, Layer } from "effect";
 import { afterAll, expect, test } from "@effect/vitest";
 
+import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk";
 import { makeScopedExecutor } from "@executor-js/api/server";
 
 import { createSelfHostDb, SelfHostDb } from "./db/self-host-db";
@@ -25,7 +26,8 @@ const createScopedExecutor = (
     Effect.provide(SelfHostScopedExecutorSeams),
   );
 
-// End-to-end: an org source is reachable from a user's MCP `execute` sandbox.
+// End-to-end: an org-owned connection's tools are reachable from a user's MCP
+// `execute` sandbox.
 const dataDir = mkdtempSync(join(tmpdir(), "eh-srcmcp-"));
 const dbPath = join(dataDir, "data.db");
 process.env.EXECUTOR_DATA_DIR = dataDir;
@@ -55,8 +57,10 @@ afterAll(() => dispose());
 const BASE = "http://localhost:4788";
 
 const addOrgSource = async (organizationId: string): Promise<void> => {
-  // Install the source at the (Better Auth) org scope, on its own connection to
-  // the shared DB file. WAL makes the committed rows visible to the server.
+  // Register the integration and attach an org-owned connection, on its own
+  // connection to the shared DB file. WAL makes the committed rows visible to
+  // the server. Org-owned connections (and their per-connection tools) are
+  // shared across every member of the tenant.
   const seedDb = await createSelfHostDb({
     path: dbPath,
     namespace: "executor_selfhost",
@@ -67,17 +71,22 @@ const addOrgSource = async (organizationId: string): Promise<void> => {
       const admin = yield* createScopedExecutor("seed", organizationId, "Default");
       yield* admin.openapi.addSpec({
         spec: { kind: "blob", value: TINY_SPEC },
-        scope: organizationId,
-        name: "tiny",
-        namespace: "tiny",
+        slug: "tiny",
         baseUrl: "",
+      });
+      yield* admin.connections.create({
+        owner: "org",
+        name: ConnectionName.make("shared"),
+        integration: IntegrationSlug.make("tiny"),
+        template: AuthTemplateSlug.make("none"),
+        value: "",
       });
     }).pipe(Effect.provide(Layer.succeed(SelfHostDb)(seedDb)), Effect.scoped),
   );
   await seedDb.close();
 };
 
-test("a user's MCP execute sandbox can reach an org source's tools", async () => {
+test("a user's MCP execute sandbox can reach an org-owned connection's tools", async () => {
   const inviteCode = await mintInviteCode(handler);
   const su = await handler(
     new Request(`${BASE}/api/auth/sign-up/email`, {
@@ -94,12 +103,14 @@ test("a user's MCP execute sandbox can reach an org source's tools", async () =>
   const token = su.headers.get("set-auth-token") ?? "";
   expect(token).not.toBe("");
 
-  // The user's real org scope (Better Auth assigns a random org id).
-  const scopeRes = await handler(
-    new Request(`${BASE}/api/scope`, { headers: { authorization: `Bearer ${token}` } }),
+  // The user's real org id (Better Auth assigns a random org id) — the tenant the
+  // per-request executor binds to.
+  const meRes = await handler(
+    new Request(`${BASE}/api/account/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    }),
   );
-  const organizationId = ((await scopeRes.json()) as { stack: ReadonlyArray<{ id: string }> })
-    .stack[1]!.id;
+  const organizationId = ((await meRes.json()) as { organization: { id: string } }).organization.id;
 
   await addOrgSource(organizationId);
 

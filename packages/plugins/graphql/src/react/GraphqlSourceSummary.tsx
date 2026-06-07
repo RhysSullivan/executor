@@ -1,36 +1,34 @@
+import { useMemo } from "react";
 import { useAtomValue } from "@effect/atom-react";
+import * as Option from "effect/Option";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
-import { connectionsAtom } from "@executor-js/react/api/atoms";
-import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
+import { IntegrationSlug, type Connection } from "@executor-js/sdk/shared";
 import {
-  SourceCredentialLoadingBadge,
-  SourceCredentialNotice,
-  SourceCredentialStatusBadge,
-  missingSourceCredentialLabels,
-  type SourceCredentialSlot,
-} from "@executor-js/react/plugins/source-credential-status";
-import { ScopeId } from "@executor-js/sdk/shared";
+  decodeGraphqlIntegrationConfigOption,
+  type AuthTemplate,
+  type GraphqlIntegrationConfig,
+} from "@executor-js/plugin-graphql";
+import { connectionsAllAtom } from "@executor-js/react/api/atoms";
+import { IntegrationCredentialNotice } from "@executor-js/react/plugins/integration-credential-status";
 
-import { graphqlSourceAtom, graphqlSourceBindingsAtom } from "./atoms";
-import type { StoredGraphqlSource } from "../sdk/store";
+import { graphqlIntegrationConfigAtom } from "./atoms";
 
-const sourceCredentialSlots = (source: StoredGraphqlSource): readonly SourceCredentialSlot[] => {
-  const slots: SourceCredentialSlot[] = [];
-  for (const [name, value] of Object.entries(source.headers)) {
-    if (typeof value !== "string") slots.push({ kind: "secret", slot: value.slot, label: name });
-  }
-  for (const [name, value] of Object.entries(source.queryParams)) {
-    if (typeof value !== "string") slots.push({ kind: "secret", slot: value.slot, label: name });
-  }
-  if (source.auth.kind === "oauth2") {
-    slots.push({
-      kind: "connection",
-      slot: source.auth.connectionSlot,
-      label: "OAuth sign-in",
-    });
-  }
-  return slots;
+// Labels of the integration's auth templates that have no connection for any
+// owner. v2 has no scope-stack binding resolution: a connection IS the
+// credential, so "missing" is simply "no connection for this template".
+const missingTemplateLabels = (
+  config: GraphqlIntegrationConfig,
+  connections: readonly Connection[],
+): readonly string[] => {
+  const templatesWithConnection = new Set(
+    connections.map((connection) => String(connection.template)),
+  );
+  return config.authenticationTemplate
+    .filter((template: AuthTemplate) => !templatesWithConnection.has(template.slug))
+    .map((template: AuthTemplate) =>
+      template.kind === "oauth2" ? "OAuth sign-in" : `API key (${template.slug})`,
+    );
 };
 
 export default function GraphqlSourceSummary(props: {
@@ -38,38 +36,29 @@ export default function GraphqlSourceSummary(props: {
   variant?: "badge" | "panel";
   onAction?: () => void;
 }) {
-  const displayScope = useScope();
-  const userScope = useUserScope();
-  const scopeStack = useScopeStack();
-  const sourceResult = useAtomValue(graphqlSourceAtom(displayScope, props.sourceId));
-  const source =
-    AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
-  const sourceScope = source ? ScopeId.make(source.scope) : displayScope;
-  const bindingsResult = useAtomValue(
-    graphqlSourceBindingsAtom(displayScope, props.sourceId, sourceScope),
-  );
-  const connectionsResult = useAtomValue(connectionsAtom(displayScope));
+  const slug = IntegrationSlug.make(props.sourceId);
+  const configResult = useAtomValue(graphqlIntegrationConfigAtom(slug));
+  // Connections across BOTH owners (omit-owner read); "missing" is "no
+  // connection under either owner for this template".
+  const connectionsResult = useAtomValue(connectionsAllAtom);
 
-  if (!source) return null;
-  const slots = sourceCredentialSlots(source as StoredGraphqlSource);
-  if (slots.length === 0) return null;
-  if (!AsyncResult.isSuccess(bindingsResult) || !AsyncResult.isSuccess(connectionsResult)) {
-    return props.variant === "panel" ? null : <SourceCredentialLoadingBadge />;
+  const config = AsyncResult.isSuccess(configResult)
+    ? Option.getOrNull(decodeGraphqlIntegrationConfigOption(configResult.value))
+    : null;
+
+  const connections = useMemo<readonly Connection[]>(() => {
+    const all = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
+    return all.filter((connection: Connection) => connection.integration === slug);
+  }, [connectionsResult, slug]);
+
+  if (!config || config.authenticationTemplate.length === 0) return null;
+
+  if (props.variant !== "panel") return null;
+  if (!AsyncResult.isSuccess(configResult) || !AsyncResult.isSuccess(connectionsResult)) {
+    return null;
   }
 
-  const scopeRanks = new Map(scopeStack.map((scope, index) => [scope.id, index] as const));
-  const liveConnectionIds = new Set(connectionsResult.value.map((connection) => connection.id));
-  const missing = missingSourceCredentialLabels({
-    slots,
-    bindings: bindingsResult.value,
-    targetScope: userScope,
-    scopeRanks,
-    liveConnectionIds,
-  });
+  const missing = missingTemplateLabels(config, connections);
 
-  if (props.variant === "panel") {
-    return <SourceCredentialNotice missing={missing} onAction={props.onAction} />;
-  }
-
-  return <SourceCredentialStatusBadge missing={missing} />;
+  return <IntegrationCredentialNotice missing={missing} onAction={props.onAction} />;
 }

@@ -2,8 +2,9 @@
 //
 // The `McpSessionDO` in mcp-session.ts wires several things that previously
 // had zero integration coverage:
-//   - `createScopedExecutor` against a real FumaDB/Drizzle handle (the 2026-04-16
-//     prod outage was a schema spread bug here; see db/db.schema.test.ts)
+//   - a per-request executor bound to `{ tenant, subject }` against a real
+//     FumaDB/Drizzle handle (the 2026-04-16 prod outage was a schema spread bug
+//     here; see db/db.schema.test.ts)
 //   - `createExecutionEngine` with an in-process code executor
 //   - `createExecutorMcpServer` for the MCP request surface
 //   - Real `@modelcontextprotocol/sdk` Client → server round-trips
@@ -28,8 +29,8 @@ import { collectTables } from "@executor-js/api/server";
 import {
   ElicitationResponse,
   FormElicitation,
-  Scope,
-  ScopeId,
+  Subject,
+  Tenant,
   createExecutor,
   definePlugin,
 } from "@executor-js/sdk";
@@ -97,7 +98,11 @@ type BuildOptions = {
   readonly elicitationMode?: "model" | "native";
 };
 
-const buildScopedExecutor = (scopeId: string, scopeName: string, options: BuildOptions = {}) =>
+const buildScopedExecutor = (
+  organizationId: string,
+  _organizationName: string,
+  options: BuildOptions = {},
+) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
     const basePlugins = executorConfig.plugins({
@@ -112,13 +117,9 @@ const buildScopedExecutor = (scopeId: string, scopeName: string, options: BuildO
       namespace: "executor_cloud",
       provider: "postgresql",
     });
-    const scope = Scope.make({
-      id: ScopeId.make(scopeId),
-      name: scopeName,
-      createdAt: new Date(),
-    });
     return yield* createExecutor({
-      scopes: [scope],
+      tenant: Tenant.make(organizationId),
+      subject: Subject.make(`user_${organizationId}`),
       db: fuma.db,
       plugins,
       httpClientLayer: FetchHttpClient.layer,
@@ -199,13 +200,13 @@ describe("cloud MCP session end-to-end", () => {
 
   // Isolates the drizzle adapter path so a schema spread drift surfaces as
   // a raw "unknown model" error. The prod outage on 2026-04-16 would have
-  // thrown at `executor.sources.list()` when the MCP session's drizzle
+  // thrown at `executor.integrations.list()` when the MCP session's drizzle
   // instance lost the executor-schema tables.
-  it.effect("exercises the drizzle adapter directly via executor.sources.list", () =>
+  it.effect("exercises the drizzle adapter directly via executor.integrations.list", () =>
     Effect.gen(function* () {
       const executor = yield* buildScopedExecutor(nextOrgId(), "drizzle-probe");
-      const sources = yield* executor.sources.list();
-      expect(Array.isArray(sources)).toBe(true);
+      const integrations = yield* executor.integrations.list();
+      expect(Array.isArray(integrations)).toBe(true);
     }).pipe(Effect.provide(DbService.Live), Effect.scoped),
   );
 

@@ -14,6 +14,7 @@ import {
   OAUTH2_REFRESH_SKEW_MS,
   OAuth2Error,
   buildAuthorizationUrl,
+  providerAuthorizeExtras,
   createPkceCodeChallenge,
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
@@ -128,6 +129,20 @@ describe("PKCE", () => {
 // buildAuthorizationUrl
 // ---------------------------------------------------------------------------
 
+describe("providerAuthorizeExtras (Google offline/consent quirk)", () => {
+  it("adds access_type=offline + prompt=consent for the Google authorize host", () => {
+    expect(providerAuthorizeExtras("https://accounts.google.com/o/oauth2/v2/auth")).toEqual({
+      access_type: "offline",
+      prompt: "consent",
+    });
+  });
+  it("adds nothing for non-Google hosts or an unparseable URL (token host ≠ authorize host)", () => {
+    expect(providerAuthorizeExtras("https://accounts.spotify.com/authorize")).toEqual({});
+    expect(providerAuthorizeExtras("https://oauth2.googleapis.com/token")).toEqual({});
+    expect(providerAuthorizeExtras("not a url")).toEqual({});
+  });
+});
+
 describe("buildAuthorizationUrl", () => {
   const baseInput = {
     authorizationUrl: "https://example.com/authorize",
@@ -162,20 +177,19 @@ describe("buildAuthorizationUrl", () => {
     expect(url.searchParams.has("scope")).toBe(false);
   });
 
-  it("merges Google-style extra params without dropping them", () => {
+  it("merges provider extra params without dropping them", () => {
     const url = new URL(
       buildAuthorizationUrl({
         ...baseInput,
         extraParams: {
           access_type: "offline",
           prompt: "consent",
-          include_granted_scopes: "true",
         },
       }),
     );
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("include_granted_scopes")).toBe("true");
+    expect(url.searchParams.has("include_granted_scopes")).toBe(false);
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
   });
 

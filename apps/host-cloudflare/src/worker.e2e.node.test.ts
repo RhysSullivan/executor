@@ -21,7 +21,9 @@ const SPEC = JSON.stringify({
   info: { title: "Test", version: "1.0.0" },
   servers: [{ url: "https://example.com" }],
   paths: {
-    "/ping": { get: { operationId: "ping", responses: { "200": { description: "ok" } } } },
+    "/ping": {
+      get: { operationId: "ping", responses: { "200": { description: "ok" } } },
+    },
   },
 });
 
@@ -63,7 +65,12 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
       body: JSON.stringify({ code: "export default 6 * 7" }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { text: string; isError: boolean };
+    const body = (await res.json()) as {
+      status: string;
+      text: string;
+      isError: boolean;
+    };
+    expect(body.status).toBe("completed");
     expect(body.isError).toBe(false);
     expect(body.text).toBe("42");
   }, 60_000);
@@ -92,14 +99,14 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
     });
     expect(largeSpec.length).toBeGreaterThan(900_000);
 
-    const add = await worker.fetch("/api/scopes/default/openapi/specs", {
+    const add = await worker.fetch("/api/openapi/specs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         spec: { kind: "blob", value: largeSpec },
-        name: "Large API",
+        slug: "largeapi",
+        description: "Large API",
         baseUrl: "https://example.com",
-        namespace: "largeapi",
       }),
     });
     expect(add.status).toBe(200);
@@ -107,37 +114,44 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
     expect(added.toolCount).toBe(250);
 
     // Reads back through the R2 rehydration path (the >800KB blob lives in R2).
-    const got = await worker.fetch("/api/scopes/default/openapi/sources/largeapi");
+    const got = await worker.fetch("/api/openapi/integrations/largeapi");
     expect(got.status).toBe(200);
-    const source = (await got.json()) as { namespace: string } | null;
-    expect(source?.namespace).toBe("largeapi");
+    const integration = (await got.json()) as { slug: string } | null;
+    expect(integration?.slug).toBe("largeapi");
   }, 90_000);
 
   it("adds an OpenAPI source and reads it back (D1 write + read path)", async () => {
-    const add = await worker.fetch("/api/scopes/default/openapi/specs", {
+    const add = await worker.fetch("/api/openapi/specs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         spec: { kind: "blob", value: SPEC },
-        name: "Test API",
+        slug: "testapi",
+        description: "Test API",
         baseUrl: "https://example.com",
-        namespace: "testapi",
       }),
     });
     expect(add.status).toBe(200);
-    const added = (await add.json()) as { toolCount: number; namespace: string };
+    const added = (await add.json()) as { toolCount: number; slug: string };
     expect(added.toolCount).toBeGreaterThan(0);
 
-    const got = await worker.fetch("/api/scopes/default/openapi/sources/testapi");
+    const got = await worker.fetch("/api/openapi/integrations/testapi");
     expect(got.status).toBe(200);
-    const source = (await got.json()) as { namespace: string } | null;
-    expect(source?.namespace).toBe("testapi");
+    const integration = (await got.json()) as { slug: string } | null;
+    expect(integration?.slug).toBe("testapi");
   }, 60_000);
 
   it("gates the API when dev-auth is on but treats the request as the dev admin", async () => {
-    // dev-auth means the request is the fixed dev admin; /api/scope resolves.
-    const res = await worker.fetch("/api/scope");
+    // dev-auth means the request is the fixed dev admin; a gated route resolves
+    // to the principal. There is no scope stack in v2 — account/me is the
+    // identity-backed read that the API gate protects.
+    const res = await worker.fetch("/api/account/me");
     expect(res.status).toBe(200);
+    const me = (await res.json()) as {
+      user: { id: string };
+      organization: { id: string };
+    };
+    expect(me.user.id).toBe("dev");
   });
 
   it("lists tools on a follow-up request after a fresh initialize (DO session survives across requests)", async () => {
@@ -172,9 +186,16 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
     const sessionId = init.headers.get("mcp-session-id");
     expect(sessionId).toBeTruthy();
 
-    await rpc(sessionId, { jsonrpc: "2.0", method: "notifications/initialized" });
+    await rpc(sessionId, {
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
 
-    const list = await rpc(sessionId, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const list = await rpc(sessionId, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+    });
     expect(list.status).toBe(200);
     const listed = (await list.json()) as {
       result?: { tools?: ReadonlyArray<{ name: string }> };
@@ -210,7 +231,10 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
     const sessionId = init.headers.get("mcp-session-id");
     expect(sessionId).toBeTruthy();
 
-    await rpc(sessionId, { jsonrpc: "2.0", method: "notifications/initialized" });
+    await rpc(sessionId, {
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
 
     const call = await rpc(sessionId, {
       jsonrpc: "2.0",

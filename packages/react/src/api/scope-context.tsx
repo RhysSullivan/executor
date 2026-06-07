@@ -1,92 +1,21 @@
-import * as React from "react";
-import { useAtomValue } from "@effect/atom-react";
-import { Option } from "effect";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import type { Owner } from "@executor-js/sdk/shared";
 
-import type { ScopeId } from "@executor-js/sdk/shared";
-import { scopeAtom } from "./atoms";
+// ---------------------------------------------------------------------------
+// Owner labels (v2) — Personal vs Workspace.
+//
+// v1's scope stack (personal → org) collapsed to a single `Owner` axis: a
+// connection / policy is owned by the `org` (tenant-shared) or by the acting
+// `user`. The global "active owner" toggle has been retired: views no longer
+// filter by a single ambient owner. Instead, read surfaces merge BOTH owners
+// (atoms omit `owner`), and each row carries its own `owner` for grouping +
+// badges. Owner stays real only at WRITE surfaces (policy writes, the run-panel
+// address, create-target choices), where it is chosen explicitly per call.
+//
+// `ownerLabel` is the one survivor of the old context: the badge/label helper
+// used across the app to render an `Owner` value.
+// ---------------------------------------------------------------------------
 
-export interface ScopeStackEntry {
-  readonly id: ScopeId;
-  readonly name: string;
-  readonly dir: string;
-}
-
-export interface ScopeInfo {
-  readonly id: ScopeId;
-  readonly name: string;
-  readonly dir: string;
-  readonly stack: readonly ScopeStackEntry[];
-}
-
-const ScopeContext = React.createContext<ScopeInfo | null>(null);
-
-/**
- * Provides the server scope to all children.
- * Renders the optional `fallback` until the scope is fetched.
- */
-export function ScopeProvider(
-  props: React.PropsWithChildren<{
-    fallback?: React.ReactNode;
-    failureFallback?: React.ReactNode;
-  }>,
-) {
-  const result = useAtomValue(scopeAtom);
-
-  if (AsyncResult.isSuccess(result)) {
-    return <ScopeContext.Provider value={result.value}>{props.children}</ScopeContext.Provider>;
-  }
-
-  if (AsyncResult.isFailure(result)) {
-    if (Option.isSome(result.previousSuccess)) {
-      return (
-        <ScopeContext.Provider value={result.previousSuccess.value.value}>
-          {props.children}
-        </ScopeContext.Provider>
-      );
-    }
-    return <>{props.failureFallback ?? props.fallback ?? null}</>;
-  }
-
-  return <>{props.fallback ?? null}</>;
-}
-
-/**
- * Returns the current scope ID.
- * Must be used inside a ScopeProvider (which gates rendering until scope is loaded).
- */
-export function useScope(): ScopeId {
-  const scope = React.useContext(ScopeContext);
-  if (scope === null) {
-    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: React hook invariant
-    throw new Error("useScope must be used inside a ScopeProvider");
-  }
-  return scope.id;
-}
-
-/**
- * Returns the full scope info (id + display name).
- * Must be used inside a ScopeProvider.
- */
-export function useScopeInfo(): ScopeInfo {
-  const scope = React.useContext(ScopeContext);
-  if (scope === null) {
-    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: React hook invariant
-    throw new Error("useScopeInfo must be used inside a ScopeProvider");
-  }
-  return scope;
-}
-
-export function useScopeStack(): readonly ScopeStackEntry[] {
-  return useScopeInfo().stack;
-}
-
-export function useUserScope(): ScopeId {
-  const stack = useScopeStack();
-  const innermost = stack[0];
-  if (!innermost) {
-    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: React hook invariant
-    throw new Error("useUserScope requires a non-empty scope stack");
-  }
-  return innermost.id;
+/** Human label for an owner, for badges and toggles. */
+export function ownerLabel(owner: Owner): string {
+  return owner === "user" ? "Personal" : "Workspace";
 }

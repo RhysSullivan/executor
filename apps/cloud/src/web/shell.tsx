@@ -15,7 +15,7 @@ import { SupportSlot } from "./components/support-slot";
 // ---------------------------------------------------------------------------
 
 const navItems = [
-  ...defaultShellNavItems,
+  ...defaultShellNavItems.filter((item) => item.to !== "/secrets"),
   { to: "/org", label: "Organization" },
   { to: "/billing", label: "Billing" },
 ];

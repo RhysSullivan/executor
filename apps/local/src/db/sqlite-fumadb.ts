@@ -58,10 +58,16 @@ export const createSqliteFumaDb = async <const TTables extends FumaTables>(
     await client.execute(statement);
   }
 
-  // Defensive column add for libSQL files created before connection identity
-  // overrides existed — the bring-up above is CREATE TABLE IF NOT EXISTS and
-  // won't add a column to an already-created table. Idempotent.
+  // Defensive column adds for libSQL files created by earlier v2 baselines —
+  // the bring-up above is CREATE TABLE IF NOT EXISTS and won't add a column to
+  // an already-created table. Idempotent.
   const connectionColumns = await client.execute("PRAGMA table_info('connection')");
+  if (
+    connectionColumns.rows.length > 0 &&
+    !connectionColumns.rows.some((column) => column["name"] === "oauth_client_owner")
+  ) {
+    await client.execute("ALTER TABLE connection ADD COLUMN oauth_client_owner TEXT");
+  }
   if (
     connectionColumns.rows.length > 0 &&
     !connectionColumns.rows.some((column) => column["name"] === "identity_override")

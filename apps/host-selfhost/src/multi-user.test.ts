@@ -19,13 +19,33 @@ afterAll(() => dispose());
 
 const BASE = "http://localhost:4788";
 
+const TINY_SPEC = JSON.stringify({
+  openapi: "3.0.0",
+  info: { title: "Tiny", version: "1.0.0" },
+  servers: [{ url: "https://httpbin.org" }],
+  paths: {
+    "/get": {
+      get: {
+        operationId: "httpGet",
+        summary: "GET",
+        responses: { "200": { description: "ok" } },
+      },
+    },
+  },
+});
+
 const signUp = async (email: string): Promise<string> => {
   const inviteCode = await mintInviteCode(handler);
   const res = await handler(
     new Request(`${BASE}/api/auth/sign-up/email`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password: "password-12345678", name: email, inviteCode }),
+      body: JSON.stringify({
+        email,
+        password: "password-12345678",
+        name: email,
+        inviteCode,
+      }),
     }),
   );
   expect(res.status).toBe(200);
@@ -34,67 +54,126 @@ const signUp = async (email: string): Promise<string> => {
   return token;
 };
 
-const scopeOf = async (token: string): Promise<{ userScope: string; orgScope: string }> => {
+const orgIdOf = async (token: string): Promise<string> => {
   const res = await handler(
-    new Request(`${BASE}/api/scope`, { headers: { authorization: `Bearer ${token}` } }),
-  );
-  expect(res.status).toBe(200);
-  const body = (await res.json()) as { stack: ReadonlyArray<{ id: string }> };
-  return { userScope: body.stack[0]!.id, orgScope: body.stack[1]!.id };
-};
-
-const setSecret = (token: string, scopeId: string, id: string, value: string) =>
-  handler(
-    new Request(`${BASE}/api/scopes/${scopeId}/secrets`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ id, name: id, value }),
-    }),
-  );
-
-const secretResolves = async (token: string, scopeId: string, id: string): Promise<boolean> => {
-  const res = await handler(
-    new Request(`${BASE}/api/scopes/${scopeId}/secrets/${id}/status`, {
+    new Request(`${BASE}/api/account/me`, {
       headers: { authorization: `Bearer ${token}` },
     }),
   );
-  if (res.status !== 200) return false;
-  const body = (await res.json()) as { status: string };
-  return body.status === "resolved";
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { organization: { id: string } };
+  return body.organization.id;
+};
+
+const addIntegration = (token: string, slug: string) =>
+  handler(
+    new Request(`${BASE}/api/openapi/specs`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        spec: { kind: "blob", value: TINY_SPEC },
+        slug,
+        baseUrl: "",
+      }),
+    }),
+  );
+
+const createConnection = (
+  token: string,
+  body: {
+    owner: "org" | "user";
+    name: string;
+    integration: string;
+    template: string;
+    value: string;
+  },
+) =>
+  handler(
+    new Request(`${BASE}/api/connections`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+
+const connectionAddresses = async (token: string): Promise<string[]> => {
+  const res = await handler(
+    new Request(`${BASE}/api/connections`, {
+      headers: { authorization: `Bearer ${token}` },
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as ReadonlyArray<{ address: string }>;
+  return body.map((c) => c.address);
 };
 
 const runCode = async (token: string, code: string) => {
   const res = await handler(
     new Request(`${BASE}/api/executions`, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
       body: JSON.stringify({ code }),
     }),
   );
   return res;
 };
 
-test("multiple accounts share one org but isolate per-user secrets", async () => {
+test("multiple accounts share one org but isolate per-user connections", async () => {
   const alice = await signUp("alice@multi.test");
   const bob = await signUp("bob@multi.test");
 
-  const a = await scopeOf(alice);
-  const b = await scopeOf(bob);
+  // Same single org for both members.
+  const aliceOrg = await orgIdOf(alice);
+  const bobOrg = await orgIdOf(bob);
+  expect(aliceOrg).toBe(bobOrg);
 
-  // Same single org, distinct personal (user-org) scopes.
-  expect(a.orgScope).toBe(b.orgScope);
-  expect(a.userScope).not.toBe(b.userScope);
+  // The integration is tenant-scoped; register it once.
+  expect((await addIntegration(alice, "tiny")).status).toBe(200);
 
-  // Alice stores a personal secret on her user-org scope.
-  expect((await setSecret(alice, a.userScope, "gh", "alice-token")).status).toBe(200);
+  // Alice attaches a USER-owned connection (private to her) and an ORG-owned
+  // connection (shared across the tenant).
+  expect(
+    (
+      await createConnection(alice, {
+        owner: "user",
+        name: "alice-private",
+        integration: "tiny",
+        template: "bearer",
+        value: "alice-token",
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await createConnection(alice, {
+        owner: "org",
+        name: "team-shared",
+        integration: "tiny",
+        template: "bearer",
+        value: "shared-token",
+      })
+    ).status,
+  ).toBe(200);
 
-  // Alice can resolve her own personal secret; Bob cannot see it.
-  expect(await secretResolves(alice, a.userScope, "gh")).toBe(true);
-  expect(await secretResolves(bob, a.userScope, "gh")).toBe(false);
+  // Alice sees both her user connection and the org connection.
+  const aliceConns = await connectionAddresses(alice);
+  expect(aliceConns.some((a) => a.includes("user") && a.includes("alice-private"))).toBe(true);
+  expect(aliceConns.some((a) => a.includes("org") && a.includes("team-shared"))).toBe(true);
 
-  // Org-scoped secrets ARE shared across members of the one org.
-  expect((await setSecret(alice, a.orgScope, "org-key", "shared-value")).status).toBe(200);
-  expect(await secretResolves(bob, a.orgScope, "org-key")).toBe(true);
+  // Bob — a different user in the SAME org — sees the org connection but NOT
+  // Alice's user-owned one.
+  const bobConns = await connectionAddresses(bob);
+  expect(bobConns.some((a) => a.includes("org") && a.includes("team-shared"))).toBe(true);
+  expect(bobConns.some((a) => a.includes("alice-private"))).toBe(false);
 });
 
 test("each account can execute code in its own scoped sandbox", async () => {

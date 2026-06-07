@@ -12,12 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as PoliciesRouteImport } from './routes/policies'
-import { Route as ConnectionsRouteImport } from './routes/connections'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SourcesNamespaceRouteImport } from './routes/sources.$namespace'
 import { Route as ResumeExecutionIdRouteImport } from './routes/resume.$executionId'
-import { Route as SourcesAddPluginKeyRouteImport } from './routes/sources.add.$pluginKey'
+import { Route as IntegrationsNamespaceRouteImport } from './routes/integrations.$namespace'
 import { Route as PluginsPluginIdSplatRouteImport } from './routes/plugins.$pluginId.$'
+import { Route as IntegrationsAddPluginKeyRouteImport } from './routes/integrations.add.$pluginKey'
 
 const ToolsRoute = ToolsRouteImport.update({
   id: '/tools',
@@ -34,19 +33,9 @@ const PoliciesRoute = PoliciesRouteImport.update({
   path: '/policies',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ConnectionsRoute = ConnectionsRouteImport.update({
-  id: '/connections',
-  path: '/connections',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SourcesNamespaceRoute = SourcesNamespaceRouteImport.update({
-  id: '/sources/$namespace',
-  path: '/sources/$namespace',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResumeExecutionIdRoute = ResumeExecutionIdRouteImport.update({
@@ -54,9 +43,9 @@ const ResumeExecutionIdRoute = ResumeExecutionIdRouteImport.update({
   path: '/resume/$executionId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SourcesAddPluginKeyRoute = SourcesAddPluginKeyRouteImport.update({
-  id: '/sources/add/$pluginKey',
-  path: '/sources/add/$pluginKey',
+const IntegrationsNamespaceRoute = IntegrationsNamespaceRouteImport.update({
+  id: '/integrations/$namespace',
+  path: '/integrations/$namespace',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PluginsPluginIdSplatRoute = PluginsPluginIdSplatRouteImport.update({
@@ -64,87 +53,86 @@ const PluginsPluginIdSplatRoute = PluginsPluginIdSplatRouteImport.update({
   path: '/plugins/$pluginId/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IntegrationsAddPluginKeyRoute =
+  IntegrationsAddPluginKeyRouteImport.update({
+    id: '/integrations/add/$pluginKey',
+    path: '/integrations/add/$pluginKey',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/connections': typeof ConnectionsRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
+  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
   '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/connections': typeof ConnectionsRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
+  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
   '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/connections': typeof ConnectionsRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
+  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
   '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/connections'
     | '/policies'
     | '/secrets'
     | '/tools'
+    | '/integrations/$namespace'
     | '/resume/$executionId'
-    | '/sources/$namespace'
+    | '/integrations/add/$pluginKey'
     | '/plugins/$pluginId/$'
-    | '/sources/add/$pluginKey'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/connections'
     | '/policies'
     | '/secrets'
     | '/tools'
+    | '/integrations/$namespace'
     | '/resume/$executionId'
-    | '/sources/$namespace'
+    | '/integrations/add/$pluginKey'
     | '/plugins/$pluginId/$'
-    | '/sources/add/$pluginKey'
   id:
     | '__root__'
     | '/'
-    | '/connections'
     | '/policies'
     | '/secrets'
     | '/tools'
+    | '/integrations/$namespace'
     | '/resume/$executionId'
-    | '/sources/$namespace'
+    | '/integrations/add/$pluginKey'
     | '/plugins/$pluginId/$'
-    | '/sources/add/$pluginKey'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ConnectionsRoute: typeof ConnectionsRoute
   PoliciesRoute: typeof PoliciesRoute
   SecretsRoute: typeof SecretsRoute
   ToolsRoute: typeof ToolsRoute
+  IntegrationsNamespaceRoute: typeof IntegrationsNamespaceRoute
   ResumeExecutionIdRoute: typeof ResumeExecutionIdRoute
-  SourcesNamespaceRoute: typeof SourcesNamespaceRoute
+  IntegrationsAddPluginKeyRoute: typeof IntegrationsAddPluginKeyRoute
   PluginsPluginIdSplatRoute: typeof PluginsPluginIdSplatRoute
-  SourcesAddPluginKeyRoute: typeof SourcesAddPluginKeyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -170,25 +158,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PoliciesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/connections': {
-      id: '/connections'
-      path: '/connections'
-      fullPath: '/connections'
-      preLoaderRoute: typeof ConnectionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sources/$namespace': {
-      id: '/sources/$namespace'
-      path: '/sources/$namespace'
-      fullPath: '/sources/$namespace'
-      preLoaderRoute: typeof SourcesNamespaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/resume/$executionId': {
@@ -198,11 +172,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResumeExecutionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sources/add/$pluginKey': {
-      id: '/sources/add/$pluginKey'
-      path: '/sources/add/$pluginKey'
-      fullPath: '/sources/add/$pluginKey'
-      preLoaderRoute: typeof SourcesAddPluginKeyRouteImport
+    '/integrations/$namespace': {
+      id: '/integrations/$namespace'
+      path: '/integrations/$namespace'
+      fullPath: '/integrations/$namespace'
+      preLoaderRoute: typeof IntegrationsNamespaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/plugins/$pluginId/$': {
@@ -212,19 +186,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PluginsPluginIdSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/integrations/add/$pluginKey': {
+      id: '/integrations/add/$pluginKey'
+      path: '/integrations/add/$pluginKey'
+      fullPath: '/integrations/add/$pluginKey'
+      preLoaderRoute: typeof IntegrationsAddPluginKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ConnectionsRoute: ConnectionsRoute,
   PoliciesRoute: PoliciesRoute,
   SecretsRoute: SecretsRoute,
   ToolsRoute: ToolsRoute,
+  IntegrationsNamespaceRoute: IntegrationsNamespaceRoute,
   ResumeExecutionIdRoute: ResumeExecutionIdRoute,
-  SourcesNamespaceRoute: SourcesNamespaceRoute,
+  IntegrationsAddPluginKeyRoute: IntegrationsAddPluginKeyRoute,
   PluginsPluginIdSplatRoute: PluginsPluginIdSplatRoute,
-  SourcesAddPluginKeyRoute: SourcesAddPluginKeyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

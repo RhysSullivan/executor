@@ -24,7 +24,6 @@
     "packages/*/*",
     "packages/react",
     "packages/app",
-    "packages/sdk-v2",
     "apps/*",
     "examples/*"
   ],

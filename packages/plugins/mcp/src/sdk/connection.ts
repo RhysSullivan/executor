@@ -13,7 +13,7 @@ import { Effect } from "effect";
 // prod bundles that DO use stdio load it via a dynamic import inside the
 // stdio branch of `createMcpConnector`.
 
-import type { McpRemoteSourceData, McpStdioSourceData } from "./types";
+import type { McpRemoteIntegrationConfig, McpStdioIntegrationConfig } from "./types";
 import { McpConnectionError } from "./errors";
 
 // ---------------------------------------------------------------------------
@@ -32,16 +32,16 @@ export type McpConnector = Effect.Effect<McpConnection, McpConnectionError>;
 // ---------------------------------------------------------------------------
 
 export type RemoteConnectorInput = Omit<
-  McpRemoteSourceData,
+  McpRemoteIntegrationConfig,
   "auth" | "remoteTransport" | "headers" | "queryParams"
 > & {
-  readonly remoteTransport?: McpRemoteSourceData["remoteTransport"];
+  readonly remoteTransport?: McpRemoteIntegrationConfig["remoteTransport"];
   readonly headers?: Record<string, string>;
   readonly queryParams?: Record<string, string>;
   readonly authProvider?: OAuthClientProvider;
 };
 
-export type StdioConnectorInput = McpStdioSourceData;
+export type StdioConnectorInput = McpStdioIntegrationConfig;
 
 export type ConnectorInput = RemoteConnectorInput | StdioConnectorInput;
 

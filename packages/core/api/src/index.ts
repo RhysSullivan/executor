@@ -7,11 +7,10 @@ export {
   type PluginExtensionServices,
 } from "./plugin-routes";
 export { ToolsApi } from "./tools/api";
-export { SourcesApi } from "./sources/api";
-export { SecretsApi } from "./secrets/api";
+export { IntegrationsApi } from "./integrations/api";
 export { ConnectionsApi } from "./connections/api";
+export { ProvidersApi } from "./providers/api";
 export { ExecutionsApi } from "./executions/api";
-export { ScopeApi } from "./scope/api";
 export { OAuthApi } from "./oauth/api";
 export {
   OAUTH_POPUP_MESSAGE_TYPE,

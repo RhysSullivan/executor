@@ -6,18 +6,14 @@ import { Effect, Option, Predicate, Schema, SchemaGetter } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import { OpenApiParseError } from "./errors";
-import {
-  oauth2ClientIdSlot,
-  oauth2ClientSecretSlot,
-  oauth2ConnectionSlot,
-} from "./source-contracts";
-import type { OAuth2SourceConfig } from "./types";
+import { compactGoogleOAuthScopes } from "./google-oauth-scopes";
 import type { SpecFetchCredentials } from "./parse";
+import type { Authentication } from "./types";
+import { AuthTemplateSlug } from "@executor-js/sdk/shared";
 
 const DISCOVERY_SERVICE_HOST = "https://www.googleapis.com/discovery/v1/apis";
 const GOOGLE_BUNDLE_BASE_URL = "https://www.googleapis.com/";
 const GOOGLE_OAUTH_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_OAUTH_ISSUER_URL = "https://accounts.google.com";
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OPENAPI_SCHEMA_TYPES = new Set([
   "array",
@@ -221,7 +217,9 @@ export interface GoogleDiscoveryOpenApiConversion {
   readonly service: string;
   readonly version: string;
   readonly discoveryUrls?: readonly string[];
-  readonly oauth2?: OAuth2SourceConfig;
+  /** The v2 oauth auth template the converted integration declares, when the
+   *  Discovery document advertises OAuth2 scopes. */
+  readonly authenticationTemplate?: readonly Authentication[];
 }
 
 const decodeDiscoveryDocument = Schema.decodeUnknownSync(DiscoveryDocument);
@@ -470,6 +468,27 @@ const discoveryScopes = (document: DiscoveryDocument): Record<string, string> =>
     ]),
   );
 
+// The scope set the converted integration DECLARES (and that `oauth.start`
+// requests at connect) must match the consent the picker previews. Both run the
+// raw Discovery union through `compactGoogleOAuthScopes`, which drops scopes a
+// user OAuth consent screen can't show (`chat.bot`/`chat.app.*`/`keep`) and
+// collapses sub-scopes under their broad parent (`gmail.*` → `mail.google.com`,
+// `userinfo.email` → `email`). Descriptions are preserved where the raw map had
+// them; compaction-introduced identity scopes (`email`/`profile`) fall back to
+// the broad parent's description. Per-operation `x-google-scopes`/`security`
+// stay RAW — they describe which scope each method needs, not consent.
+const compactDiscoveryScopeMap = (raw: Record<string, string>): Record<string, string> => {
+  const descriptionFor = (scope: string): string => {
+    if (raw[scope] !== undefined) return raw[scope];
+    if (scope === "email") return raw["https://www.googleapis.com/auth/userinfo.email"] ?? "";
+    if (scope === "profile") return raw["https://www.googleapis.com/auth/userinfo.profile"] ?? "";
+    return "";
+  };
+  return Object.fromEntries(
+    compactGoogleOAuthScopes(Object.keys(raw)).map((scope) => [scope, descriptionFor(scope)]),
+  );
+};
+
 const allDiscoveryMethods = (document: DiscoveryDocument): DiscoveryMethod[] => [
   ...Object.values(document.methods ?? {}).map((raw) => decodeDiscoveryMethod(raw)),
   ...Object.values(document.resources ?? {}).flatMap(collectMethods),
@@ -589,24 +608,27 @@ const buildDiscoveryOperation = (input: {
   };
 };
 
-const googleOauth2Config = (scopes: Record<string, string>): OAuth2SourceConfig | undefined => {
-  const securitySchemeName = "googleOAuth2";
-  return Object.keys(scopes).length > 0
-    ? {
-        kind: "oauth2",
-        securitySchemeName,
-        flow: "authorizationCode",
-        authorizationUrl: GOOGLE_OAUTH_AUTHORIZATION_URL,
-        issuerUrl: GOOGLE_OAUTH_ISSUER_URL,
-        tokenUrl: GOOGLE_OAUTH_TOKEN_URL,
-        clientIdSlot: oauth2ClientIdSlot(securitySchemeName),
-        clientSecretSlot: oauth2ClientSecretSlot(securitySchemeName),
-        connectionSlot: oauth2ConnectionSlot(securitySchemeName),
-        scopes: Object.keys(scopes),
-        identityScopes: ["openid", "email", "profile"],
-      }
-    : undefined;
-};
+const GOOGLE_OAUTH_SECURITY_SCHEME = "googleOAuth2";
+
+/** The v2 oauth auth template for a Google-discovery integration. The spec
+ *  itself carries the matching `securitySchemes.googleOAuth2` entry; this is the
+ *  catalog-level template a connection's access token renders through. */
+const googleOauthTemplate = (scopes: Record<string, string>): readonly Authentication[] =>
+  // A Google-discovery integration is ALWAYS OAuth, so it ALWAYS declares its
+  // oauth method — even when the compacted scope set is empty (e.g. a bundle of
+  // only limited-consent APIs like Google Keep, whose scopes Google won't grant
+  // through standard consent). Without this the integration declares no auth
+  // method and the "Add account" / "Add a connection" actions are disabled, so
+  // you can't even start the flow. Empty `scopes` just requests no scope.
+  [
+    {
+      slug: AuthTemplateSlug.make(GOOGLE_OAUTH_SECURITY_SCHEME),
+      type: "oauth",
+      authorizationUrl: GOOGLE_OAUTH_AUTHORIZATION_URL,
+      tokenUrl: GOOGLE_OAUTH_TOKEN_URL,
+      scopes: Object.keys(scopes),
+    },
+  ];
 
 export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleDiscovery")(
   function* (input: { readonly discoveryUrl: string; readonly documentText: string }) {
@@ -651,8 +673,8 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
       });
     }
 
-    const scopes = discoveryScopes(document);
-    const oauth2 = googleOauth2Config(scopes);
+    const scopes = compactDiscoveryScopeMap(discoveryScopes(document));
+    const authenticationTemplate = googleOauthTemplate(scopes);
 
     const spec: OpenApiDocument = {
       openapi: "3.1.0",
@@ -669,7 +691,7 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
             discoverySchemaToOpenApiSchema(schema),
           ]),
         ),
-        ...(oauth2
+        ...(authenticationTemplate
           ? {
               securitySchemes: {
                 googleOAuth2: {
@@ -686,7 +708,7 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
             }
           : {}),
       },
-      ...(oauth2 ? { security: [{ googleOAuth2: oauth2.scopes }] } : {}),
+      ...(authenticationTemplate ? { security: [{ googleOAuth2: Object.keys(scopes) }] } : {}),
       "x-executor-origin": {
         kind: "googleDiscovery",
         discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
@@ -702,7 +724,7 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
       title,
       service,
       version,
-      oauth2,
+      ...(authenticationTemplate ? { authenticationTemplate } : {}),
     };
   },
 );
@@ -741,14 +763,14 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
 
   const paths: Record<string, Record<string, OpenApiOperationObject>> = {};
   const schemas: Record<string, OpenApiSchemaObject> = {};
-  const scopes: Record<string, string> = {};
+  const rawScopes: Record<string, string> = {};
 
   for (const info of infos) {
     const schemaPrefix = schemaComponentPart(`${info.service}_${info.version}`);
     const schemaNameForRef = (name: string) => `${schemaPrefix}_${schemaComponentPart(name)}`;
 
     for (const [scope, description] of Object.entries(discoveryScopes(info.document))) {
-      scopes[scope] ??= description;
+      rawScopes[scope] ??= description;
     }
 
     for (const [name, schema] of Object.entries(info.document.schemas ?? {})) {
@@ -779,7 +801,8 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
     }
   }
 
-  const oauth2 = googleOauth2Config(scopes);
+  const scopes = compactDiscoveryScopeMap(rawScopes);
+  const authenticationTemplate = googleOauthTemplate(scopes);
   const spec: OpenApiDocument = {
     openapi: "3.1.0",
     info: {
@@ -790,7 +813,7 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
     paths,
     components: {
       schemas,
-      ...(oauth2
+      ...(authenticationTemplate
         ? {
             securitySchemes: {
               googleOAuth2: {
@@ -807,7 +830,7 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
           }
         : {}),
     },
-    ...(oauth2 ? { security: [{ googleOAuth2: oauth2.scopes }] } : {}),
+    ...(authenticationTemplate ? { security: [{ googleOAuth2: Object.keys(scopes) }] } : {}),
     "x-executor-origin": {
       kind: "googleDiscoveryBundle",
       services: infos.map((info) => ({
@@ -826,6 +849,6 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
     service: "google",
     version: "google-discovery-bundle",
     discoveryUrls: infos.map((info) => normalizeDiscoveryUrl(info.discoveryUrl)),
-    oauth2,
+    ...(authenticationTemplate ? { authenticationTemplate } : {}),
   };
 });

@@ -4,23 +4,33 @@ import { Effect } from "effect";
 
 import {
   definePlugin,
+  Owner,
+  ProviderItemId,
+  ProviderKey,
   StorageError,
+  type CredentialProvider,
+  type OwnerBinding,
   type PluginCtx,
-  type SecretProvider,
-} from "@executor-js/sdk/core";
+} from "@executor-js/sdk";
 
 // ---------------------------------------------------------------------------
-// Encrypted DB-backed secret provider for self-host.
+// Encrypted DB-backed credential provider for self-host.
 //
-// Secret values are stored AES-256-GCM-encrypted in the executor's
-// plugin-storage table (scope-partitioned, scope-policy enforced) — never in
-// plaintext, unlike the file-secrets provider. The master key comes from the
-// host (EXECUTOR_SECRET_KEY or a persisted key file); a random per-value IV +
-// auth tag are stored alongside the ciphertext. Only node:crypto is used.
+// Credential values are stored AES-256-GCM-encrypted in the executor's
+// plugin-storage table — never in plaintext, unlike the file-secrets provider.
+// The master key comes from the host (EXECUTOR_SECRET_KEY or a persisted key
+// file); a random per-value IV + auth tag are stored alongside the ciphertext.
+// Only node:crypto is used.
 //
 // This is the multi-tenant-safe default writable provider for the self-hosted
 // server, replacing the OS-keychain/plaintext-file providers that assume a
 // single desktop user.
+//
+// v2: the provider sees only an opaque `ProviderItemId` — there is NO scope
+// arg. The connection row that references the id owns the (tenant, owner,
+// subject) partition; the encrypted value is keyed solely by the opaque id.
+// Plugin storage writes still carry an `owner` (the executor's binding), which
+// is captured once from the ctx at provider construction.
 // ---------------------------------------------------------------------------
 
 type PluginStorage = PluginCtx<unknown>["pluginStorage"];
@@ -66,55 +76,48 @@ const decryptSecret = (key: Buffer, payload: string): Effect.Effect<string, Stor
     catch: (cause) => new StorageError({ message: "Failed to decrypt secret", cause }),
   });
 
+const ENCRYPTED_PROVIDER_KEY = ProviderKey.make("encrypted");
+
+/** Map the executor's (tenant, subject?) binding onto the storage `Owner`
+ *  literal: a bound subject writes the user's own partition, otherwise the
+ *  org-shared one. */
+const ownerOf = (binding: OwnerBinding): Owner =>
+  binding.subject == null ? Owner.make("org") : Owner.make("user");
+
 const makeEncryptedProvider = (
   key: Buffer,
   storage: PluginStorage,
-  listScope: string,
-): SecretProvider => ({
-  key: "encrypted",
+  owner: Owner,
+): CredentialProvider => ({
+  key: ENCRYPTED_PROVIDER_KEY,
   writable: true,
 
-  get: (secretId, scope) =>
+  get: (id: ProviderItemId) =>
     storage
-      .getAtScope<string>({ collection: COLLECTION, key: secretId, scope })
+      .get<string>({ collection: COLLECTION, key: id })
       .pipe(
         Effect.flatMap((entry) => (entry ? decryptSecret(key, entry.data) : Effect.succeed(null))),
       ),
 
-  has: (secretId, scope) =>
-    storage
-      .getAtScope({ collection: COLLECTION, key: secretId, scope })
-      .pipe(Effect.map((entry) => entry !== null)),
+  has: (id: ProviderItemId) =>
+    storage.get({ collection: COLLECTION, key: id }).pipe(Effect.map((entry) => entry !== null)),
 
-  set: (secretId, value, scope) =>
+  set: (id: ProviderItemId, value: string) =>
     encryptSecret(key, value).pipe(
       Effect.flatMap((payload) =>
-        storage.put({ collection: COLLECTION, key: secretId, scope, data: payload }),
+        storage.put({ collection: COLLECTION, key: id, owner, data: payload }),
       ),
       Effect.asVoid,
     ),
 
-  delete: (secretId, scope) =>
-    storage
-      .getAtScope({ collection: COLLECTION, key: secretId, scope })
-      .pipe(
-        Effect.flatMap((entry) =>
-          entry
-            ? storage.remove({ collection: COLLECTION, key: secretId, scope }).pipe(Effect.as(true))
-            : Effect.succeed(false),
-        ),
-      ),
+  delete: (id: ProviderItemId) => storage.remove({ collection: COLLECTION, key: id, owner }),
 
-  // Scope-agnostic by interface; like file-secrets we surface the innermost
-  // scope for display. Per-call get/set/delete honor the explicit scope arg.
   list: () =>
     storage
       .list<string>({ collection: COLLECTION })
       .pipe(
         Effect.map((entries) =>
-          entries
-            .filter((entry) => String(entry.scopeId) === listScope)
-            .map((entry) => ({ id: entry.key, name: entry.key })),
+          entries.map((entry) => ({ id: ProviderItemId.make(entry.key), name: entry.key })),
         ),
       ),
 });
@@ -139,8 +142,8 @@ export const encryptedSecretsPlugin = definePlugin((options?: EncryptedSecretsPl
   return {
     id: "encryptedSecrets" as const,
     storage: () => ({}),
-    secretProviders: (ctx: PluginCtx<unknown>) => [
-      makeEncryptedProvider(derivedKey, ctx.pluginStorage, ctx.scopes[0]!.id),
+    credentialProviders: (ctx: PluginCtx<unknown>): readonly CredentialProvider[] => [
+      makeEncryptedProvider(derivedKey, ctx.pluginStorage, ownerOf(ctx.owner)),
     ],
   };
 });

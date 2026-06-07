@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { createFileRoute } from "@tanstack/react-router";
-import { SourcesAddPage } from "@executor-js/react/pages/sources-add";
+import { AddIntegrationPage } from "@executor-js/react/pages/integration-add";
 
 const SearchParams = Schema.toStandardSchemaV1(
   Schema.Struct({
@@ -14,6 +14,6 @@ export const Route = createFileRoute("/sources/add/$pluginKey")({
   component: () => {
     const { pluginKey } = Route.useParams();
     const { url, preset } = Route.useSearch();
-    return <SourcesAddPage pluginKey={pluginKey} url={url} preset={preset} />;
+    return <AddIntegrationPage pluginKey={pluginKey} url={url} preset={preset} />;
   },
 });

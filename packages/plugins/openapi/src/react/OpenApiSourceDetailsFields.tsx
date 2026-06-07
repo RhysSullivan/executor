@@ -12,16 +12,16 @@ import {
   type FreeformComboboxOption,
 } from "@executor-js/react/components/combobox";
 import { Input } from "@executor-js/react/components/input";
-import { SourceFavicon } from "@executor-js/react/components/source-favicon";
+import { IntegrationFavicon } from "@executor-js/react/components/integration-favicon";
 import {
-  SourceIdentityFieldRows,
-  type SourceIdentity,
-} from "@executor-js/react/plugins/source-identity";
+  IntegrationIdentityFieldRows,
+  type IntegrationIdentity,
+} from "@executor-js/react/plugins/integration-identity";
 
 export function OpenApiSourceDetailsFields(props: {
   readonly title: string;
   readonly description?: string;
-  readonly identity: SourceIdentity;
+  readonly identity: IntegrationIdentity;
   readonly baseUrl: string;
   readonly onBaseUrlChange: (value: string) => void;
   readonly baseUrlOptions?: readonly FreeformComboboxOption[];
@@ -42,7 +42,7 @@ export function OpenApiSourceDetailsFields(props: {
       <CardStackContent className="border-t-0">
         <CardStackEntry>
           {(props.faviconIcon || props.faviconUrl) && (
-            <SourceFavicon icon={props.faviconIcon} url={props.faviconUrl} size={16} />
+            <IntegrationFavicon icon={props.faviconIcon} url={props.faviconUrl} size={16} />
           )}
           <CardStackEntryContent>
             <CardStackEntryTitle>{props.title}</CardStackEntryTitle>
@@ -56,7 +56,7 @@ export function OpenApiSourceDetailsFields(props: {
             </span>
           )}
         </CardStackEntry>
-        <SourceIdentityFieldRows
+        <IntegrationIdentityFieldRows
           identity={props.identity}
           namespaceReadOnly={props.namespaceReadOnly}
         />

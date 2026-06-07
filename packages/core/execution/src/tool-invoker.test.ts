@@ -2,12 +2,21 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Fiber, Schema } from "effect";
 
 import {
+  AuthTemplateSlug,
+  ConnectionName,
   ElicitationResponse,
   FormElicitation,
+  IntegrationSlug,
+  ProviderItemId,
+  ProviderKey,
+  ToolName,
   ToolResult,
   createExecutor,
   definePlugin,
-  tool,
+  type AnyPlugin,
+  type CredentialProvider,
+  type Elicit,
+  type ToolDef,
 } from "@executor-js/sdk";
 import { makeTestConfig, typeCheckOutputTypeScript } from "@executor-js/sdk/testing";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
@@ -19,25 +28,55 @@ import {
   type ToolDiscoveryProvider,
 } from "./tool-invoker";
 
+// ---------------------------------------------------------------------------
+// v2 port. The v1 suite modelled namespaces as `staticSources` whose tools
+// surfaced in `tools.list()` at 2-segment ids (`github.getRepositoryDetails`).
+// In v2 tools are produced per-connection via `resolveTools` and addressed
+// `tools.<integration>.<owner>.<connection>.<tool>`. Each test plugin below
+// registers an integration + a memory credential provider, produces its tools
+// through `resolveTools`, and dispatches them in `invokeTool`. The harness
+// creates one `main` org connection per integration, so the sandbox-callable
+// path is `<integration>.org.main.<tool>`.
+// ---------------------------------------------------------------------------
+
 const codeExecutor = makeQuickJsExecutor();
 
-const RepoInputSchema = Schema.toStandardSchemaV1(
-  Schema.toStandardJSONSchemaV1(Schema.Struct({ owner: Schema.String, repo: Schema.String })),
-);
+// Standard-schema validators — used by `invokeTool` to validate args and emit
+// the `Missing key` issues that surface as `invalid_tool_arguments`.
+type Validator = ReturnType<typeof Schema.toStandardSchemaV1>;
 
-const RepoDetailsOutputSchema = Schema.toStandardSchemaV1(
-  Schema.toStandardJSONSchemaV1(Schema.Struct({ defaultBranch: Schema.String })),
+const RepoValidator: Validator = Schema.toStandardSchemaV1(
+  Schema.Struct({ owner: Schema.String, repo: Schema.String }),
 );
+const ContactValidator: Validator = Schema.toStandardSchemaV1(
+  Schema.Struct({ email: Schema.String }),
+);
+const EmptyValidator: Validator = Schema.toStandardSchemaV1(Schema.Struct({}));
 
-const ContactInputSchema = Schema.toStandardSchemaV1(
-  Schema.toStandardJSONSchemaV1(Schema.Struct({ email: Schema.String })),
-);
-
-const EmptyInputSchema = Schema.toStandardSchemaV1(
-  Schema.toStandardJSONSchemaV1(Schema.Struct({})),
-);
+// Plain JSON Schema objects — stored on the produced ToolDef and rendered by
+// the describe TypeScript-preview path. (ToolDef schemas are opaque JSON to
+// core, exactly like the openapi plugin's spec-derived schemas.)
+const RepoInputJson = {
+  type: "object",
+  properties: { owner: { type: "string" }, repo: { type: "string" } },
+  required: ["owner", "repo"],
+} as const;
+const RepoDetailsOutputJson = {
+  type: "object",
+  properties: { defaultBranch: { type: "string" } },
+  required: ["defaultBranch"],
+} as const;
+const ContactInputJson = {
+  type: "object",
+  properties: { email: { type: "string" } },
+  required: ["email"],
+} as const;
+const EmptyInputJson = { type: "object", properties: {} } as const;
 
 const acceptAll = () => Effect.succeed(ElicitationResponse.make({ action: "accept" }));
+
+const TEMPLATE = AuthTemplateSlug.make("apiKey");
+const CONN = ConnectionName.make("main");
 
 type DescribedToolContract = {
   readonly outputTypeScript: string;
@@ -57,185 +96,286 @@ const typeCheckDescribedInvocation = (
   });
 
 // ---------------------------------------------------------------------------
-// Test plugins — each one declares a namespace as a static source with N
-// tools. Handlers return static data; the suite only cares about discovery
-// + elicitation flow, not real invocation semantics.
+// Test plugin builder — registers one integration, produces N tools via
+// resolveTools, and dispatches them in invokeTool. Handlers receive the args
+// already validated against the tool's standard input schema (so invalid args
+// surface as a ToolInvocationError → invalid_tool_arguments value).
 // ---------------------------------------------------------------------------
 
-const githubPlugin = definePlugin(() => ({
-  id: "github-test" as const,
-  storage: () => ({}),
-  staticSources: () => [
-    {
-      id: "github",
-      kind: "in-memory",
-      name: "GitHub",
-      tools: [
-        {
-          name: "listRepositoryIssues",
-          description: "List issues for a repository",
-          inputSchema: RepoInputSchema,
-          handler: () => Effect.succeed([]),
-        },
-        {
-          name: "getRepositoryDetails",
-          description: "Get repository details including the default branch",
-          inputSchema: RepoInputSchema,
-          outputSchema: RepoDetailsOutputSchema,
-          handler: () => Effect.succeed({ defaultBranch: "main" }),
-        },
-        {
-          name: "searchDocs",
-          description: "Search GitHub API documentation",
-          inputSchema: EmptyInputSchema,
-          handler: () => Effect.succeed([]),
-        },
-      ],
-    },
-  ],
-}));
+type ToolHandlerInput = {
+  readonly args: unknown;
+  readonly elicit: Elicit;
+};
 
-const crmPlugin = definePlugin(() => ({
-  id: "crm-test" as const,
-  storage: () => ({}),
-  staticSources: () => [
-    {
-      id: "crm",
-      kind: "in-memory",
-      name: "CRM",
-      tools: [
-        {
-          name: "createContact",
-          description: "Create a CRM contact record",
-          inputSchema: ContactInputSchema,
-          handler: () => Effect.succeed({ id: "contact_1" }),
-        },
-        {
-          name: "listContacts",
-          description: "List CRM contacts",
-          inputSchema: EmptyInputSchema,
-          handler: () => Effect.succeed([]),
-        },
-      ],
-    },
-  ],
-}));
+type TestToolSpec = {
+  readonly name: string;
+  readonly description: string;
+  /** Plain JSON Schema stored on the produced ToolDef. */
+  readonly inputJsonSchema?: unknown;
+  readonly outputJsonSchema?: unknown;
+  /** Standard-schema validator applied to args in `invokeTool`. */
+  readonly validator?: Validator;
+  readonly handler: (input: ToolHandlerInput) => Effect.Effect<unknown, unknown>;
+};
 
-const errorPlugin = definePlugin(() => ({
-  id: "error-test" as const,
-  storage: () => ({}),
-  staticSources: () => [
-    {
-      id: "records",
-      kind: "in-memory",
-      name: "Records",
-      tools: [
-        {
-          name: "queryRows",
-          description: "Query rows",
-          inputSchema: EmptyInputSchema,
-          handler: () =>
-            Effect.succeed(
-              ToolResult.fail({
-                code: "invalid_query",
-                message: 'Field with name "DisplayName" does not exist',
-              }),
-            ),
-        },
-      ],
-    },
-  ],
-}));
+const memoryProvider = (key: string): CredentialProvider => {
+  const store = new Map<string, string>();
+  return {
+    key: ProviderKey.make(key),
+    writable: true,
+    get: (id) => Effect.sync(() => store.get(String(id)) ?? null),
+    set: (id, value) => Effect.sync(() => void store.set(String(id), value)),
+    has: (id) => Effect.sync(() => store.has(String(id))),
+    list: () =>
+      Effect.sync(() =>
+        Array.from(store.keys()).map((entryKey) => ({
+          id: ProviderItemId.make(entryKey),
+          name: entryKey,
+        })),
+      ),
+  };
+};
 
-const validatedInputPlugin = definePlugin(() => ({
-  id: "validated-input-test" as const,
-  storage: () => ({}),
-  staticSources: () => [
-    {
-      id: "validated",
-      kind: "in-memory",
-      name: "Validated",
-      tools: [
-        tool({
-          name: "getRepositoryDetails",
-          description: "Get repository details including the default branch",
-          inputSchema: RepoInputSchema,
-          outputSchema: RepoDetailsOutputSchema,
-          execute: () => Effect.succeed({ defaultBranch: "main" }),
+const validateArgs = (
+  validator: Validator | undefined,
+  args: unknown,
+): Effect.Effect<unknown, unknown> => {
+  if (validator == null) return Effect.succeed(args);
+  return Effect.promise(() => Promise.resolve(validator["~standard"].validate(args))).pipe(
+    Effect.flatMap((result) =>
+      "value" in result ? Effect.succeed(result.value) : Effect.fail(result),
+    ),
+  );
+};
+
+const makeTestPlugin = (config: {
+  readonly pluginId: string;
+  readonly integration: string;
+  readonly tools: readonly TestToolSpec[];
+}) => {
+  const slug = IntegrationSlug.make(config.integration);
+  const byName = new Map(config.tools.map((spec) => [spec.name, spec] as const));
+  return definePlugin(() => ({
+    id: config.pluginId,
+    credentialProviders: [memoryProvider(`${config.pluginId}-memory`)],
+    storage: () => ({}),
+    resolveTools: () =>
+      Effect.succeed({
+        tools: config.tools.map(
+          (spec): ToolDef => ({
+            name: ToolName.make(spec.name),
+            description: spec.description,
+            inputSchema: spec.inputJsonSchema,
+            outputSchema: spec.outputJsonSchema,
+          }),
+        ),
+      }),
+    invokeTool: ({ toolRow, args, elicit }) => {
+      const spec = byName.get(toolRow.name);
+      if (!spec) return Effect.succeed(undefined);
+      return validateArgs(spec.validator, args).pipe(
+        Effect.flatMap((decoded) => spec.handler({ args: decoded, elicit })),
+      );
+    },
+    extension: (ctx) => ({
+      seed: () =>
+        ctx.core.integrations.register({
+          slug,
+          description: config.integration,
+          config: {},
         }),
-      ],
-    },
-  ],
-}));
+    }),
+  }))();
+};
 
-const structuredFailurePlugin = definePlugin(() => ({
-  id: "structured-failure-test" as const,
-  storage: () => ({}),
-  staticSources: () => [
+const githubPlugin = makeTestPlugin({
+  pluginId: "github-test",
+  integration: "github",
+  tools: [
     {
-      id: "upstream",
-      kind: "in-memory",
-      name: "Upstream",
-      tools: [
-        {
-          name: "nestedErrorBody",
-          description: "",
-          inputSchema: EmptyInputSchema,
-          handler: () =>
-            Effect.succeed(
-              ToolResult.fail({
-                code: "upstream_http_error",
-                status: 400,
-                message: 'The expression "foo" is not valid. Provide a valid expression.',
-                details: {
-                  error: {
-                    code: "invalidRequest",
-                    message: 'The expression "foo" is not valid. Provide a valid expression.',
-                  },
-                },
-              }),
-            ),
-        },
-        {
-          name: "flatErrorBody",
-          description: "",
-          inputSchema: EmptyInputSchema,
-          handler: () =>
-            Effect.succeed(
-              ToolResult.fail({
-                code: "upstream_http_error",
-                status: 400,
-                message: "Field 'XYZ' does not exist",
-                details: {
-                  errorCode: 400,
-                  errorMessage: "Field 'XYZ' does not exist",
-                },
-              }),
-            ),
-        },
-        {
-          name: "errorsArrayBody",
-          description: "",
-          inputSchema: EmptyInputSchema,
-          handler: () =>
-            Effect.succeed(
-              ToolResult.fail({
-                code: "upstream_http_error",
-                status: 403,
-                message: "Insufficient scope",
-                details: {
-                  errors: [{ status: "403", title: "Forbidden", detail: "Insufficient scope" }],
-                },
-              }),
-            ),
-        },
-      ],
+      name: "listRepositoryIssues",
+      description: "List issues for a repository",
+      inputJsonSchema: RepoInputJson,
+      validator: RepoValidator,
+      handler: () => Effect.succeed([]),
+    },
+    {
+      name: "getRepositoryDetails",
+      description: "Get repository details including the default branch",
+      inputJsonSchema: RepoInputJson,
+      validator: RepoValidator,
+      outputJsonSchema: RepoDetailsOutputJson,
+      handler: () => Effect.succeed({ defaultBranch: "main" }),
+    },
+    {
+      name: "searchDocs",
+      description: "Search GitHub API documentation",
+      inputJsonSchema: EmptyInputJson,
+      validator: EmptyValidator,
+      handler: () => Effect.succeed([]),
     },
   ],
-}));
+});
+
+const crmPlugin = makeTestPlugin({
+  pluginId: "crm-test",
+  integration: "crm",
+  tools: [
+    {
+      name: "createContact",
+      description: "Create a CRM contact record",
+      inputJsonSchema: ContactInputJson,
+      validator: ContactValidator,
+      handler: () => Effect.succeed({ id: "contact_1" }),
+    },
+    {
+      name: "listContacts",
+      description: "List CRM contacts",
+      inputJsonSchema: EmptyInputJson,
+      validator: EmptyValidator,
+      handler: () => Effect.succeed([]),
+    },
+  ],
+});
+
+const errorPlugin = makeTestPlugin({
+  pluginId: "error-test",
+  integration: "records",
+  tools: [
+    {
+      name: "queryRows",
+      description: "Query rows",
+      inputJsonSchema: EmptyInputJson,
+      validator: EmptyValidator,
+      handler: () =>
+        Effect.succeed(
+          ToolResult.fail({
+            code: "invalid_query",
+            message: 'Field with name "DisplayName" does not exist',
+          }),
+        ),
+    },
+  ],
+});
+
+const validatedInputPlugin = makeTestPlugin({
+  pluginId: "validated-input-test",
+  integration: "validated",
+  tools: [
+    {
+      name: "getRepositoryDetails",
+      description: "Get repository details including the default branch",
+      inputJsonSchema: RepoInputJson,
+      validator: RepoValidator,
+      outputJsonSchema: RepoDetailsOutputJson,
+      handler: () => Effect.succeed({ defaultBranch: "main" }),
+    },
+  ],
+});
+
+const structuredFailurePlugin = makeTestPlugin({
+  pluginId: "structured-failure-test",
+  integration: "upstream",
+  tools: [
+    {
+      name: "nestedErrorBody",
+      description: "",
+      inputJsonSchema: EmptyInputJson,
+      validator: EmptyValidator,
+      handler: () =>
+        Effect.succeed(
+          ToolResult.fail({
+            code: "upstream_http_error",
+            status: 400,
+            message: 'The expression "foo" is not valid. Provide a valid expression.',
+            details: {
+              error: {
+                code: "invalidRequest",
+                message: 'The expression "foo" is not valid. Provide a valid expression.',
+              },
+            },
+          }),
+        ),
+    },
+    {
+      name: "flatErrorBody",
+      description: "",
+      inputJsonSchema: EmptyInputJson,
+      validator: EmptyValidator,
+      handler: () =>
+        Effect.succeed(
+          ToolResult.fail({
+            code: "upstream_http_error",
+            status: 400,
+            message: "Field 'XYZ' does not exist",
+            details: {
+              errorCode: 400,
+              errorMessage: "Field 'XYZ' does not exist",
+            },
+          }),
+        ),
+    },
+    {
+      name: "errorsArrayBody",
+      description: "",
+      inputJsonSchema: EmptyInputJson,
+      validator: EmptyValidator,
+      handler: () =>
+        Effect.succeed(
+          ToolResult.fail({
+            code: "upstream_http_error",
+            status: 403,
+            message: "Insufficient scope",
+            details: {
+              errors: [{ status: "403", title: "Forbidden", detail: "Insufficient scope" }],
+            },
+          }),
+        ),
+    },
+  ],
+});
+
+// Provision: register each plugin's integration and create one org `main`
+// connection so per-connection tools exist and are addressable.
+const provision = (
+  executor: {
+    readonly connections: {
+      readonly create: (input: {
+        readonly owner: "org";
+        readonly name: typeof CONN;
+        readonly integration: ReturnType<typeof IntegrationSlug.make>;
+        readonly template: typeof TEMPLATE;
+        readonly value: string;
+      }) => Effect.Effect<unknown, unknown>;
+    };
+  } & Record<string, { readonly seed: () => Effect.Effect<unknown, unknown> }>,
+  specs: readonly { readonly pluginId: string; readonly integration: string }[],
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    for (const spec of specs) {
+      yield* executor[spec.pluginId]!.seed();
+      yield* executor.connections.create({
+        owner: "org",
+        name: CONN,
+        integration: IntegrationSlug.make(spec.integration),
+        template: TEMPLATE,
+        value: "token",
+      });
+    }
+  });
+
+const makeExecutorWith = <const TPlugins extends readonly AnyPlugin[]>(plugins: TPlugins) =>
+  createExecutor(makeTestConfig({ plugins }));
 
 const makeSearchExecutor = () =>
-  createExecutor(makeTestConfig({ plugins: [githubPlugin(), crmPlugin()] as const }));
+  Effect.gen(function* () {
+    const executor = yield* makeExecutorWith([githubPlugin, crmPlugin] as const);
+    yield* provision(executor as never, [
+      { pluginId: "github-test", integration: "github" },
+      { pluginId: "crm-test", integration: "crm" },
+    ]);
+    return executor;
+  });
 
 describe("tool discovery", () => {
   it.effect("ranks matches using ids, namespaces, camelCase names, and descriptions", () =>
@@ -244,17 +384,17 @@ describe("tool discovery", () => {
 
       const githubMatches = yield* searchTools(executor, "github issues", 5);
       expect(githubMatches.items.map((match) => match.path)).toEqual([
-        "github.listRepositoryIssues",
+        "github.org.main.listRepositoryIssues",
       ]);
       expect(githubMatches.items[0]?.score ?? 0).toBeGreaterThan(0);
       expect(githubMatches.hasMore).toBe(false);
       expect(githubMatches.nextOffset).toBeNull();
 
       const repoMatches = yield* searchTools(executor, "repo details", 5);
-      expect(repoMatches.items[0]?.path).toBe("github.getRepositoryDetails");
+      expect(repoMatches.items[0]?.path).toBe("github.org.main.getRepositoryDetails");
 
       const crmMatches = yield* searchTools(executor, "crm create contact", 5);
-      expect(crmMatches.items[0]?.path).toBe("crm.createContact");
+      expect(crmMatches.items[0]?.path).toBe("crm.org.main.createContact");
       expect(crmMatches.items[0]?.score ?? 0).toBeGreaterThan(crmMatches.items[1]?.score ?? 0);
     }),
   );
@@ -316,12 +456,14 @@ describe("tool discovery", () => {
       const githubOnly = yield* searchTools(executor, "list", 5, {
         namespace: "github",
       });
-      expect(githubOnly.items.map((match) => match.path)).toEqual(["github.listRepositoryIssues"]);
+      expect(githubOnly.items.map((match) => match.path)).toEqual([
+        "github.org.main.listRepositoryIssues",
+      ]);
 
       const crmOnly = yield* searchTools(executor, "list", 5, {
         namespace: "crm",
       });
-      expect(crmOnly.items.map((match) => match.path)).toEqual(["crm.listContacts"]);
+      expect(crmOnly.items.map((match) => match.path)).toEqual(["crm.org.main.listContacts"]);
 
       const sandboxResult = yield* createExecutionEngine({ executor, codeExecutor }).execute(
         'return await tools.search({ namespace: "crm", query: "create contact", limit: 5 });',
@@ -330,7 +472,7 @@ describe("tool discovery", () => {
       expect(sandboxResult.error).toBeUndefined();
       expect(sandboxResult.result).toEqual(
         expect.objectContaining({
-          items: [expect.objectContaining({ path: "crm.createContact" })],
+          items: [expect.objectContaining({ path: "crm.org.main.createContact" })],
           total: 1,
           hasMore: false,
           nextOffset: null,
@@ -355,10 +497,10 @@ describe("tool discovery", () => {
             return {
               items: [
                 {
-                  path: "custom.searchResult",
+                  path: "custom.org.main.searchResult",
                   name: "searchResult",
                   description: "Provided by the host",
-                  sourceId: "custom",
+                  integration: "custom",
                   score: 999,
                 },
               ],
@@ -390,10 +532,10 @@ describe("tool discovery", () => {
       expect(result.result).toEqual({
         items: [
           {
-            path: "custom.searchResult",
+            path: "custom.org.main.searchResult",
             name: "searchResult",
             description: "Provided by the host",
-            sourceId: "custom",
+            integration: "custom",
             score: 999,
           },
         ],
@@ -412,7 +554,7 @@ describe("tool discovery", () => {
     }),
   );
 
-  it.effect("supports executor-scoped source listing and tool search", () =>
+  it.effect("supports executor-scoped integration listing and tool search", () =>
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
 
@@ -440,18 +582,18 @@ describe("tool discovery", () => {
       expect(searched.error).toBeUndefined();
       expect(searched.result).toEqual(
         expect.objectContaining({
-          items: [expect.objectContaining({ path: "crm.listContacts" })],
+          items: [expect.objectContaining({ path: "crm.org.main.listContacts" })],
         }),
       );
     }),
   );
 
-  it.effect("paginates source listings via limit + offset", () =>
+  it.effect("paginates integration listings via limit + offset", () =>
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
       const engine = createExecutionEngine({ executor, codeExecutor });
 
-      // total = 2 (github, crm), sorted by name ("CRM" < "GitHub")
+      // total = 2 (github, crm), sorted by id ("crm" < "github")
       const firstPage = yield* engine.execute(
         "return await tools.executor.sources.list({ limit: 1 });",
         { onElicitation: acceptAll },
@@ -525,8 +667,8 @@ describe("tool discovery", () => {
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
 
-      const described = yield* describeTool(executor, "github.listRepositoryIssues");
-      expect(described.path).toBe("github.listRepositoryIssues");
+      const described = yield* describeTool(executor, "github.org.main.listRepositoryIssues");
+      expect(described.path).toBe("github.org.main.listRepositoryIssues");
       expect(described.name).toBe("listRepositoryIssues");
       expect(described.description).toBe("List issues for a repository");
       expect(described.inputTypeScript).toBe("{ owner: string; repo: string; }");
@@ -547,8 +689,8 @@ describe("tool discovery", () => {
 
       const execution = yield* engine.execute(
         [
-          'const details = await tools.describe.tool({ path: "github.getRepositoryDetails" });',
-          "const result = await tools.github.getRepositoryDetails({ owner: 'executor', repo: 'executor' });",
+          'const details = await tools.describe.tool({ path: "github.org.main.getRepositoryDetails" });',
+          "const result = await tools.github.org.main.getRepositoryDetails({ owner: 'executor', repo: 'executor' });",
           "return {",
           "  outputTypeScript: details.outputTypeScript,",
           "  typeScriptDefinitions: details.typeScriptDefinitions,",
@@ -579,15 +721,14 @@ describe("tool discovery", () => {
     "describes an error-as-value return type that accepts sandbox invocation failures",
     () =>
       Effect.gen(function* () {
-        const executor = yield* createExecutor(
-          makeTestConfig({ plugins: [errorPlugin()] as const }),
-        );
+        const executor = yield* makeExecutorWith([errorPlugin] as const);
+        yield* provision(executor as never, [{ pluginId: "error-test", integration: "records" }]);
         const engine = createExecutionEngine({ executor, codeExecutor });
 
         const execution = yield* engine.execute(
           [
-            'const details = await tools.describe.tool({ path: "records.queryRows" });',
-            "const result = await tools.records.queryRows({});",
+            'const details = await tools.describe.tool({ path: "records.org.main.queryRows" });',
+            "const result = await tools.records.org.main.queryRows({});",
             "return {",
             "  outputTypeScript: details.outputTypeScript,",
             "  typeScriptDefinitions: details.typeScriptDefinitions,",
@@ -617,7 +758,7 @@ describe("tool discovery", () => {
   it.effect("describes the ToolResult wrapper through the direct describe helper", () =>
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
-      const described = yield* describeTool(executor, "github.getRepositoryDetails");
+      const described = yield* describeTool(executor, "github.org.main.getRepositoryDetails");
 
       expect(described.outputTypeScript).toBe(
         "{ ok: true; data: { defaultBranch: string; } } | { ok: false; error: ToolError }",
@@ -645,7 +786,7 @@ describe("tool discovery", () => {
           "  sourceDetails,",
           "  sourceResult: await tools.executor.sources.list({ limit: 2 }),",
           "  describeDetails,",
-          "  describeResult: await tools.describe.tool({ path: 'github.getRepositoryDetails' }),",
+          "  describeResult: await tools.describe.tool({ path: 'github.org.main.getRepositoryDetails' }),",
           "};",
         ].join("\n"),
         { onElicitation: acceptAll },
@@ -709,7 +850,7 @@ describe("tool discovery", () => {
       const invalidDescribe = yield* engine.execute(
         [
           "try {",
-          '  await tools.describe.tool({ path: "github.listRepositoryIssues", includeSchemas: true });',
+          '  await tools.describe.tool({ path: "github.org.main.listRepositoryIssues", includeSchemas: true });',
           '  return "unexpected";',
           "} catch (error) {",
           "  return error instanceof Error ? error.message : String(error);",
@@ -733,12 +874,13 @@ describe("tool discovery", () => {
 
   it.effect("passes ToolResult.fail through to the sandbox as a value (no throw)", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig({ plugins: [errorPlugin()] as const }));
+      const executor = yield* makeExecutorWith([errorPlugin] as const);
+      yield* provision(executor as never, [{ pluginId: "error-test", integration: "records" }]);
       const invoker = makeExecutorToolInvoker(executor, {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const result = yield* invoker.invoke({ path: "records.queryRows", args: {} });
+      const result = yield* invoker.invoke({ path: "records.org.main.queryRows", args: {} });
       expect(result).toEqual({
         ok: false,
         error: {
@@ -751,35 +893,36 @@ describe("tool discovery", () => {
 
   it.effect("returns missing tool dispatches as ToolResult.fail", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig({ plugins: [] as const }));
+      const executor = yield* makeExecutorWith([] as const);
       const invoker = makeExecutorToolInvoker(executor, {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const result = yield* invoker.invoke({ path: "missing.sourceTool", args: {} });
+      const result = yield* invoker.invoke({ path: "missing.org.main.sourceTool", args: {} });
 
       expect(result).toEqual({
         ok: false,
         error: {
           code: "tool_not_found",
-          message: "Tool not found: missing.sourceTool",
-          details: { toolId: "missing.sourceTool", suggestions: [] },
+          message: "Tool not found: missing.org.main.sourceTool",
+          details: { path: "missing.org.main.sourceTool", suggestions: [] },
         },
       });
     }),
   );
 
-  it.effect("returns invalid static tool arguments as ToolResult.fail", () =>
+  it.effect("returns invalid tool arguments as ToolResult.fail", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [validatedInputPlugin()] as const }),
-      );
+      const executor = yield* makeExecutorWith([validatedInputPlugin] as const);
+      yield* provision(executor as never, [
+        { pluginId: "validated-input-test", integration: "validated" },
+      ]);
       const invoker = makeExecutorToolInvoker(executor, {
         invokeOptions: { onElicitation: acceptAll },
       });
 
       const result = yield* invoker.invoke({
-        path: "validated.getRepositoryDetails",
+        path: "validated.org.main.getRepositoryDetails",
         args: { url: "https://example.com/repo" },
       });
 
@@ -801,14 +944,15 @@ describe("tool discovery", () => {
 
   it.effect("preserves nested upstream error bodies through ToolResult.fail", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [structuredFailurePlugin()] as const }),
-      );
+      const executor = yield* makeExecutorWith([structuredFailurePlugin] as const);
+      yield* provision(executor as never, [
+        { pluginId: "structured-failure-test", integration: "upstream" },
+      ]);
       const invoker = makeExecutorToolInvoker(executor, {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const result = yield* invoker.invoke({ path: "upstream.nestedErrorBody", args: {} });
+      const result = yield* invoker.invoke({ path: "upstream.org.main.nestedErrorBody", args: {} });
       expect(result).toEqual({
         ok: false,
         error: {
@@ -828,14 +972,15 @@ describe("tool discovery", () => {
 
   it.effect("preserves flat upstream error bodies through ToolResult.fail", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [structuredFailurePlugin()] as const }),
-      );
+      const executor = yield* makeExecutorWith([structuredFailurePlugin] as const);
+      yield* provision(executor as never, [
+        { pluginId: "structured-failure-test", integration: "upstream" },
+      ]);
       const invoker = makeExecutorToolInvoker(executor, {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const result = yield* invoker.invoke({ path: "upstream.flatErrorBody", args: {} });
+      const result = yield* invoker.invoke({ path: "upstream.org.main.flatErrorBody", args: {} });
       expect(result).toEqual({
         ok: false,
         error: {
@@ -853,14 +998,15 @@ describe("tool discovery", () => {
 
   it.effect("preserves upstream errors arrays through ToolResult.fail", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [structuredFailurePlugin()] as const }),
-      );
+      const executor = yield* makeExecutorWith([structuredFailurePlugin] as const);
+      yield* provision(executor as never, [
+        { pluginId: "structured-failure-test", integration: "upstream" },
+      ]);
       const invoker = makeExecutorToolInvoker(executor, {
         invokeOptions: { onElicitation: acceptAll },
       });
 
-      const result = yield* invoker.invoke({ path: "upstream.errorsArrayBody", args: {} });
+      const result = yield* invoker.invoke({ path: "upstream.org.main.errorsArrayBody", args: {} });
       expect(result).toEqual({
         ok: false,
         error: {
@@ -880,60 +1026,59 @@ describe("tool discovery", () => {
 // pause/resume — multiple elicitations in a single execution
 // ---------------------------------------------------------------------------
 
-const apiPlugin = definePlugin(() => ({
-  id: "api-test" as const,
-  storage: () => ({}),
-  staticSources: () => [
+const apiPlugin = makeTestPlugin({
+  pluginId: "api-test",
+  integration: "api",
+  tools: [
     {
-      id: "api",
-      kind: "in-memory",
-      name: "API",
-      tools: [
-        {
-          name: "multiApproval",
-          description: "A tool that elicits twice",
-          inputSchema: EmptyInputSchema,
-          handler: ({ elicit }) =>
-            Effect.gen(function* () {
-              const r1 = yield* elicit(
-                FormElicitation.make({
-                  message: "First approval",
-                  requestedSchema: {},
-                }),
-              );
-              const r2 = yield* elicit(
-                FormElicitation.make({
-                  message: "Second approval",
-                  requestedSchema: {},
-                }),
-              );
-              return { first: r1, second: r2 };
+      name: "multiApproval",
+      description: "A tool that elicits twice",
+      inputJsonSchema: EmptyInputJson,
+      validator: EmptyValidator,
+      handler: ({ elicit }) =>
+        Effect.gen(function* () {
+          const r1 = yield* elicit(
+            FormElicitation.make({
+              message: "First approval",
+              requestedSchema: {},
             }),
-        },
-        {
-          name: "singleApproval",
-          description:
-            "A tool that elicits exactly once and then returns a value. Mirrors the shape of a typical `gmail.users.labels.create` style operation: one approval, one side effect, one success response.",
-          inputSchema: EmptyInputSchema,
-          handler: ({ elicit }) =>
-            Effect.gen(function* () {
-              const r = yield* elicit(
-                FormElicitation.make({
-                  message: "Only approval",
-                  requestedSchema: {},
-                }),
-              );
-              return { ok: true, response: r };
+          );
+          const r2 = yield* elicit(
+            FormElicitation.make({
+              message: "Second approval",
+              requestedSchema: {},
             }),
-        },
-      ],
+          );
+          return { first: r1, second: r2 };
+        }),
+    },
+    {
+      name: "singleApproval",
+      description:
+        "A tool that elicits exactly once and then returns a value. Mirrors the shape of a typical `gmail.users.labels.create` style operation: one approval, one side effect, one success response.",
+      inputJsonSchema: EmptyInputJson,
+      validator: EmptyValidator,
+      handler: ({ elicit }) =>
+        Effect.gen(function* () {
+          const r = yield* elicit(
+            FormElicitation.make({
+              message: "Only approval",
+              requestedSchema: {},
+            }),
+          );
+          return { ok: true, response: r };
+        }),
     },
   ],
-}));
+});
 
 describe("pause/resume with multiple elicitations", () => {
   const makeElicitingExecutor = () =>
-    createExecutor(makeTestConfig({ plugins: [apiPlugin()] as const }));
+    Effect.gen(function* () {
+      const executor = yield* makeExecutorWith([apiPlugin] as const);
+      yield* provision(executor as never, [{ pluginId: "api-test", integration: "api" }]);
+      return executor;
+    });
 
   it.effect(
     "resume does not hang when execution hits a second elicitation",
@@ -942,7 +1087,7 @@ describe("pause/resume with multiple elicitations", () => {
         const executor = yield* makeElicitingExecutor();
         const engine = createExecutionEngine({ executor, codeExecutor });
 
-        const code = "return await tools.api.multiApproval({});";
+        const code = "return await tools.api.org.main.multiApproval({});";
 
         const outcome1 = yield* engine.executeWithPause(code);
         expect(outcome1.status).toBe("paused");
@@ -975,9 +1120,9 @@ describe("pause/resume with multiple elicitations", () => {
 
         const code = `
           return await Promise.all([
-            tools.api.singleApproval({}),
-            tools.api.singleApproval({}),
-            tools.api.singleApproval({})
+            tools.api.org.main.singleApproval({}),
+            tools.api.org.main.singleApproval({}),
+            tools.api.org.main.singleApproval({})
           ]);
         `;
 
@@ -1020,10 +1165,16 @@ describe("pause/resume with multiple elicitations", () => {
   // pause/resume, and a single-elicit tool so no later pause can mask a dead
   // sandbox fiber.
   it("resume returns across separate runPromise boundaries for a single-elicit tool (HTTP-like)", async () => {
-    const executor = await Effect.runPromise(makeElicitingExecutor());
+    const executor = await Effect.runPromise(
+      Effect.gen(function* () {
+        const ex = yield* makeExecutorWith([apiPlugin] as const);
+        yield* provision(ex as never, [{ pluginId: "api-test", integration: "api" }]);
+        return ex;
+      }),
+    );
     const engine = createExecutionEngine({ executor, codeExecutor });
 
-    const code = "return await tools.api.singleApproval({});";
+    const code = "return await tools.api.org.main.singleApproval({});";
 
     const outcome1 = await Effect.runPromise(engine.executeWithPause(code));
     expect(outcome1.status).toBe("paused");

@@ -4,15 +4,19 @@
 // every real plugin (openapi / mcp / graphql / workos-vault), with
 // two test-only swaps:
 //
-//   - `OrgAuthLive` is replaced with `FakeOrgAuthLive`, which reads
-//     the scope id off `x-test-org-id` instead of the WorkOS cookie.
+//   - Auth is faked: the executor binds `{ tenant, subject }` read off the
+//     `x-test-org-id` / `x-test-user-id` headers instead of the WorkOS cookie.
 //   - `workos-vault` is configured with an in-memory `WorkOSVaultClient`
-//     so secret writes never reach WorkOS's real API.
+//     so connection writes never reach WorkOS's real API.
 //
 // Tests get a `fetchForOrg(organizationId)` they can hand to `FetchHttpClient`
 // and then call `HttpApiClient.make(ProtectedCloudApi)` against it.
 // Each test picks its own org id (usually a random UUID) so rows don't
 // collide across tests.
+//
+// v2: the executor is bound to a tenant (the organization id) and a subject
+// (the account id). The org-shared catalog is `owner: "org"`; a member's own
+// connections are `owner: "user"`. There is no scope stack and no scope id.
 
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder, HttpApiClient, HttpApiSwagger } from "effect/unstable/httpapi";
@@ -27,7 +31,7 @@ import {
 } from "@executor-js/api/server";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
-import { createExecutor, makeUserOrgScopeStack, userOrgScopeId } from "@executor-js/sdk";
+import { createExecutor, Subject, Tenant } from "@executor-js/sdk";
 import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 
 import executorConfig from "../../executor.config";
@@ -41,14 +45,14 @@ export const TEST_BASE_URL = "http://test.local";
 export const TEST_ORG_HEADER = "x-test-org-id";
 export const TEST_USER_HEADER = "x-test-user-id";
 
-// `asOrg(organizationId, …)` callers don't care which specific user they are, only
-// that the executor has a valid user-org scope. We give each org a stable
-// default user so list/get operations at the org scope remain deterministic
-// across calls within a single test.
+// `asOrg(organizationId, …)` callers don't care which specific user they are,
+// only that the executor has a bound subject so `owner: "user"` operations work.
+// We give each org a stable default subject so list/get operations remain
+// deterministic across calls within a single test.
 const defaultUserFor = (organizationId: string) => `default_user_${organizationId}`;
 
 // ---------------------------------------------------------------------------
-// Executor factory — mirrors apps/cloud/services/executor#createScopedExecutor
+// Executor factory — mirrors `makeScopedExecutor` (binds `{ tenant, subject }`)
 // but with an in-memory test vault client (see
 // `@executor-js/plugin-workos-vault/testing`).
 // ---------------------------------------------------------------------------
@@ -59,11 +63,7 @@ const testPlugins = executorConfig.plugins({
 });
 const testHttpClientLayer = FetchHttpClient.layer;
 
-const createTestScopedExecutor = (
-  userId: string,
-  organizationId: string,
-  organizationName: string,
-) =>
+const createTestScopedExecutor = (userId: string, organizationId: string) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
     const plugins = testPlugins;
@@ -73,13 +73,19 @@ const createTestScopedExecutor = (
       namespace: "executor_cloud",
       provider: "postgresql",
     });
-    const scopes = makeUserOrgScopeStack(userId, organizationId, organizationName);
     return yield* createExecutor({
-      scopes,
+      tenant: Tenant.make(organizationId),
+      subject: Subject.make(userId),
       db: fuma.db,
       plugins,
       httpClientLayer: testHttpClientLayer,
       onElicitation: "accept-all",
+      // EXPLICIT OAuth callback — production derives
+      // `${webBaseUrl}${CLOUD_MOUNT_PREFIX}/oauth/callback` in `makeScopedExecutor`
+      // (the cloud mounts the API under `/api`); the harness wires the matching
+      // stable test equivalent so the OAuth `start` (authorization_code) flow
+      // returns a redirect instead of failing loudly on the now-required redirectUri.
+      redirectUri: "https://test.executor.sh/api/oauth/callback",
     });
   });
 
@@ -119,8 +125,7 @@ const TestExecutionStackMiddleware = HttpRouter.middleware<{
           typeof userHeader === "string" && userHeader.length > 0
             ? userHeader
             : defaultUserFor(organizationId);
-        const organizationName = `Org ${organizationId}`;
-        const executor = yield* createTestScopedExecutor(userId, organizationId, organizationName);
+        const executor = yield* createTestScopedExecutor(userId, organizationId);
         const engine = createExecutionEngine({
           executor,
           codeExecutor: makeQuickJsExecutor(),
@@ -202,10 +207,9 @@ export const asOrg = <A, E>(
     return yield* body(client);
   }).pipe(Effect.provide(clientLayerForOrg(organizationId))) as Effect.Effect<A, E>;
 
-// Same as `asOrg` but also threads a specific user id through the fake
-// OrgAuth, so the built executor's user-org scope id is
-// `user-org:${userId}:${organizationId}`. Use this for tests that care about
-// per-user isolation inside the same org.
+// Same as `asOrg` but also threads a specific user id through the fake auth, so
+// the built executor's bound subject is `userId`. Use this for tests that care
+// about per-user isolation (`owner: "user"` connections) inside the same org.
 export const asUser = <A, E>(
   userId: string,
   organizationId: string,
@@ -215,11 +219,6 @@ export const asUser = <A, E>(
     const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
     return yield* body(client);
   }).pipe(Effect.provide(clientLayerForUser(userId, organizationId))) as Effect.Effect<A, E>;
-
-// Exposed so tests can build the same user-org scope id the harness uses
-// when writing at a specific user's scope.
-export const testUserOrgScopeId = (userId: string, organizationId: string) =>
-  userOrgScopeId(userId, organizationId);
 
 // Re-exports so call sites don't need a second import.
 export { ProtectedCloudApi };

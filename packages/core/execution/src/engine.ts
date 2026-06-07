@@ -144,7 +144,7 @@ export const formatPausedExecution = (
         kind: isUrlElicitation ? "url" : "form",
         message: req.message,
         instructions,
-        toolId: String(paused.elicitationContext.toolId),
+        address: String(paused.elicitationContext.address),
         args: paused.elicitationContext.args,
         ...(isUrlElicitation ? { url: req.url } : {}),
         ...(isFormElicitation ? { requestedSchema: req.requestedSchema } : {}),

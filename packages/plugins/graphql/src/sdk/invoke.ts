@@ -1,43 +1,8 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
-import { resolveSecretBackedMap } from "@executor-js/sdk/core";
 
 import { GraphqlInvocationError } from "./errors";
-import { type HeaderValue, type OperationBinding, InvocationResult } from "./types";
-
-// ---------------------------------------------------------------------------
-// Header resolution — resolves secret refs at invocation time
-// ---------------------------------------------------------------------------
-
-export const resolveHeaders = (
-  headers: Record<string, HeaderValue>,
-  secrets: { readonly get: (id: string) => Effect.Effect<string | null, unknown> },
-): Effect.Effect<Record<string, string>> => {
-  const entries = Object.entries(headers);
-  const secretCount = entries.reduce(
-    (acc, [, value]) => (typeof value === "string" ? acc : acc + 1),
-    0,
-  );
-  return resolveSecretBackedMap({
-    values: headers,
-    getSecret: (secretId) => secrets.get(secretId).pipe(Effect.catch(() => Effect.succeed(null))),
-    missing: "drop",
-    onMissing: (name) =>
-      new GraphqlInvocationError({
-        message: `Missing secret for header "${name}"`,
-        statusCode: Option.none(),
-      }),
-  }).pipe(
-    Effect.catch(() => Effect.succeed<Record<string, string> | undefined>(undefined)),
-    Effect.map((resolved) => resolved ?? {}),
-    Effect.withSpan("plugin.graphql.secret.resolve", {
-      attributes: {
-        "plugin.graphql.headers.total": entries.length,
-        "plugin.graphql.headers.secret_count": secretCount,
-      },
-    }),
-  );
-};
+import { type OperationBinding, InvocationResult } from "./types";
 
 const endpointWithQueryParams = (endpoint: string, queryParams: Record<string, string>): string => {
   if (Object.keys(queryParams).length === 0) return endpoint;

@@ -11,6 +11,7 @@
     "./multiplayer/*": "./src/multiplayer/*.tsx",
     "./components/*": "./src/components/*.tsx",
     "./hooks/*": "./src/hooks/*.ts",
+    "./lib/auth-placements": "./src/lib/auth-placements.tsx",
     "./lib/*": "./src/lib/*.ts",
     "./globals.css": "./src/styles/globals.css"
   },

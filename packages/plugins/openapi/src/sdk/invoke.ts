@@ -1,12 +1,9 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import type { SecretOwnedByConnectionError, StorageFailure } from "@executor-js/sdk/core";
-
 import { OpenApiInvocationError } from "./errors";
 import {
   type EncodingObject,
-  type HeaderValue,
   type OperationBinding,
   InvocationResult,
   type MediaBinding,
@@ -124,71 +121,6 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
 
   return resolved;
 });
-
-// ---------------------------------------------------------------------------
-// Header resolution — resolves secret refs at invocation time
-// ---------------------------------------------------------------------------
-
-export const resolveHeaders = (
-  headers: Record<string, HeaderValue>,
-  secrets: {
-    readonly get: (
-      id: string,
-    ) => Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure>;
-  },
-): Effect.Effect<Record<string, string>, OpenApiInvocationError | StorageFailure> => {
-  const entries = Object.entries(headers);
-  const secretCount = entries.reduce(
-    (acc, [, value]) => (typeof value === "string" ? acc : acc + 1),
-    0,
-  );
-  return Effect.gen(function* () {
-    // Fan out secret lookups: on every invocation, one or two headers
-    // typically each hit the secret store. Resolving them in parallel
-    // is a free wall-clock win — preserved order is only needed for
-    // the final assembly, not the fetches.
-    const values = yield* Effect.all(
-      entries.map(([name, value]) =>
-        typeof value === "string"
-          ? Effect.succeed({ name, value })
-          : secrets.get(value.secretId).pipe(
-              Effect.catchTag("SecretOwnedByConnectionError", () =>
-                Effect.fail(
-                  new OpenApiInvocationError({
-                    message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
-                    statusCode: Option.none(),
-                  }),
-                ),
-              ),
-              Effect.flatMap((secret) =>
-                secret === null
-                  ? Effect.fail(
-                      new OpenApiInvocationError({
-                        message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
-                        statusCode: Option.none(),
-                      }),
-                    )
-                  : Effect.succeed({
-                      name,
-                      value: value.prefix ? `${value.prefix}${secret}` : secret,
-                    }),
-              ),
-            ),
-      ),
-      { concurrency: "unbounded" },
-    );
-    const resolved: Record<string, string> = {};
-    for (const { name, value } of values) resolved[name] = value;
-    return resolved;
-  }).pipe(
-    Effect.withSpan("plugin.openapi.secret.resolve", {
-      attributes: {
-        "plugin.openapi.headers.total": entries.length,
-        "plugin.openapi.headers.secret_count": secretCount,
-      },
-    }),
-  );
-};
 
 const applyHeaders = (
   request: HttpClientRequest.HttpClientRequest,

@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { toolSchemaAtom } from "../api/atoms";
 import {
-  ScopeId,
-  ToolId,
+  type ToolAddress,
   type EffectivePolicy,
   type ToolPolicyAction,
+  type Connection,
+  type ConnectionName,
+  type IntegrationSlug,
 } from "@executor-js/sdk/shared";
 import { Badge } from "./badge";
 import { Button } from "./button";
@@ -21,10 +23,12 @@ import {
 import { Markdown } from "./markdown";
 import { SchemaExplorer } from "./schema-explorer";
 import { ExpandableCodeBlock } from "./expandable-code-block";
+import { ToolRunPanel } from "./tool-run-panel";
 import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
 import { CopyButton } from "./copy-button";
 import { ChevronRight, ChevronDownIcon } from "lucide-react";
 import { cn } from "../lib/utils";
+import { toPolicyPattern } from "../lib/policy-pattern";
 import {
   POLICY_ACTION_LABEL,
   POLICY_ACTIONS_IN_ORDER,
@@ -67,6 +71,67 @@ function EmptySection(props: { title: string; message: string }) {
   );
 }
 
+function ToolDescription(props: { description: string }) {
+  const { description } = props;
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(
+    description.length > 160 || description.includes("\n"),
+  );
+
+  useEffect(() => {
+    setExpanded(false);
+    setCanExpand(description.length > 160 || description.includes("\n"));
+  }, [description]);
+
+  useEffect(() => {
+    if (expanded) return;
+
+    const element = contentRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      setCanExpand(
+        element.scrollHeight > element.clientHeight + 1 ||
+          description.length > 160 ||
+          description.includes("\n"),
+      );
+    };
+
+    measure();
+    const win = element.ownerDocument.defaultView;
+    win?.addEventListener("resize", measure);
+    return () => win?.removeEventListener("resize", measure);
+  }, [description, expanded]);
+
+  return (
+    <div className="mt-1.5 max-w-2xl">
+      <div
+        ref={contentRef}
+        className={cn("text-sm text-muted-foreground", !expanded && "line-clamp-2")}
+      >
+        <Markdown>{description}</Markdown>
+      </div>
+      {canExpand && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          aria-expanded={expanded}
+          className="mt-1 h-6 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <ChevronDownIcon
+            aria-hidden
+            className={cn("size-3 transition-transform", expanded && "rotate-180")}
+          />
+          {expanded ? "Show less" : "Show more"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -92,9 +157,10 @@ const breadcrumbParts = (name: string): string[] =>
 // ---------------------------------------------------------------------------
 
 export function ToolDetail(props: {
-  toolId: string;
+  /** Full per-connection tool address `tools.<int>.<owner>.<conn>.<tool>`. */
+  address: ToolAddress;
+  /** Policy id `<integration>.<tool>` — the tree path and copy value. */
   toolName: string;
-  scopeId: ScopeId;
   /** Resolved effective policy — user-authored or plugin-default,
    *  unified into one shape. Surfaces in the header. */
   policy?: EffectivePolicy;
@@ -102,9 +168,21 @@ export function ToolDetail(props: {
    *  applies a user rule to this tool's exact id. */
   onSetPolicy?: (pattern: string, action: ToolPolicyAction) => void;
   onClearPolicy?: (pattern: string) => void;
+  /** Run-tab wiring. When `integration` + `runToolName` are provided, a third
+   *  "Run" tab hosts the per-connection tool tester. */
+  integration?: IntegrationSlug;
+  /** Bare `<tool>` address segment (may contain dots) for the Run tab. */
+  runToolName?: string;
+  /** This integration's connections across both owners. */
+  connections?: readonly Connection[];
+  /** Pre-select this connection in the Run tab (the selected tool's account). */
+  initialConnectionName?: ConnectionName | string | null;
 }) {
-  const toolContract = useAtomValue(toolSchemaAtom(props.scopeId, props.toolId as ToolId));
-  const [tab, setTab] = useState<"schema" | "typescript">("schema");
+  const toolContract = useAtomValue(toolSchemaAtom(props.address));
+  const [tab, setTab] = useState<"schema" | "typescript" | "run">("schema");
+  const canRun = props.integration != null && props.runToolName != null;
+  // Don't strand the user on the Run tab when this ToolDetail has no run wiring.
+  const activeTab = tab === "run" && !canRun ? "schema" : tab;
 
   const data = useMemo(() => {
     if (!AsyncResult.isSuccess(toolContract)) return null;
@@ -145,7 +223,7 @@ export function ToolDetail(props: {
           )}
           <div className="mt-1 flex items-center gap-2">
             <h3 className="text-base font-semibold text-foreground truncate">{displayName}</h3>
-            <CopyButton value={props.toolId} label="Copy tool ID" />
+            <CopyButton value={props.toolName} label="Copy tool ID" />
             <PolicyBadgeMenu
               toolName={props.toolName}
               policy={props.policy}
@@ -153,22 +231,18 @@ export function ToolDetail(props: {
               onClearPolicy={props.onClearPolicy}
             />
           </div>
-          {data?.description && (
-            <div className="mt-1.5 max-w-lg text-sm text-muted-foreground line-clamp-2">
-              <Markdown>{data.description}</Markdown>
-            </div>
-          )}
+          {data?.description && <ToolDescription description={data.description} />}
 
           {/* Tabs */}
           <div className="mt-3 flex gap-4" role="tablist">
             <Button
               variant="ghost"
               role="tab"
-              aria-selected={tab === "schema"}
+              aria-selected={activeTab === "schema"}
               onClick={() => setTab("schema")}
               className={[
                 "border-b-2 pb-2.5 text-sm font-medium transition-colors rounded-none",
-                tab === "schema"
+                activeTab === "schema"
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
               ].join(" ")}
@@ -178,17 +252,33 @@ export function ToolDetail(props: {
             <Button
               variant="ghost"
               role="tab"
-              aria-selected={tab === "typescript"}
+              aria-selected={activeTab === "typescript"}
               onClick={() => setTab("typescript")}
               className={[
                 "border-b-2 pb-2.5 text-sm font-medium transition-colors rounded-none",
-                tab === "typescript"
+                activeTab === "typescript"
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
               ].join(" ")}
             >
               TypeScript
             </Button>
+            {canRun && (
+              <Button
+                variant="ghost"
+                role="tab"
+                aria-selected={activeTab === "run"}
+                onClick={() => setTab("run")}
+                className={[
+                  "border-b-2 pb-2.5 text-sm font-medium transition-colors rounded-none",
+                  activeTab === "run"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+              >
+                Run
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -199,7 +289,16 @@ export function ToolDetail(props: {
           onInitial: () => <div className="p-5 text-sm text-muted-foreground">Loading…</div>,
           onFailure: () => <div className="p-5 text-sm text-destructive">Something went wrong</div>,
           onSuccess: () =>
-            tab === "schema" ? (
+            activeTab === "run" && props.integration && props.runToolName ? (
+              <div className="px-5 py-5">
+                <ToolRunPanel
+                  integration={props.integration}
+                  toolName={props.runToolName}
+                  connections={props.connections ?? []}
+                  initialConnectionName={props.initialConnectionName}
+                />
+              </div>
+            ) : activeTab === "schema" ? (
               <div className="px-5 py-5 space-y-5">
                 {data?.inputSchema ? (
                   <SchemaExplorer
@@ -289,7 +388,7 @@ function PolicyBadgeMenu(props: {
   // pinned to this exact tool id — clearing a wildcard rule from a
   // single tool's detail header would silently affect siblings.
   const hasExactUserRule =
-    props.policy?.source === "user" && props.policy.pattern === props.toolName;
+    props.policy?.source === "user" && props.policy.pattern === toPolicyPattern(props.toolName);
   const currentAction = hasExactUserRule ? props.policy?.action : undefined;
 
   if (!interactive) {

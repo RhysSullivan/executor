@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import type { StorageFailure } from "./fuma-runtime";
-import type { ScopeId } from "./ids";
+import type { Owner } from "./ids";
 
 export type PluginStorageSchema = {
   readonly Type: object;
@@ -101,7 +101,7 @@ export interface PluginStorageKeyInput {
 }
 
 export interface PluginStorageScopedKeyInput extends PluginStorageKeyInput {
-  readonly scope: ScopeId | string;
+  readonly owner: Owner;
 }
 
 export interface PluginStorageListInput {
@@ -118,7 +118,7 @@ export interface PluginStorageCollectionKeyInput {
 }
 
 export interface PluginStorageCollectionScopedKeyInput extends PluginStorageCollectionKeyInput {
-  readonly scope: ScopeId | string;
+  readonly owner: Owner;
 }
 
 export interface PluginStorageCollectionListInput {
@@ -141,7 +141,7 @@ export interface PluginStorageCollectionQueryInput<TDefinition> {
 
 export interface PluginStorageEntry<T = unknown> {
   readonly id: string;
-  readonly scopeId: ScopeId | string;
+  readonly owner: Owner;
   readonly pluginId: string;
   readonly collection: string;
   readonly key: string;
@@ -159,7 +159,7 @@ export interface PluginStorageCollectionFacade<
     PluginStorageEntry<PluginStorageCollectionData<TDefinition>> | null,
     StorageFailure
   >;
-  readonly getAtScope: (
+  readonly getForOwner: (
     input: PluginStorageCollectionScopedKeyInput,
   ) => Effect.Effect<
     PluginStorageEntry<PluginStorageCollectionData<TDefinition>> | null,
@@ -195,7 +195,7 @@ export interface PluginStorageFacade {
   readonly get: <T = unknown>(
     input: PluginStorageKeyInput,
   ) => Effect.Effect<PluginStorageEntry<T> | null, StorageFailure>;
-  readonly getAtScope: <T = unknown>(
+  readonly getForOwner: <T = unknown>(
     input: PluginStorageScopedKeyInput,
   ) => Effect.Effect<PluginStorageEntry<T> | null, StorageFailure>;
   readonly list: <T = unknown>(

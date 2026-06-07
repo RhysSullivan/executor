@@ -14,15 +14,15 @@ import { Route as SetupMcpRouteImport } from './routes/setup-mcp'
 import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as PoliciesRouteImport } from './routes/policies'
 import { Route as OrgRouteImport } from './routes/org'
+import { Route as OauthAppsRouteImport } from './routes/oauth-apps'
 import { Route as CreateOrgRouteImport } from './routes/create-org'
-import { Route as ConnectionsRouteImport } from './routes/connections'
 import { Route as BillingRouteImport } from './routes/billing'
 import { Route as ApiKeysRouteImport } from './routes/api-keys'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SourcesNamespaceRouteImport } from './routes/sources.$namespace'
 import { Route as ResumeExecutionIdRouteImport } from './routes/resume.$executionId'
+import { Route as IntegrationsNamespaceRouteImport } from './routes/integrations.$namespace'
 import { Route as BillingPlansRouteImport } from './routes/billing_.plans'
-import { Route as SourcesAddPluginKeyRouteImport } from './routes/sources.add.$pluginKey'
+import { Route as IntegrationsAddPluginKeyRouteImport } from './routes/integrations.add.$pluginKey'
 
 const ToolsRoute = ToolsRouteImport.update({
   id: '/tools',
@@ -49,14 +49,14 @@ const OrgRoute = OrgRouteImport.update({
   path: '/org',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OauthAppsRoute = OauthAppsRouteImport.update({
+  id: '/oauth-apps',
+  path: '/oauth-apps',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CreateOrgRoute = CreateOrgRouteImport.update({
   id: '/create-org',
   path: '/create-org',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ConnectionsRoute = ConnectionsRouteImport.update({
-  id: '/connections',
-  path: '/connections',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BillingRoute = BillingRouteImport.update({
@@ -74,14 +74,14 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SourcesNamespaceRoute = SourcesNamespaceRouteImport.update({
-  id: '/sources/$namespace',
-  path: '/sources/$namespace',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ResumeExecutionIdRoute = ResumeExecutionIdRouteImport.update({
   id: '/resume/$executionId',
   path: '/resume/$executionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsNamespaceRoute = IntegrationsNamespaceRouteImport.update({
+  id: '/integrations/$namespace',
+  path: '/integrations/$namespace',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BillingPlansRoute = BillingPlansRouteImport.update({
@@ -89,60 +89,61 @@ const BillingPlansRoute = BillingPlansRouteImport.update({
   path: '/billing/plans',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SourcesAddPluginKeyRoute = SourcesAddPluginKeyRouteImport.update({
-  id: '/sources/add/$pluginKey',
-  path: '/sources/add/$pluginKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const IntegrationsAddPluginKeyRoute =
+  IntegrationsAddPluginKeyRouteImport.update({
+    id: '/integrations/add/$pluginKey',
+    path: '/integrations/add/$pluginKey',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api-keys': typeof ApiKeysRoute
   '/billing': typeof BillingRoute
-  '/connections': typeof ConnectionsRoute
   '/create-org': typeof CreateOrgRoute
+  '/oauth-apps': typeof OauthAppsRoute
   '/org': typeof OrgRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/setup-mcp': typeof SetupMcpRoute
   '/tools': typeof ToolsRoute
   '/billing/plans': typeof BillingPlansRoute
+  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
+  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api-keys': typeof ApiKeysRoute
   '/billing': typeof BillingRoute
-  '/connections': typeof ConnectionsRoute
   '/create-org': typeof CreateOrgRoute
+  '/oauth-apps': typeof OauthAppsRoute
   '/org': typeof OrgRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/setup-mcp': typeof SetupMcpRoute
   '/tools': typeof ToolsRoute
   '/billing/plans': typeof BillingPlansRoute
+  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
+  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api-keys': typeof ApiKeysRoute
   '/billing': typeof BillingRoute
-  '/connections': typeof ConnectionsRoute
   '/create-org': typeof CreateOrgRoute
+  '/oauth-apps': typeof OauthAppsRoute
   '/org': typeof OrgRoute
   '/policies': typeof PoliciesRoute
   '/secrets': typeof SecretsRoute
   '/setup-mcp': typeof SetupMcpRoute
   '/tools': typeof ToolsRoute
   '/billing_/plans': typeof BillingPlansRoute
+  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
   '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
+  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -150,66 +151,66 @@ export interface FileRouteTypes {
     | '/'
     | '/api-keys'
     | '/billing'
-    | '/connections'
     | '/create-org'
+    | '/oauth-apps'
     | '/org'
     | '/policies'
     | '/secrets'
     | '/setup-mcp'
     | '/tools'
     | '/billing/plans'
+    | '/integrations/$namespace'
     | '/resume/$executionId'
-    | '/sources/$namespace'
-    | '/sources/add/$pluginKey'
+    | '/integrations/add/$pluginKey'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/api-keys'
     | '/billing'
-    | '/connections'
     | '/create-org'
+    | '/oauth-apps'
     | '/org'
     | '/policies'
     | '/secrets'
     | '/setup-mcp'
     | '/tools'
     | '/billing/plans'
+    | '/integrations/$namespace'
     | '/resume/$executionId'
-    | '/sources/$namespace'
-    | '/sources/add/$pluginKey'
+    | '/integrations/add/$pluginKey'
   id:
     | '__root__'
     | '/'
     | '/api-keys'
     | '/billing'
-    | '/connections'
     | '/create-org'
+    | '/oauth-apps'
     | '/org'
     | '/policies'
     | '/secrets'
     | '/setup-mcp'
     | '/tools'
     | '/billing_/plans'
+    | '/integrations/$namespace'
     | '/resume/$executionId'
-    | '/sources/$namespace'
-    | '/sources/add/$pluginKey'
+    | '/integrations/add/$pluginKey'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiKeysRoute: typeof ApiKeysRoute
   BillingRoute: typeof BillingRoute
-  ConnectionsRoute: typeof ConnectionsRoute
   CreateOrgRoute: typeof CreateOrgRoute
+  OauthAppsRoute: typeof OauthAppsRoute
   OrgRoute: typeof OrgRoute
   PoliciesRoute: typeof PoliciesRoute
   SecretsRoute: typeof SecretsRoute
   SetupMcpRoute: typeof SetupMcpRoute
   ToolsRoute: typeof ToolsRoute
   BillingPlansRoute: typeof BillingPlansRoute
+  IntegrationsNamespaceRoute: typeof IntegrationsNamespaceRoute
   ResumeExecutionIdRoute: typeof ResumeExecutionIdRoute
-  SourcesNamespaceRoute: typeof SourcesNamespaceRoute
-  SourcesAddPluginKeyRoute: typeof SourcesAddPluginKeyRoute
+  IntegrationsAddPluginKeyRoute: typeof IntegrationsAddPluginKeyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -249,18 +250,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth-apps': {
+      id: '/oauth-apps'
+      path: '/oauth-apps'
+      fullPath: '/oauth-apps'
+      preLoaderRoute: typeof OauthAppsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/create-org': {
       id: '/create-org'
       path: '/create-org'
       fullPath: '/create-org'
       preLoaderRoute: typeof CreateOrgRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/connections': {
-      id: '/connections'
-      path: '/connections'
-      fullPath: '/connections'
-      preLoaderRoute: typeof ConnectionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/billing': {
@@ -284,18 +285,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sources/$namespace': {
-      id: '/sources/$namespace'
-      path: '/sources/$namespace'
-      fullPath: '/sources/$namespace'
-      preLoaderRoute: typeof SourcesNamespaceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/resume/$executionId': {
       id: '/resume/$executionId'
       path: '/resume/$executionId'
       fullPath: '/resume/$executionId'
       preLoaderRoute: typeof ResumeExecutionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/$namespace': {
+      id: '/integrations/$namespace'
+      path: '/integrations/$namespace'
+      fullPath: '/integrations/$namespace'
+      preLoaderRoute: typeof IntegrationsNamespaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/billing_/plans': {
@@ -305,11 +306,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BillingPlansRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sources/add/$pluginKey': {
-      id: '/sources/add/$pluginKey'
-      path: '/sources/add/$pluginKey'
-      fullPath: '/sources/add/$pluginKey'
-      preLoaderRoute: typeof SourcesAddPluginKeyRouteImport
+    '/integrations/add/$pluginKey': {
+      id: '/integrations/add/$pluginKey'
+      path: '/integrations/add/$pluginKey'
+      fullPath: '/integrations/add/$pluginKey'
+      preLoaderRoute: typeof IntegrationsAddPluginKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -319,17 +320,17 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiKeysRoute: ApiKeysRoute,
   BillingRoute: BillingRoute,
-  ConnectionsRoute: ConnectionsRoute,
   CreateOrgRoute: CreateOrgRoute,
+  OauthAppsRoute: OauthAppsRoute,
   OrgRoute: OrgRoute,
   PoliciesRoute: PoliciesRoute,
   SecretsRoute: SecretsRoute,
   SetupMcpRoute: SetupMcpRoute,
   ToolsRoute: ToolsRoute,
   BillingPlansRoute: BillingPlansRoute,
+  IntegrationsNamespaceRoute: IntegrationsNamespaceRoute,
   ResumeExecutionIdRoute: ResumeExecutionIdRoute,
-  SourcesNamespaceRoute: SourcesNamespaceRoute,
-  SourcesAddPluginKeyRoute: SourcesAddPluginKeyRoute,
+  IntegrationsAddPluginKeyRoute: IntegrationsAddPluginKeyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

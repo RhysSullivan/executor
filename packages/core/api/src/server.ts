@@ -2,9 +2,11 @@ export { ExecutorService, ExecutionEngineService } from "./services";
 export {
   CoreHandlers,
   ToolsHandlers,
-  SourcesHandlers,
-  SecretsHandlers,
-  ScopeHandlers,
+  IntegrationsHandlers,
+  ConnectionsHandlers,
+  ProvidersHandlers,
+  OAuthHandlers,
+  PoliciesHandlers,
   ExecutionsHandlers,
 } from "./handlers";
 export {

@@ -25,8 +25,8 @@ import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { collectTables } from "@executor-js/api/server";
 import {
   FormElicitation,
-  Scope,
-  ScopeId,
+  Subject,
+  Tenant,
   createExecutor,
   definePlugin,
   type Executor,
@@ -83,14 +83,10 @@ const makeExecutor = async (tmpDir: string): Promise<Executor> => {
     namespace: "executor_local_browser_resume_test",
     path: join(tmpDir, "data.db"),
   });
-  const scope = Scope.make({
-    id: ScopeId.make(`test-${randomBytes(4).toString("hex")}`),
-    name: "test",
-    createdAt: new Date(),
-  });
   const executor = await Effect.runPromise(
     createExecutor({
-      scopes: [scope],
+      tenant: Tenant.make(`test-${randomBytes(4).toString("hex")}`),
+      subject: Subject.make("local"),
       db: sqlite.db,
       plugins,
       onElicitation: "accept-all",
@@ -109,7 +105,10 @@ const makeExecutor = async (tmpDir: string): Promise<Executor> => {
 };
 
 const makeMcpFetch = (executor: Executor) => {
-  const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
+  const engine = createExecutionEngine({
+    executor,
+    codeExecutor: makeQuickJsExecutor(),
+  });
   const mcp = createMcpRequestHandler({ engine });
 
   const fetchImpl: typeof globalThis.fetch = Object.assign(
@@ -212,7 +211,9 @@ describe("local MCP browser approval resume", () => {
             data: expect.objectContaining({
               response: expect.objectContaining({
                 action: "accept",
-                content: expect.objectContaining({ note: expect.stringContaining("approved-") }),
+                content: expect.objectContaining({
+                  note: expect.stringContaining("approved-"),
+                }),
               }),
             }),
           }),

@@ -1,9 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Exit, Schema } from "effect";
 
-import { createExecutor } from "./executor";
 import { StorageError } from "./fuma-runtime";
-import { ScopeId } from "./ids";
+import { Owner } from "./ids";
 import { definePlugin } from "./plugin";
 import {
   definePluginStorageCollection,
@@ -11,8 +10,7 @@ import {
   type PluginStorageCollectionQueryInput,
   type PluginStorageCollectionWhere,
 } from "./plugin-storage";
-import { Scope } from "./scope";
-import { makeTestConfig, makeTestExecutor } from "./testing";
+import { makeTestExecutor } from "./testing";
 
 const ToolCall = Schema.Struct({
   runId: Schema.String,
@@ -36,6 +34,7 @@ const assertPluginStorageTypes = (storage: PluginStorageCollectionFacade<typeof 
   // @ts-expect-error durationMs is part of the data shape but is not declared as an index.
   const invalidWhereQuery = storage.query({ where: { durationMs: 100 } });
 
+  // prettier-ignore
   // @ts-expect-error orderBy is also restricted to declared index fields.
   const invalidOrderQuery = storage.query({ orderBy: [{ field: "durationMs" }] });
 
@@ -60,9 +59,10 @@ const executionHistoryPlugin = definePlugin(() => ({
     toolCalls: pluginStorage.collection(toolCalls),
   }),
   extension: (ctx) => ({
-    record: (scope: string, key: string, data: ToolCall) =>
-      ctx.storage.toolCalls.put({ scope, key, data }),
+    record: (owner: Owner, key: string, data: ToolCall) =>
+      ctx.storage.toolCalls.put({ owner, key, data }),
     get: (key: string) => ctx.storage.toolCalls.get({ key }),
+    getForOwner: (owner: Owner, key: string) => ctx.storage.toolCalls.getForOwner({ owner, key }),
     query: (input?: PluginStorageCollectionQueryInput<typeof toolCalls>) =>
       ctx.storage.toolCalls.query(input),
     count: (
@@ -77,13 +77,6 @@ const executionHistoryPlugin = definePlugin(() => ({
       }),
   }),
 }))();
-
-const scope = (id: string, name: string) =>
-  Scope.make({
-    id: ScopeId.make(id),
-    name,
-    createdAt: new Date(),
-  });
 
 const call = (input: {
   readonly runId: string;
@@ -110,10 +103,9 @@ describe("plugin storage collections", () => {
         backend: "sqlite",
         plugins: [executionHistoryPlugin] as const,
       });
-      const targetScope = "test-scope";
 
       yield* executor.executionHistory.record(
-        targetScope,
+        "org",
         "call-1",
         call({
           runId: "run-a",
@@ -125,7 +117,7 @@ describe("plugin storage collections", () => {
         }),
       );
       yield* executor.executionHistory.record(
-        targetScope,
+        "org",
         "call-2",
         call({
           runId: "run-a",
@@ -137,7 +129,7 @@ describe("plugin storage collections", () => {
         }),
       );
       yield* executor.executionHistory.record(
-        targetScope,
+        "org",
         "call-3",
         call({
           runId: "run-b",
@@ -167,20 +159,17 @@ describe("plugin storage collections", () => {
     }),
   );
 
-  it.effect("uses the executor scope stack while sharing one plugin_storage table", () =>
+  it.effect("user rows shadow org rows on read; both share one plugin_storage table", () =>
     Effect.gen(function* () {
-      const org = scope("org", "Org");
-      const user = scope("user", "User");
-      const plugins = [executionHistoryPlugin] as const;
-      const config = makeTestConfig({ backend: "sqlite", plugins, scopes: [org] });
-
-      const orgExecutor = yield* createExecutor({
-        ...config,
-        scopes: [org],
-        plugins,
+      // One executor bound to a subject sees both org and user owner rows; a
+      // user-owned row shadows an org-owned row under the same key on read.
+      const executor = yield* makeTestExecutor({
+        backend: "sqlite",
+        plugins: [executionHistoryPlugin] as const,
       });
-      yield* orgExecutor.executionHistory.record(
-        org.id,
+
+      yield* executor.executionHistory.record(
+        "org",
         "shared",
         call({
           runId: "run-scope",
@@ -189,24 +178,8 @@ describe("plugin storage collections", () => {
           startedAt: "2026-05-29T11:00:00.000Z",
         }),
       );
-
-      const userOnlyExecutor = yield* createExecutor({
-        ...config,
-        scopes: [user],
-        plugins,
-      });
-      const userOnlyRows = yield* userOnlyExecutor.executionHistory.query({
-        where: { runId: "run-scope" },
-      });
-      expect(userOnlyRows).toEqual([]);
-
-      const stackedExecutor = yield* createExecutor({
-        ...config,
-        scopes: [user, org],
-        plugins,
-      });
-      yield* stackedExecutor.executionHistory.record(
-        user.id,
+      yield* executor.executionHistory.record(
+        "user",
         "shared",
         call({
           runId: "run-scope",
@@ -216,19 +189,19 @@ describe("plugin storage collections", () => {
         }),
       );
 
-      const visibleShared = yield* stackedExecutor.executionHistory.get("shared");
-      expect(visibleShared?.scopeId).toBe(user.id);
+      const visibleShared = yield* executor.executionHistory.get("shared");
+      expect(visibleShared?.owner).toBe("user");
       expect(visibleShared?.data.toolId).toBe("browser");
 
-      const scopedRows = yield* stackedExecutor.executionHistory.query({
+      const scopedRows = yield* executor.executionHistory.query({
         where: { runId: "run-scope" },
         orderBy: [{ field: "startedAt" }],
       });
       expect(
-        scopedRows.map((entry) => [entry.key, String(entry.scopeId), entry.data.toolId]),
+        scopedRows.map((entry) => [entry.key, String(entry.owner), entry.data.toolId]),
       ).toEqual([
-        ["shared", org.id, "shell"],
-        ["shared", user.id, "browser"],
+        ["shared", "org", "shell"],
+        ["shared", "user", "browser"],
       ]);
     }),
   );

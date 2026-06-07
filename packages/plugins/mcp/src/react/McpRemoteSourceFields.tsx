@@ -13,13 +13,13 @@ import {
 import { FieldError } from "@executor-js/react/components/field";
 import { Input } from "@executor-js/react/components/input";
 import { Skeleton } from "@executor-js/react/components/skeleton";
-import { SourceFavicon } from "@executor-js/react/components/source-favicon";
+import { IntegrationFavicon } from "@executor-js/react/components/integration-favicon";
 import { IOSSpinner } from "@executor-js/react/components/spinner";
 import { Button } from "@executor-js/react/components/button";
 import {
-  SourceIdentityFieldRows,
-  type SourceIdentity,
-} from "@executor-js/react/plugins/source-identity";
+  IntegrationIdentityFieldRows,
+  type IntegrationIdentity,
+} from "@executor-js/react/plugins/integration-identity";
 
 export type McpRemoteSourcePreview = {
   readonly name: string;
@@ -31,7 +31,7 @@ export type McpRemoteSourcePreview = {
 export function McpRemoteSourceFields(props: {
   readonly url: string;
   readonly onUrlChange: (url: string) => void;
-  readonly identity: SourceIdentity;
+  readonly identity: IntegrationIdentity;
   readonly preview: McpRemoteSourcePreview | null;
   readonly probing?: boolean;
   readonly error?: string | null;
@@ -53,7 +53,7 @@ export function McpRemoteSourceFields(props: {
         <CardStackContent className="border-t-0">
           <CardStackEntry>
             <CardStackEntryMedia>
-              <SourceFavicon url={props.url} size={32} />
+              <IntegrationFavicon url={props.url} size={32} />
             </CardStackEntryMedia>
             <CardStackEntryContent>
               <CardStackEntryTitle>
@@ -81,7 +81,7 @@ export function McpRemoteSourceFields(props: {
               )}
             </CardStackEntryActions>
           </CardStackEntry>
-          <SourceIdentityFieldRows
+          <IntegrationIdentityFieldRows
             identity={props.identity}
             namePlaceholder="e.g. Linear"
             namespaceReadOnly={props.namespaceReadOnly}

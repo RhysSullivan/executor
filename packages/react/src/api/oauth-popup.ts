@@ -108,6 +108,29 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
     handleResult(event.data);
   };
 
+  // localStorage `storage` events are the reliable same-origin completion path:
+  // they fire on the opener when the (same-origin) callback page writes, survive
+  // the provider's COOP severing `window.opener`, and aren't lost to the popup's
+  // auto-close (unlike a raced BroadcastChannel). The callback writes the result
+  // under `channelName`; we read it, clean up, and settle.
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== input.channelName || event.newValue === null) return;
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: JSON.parse of a foreign storage value can throw
+    try {
+      // oxlint-disable-next-line executor/no-json-parse -- boundary: browser-only helper, no Effect runtime; parsing a same-origin localStorage signal
+      const data: unknown = JSON.parse(event.newValue);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: localStorage can throw (private mode / disabled)
+      try {
+        window.localStorage.removeItem(input.channelName);
+      } catch {
+        // best-effort cleanup
+      }
+      handleResult(data);
+    } catch {
+      // Malformed value — ignore; another channel may still deliver.
+    }
+  };
+
   const stopPolling = () => {
     if (pollHandle !== null) {
       clearInterval(pollHandle);
@@ -130,6 +153,7 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
     if (settled) return;
     settled = true;
     window.removeEventListener("message", onMessage);
+    window.removeEventListener("storage", onStorage);
     channel?.close();
     stopPolling();
   };
@@ -142,6 +166,7 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
   };
 
   window.addEventListener("message", onMessage);
+  window.addEventListener("storage", onStorage);
   if (channel) channel.onmessage = (event) => handleResult(event.data);
 
   const popup =

@@ -8,6 +8,9 @@
 // The scenarios mirror what real specs commonly carry — multipart uploads
 // (files + scalar fields), XML bodies declared as pre-serialized strings,
 // text/plain payloads, and raw octet-stream byte uploads.
+//
+// v2: tools are produced per-connection, so each case adds the integration via
+// `addSpec` AND creates a connection before executing the full tool address.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
@@ -21,23 +24,15 @@ import {
   HttpApiSchema,
 } from "effect/unstable/httpapi";
 
+import { createExecutor } from "@executor-js/sdk";
+import { makeTestConfig, memoryCredentialsPlugin } from "@executor-js/sdk/testing";
 import {
-  createExecutor,
-  definePlugin,
-  type InvokeOptions,
-  type SecretProvider,
-} from "@executor-js/sdk";
-import { makeTestConfig } from "@executor-js/sdk/testing";
-import {
-  addOpenApiTestSource,
-  makeOpenApiTestSourceConfig,
+  addOpenApiTestConnection,
   serveOpenApiHttpApiTestServer,
 } from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
 
-const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
-const TEST_SCOPE = "test-scope";
 const JsonNameBody = Schema.fromJsonString(
   Schema.Struct({
     name: Schema.String,
@@ -45,26 +40,8 @@ const JsonNameBody = Schema.fromJsonString(
 );
 const decodeJsonNameBody = Schema.decodeUnknownSync(JsonNameBody);
 
-const memoryProvider: SecretProvider = (() => {
-  const store = new Map<string, string>();
-  return {
-    key: "memory",
-    writable: true,
-    get: (id, scope) => Effect.sync(() => store.get(`${scope}:${id}`) ?? null),
-    set: (id, value, scope) =>
-      Effect.sync(() => {
-        store.set(`${scope}:${id}`, value);
-      }),
-    delete: (id, scope) => Effect.sync(() => store.delete(`${scope}:${id}`)),
-    list: () => Effect.sync(() => []),
-  };
-})();
-
-const memorySecretsPlugin = definePlugin(() => ({
-  id: "memory-secrets" as const,
-  storage: () => ({}),
-  secretProviders: [memoryProvider],
-}));
+const testPlugins = () =>
+  [openApiPlugin({ httpClientLayer: FetchHttpClient.layer }), memoryCredentialsPlugin()] as const;
 
 type Captured = {
   contentType: string;
@@ -162,25 +139,13 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         payload: ObjectBody.pipe(HttpApiSchema.asMultipart()),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "mp",
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "mp" });
+
+      yield* executor.execute(conn.address("body.submit"), {
+        body: { name: "Acme", flag: true, count: 7 },
       });
-
-      yield* executor.tools.invoke(
-        "mp.body.submit",
-        { body: { name: "Acme", flag: true, count: 7 } },
-        autoApprove,
-      );
 
       expect(captured.contentType).toMatch(/^multipart\/form-data; boundary=/);
       const body = captured.body.toString("utf8");
@@ -201,22 +166,12 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         payload: Schema.String.pipe(HttpApiSchema.asText({ contentType: "application/xml" })),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "xml",
-      });
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "xml" });
 
       const xml = '<?xml version="1.0"?><root><name>Acme</name></root>';
-      yield* executor.tools.invoke("xml.body.submit", { body: xml }, autoApprove);
+      yield* executor.execute(conn.address("body.submit"), { body: xml });
 
       expect(captured.contentType).toBe("application/xml");
       expect(captured.body.toString("utf8")).toBe(xml);
@@ -230,21 +185,11 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         transformSpec: replaceRequestBodyContent("/submit", "post", contentFor("text/xml")),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "tx",
-      });
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "tx" });
 
-      yield* executor.tools.invoke("tx.body.submit", { body: { name: "Acme" } }, autoApprove);
+      yield* executor.execute(conn.address("body.submit"), { body: { name: "Acme" } });
 
       expect(captured.contentType).toBe("text/xml");
       const body = captured.body.toString("utf8");
@@ -259,21 +204,11 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         payload: Schema.String.pipe(HttpApiSchema.asText()),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "tp",
-      });
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "tp" });
 
-      yield* executor.tools.invoke("tp.body.submit", { body: "hello, world" }, autoApprove);
+      yield* executor.execute(conn.address("body.submit"), { body: "hello, world" });
 
       expect(captured.contentType).toBe("text/plain");
       expect(captured.body.toString("utf8")).toBe("hello, world");
@@ -286,22 +221,12 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         payload: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "bin",
-      });
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "bin" });
 
       const payload = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01, 0x02]);
-      yield* executor.tools.invoke("bin.body.submit", { body: payload }, autoApprove);
+      yield* executor.execute(conn.address("body.submit"), { body: payload });
 
       expect(captured.contentType).toBe("application/octet-stream");
       expect(captured.body.length).toBe(payload.length);
@@ -326,21 +251,11 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         payload: multiContentPayload,
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "mc",
-      });
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "mc" });
 
-      yield* executor.tools.invoke("mc.body.submit", { body: { name: "Acme" } }, autoApprove);
+      yield* executor.execute(conn.address("body.submit"), { body: { name: "Acme" } });
 
       // multipart/form-data was declared first in the spec — it wins,
       // even though the old preferredContent would have picked JSON.
@@ -354,25 +269,14 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         payload: multiContentPayload,
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "mc2",
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "mc2" });
+
+      yield* executor.execute(conn.address("body.submit"), {
+        contentType: "application/json",
+        body: { name: "Acme" },
       });
-
-      yield* executor.tools.invoke(
-        "mc2.body.submit",
-        { contentType: "application/json", body: { name: "Acme" } },
-        autoApprove,
-      );
 
       expect(captured.contentType).toBe("application/json");
       expect(decodeJsonNameBody(captured.body.toString("utf8"))).toEqual({
@@ -386,25 +290,15 @@ describe("OpenAPI non-JSON request body dispatch", () => {
       const { server } = yield* startEchoServer({
         payload: multiContentPayload,
       });
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* executor.openapi.addSpec(
-        makeOpenApiTestSourceConfig(server, {
-          scope: TEST_SCOPE,
-          namespace: "mc3",
-          baseUrl: "https://example.com",
-        }),
-      );
+      const conn = yield* addOpenApiTestConnection(executor, server, {
+        slug: "mc3",
+        baseUrl: "https://example.com",
+      });
 
       const tools = yield* executor.tools.list();
-      const submit = tools.find((t) => t.id === "mc3.body.submit");
+      const submit = tools.find((t) => String(t.address) === String(conn.address("body.submit")));
       expect(submit).toBeDefined();
       const schema = submit!.inputSchema as {
         properties?: {
@@ -444,30 +338,16 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         ),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "mpe",
-      });
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "mpe" });
 
-      yield* executor.tools.invoke(
-        "mpe.body.upload",
-        {
-          body: {
-            metadata: { owner: "Acme", tags: ["x", "y"] },
-            filename: "hello.txt",
-          },
+      yield* executor.execute(conn.address("body.upload"), {
+        body: {
+          metadata: { owner: "Acme", tags: ["x", "y"] },
+          filename: "hello.txt",
         },
-        autoApprove,
-      );
+      });
 
       expect(captured.contentType).toMatch(/^multipart\/form-data; boundary=/);
       const body = captured.body.toString("utf8");
@@ -500,25 +380,13 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         ),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "fe",
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "fe" });
+
+      yield* executor.execute(conn.address("body.submit"), {
+        body: { tags: ["red", "blue", "green"], name: "Acme" },
       });
-
-      yield* executor.tools.invoke(
-        "fe.body.submit",
-        { body: { tags: ["red", "blue", "green"], name: "Acme" } },
-        autoApprove,
-      );
 
       expect(captured.contentType).toBe("application/x-www-form-urlencoded");
       const body = captured.body.toString("utf8");
@@ -543,25 +411,13 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         ),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        scope: TEST_SCOPE,
-        namespace: "fd",
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "fd" });
+
+      yield* executor.execute(conn.address("body.submit"), {
+        body: { filter: { status: "active", tier: "gold" } },
       });
-
-      yield* executor.tools.invoke(
-        "fd.body.submit",
-        { body: { filter: { status: "active", tier: "gold" } } },
-        autoApprove,
-      );
 
       expect(captured.contentType).toBe("application/x-www-form-urlencoded");
       const body = captured.body.toString("utf8");
@@ -582,26 +438,14 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         ),
       });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: FetchHttpClient.layer }),
-            memorySecretsPlugin(),
-          ] as const,
-        }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-      yield* addOpenApiTestSource(executor, server, {
-        // No encoding → OAS3 defaults: style=form, explode=true.
-        scope: TEST_SCOPE,
-        namespace: "fdx",
+      // No encoding → OAS3 defaults: style=form, explode=true.
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "fdx" });
+
+      yield* executor.execute(conn.address("body.submit"), {
+        body: { tag: ["x", "y"], name: "Acme" },
       });
-
-      yield* executor.tools.invoke(
-        "fdx.body.submit",
-        { body: { tag: ["x", "y"], name: "Acme" } },
-        autoApprove,
-      );
 
       expect(captured.contentType).toBe("application/x-www-form-urlencoded");
       const body = captured.body.toString("utf8");

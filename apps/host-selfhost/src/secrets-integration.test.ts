@@ -3,52 +3,89 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Effect, Layer } from "effect";
 import { afterAll, expect, test } from "@effect/vitest";
 
+import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk";
+import { makeScopedExecutor } from "@executor-js/api/server";
+
+import { createSelfHostDb, SelfHostDb } from "./db/self-host-db";
+import { SelfHostScopedExecutorSeams } from "./execution";
+import type { SelfHostPlugins } from "./plugins";
+
+// In v2 a connection IS the credential: its inline `value` is written through the
+// default writable provider — here the encrypted-secrets provider, which stores
+// an AES-GCM payload at rest. This test registers an integration, attaches an
+// org connection carrying a plaintext needle, and asserts the needle never
+// reaches the SQLite file while the versioned "v1." ciphertext does.
 const dataDir = mkdtempSync(join(tmpdir(), "eh-secrets-"));
+const dbPath = join(dataDir, "data.db");
 process.env.EXECUTOR_DATA_DIR = dataDir;
 process.env.EXECUTOR_SECRET_KEY = "integration-test-master-key";
 
-const { makeSelfHostTestApp, singleAdminIdentityLayer } = await import("./testing/test-app");
+const createScopedExecutor = (
+  accountId: string,
+  organizationId: string,
+  organizationName: string,
+) =>
+  makeScopedExecutor<SelfHostPlugins>(accountId, organizationId, organizationName).pipe(
+    Effect.provide(SelfHostScopedExecutorSeams),
+  );
 
-const { handler, dispose } = await makeSelfHostTestApp({
-  identity: singleAdminIdentityLayer({
-    userId: "admin",
-    organizationId: "default-org",
-    organizationName: "Default",
-  }),
+const dbHandle = await createSelfHostDb({
+  path: dbPath,
+  namespace: "executor_selfhost",
+  version: "1.0.0",
 });
-afterAll(() => dispose());
+const dbLayer = Layer.succeed(SelfHostDb)(dbHandle);
+afterAll(() => dbHandle.close());
+
+const TINY_SPEC = JSON.stringify({
+  openapi: "3.0.0",
+  info: { title: "Tiny", version: "1.0.0" },
+  servers: [{ url: "https://httpbin.org" }],
+  paths: {
+    "/get": {
+      get: {
+        operationId: "httpGet",
+        summary: "GET",
+        responses: { "200": { description: "ok" } },
+      },
+    },
+  },
+});
 
 const NEEDLE = "PLAINTEXT_NEEDLE_9f3a";
 
-test("a secret set via the API is stored encrypted at rest by the 'encrypted' provider", async () => {
-  const setRes = await handler(
-    new Request("http://localhost/api/scopes/default-org/secrets", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "gh-token", name: "GitHub", value: NEEDLE }),
-    }),
+test("a connection value is stored encrypted at rest by the 'encrypted' provider", async () => {
+  const created = await Effect.runPromise(
+    Effect.gen(function* () {
+      const admin = yield* createScopedExecutor("admin", "default-org", "Default");
+      yield* admin.openapi.addSpec({
+        spec: { kind: "blob", value: TINY_SPEC },
+        slug: "tiny",
+        baseUrl: "",
+      });
+      // The connection's inline `value` is opaque to core (D11) — it is written
+      // through the default writable provider regardless of the template slug.
+      return yield* admin.connections.create({
+        owner: "org",
+        name: ConnectionName.make("gh"),
+        integration: IntegrationSlug.make("tiny"),
+        template: AuthTemplateSlug.make("bearer"),
+        value: NEEDLE,
+      });
+    }).pipe(Effect.provide(dbLayer), Effect.scoped),
   );
-  expect(setRes.status).toBe(200);
-  const ref = (await setRes.json()) as { id: string; provider: string };
-  expect(ref.id).toBe("gh-token");
+
   // The first writable provider is the encrypted one — it handled the write.
-  expect(ref.provider).toBe("encrypted");
+  expect(String(created.provider)).toBe("encrypted");
 
-  // The status endpoint resolves it (decrypt round-trips through the provider).
-  const statusRes = await handler(
-    new Request("http://localhost/api/scopes/default-org/secrets/gh-token/status"),
-  );
-  expect(statusRes.status).toBe(200);
-  expect(((await statusRes.json()) as { status: string }).status).toBe("resolved");
-
-  // Inspect the real SQLite file through a SEPARATE libSQL connection (the app's
-  // own libSQL client wrote it): the plaintext must NOT appear anywhere, and a
-  // versioned AES-GCM payload ("v1.") must be present. Reading this file through
-  // an independent connection also exercises the cross-connection visibility of
-  // FumaDB's writes.
-  const db = createClient({ url: `file:${join(dataDir, "data.db")}` });
+  // Inspect the real SQLite file through a SEPARATE libSQL connection: the
+  // plaintext must NOT appear anywhere, and a versioned AES-GCM payload ("v1.")
+  // must be present. Reading through an independent connection also exercises the
+  // cross-connection visibility of FumaDB's writes.
+  const db = createClient({ url: `file:${dbPath}` });
   const tables = (await db.execute("SELECT name FROM sqlite_master WHERE type='table'")).rows.map(
     // oxlint-disable-next-line executor/no-redundant-primitive-cast -- boundary: sqlite_master.name is TEXT; narrow libSQL's SQLValue to string for the table list
     (r) => r.name as string,

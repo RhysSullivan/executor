@@ -195,10 +195,10 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
         Effect.withSpan("McpSessionDO.makeExecutionStack"),
       );
       // Build the description here so the postgres query it runs
-      // (`executor.sources.list`) lands as a child of `McpSessionDO.createRuntime`.
-      // It also tags the span with this org's source/connector inventory (ids,
-      // kinds, plugin ids, connection counts) — see `buildExecuteDescription` —
-      // so a failing init names *what* it was resolving without re-listing.
+      // (`executor.integrations.list`) lands as a child of `McpSessionDO.createRuntime`.
+      // It also tags the span with this org's integration/connection inventory
+      // (slugs, kinds, plugin ids, connection counts) — see `buildExecuteDescription`
+      // — so a failing init names *what* it was resolving without re-listing.
       // host-mcp would otherwise call `Effect.runPromise(engine.getDescription)`
       // at its async MCP-SDK boundary and orphan the sub-span.
       const description = yield* buildExecuteDescription(executor);

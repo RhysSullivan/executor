@@ -13,7 +13,7 @@ export {
   makeTestExecutor,
   makeTestWorkspaceHarness,
   makeTestWorkspaceLayer,
-  memorySecretsPlugin,
+  memoryCredentialsPlugin,
   TestWorkspace,
   type TestConfigOptions,
   type TestDatabaseBackend,

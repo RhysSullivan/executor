@@ -15,7 +15,6 @@ import {
   DropdownMenuTrigger,
 } from "@executor-js/react/components/dropdown-menu";
 import { OrgPage as SharedOrgPage } from "@executor-js/react/pages/org";
-import { orgMembersAtom } from "@executor-js/react/api/account-atoms";
 import { orgDomainsAtom, getDomainVerificationLink, deleteDomain } from "../web/org-atoms";
 
 // ---------------------------------------------------------------------------
@@ -44,38 +43,8 @@ type DomainData = {
 function OrgPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 pt-10 lg:px-8 lg:pt-14">
-        <MemberLimitBanner />
-        <DomainsSection />
-      </div>
       {/* Shared members / roles / invite / org-name surface. */}
-      <SharedOrgPage />
-    </div>
-  );
-}
-
-// Autumn-backed member-seat banner. The hard cap is enforced server-side in
-// the `/account/inviteMember` handler (AccountForbidden), so this is purely an
-// affordance: surface the upgrade CTA once the org is at/over its seat limit.
-function MemberLimitBanner() {
-  const membersResult = useAtomValue(orgMembersAtom);
-  const seats = AsyncResult.match(membersResult, {
-    onInitial: () => null,
-    onFailure: () => null,
-    onSuccess: ({ value }) => value.seats ?? null,
-  });
-  const atLimit = seats ? !seats.unlimited && seats.used >= seats.granted : false;
-  if (!atLimit) return null;
-  return (
-    <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
-      <p className="text-sm text-muted-foreground">
-        You've reached your member limit. Upgrade to Team to invite more.
-      </p>
-      <Link to="/billing/plans">
-        <Button size="sm" variant="outline">
-          Upgrade
-        </Button>
-      </Link>
+      <SharedOrgPage domainsSection={<DomainsSection />} />
     </div>
   );
 }
@@ -83,7 +52,9 @@ function MemberLimitBanner() {
 function DomainsSection() {
   const domainsResult = useAtomValue(orgDomainsAtom);
   const doDeleteDomain = useAtomSet(deleteDomain, { mode: "promiseExit" });
-  const doGetVerificationLink = useAtomSet(getDomainVerificationLink, { mode: "promiseExit" });
+  const doGetVerificationLink = useAtomSet(getDomainVerificationLink, {
+    mode: "promiseExit",
+  });
   const { check, isLoading: customerLoading } = useCustomer();
   const canUseDomains = customerLoading
     ? false
@@ -100,7 +71,9 @@ function DomainsSection() {
   };
 
   const handleAddDomain = async () => {
-    const exit = await doGetVerificationLink({ reactivityKeys: orgDomainWriteKeys });
+    const exit = await doGetVerificationLink({
+      reactivityKeys: orgDomainWriteKeys,
+    });
     if (Exit.isSuccess(exit)) {
       window.open(exit.value.link, "_blank");
     } else {

@@ -17,6 +17,7 @@ import { McpSessionDO } from "./mcp/session-durable-object";
 import { ErrorCaptureLive } from "./observability";
 import { AutumnService } from "./extensions/billing/service";
 import {
+  CLOUD_MOUNT_PREFIX,
   CloudCodeExecutorProvider,
   CloudDbProvider,
   CloudHostConfig,
@@ -100,7 +101,7 @@ const { appLayer, toWebHandler, mcpExport } = ExecutorApp.make({
     routes: makeCloudExtensionRoutes(RequestScopedServicesLive),
   },
   config: {
-    mountPrefix: "/api",
+    mountPrefix: CLOUD_MOUNT_PREFIX,
     // Cloud renders the shared identity errors as its exact `{ error, code }`
     // JSON at 401/403/503 (byte-identical to the old `HttpResponseError` bodies).
     failure: cloudIdentityFailureStrategy,

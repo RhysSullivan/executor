@@ -6,7 +6,7 @@ import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import type * as Cause from "effect/Cause";
 
-import { FormElicitation, ToolId, UrlElicitation } from "@executor-js/sdk";
+import { ElicitationId, FormElicitation, ToolAddress, UrlElicitation } from "@executor-js/sdk";
 import type { ExecutionEngine, ExecutionResult } from "@executor-js/execution";
 
 import { createExecutorMcpServer, type ExecutorMcpServerConfig } from "./tool-server";
@@ -71,7 +71,7 @@ const NO_CAPS: ClientCapabilities = {};
 const textOf = (result: Awaited<ReturnType<Client["callTool"]>>): string =>
   (result.content as Array<{ type: string; text: string }>)[0].text;
 
-const STUB_TOOL_ID = ToolId.make("t");
+const STUB_TOOL_ADDRESS = ToolAddress.make("tools.test.org.main.t");
 
 /** Build a stub paused ExecutionResult with the given id and elicitation request. */
 const makePausedResult = (
@@ -81,7 +81,7 @@ const makePausedResult = (
   status: "paused",
   execution: {
     id,
-    elicitationContext: { toolId: STUB_TOOL_ID, args: {}, request },
+    elicitationContext: { address: STUB_TOOL_ADDRESS, args: {}, request },
   },
 });
 
@@ -96,7 +96,7 @@ const makeElicitingEngine = (
     execute: (_code, { onElicitation }) =>
       Effect.gen(function* () {
         const response = yield* onElicitation({
-          toolId: STUB_TOOL_ID,
+          address: STUB_TOOL_ADDRESS,
           args: {},
           request,
         });
@@ -298,7 +298,7 @@ describe("MCP host server — native elicitation mode", () => {
       UrlElicitation.make({
         message: "Please authenticate",
         url: "https://example.com/oauth",
-        elicitationId: "elic-1",
+        elicitationId: ElicitationId.make("elic-1"),
       }),
     );
 
@@ -382,7 +382,7 @@ describe("MCP host server — native form-only elicitation", () => {
       UrlElicitation.make({
         message: "Please authenticate",
         url: "https://auth.example.com/oauth",
-        elicitationId: "elic-1",
+        elicitationId: ElicitationId.make("elic-1"),
       }),
     );
 
@@ -699,7 +699,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
             UrlElicitation.make({
               message: "Please authenticate",
               url: "https://auth.example.com/callback",
-              elicitationId: "elic-url-1",
+              elicitationId: ElicitationId.make("elic-url-1"),
             }),
           ),
         ),
@@ -825,7 +825,7 @@ describe("MCP host server — multiple elicitations", () => {
       execute: (_code, { onElicitation }) =>
         Effect.gen(function* () {
           const r1 = yield* onElicitation({
-            toolId: STUB_TOOL_ID,
+            address: STUB_TOOL_ADDRESS,
             args: {},
             request: FormElicitation.make({
               message: "What is your name?",
@@ -837,7 +837,7 @@ describe("MCP host server — multiple elicitations", () => {
           });
 
           const r2 = yield* onElicitation({
-            toolId: STUB_TOOL_ID,
+            address: STUB_TOOL_ADDRESS,
             args: {},
             request: FormElicitation.make({
               message: `Confirm: ${r1.content?.name}?`,

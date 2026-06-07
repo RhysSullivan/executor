@@ -11,9 +11,15 @@ import { FetchHttpClient } from "effect/unstable/http";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { createExecutor, Scope, ScopeId } from "@executor-js/sdk";
+import {
+  createExecutor,
+  AuthTemplateSlug,
+  ConnectionName,
+  IntegrationSlug,
+  ToolAddress,
+} from "@executor-js/sdk";
 import type { ToolSchemaView } from "@executor-js/sdk/core";
-import { makeTestConfig, memorySecretsPlugin } from "@executor-js/sdk/testing";
+import { makeTestConfig, memoryCredentialsPlugin } from "@executor-js/sdk/testing";
 
 import type { ParsedDocument } from "./parse";
 import { parse } from "./parse";
@@ -69,37 +75,41 @@ const getVercelResult = () =>
     return cachedVercelResult;
   });
 
-const TEST_SCOPE = "real-spec-baseline";
-const testScope = Scope.make({
-  id: ScopeId.make(TEST_SCOPE),
-  name: "Real spec baseline",
-  createdAt: new Date(0),
-});
 const schemaCache = new Map<string, ToolSchemaView>();
 
-const getRegisteredToolSchema = (namespace: string, specText: string, toolId: string) =>
+// A tool's name keeps its openapi `group.leaf` path verbatim (dots and all);
+// the address grammar treats the `<tool>` segment as the trailing remainder, so
+// the dots nest naturally. The integration slug is the address's
+// `<integration>` segment, and a connection is required for the tools to be
+// produced + addressable.
+const getRegisteredToolSchema = (slug: string, specText: string, toolName: string) =>
   Effect.gen(function* () {
-    const cached = schemaCache.get(toolId);
+    const cacheKey = `${slug}.${toolName}`;
+    const cached = schemaCache.get(cacheKey);
     if (cached) return cached;
 
     const executor = yield* createExecutor(
       makeTestConfig({
-        scopes: [testScope],
-        plugins: [openApiPlugin(), memorySecretsPlugin()] as const,
+        plugins: [openApiPlugin(), memoryCredentialsPlugin()] as const,
       }),
     );
 
     yield* executor.openapi.addSpec({
       spec: { kind: "blob", value: specText },
-      scope: TEST_SCOPE,
-      name: namespace,
-      namespace,
-      baseUrl: "",
+      slug,
+    });
+    yield* executor.connections.create({
+      owner: "org",
+      name: ConnectionName.make("main"),
+      integration: IntegrationSlug.make(slug),
+      template: AuthTemplateSlug.make("apiKey"),
+      value: "token",
     });
 
-    const schema = yield* executor.tools.schema(toolId);
+    const address = ToolAddress.make(`tools.${slug}.org.main.${toolName}`);
+    const schema = yield* executor.tools.schema(address);
     expect(schema).not.toBeNull();
-    schemaCache.set(toolId, schema!);
+    schemaCache.set(cacheKey, schema!);
     return schema!;
   });
 
@@ -132,7 +142,7 @@ const schemaPreviewSummary = (schema: ToolSchemaView) => {
   const schemaDefinitions = schema.schemaDefinitions ?? {};
   const typeScriptDefinitions = schema.typeScriptDefinitions ?? {};
   return {
-    toolId: schema.id,
+    toolId: schema.address,
     inputSchema: schema.inputSchema,
     outputSchema: schema.outputSchema,
     inputTypeScript: schema.inputTypeScript,
@@ -252,7 +262,7 @@ describe("Real specs: Cloudflare API", { timeout: 60_000 }, () => {
       const schema = yield* getRegisteredToolSchema(
         "cloudflare_api",
         cloudflareSpecText,
-        "cloudflare_api.accessApplications.accessApplicationsAddAnApplication",
+        "accessApplications.accessApplicationsAddAnApplication",
       );
 
       expect(schemaPreviewSummary(schema)).toMatchSnapshot();
@@ -276,7 +286,7 @@ describe("Real specs: Vercel API", { timeout: 60_000 }, () => {
       const schema = yield* getRegisteredToolSchema(
         "vercel_api",
         vercelSpecText,
-        "vercel_api.deployments.createDeployment",
+        "deployments.createDeployment",
       );
 
       expect(schemaPreviewSummary(schema)).toMatchSnapshot();

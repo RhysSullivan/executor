@@ -1,244 +1,193 @@
-// End-to-end coverage for secret isolation *through the real HTTP API*.
+// End-to-end coverage for connection (credential) isolation *through the real
+// HTTP API* (v2).
 //
-// Complements tenant-isolation.node.test.ts (which already covers plain
-// cross-org isolation at the org scope) by exercising the two-scope stack
-// the cloud app actually ships: `[userOrgScope, orgScope]`. The harness
-// builds the same shape `apps/cloud/src/services/executor.ts#createScopedExecutor`
-// builds in production, and every request goes through `HttpApiClient` →
-// `fetch` → the real `ProtectedCloudApi` → the real Drizzle/FumaDB path.
+// Complements tenant-isolation.node.test.ts (plain cross-org isolation) by
+// exercising the owner model the cloud app actually ships: the per-request
+// executor binds `{ tenant: organizationId, subject: accountId }`, and every
+// connection is filed under `owner: "org"` (tenant-shared) or `owner: "user"`
+// (this subject's own). Every request goes through `HttpApiClient` → `fetch` →
+// the real `ProtectedCloudApi` → the real Drizzle/FumaDB path.
 //
 // Invariants the product is staking on:
 //
-//   1. Users in different orgs can't see each other's secret metadata.
-//   2. Users in the same org can't see each other's user-scoped secret
-//      metadata (per-user OAuth tokens etc. don't leak to co-workers).
-//   3. Org-scoped secret metadata IS visible to every user in that org
-//      — an admin writing a shared API key serves the whole tenant.
-//   4. The same user id in different orgs gets distinct per-user scopes —
-//      the userOrgScope id bakes in the org id on purpose.
-//   5. secrets.set rejects a scope id outside the caller's executor stack.
-//
-// NOTE: "per-user override shadows org default" cross-scope co-existence
-// is NOT covered here. `executor.secrets.set` currently deletes secret
-// metadata rows across the full scope stack before re-inserting at the
-// target scope (see executor.ts `secretsSet`), so an overrider writing
-// at their user-org scope wipes the org-level default rather than
-// shadowing it. If the product wants both rows to coexist, that's an
-// SDK-level change — coverage for it belongs after the fix.
+//   1. Users in different orgs can't see each other's org connections.
+//   2. Users in the same org can't see each other's user-owned connections
+//      (per-user OAuth tokens etc. don't leak to co-workers).
+//   3. Org-owned connections ARE visible to every user in that org — an admin
+//      writing a shared API key serves the whole tenant.
+//   4. The same user id in different orgs is a different tenant binding — a
+//      user connection written in org A is invisible in org B.
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { Schema } from "effect";
 
-import { ScopeId, SecretId } from "@executor-js/sdk";
+import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk";
+import { makeOpenApiHttpApiTestAddSpecPayload } from "@executor-js/plugin-openapi/testing";
 
-import { asUser, testUserOrgScopeId } from "./testing/api-harness";
+import { asUser } from "./testing/api-harness";
 
 const uniq = () => crypto.randomUUID().slice(0, 8);
 const nextOrgId = () => `org_iso_${uniq()}`;
 const nextUserId = () => `user_iso_${uniq()}`;
 
-describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
-  it.effect("users in different orgs cannot read each other's org-scoped secrets", () =>
+const TEMPLATE_API_KEY = AuthTemplateSlug.make("apiKey");
+
+const PingApi = HttpApi.make("isolationApiTest")
+  .add(
+    HttpApiGroup.make("default", { topLevel: true }).add(
+      HttpApiEndpoint.get("ping", "/ping", { success: Schema.Unknown }),
+    ),
+  )
+  .annotateMerge(OpenApi.annotations({ title: "Isolation API Test", version: "1.0.0" }));
+
+// Registers a minimal openapi integration under `org` (acting as `userId`) so
+// connections have an integration to bind to. Returns the slug.
+const registerIntegration = (userId: string, org: string) =>
+  Effect.gen(function* () {
+    const slug = IntegrationSlug.make(`ns_${crypto.randomUUID().replace(/-/g, "_")}`);
+    yield* asUser(userId, org, (client) =>
+      client.openapi.addSpec({
+        payload: makeOpenApiHttpApiTestAddSpecPayload(PingApi, {
+          slug,
+          baseUrl: "http://example.com",
+        }),
+      }),
+    );
+    return slug;
+  });
+
+describe("cloud connection isolation (HTTP, owner model)", () => {
+  it.effect("users in different orgs cannot read each other's org connections", () =>
     Effect.gen(function* () {
       const orgA = nextOrgId();
       const orgB = nextOrgId();
       const alice = nextUserId();
       const charlie = nextUserId();
-      const id = `sec_${uniq()}`;
+      const name = ConnectionName.make(`conn_${uniq()}`);
 
+      const integrationA = yield* registerIntegration(alice, orgA);
       yield* asUser(alice, orgA, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
+        client.connections.create({
           payload: {
-            id: SecretId.make(id),
-            name: "Shared",
+            owner: "org",
+            name,
+            integration: integrationA,
+            template: TEMPLATE_API_KEY,
             value: "alice-org-secret",
           },
         }),
       );
 
-      const charlieStatus = yield* asUser(charlie, orgB, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(id) },
-        }),
-      );
-      expect(charlieStatus.status).toBe("missing");
-
+      // Charlie in a different org sees no connections under his (empty) catalog.
       const charlieList = yield* asUser(charlie, orgB, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(orgB) } }),
+        client.connections.list({ query: {} }),
       );
-      expect(charlieList.map((s) => s.id)).not.toContain(id);
+      expect(charlieList.map((c) => c.name)).not.toContain(name);
     }),
   );
 
-  it.effect("users in same org cannot read each other's user-scoped secrets", () =>
+  it.effect("users in same org cannot read each other's user-owned connections", () =>
     Effect.gen(function* () {
       const organizationId = nextOrgId();
       const aliceId = nextUserId();
       const bobId = nextUserId();
-      const id = `sec_${uniq()}`;
+      const name = ConnectionName.make(`conn_${uniq()}`);
 
-      // Alice writes at her per-user scope — where OAuth tokens land.
+      const integration = yield* registerIntegration(aliceId, organizationId);
+
+      // Alice writes her personal (`owner: "user"`) connection.
       yield* asUser(aliceId, organizationId, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(testUserOrgScopeId(aliceId, organizationId)) },
+        client.connections.create({
           payload: {
-            id: SecretId.make(id),
-            name: "Alice's token",
+            owner: "user",
+            name,
+            integration,
+            template: TEMPLATE_API_KEY,
             value: "alice-token-value",
           },
         }),
       );
 
-      // Bob is in the same org — his user-org scope differs. He should
-      // not see the token in a list.
-      const bobList = yield* asUser(bobId, organizationId, (client) =>
-        client.secrets.list({
-          params: { scopeId: ScopeId.make(testUserOrgScopeId(bobId, organizationId)) },
-        }),
+      // Bob is in the same org — his subject differs. He must not see Alice's
+      // user connection in a user-owner list.
+      const bobUserList = yield* asUser(bobId, organizationId, (client) =>
+        client.connections.list({ query: { integration, owner: "user" } }),
       );
-      expect(bobList.map((s) => s.id)).not.toContain(id);
+      expect(bobUserList.map((c) => c.name)).not.toContain(name);
 
-      const bobStatus = yield* asUser(bobId, organizationId, (client) =>
-        client.secrets.status({
-          params: {
-            scopeId: ScopeId.make(testUserOrgScopeId(bobId, organizationId)),
-            secretId: SecretId.make(id),
-          },
-        }),
+      // And Alice still sees her own connection.
+      const aliceUserList = yield* asUser(aliceId, organizationId, (client) =>
+        client.connections.list({ query: { integration, owner: "user" } }),
       );
-      expect(bobStatus.status).toBe("missing");
-
-      // And Alice still sees her own token metadata.
-      const aliceStatus = yield* asUser(aliceId, organizationId, (client) =>
-        client.secrets.status({
-          params: {
-            scopeId: ScopeId.make(testUserOrgScopeId(aliceId, organizationId)),
-            secretId: SecretId.make(id),
-          },
-        }),
-      );
-      expect(aliceStatus.status).toBe("resolved");
+      expect(aliceUserList.map((c) => c.name)).toContain(name);
     }),
   );
 
-  it.effect("org-scoped secrets are visible to every user in that org", () =>
+  it.effect("org-owned connections are visible to every user in that org", () =>
     Effect.gen(function* () {
       const organizationId = nextOrgId();
       const adminId = nextUserId();
       const memberId = nextUserId();
-      const id = `sec_${uniq()}`;
+      const name = ConnectionName.make(`conn_${uniq()}`);
 
+      const integration = yield* registerIntegration(adminId, organizationId);
       yield* asUser(adminId, organizationId, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(organizationId) },
+        client.connections.create({
           payload: {
-            id: SecretId.make(id),
-            name: "Org API Key",
+            owner: "org",
+            name,
+            integration,
+            template: TEMPLATE_API_KEY,
             value: "shared-org-key",
           },
         }),
       );
 
-      const adminStatus = yield* asUser(adminId, organizationId, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(organizationId), secretId: SecretId.make(id) },
-        }),
+      const adminList = yield* asUser(adminId, organizationId, (client) =>
+        client.connections.list({ query: { integration, owner: "org" } }),
       );
-      const memberStatus = yield* asUser(memberId, organizationId, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(organizationId), secretId: SecretId.make(id) },
-        }),
+      const memberList = yield* asUser(memberId, organizationId, (client) =>
+        client.connections.list({ query: { integration, owner: "org" } }),
       );
-      expect(adminStatus.status).toBe("resolved");
-      expect(memberStatus.status).toBe("resolved");
+      expect(adminList.map((c) => c.name)).toContain(name);
+      expect(memberList.map((c) => c.name)).toContain(name);
     }),
   );
 
-  it.effect("same userId in different orgs gets distinct per-user scopes", () =>
+  it.effect("same userId in different orgs is a distinct tenant binding", () =>
     Effect.gen(function* () {
       const userId = nextUserId();
       const orgA = nextOrgId();
       const orgB = nextOrgId();
-      const id = `sec_${uniq()}`;
+      const name = ConnectionName.make(`conn_${uniq()}`);
 
+      const integrationA = yield* registerIntegration(userId, orgA);
       yield* asUser(userId, orgA, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(testUserOrgScopeId(userId, orgA)) },
+        client.connections.create({
           payload: {
-            id: SecretId.make(id),
-            name: "A token",
+            owner: "user",
+            name,
+            integration: integrationA,
+            template: TEMPLATE_API_KEY,
             value: "value-in-a",
           },
         }),
       );
 
-      // Same user id, different org → distinct user-org scope. The
-      // secret written in org A must not be visible when the same user
-      // logs into org B.
+      // Same user id, different org → different tenant. Org A's connection (and
+      // its integration) must not be visible in org B.
       const listInB = yield* asUser(userId, orgB, (client) =>
-        client.secrets.list({
-          params: { scopeId: ScopeId.make(testUserOrgScopeId(userId, orgB)) },
-        }),
+        client.connections.list({ query: {} }),
       );
-      expect(listInB.map((s) => s.id)).not.toContain(id);
+      expect(listInB.map((c) => c.name)).not.toContain(name);
 
-      const statusInB = yield* asUser(userId, orgB, (client) =>
-        client.secrets.status({
-          params: {
-            scopeId: ScopeId.make(testUserOrgScopeId(userId, orgB)),
-            secretId: SecretId.make(id),
-          },
-        }),
+      // Sanity: still visible under org A's user-owner list.
+      const listInA = yield* asUser(userId, orgA, (client) =>
+        client.connections.list({ query: { integration: integrationA, owner: "user" } }),
       );
-      expect(statusInB.status).toBe("missing");
-
-      // Sanity: the original write is still visible under the org-A
-      // user-org scope.
-      const statusInA = yield* asUser(userId, orgA, (client) =>
-        client.secrets.status({
-          params: {
-            scopeId: ScopeId.make(testUserOrgScopeId(userId, orgA)),
-            secretId: SecretId.make(id),
-          },
-        }),
-      );
-      expect(statusInA.status).toBe("resolved");
-    }),
-  );
-
-  it.effect("secrets.set rejects a scope outside the executor's stack", () =>
-    Effect.gen(function* () {
-      const organizationId = nextOrgId();
-      const userId = nextUserId();
-      const foreignOrg = nextOrgId();
-
-      const result = yield* asUser(userId, organizationId, (client) =>
-        client.secrets
-          .set({
-            params: { scopeId: ScopeId.make(foreignOrg) },
-            payload: {
-              id: SecretId.make("wrong-scope"),
-              name: "x",
-              value: "should not land",
-            },
-          })
-          .pipe(Effect.result),
-      );
-      expect(Result.isFailure(result)).toBe(true);
-
-      // And nothing landed in the foreign org — a fresh session pointed
-      // at that org must not see `wrong-scope`.
-      const foreignUser = nextUserId();
-      const leaked = yield* asUser(foreignUser, foreignOrg, (client) =>
-        client.secrets.status({
-          params: {
-            scopeId: ScopeId.make(foreignOrg),
-            secretId: SecretId.make("wrong-scope"),
-          },
-        }),
-      );
-      expect(leaked.status).toBe("missing");
+      expect(listInA.map((c) => c.name)).toContain(name);
     }),
   );
 });

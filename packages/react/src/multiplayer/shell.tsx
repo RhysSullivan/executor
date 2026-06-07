@@ -2,8 +2,8 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { sourcesOptimisticAtom } from "../api/atoms";
-import { useScope } from "../api/scope-context";
+import type { Integration } from "@executor-js/sdk/shared";
+import { integrationsOptimisticAtom } from "../api/atoms";
 import { Button } from "../components/button";
 import { Skeleton } from "../components/skeleton";
 import {
@@ -14,9 +14,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../components/dropdown-menu";
-import { SourceFavicon, sourcePresetIconUrl } from "../components/source-favicon";
+import { IntegrationFavicon, integrationPresetIconUrl } from "../components/integration-favicon";
 import { CommandPalette } from "../components/command-palette";
-import { useSourcePlugins } from "@executor-js/sdk/client";
+import { useIntegrationPlugins } from "@executor-js/sdk/client";
 import { useAuth } from "./auth-context";
 
 // ---------------------------------------------------------------------------
@@ -33,12 +33,12 @@ import { useAuth } from "./auth-context";
 
 export type ShellNavItem = { readonly to: string; readonly label: string };
 
-/** Sources lives at "/", plus the standard tool-management sections. Hosts
+/** Integrations lives at "/", plus the standard tool-management sections. Hosts
  *  spread this and append their own (e.g. Organization, Billing). */
 export const defaultShellNavItems: ReadonlyArray<ShellNavItem> = [
-  { to: "/", label: "Sources" },
-  { to: "/connections", label: "Connections" },
-  { to: "/secrets", label: "Secrets" },
+  { to: "/", label: "Integrations" },
+  { to: "/secrets", label: "Providers" },
+  { to: "/oauth-apps", label: "OAuth apps" },
   { to: "/policies", label: "Policies" },
 ];
 
@@ -87,14 +87,13 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
   );
 }
 
-// ── SourceList ───────────────────────────────────────────────────────────
+// ── IntegrationList ───────────────────────────────────────────────────────────
 
-function SourceList(props: { pathname: string; onNavigate?: () => void }) {
-  const scopeId = useScope();
-  const sources = useAtomValue(sourcesOptimisticAtom(scopeId));
-  const sourcePlugins = useSourcePlugins();
+function IntegrationList(props: { pathname: string; onNavigate?: () => void }) {
+  const integrations = useAtomValue(integrationsOptimisticAtom);
+  const integrationPlugins = useIntegrationPlugins();
 
-  return AsyncResult.match(sources, {
+  return AsyncResult.match(integrations, {
     onInitial: () => (
       <div className="flex flex-col gap-1 px-2.5 py-1">
         {[80, 65, 72, 58, 68].map((w, i) => (
@@ -106,24 +105,26 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
       </div>
     ),
     onFailure: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
+      <div className="px-2.5 py-2 text-xs text-muted-foreground">No integrations yet</div>
     ),
     onSuccess: ({ value }) =>
       value.length === 0 ? (
         <div className="px-2.5 py-2 text-sm leading-relaxed text-muted-foreground">
-          No sources yet
+          No integrations yet
         </div>
       ) : (
         <div className="flex flex-col gap-px">
-          {value.map((s) => {
-            const detailPath = `/sources/${s.id}`;
+          {value.map((integration: Integration) => {
+            const slug = String(integration.slug);
+            const name = integration.description || slug;
+            const detailPath = `/integrations/${slug}`;
             const active =
               props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
             return (
               <Link
-                key={s.id}
-                to="/sources/$namespace"
-                params={{ namespace: s.id }}
+                key={slug}
+                to="/integrations/$namespace"
+                params={{ namespace: slug }}
                 onClick={props.onNavigate}
                 className={[
                   "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
@@ -132,11 +133,13 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
                 ].join(" ")}
               >
-                <SourceFavicon icon={sourcePresetIconUrl(s, sourcePlugins)} url={s.url} />
-                <span className="flex-1 truncate">{s.name}</span>
-                <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
-                  {s.kind}
-                </span>
+                <IntegrationFavicon
+                  icon={integrationPresetIconUrl(
+                    { id: slug, kind: integration.kind },
+                    integrationPlugins,
+                  )}
+                />
+                <span className="flex-1 truncate">{name}</span>
               </Link>
             );
           })}
@@ -272,10 +275,10 @@ function SidebarContent(
         ))}
 
         <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          <span>Sources</span>
+          <span>Integrations</span>
         </div>
 
-        <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
+        <IntegrationList pathname={props.pathname} onNavigate={props.onNavigate} />
       </nav>
 
       {props.supportSlot && <div className="shrink-0 px-2 pb-2">{props.supportSlot}</div>}

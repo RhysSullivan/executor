@@ -1,12 +1,18 @@
-// Tenant isolation integration test. Runs in plain node (not workerd)
+// Tenant isolation integration test (v2). Runs in plain node (not workerd)
 // via vitest.node.config.ts — workerd's dev-mode compile stack crashes
 // on the full cloud module graph.
+//
+// In v2 the per-request executor binds `{ tenant: organizationId, subject:
+// accountId }` from auth; there is no scopeId path param, so a request can no
+// longer even name a foreign org. The invariant under test is therefore the
+// tenant partition itself: integrations, connections, and tools written under
+// one org's executor are invisible to another org's executor.
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 
-import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk";
+import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk";
 import { makeOpenApiHttpApiTestAddSpecPayload } from "@executor-js/plugin-openapi/testing";
 
 import { asOrg } from "../testing/api-harness";
@@ -19,106 +25,33 @@ const TenantIsolationApi = HttpApi.make("tenantIsolationTest")
   .add(PingGroup)
   .annotateMerge(OpenApi.annotations({ title: "Tenant Test API", version: "1.0.0" }));
 
-const makeTenantOpenApiSourcePayload = (
-  namespace: string,
-  options: Omit<Parameters<typeof makeOpenApiHttpApiTestAddSpecPayload>[1], "namespace"> = {},
+const makeTenantOpenApiSpecPayload = (
+  slug: string,
+  options: Omit<Parameters<typeof makeOpenApiHttpApiTestAddSpecPayload>[1], "slug"> = {},
 ) =>
   makeOpenApiHttpApiTestAddSpecPayload(TenantIsolationApi, {
-    namespace,
+    slug,
+    baseUrl: "http://example.com",
     ...options,
   });
 
+const randomSlug = () => IntegrationSlug.make(`a_${crypto.randomUUID().replace(/-/g, "_")}`);
+const NAME_MAIN = ConnectionName.make("main");
+const TEMPLATE_API_KEY = AuthTemplateSlug.make("apiKey");
+
 describe("tenant isolation (HTTP)", () => {
-  it.effect("write requests cannot target another org scope", () =>
+  it.effect("integrations.list is scoped to the caller org", () =>
     Effect.gen(function* () {
       const orgA = `org_${crypto.randomUUID()}`;
       const orgB = `org_${crypto.randomUUID()}`;
-
-      const result = yield* asOrg(orgB, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: {
-            id: SecretId.make("planted"),
-            name: "planted-by-org-b",
-            value: "should-be-rejected",
-          },
-        }),
-      ).pipe(Effect.result);
-
-      expect(Result.isFailure(result)).toBe(true);
-
-      const orgASecrets = yield* asOrg(orgA, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(orgA) } }),
-      );
-      expect(orgASecrets.map((s) => s.id)).not.toContain("planted");
-    }),
-  );
-
-  it.effect("read requests with another org scope still use the caller stack", () =>
-    Effect.gen(function* () {
-      const orgA = `org_${crypto.randomUUID()}`;
-      const orgB = `org_${crypto.randomUUID()}`;
-      const idA = `sec_a_${crypto.randomUUID().slice(0, 8)}`;
+      const slugA = randomSlug();
 
       yield* asOrg(orgA, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: { id: SecretId.make(idA), name: "org-a only", value: "v" },
-        }),
+        client.openapi.addSpec({ payload: makeTenantOpenApiSpecPayload(slugA) }),
       );
 
-      const result = yield* asOrg(orgB, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(orgA) } }),
-      );
-      expect(result.map((s) => s.id)).not.toContain(idA);
-    }),
-  );
-
-  it.effect("delete requests cannot remove another org secret", () =>
-    Effect.gen(function* () {
-      const orgA = `org_${crypto.randomUUID()}`;
-      const orgB = `org_${crypto.randomUUID()}`;
-      const idA = `sec_a_${crypto.randomUUID().slice(0, 8)}`;
-
-      yield* asOrg(orgA, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: { id: SecretId.make(idA), name: "org-a only", value: "v" },
-        }),
-      );
-
-      yield* asOrg(orgB, (client) =>
-        client.secrets.remove({
-          params: { scopeId: ScopeId.make(orgA), secretId: SecretId.make(idA) },
-        }),
-      ).pipe(Effect.result);
-
-      const status = yield* asOrg(orgA, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(orgA), secretId: SecretId.make(idA) },
-        }),
-      );
-      expect(status.status).toBe("resolved");
-    }),
-  );
-
-  it.effect("sources.list is scoped to the caller org", () =>
-    Effect.gen(function* () {
-      const orgA = `org_${crypto.randomUUID()}`;
-      const orgB = `org_${crypto.randomUUID()}`;
-      const namespaceA = `a_${crypto.randomUUID().replace(/-/g, "_")}`;
-
-      yield* asOrg(orgA, (client) =>
-        client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: makeTenantOpenApiSourcePayload(namespaceA),
-        }),
-      );
-
-      const orgBSources = yield* asOrg(orgB, (client) =>
-        client.sources.list({ params: { scopeId: ScopeId.make(orgB) } }),
-      );
-      expect(orgBSources.map((s) => s.id)).not.toContain(namespaceA);
+      const orgBIntegrations = yield* asOrg(orgB, (client) => client.integrations.list({}));
+      expect(orgBIntegrations.map((s) => s.slug)).not.toContain(slugA);
     }),
   );
 
@@ -126,251 +59,138 @@ describe("tenant isolation (HTTP)", () => {
     Effect.gen(function* () {
       const orgA = `org_${crypto.randomUUID()}`;
       const orgB = `org_${crypto.randomUUID()}`;
-      const namespaceA = `a_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const slugA = randomSlug();
 
       yield* asOrg(orgA, (client) =>
-        client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: makeTenantOpenApiSourcePayload(namespaceA),
+        Effect.gen(function* () {
+          yield* client.openapi.addSpec({ payload: makeTenantOpenApiSpecPayload(slugA) });
+          yield* client.connections.create({
+            payload: {
+              owner: "org",
+              name: NAME_MAIN,
+              integration: slugA,
+              template: TEMPLATE_API_KEY,
+              value: "v",
+            },
+          });
         }),
       );
 
-      const orgBTools = yield* asOrg(orgB, (client) =>
-        client.tools.list({ params: { scopeId: ScopeId.make(orgB) } }),
-      );
-      expect(orgBTools.map((t) => t.sourceId)).not.toContain(namespaceA);
-      for (const id of orgBTools.map((t) => t.id)) {
-        expect(id).not.toContain(namespaceA);
+      const orgBTools = yield* asOrg(orgB, (client) => client.tools.list({ query: {} }));
+      for (const address of orgBTools.map((t) => t.address)) {
+        expect(address).not.toContain(slugA);
       }
     }),
   );
 
-  it.effect("openapi.getSource cannot reach another org's source by namespace", () =>
+  it.effect("openapi.getIntegration cannot reach another org's integration", () =>
     Effect.gen(function* () {
       const orgA = `org_${crypto.randomUUID()}`;
       const orgB = `org_${crypto.randomUUID()}`;
-      const namespaceA = `a_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const slugA = randomSlug();
 
       yield* asOrg(orgA, (client) =>
-        client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: makeTenantOpenApiSourcePayload(namespaceA),
-        }),
+        client.openapi.addSpec({ payload: makeTenantOpenApiSpecPayload(slugA) }),
       );
 
-      const source = yield* asOrg(orgB, (client) =>
-        client.openapi.getSource({
-          params: { scopeId: ScopeId.make(orgB), namespace: namespaceA },
-        }),
+      const integration = yield* asOrg(orgB, (client) =>
+        client.openapi.getIntegration({ params: { slug: slugA } }),
       );
 
-      expect(source).toBeNull();
+      expect(integration).toBeNull();
     }),
   );
 
-  it.effect("secrets.list is scoped to the caller org", () =>
+  it.effect("connections.list is scoped to the caller org", () =>
     Effect.gen(function* () {
       const orgA = `org_${crypto.randomUUID()}`;
       const orgB = `org_${crypto.randomUUID()}`;
-      const secretIdA = `sec_a_${crypto.randomUUID().slice(0, 8)}`;
-
-      yield* asOrg(orgA, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: { id: SecretId.make(secretIdA), name: "org-a only", value: "super-secret-a" },
-        }),
-      );
-
-      const orgBSecrets = yield* asOrg(orgB, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(orgB) } }),
-      );
-      expect(orgBSecrets.map((s) => s.id)).not.toContain(secretIdA);
-    }),
-  );
-
-  it.effect("secrets.status reports another org's secret as missing", () =>
-    Effect.gen(function* () {
-      const orgA = `org_${crypto.randomUUID()}`;
-      const orgB = `org_${crypto.randomUUID()}`;
-      const secretIdA = `sec_a_${crypto.randomUUID().slice(0, 8)}`;
-
-      yield* asOrg(orgA, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: { id: SecretId.make(secretIdA), name: "org-a only", value: "super-secret-a" },
-        }),
-      );
-
-      const status = yield* asOrg(orgB, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(secretIdA) },
-        }),
-      );
-
-      expect(status.status).toBe("missing");
-    }),
-  );
-
-  it.effect("secret metadata is not visible across orgs", () =>
-    Effect.gen(function* () {
-      const orgA = `org_${crypto.randomUUID()}`;
-      const orgB = `org_${crypto.randomUUID()}`;
-      const secretIdA = `sec_a_${crypto.randomUUID().slice(0, 8)}`;
-
-      yield* asOrg(orgA, (client) =>
-        client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: { id: SecretId.make(secretIdA), name: "org-a only", value: "super-secret-a" },
-        }),
-      );
-
-      const status = yield* asOrg(orgB, (client) =>
-        client.secrets.status({
-          params: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(secretIdA) },
-        }),
-      );
-      const list = yield* asOrg(orgB, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(orgB) } }),
-      );
-
-      expect(status.status).toBe("missing");
-      expect(list.map((s) => s.id)).not.toContain(secretIdA);
-    }),
-  );
-
-  it.effect("secret usages are scoped to the caller stack", () =>
-    Effect.gen(function* () {
-      const orgA = `org_${crypto.randomUUID()}`;
-      const orgB = `org_${crypto.randomUUID()}`;
-      const namespaceA = `a_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const secretIdA = SecretId.make(`sec_a_${crypto.randomUUID().slice(0, 8)}`);
+      const slugA = randomSlug();
+      const name = ConnectionName.make(`conn_a_${crypto.randomUUID().slice(0, 8)}`);
 
       yield* asOrg(orgA, (client) =>
         Effect.gen(function* () {
-          yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(orgA) },
-            payload: { id: secretIdA, name: "org-a token", value: "v" },
-          });
-          yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(orgA) },
+          yield* client.openapi.addSpec({ payload: makeTenantOpenApiSpecPayload(slugA) });
+          yield* client.connections.create({
             payload: {
-              ...makeTenantOpenApiSourcePayload(namespaceA),
-              headers: {
-                Authorization: {
-                  kind: "secret",
-                  prefix: "Bearer ",
-                },
-              },
-            },
-          });
-          yield* client.sources.setBinding({
-            params: { scopeId: ScopeId.make(orgA) },
-            payload: {
-              scope: ScopeId.make(orgA),
-              source: { id: namespaceA, scope: ScopeId.make(orgA) },
-              slotKey: "header:authorization",
-              value: { kind: "secret", secretId: secretIdA },
+              owner: "org",
+              name,
+              integration: slugA,
+              template: TEMPLATE_API_KEY,
+              value: "super-secret-a",
             },
           });
         }),
       );
 
-      const usages = yield* asOrg(orgB, (client) =>
-        client.secrets.usages({
-          params: { scopeId: ScopeId.make(orgB), secretId: secretIdA },
-        }),
+      const orgBConnections = yield* asOrg(orgB, (client) =>
+        client.connections.list({ query: {} }),
       );
-
-      expect(usages).toEqual([]);
+      expect(orgBConnections.map((c) => c.name)).not.toContain(name);
     }),
   );
 
-  it.effect("connection usages are scoped to the caller stack", () =>
+  it.effect("connection metadata and value are not visible across orgs", () =>
     Effect.gen(function* () {
       const orgA = `org_${crypto.randomUUID()}`;
       const orgB = `org_${crypto.randomUUID()}`;
-      const namespaceA = `a_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const connectionIdA = ConnectionId.make(`conn_a_${crypto.randomUUID().slice(0, 8)}`);
+      const slugA = randomSlug();
+      const name = ConnectionName.make(`conn_a_${crypto.randomUUID().slice(0, 8)}`);
 
       yield* asOrg(orgA, (client) =>
         Effect.gen(function* () {
-          yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(orgA) },
-            payload: makeTenantOpenApiSourcePayload(namespaceA),
-          });
-          yield* client.sources.setBinding({
-            params: { scopeId: ScopeId.make(orgA) },
+          yield* client.openapi.addSpec({ payload: makeTenantOpenApiSpecPayload(slugA) });
+          yield* client.connections.create({
             payload: {
-              scope: ScopeId.make(orgA),
-              source: { id: namespaceA, scope: ScopeId.make(orgA) },
-              slotKey: "auth:conn",
-              value: { kind: "connection", connectionId: connectionIdA },
+              owner: "org",
+              name,
+              integration: slugA,
+              template: TEMPLATE_API_KEY,
+              value: "super-secret-a",
             },
           });
         }),
-      ).pipe(Effect.result);
-
-      const usages = yield* asOrg(orgB, (client) =>
-        client.connections.usages({
-          params: { scopeId: ScopeId.make(orgB), connectionId: connectionIdA },
-        }),
       );
 
-      expect(usages).toEqual([]);
+      const list = yield* asOrg(orgB, (client) => client.connections.list({ query: {} }));
+      expect(list.map((c) => c.name)).not.toContain(name);
+      expect(JSON.stringify(list)).not.toContain("super-secret-a");
     }),
   );
 
-  it.effect("updating a same-namespace OpenAPI source in one org does not mutate another org", () =>
+  it.effect("same-slug integration in two orgs are independent rows", () =>
     Effect.gen(function* () {
       const orgA = `org_${crypto.randomUUID()}`;
       const orgB = `org_${crypto.randomUUID()}`;
-      const namespace = `shared_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const slug = IntegrationSlug.make(`shared_${crypto.randomUUID().replace(/-/g, "_")}`);
 
       yield* asOrg(orgA, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: makeTenantOpenApiSourcePayload(namespace, {
-            name: "Org A API",
-            baseUrl: "https://org-a.example.com",
-          }),
+          payload: { ...makeTenantOpenApiSpecPayload(slug), description: "Org A API" },
         }),
       );
       yield* asOrg(orgB, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgB) },
-          payload: makeTenantOpenApiSourcePayload(namespace, {
-            name: "Org B API",
-            baseUrl: "https://org-b.example.com",
-          }),
+          payload: { ...makeTenantOpenApiSpecPayload(slug), description: "Org B API" },
         }),
       );
 
+      // Updating org A's row must not mutate org B's same-slug row.
       yield* asOrg(orgA, (client) =>
-        client.sources.configure({
-          params: { scopeId: ScopeId.make(orgA) },
-          payload: {
-            source: { id: namespace, scope: ScopeId.make(orgA) },
-            scope: ScopeId.make(orgA),
-            type: "openapi",
-            config: {
-              scope: orgA,
-              name: "Org A Updated API",
-              baseUrl: "https://org-a-updated.example.com",
-            },
-          },
+        client.integrations.update({
+          params: { slug },
+          payload: { description: "Org A Updated API" },
         }),
       );
 
-      const orgASource = yield* asOrg(orgA, (client) =>
-        client.openapi.getSource({ params: { scopeId: ScopeId.make(orgA), namespace } }),
+      const orgAIntegration = yield* asOrg(orgA, (client) =>
+        client.integrations.get({ params: { slug } }),
       );
-      const orgBSource = yield* asOrg(orgB, (client) =>
-        client.openapi.getSource({ params: { scopeId: ScopeId.make(orgB), namespace } }),
+      const orgBIntegration = yield* asOrg(orgB, (client) =>
+        client.integrations.get({ params: { slug } }),
       );
-      expect(orgASource?.name).toBe("Org A Updated API");
-      expect(orgASource?.config.baseUrl).toBe("https://org-a-updated.example.com");
-      expect(orgBSource?.name).toBe("Org B API");
-      expect(orgBSource?.config.baseUrl).toBe("https://org-b.example.com");
+      expect(orgAIntegration?.description).toBe("Org A Updated API");
+      expect(orgBIntegration?.description).toBe("Org B API");
     }),
   );
 });

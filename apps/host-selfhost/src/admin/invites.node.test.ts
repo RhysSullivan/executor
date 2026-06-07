@@ -58,11 +58,15 @@ test("a code minted via the admin API redeems into a real org membership", async
   const token = res.headers.get("set-auth-token") ?? "";
   expect(token).not.toBe("");
 
-  // The new user resolves to the one org's scope (membership, via the pin).
-  const scope = await handler(
-    new Request(`${BASE}/api/scope`, { headers: { authorization: `Bearer ${token}` } }),
+  // The new user resolves to a real org membership (the bound tenant).
+  const me = await handler(
+    new Request(`${BASE}/api/account/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    }),
   );
-  expect(scope.status).toBe(200);
+  expect(me.status).toBe(200);
+  const meBody = (await me.json()) as { organization: { id: string } | null };
+  expect(meBody.organization?.id).toBeTruthy();
 
   // The single-use code is now spent: reusing it is rejected.
   const reuse = await signUp({

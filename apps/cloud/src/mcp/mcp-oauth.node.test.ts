@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Cloud API × MCP OAuth — real HTTP end-to-end
+// Cloud API × OAuth — real HTTP end-to-end (v2)
 // ---------------------------------------------------------------------------
 //
 // Drives the ProtectedCloudApi through the node-pool harness against the shared
@@ -7,219 +7,136 @@
 // plugin is real:
 //
 //   test → HttpApiClient → in-process webHandler → ProtectedCloudApi
-//        → Core OAuthHandlers → executor.oauth.start / complete
-//        → MCP SDK `auth()`
-//        → OAuthTestServer (DCR, /authorize → login, /token, AS metadata,
-//          protected resource metadata, MCP protected resource)
+//        → Core OAuthHandlers → executor.oauth.{probe,createClient,start,cancel}
 //
-// Two scenarios:
+// v2: OAuth is a credential mechanism, not an integration type. `probe`
+// discovers an authorization server's metadata; `createClient` registers an
+// owner-scoped OAuth app; `start` runs the flow to mint a Connection.
 //
-//   1. Single user: startOAuth → follow redirect → completeOAuth. Asserts
-//      the response carries the Connection id the exchange minted.
-//
-//   2. Two users, same source: both users complete the shared OAuth flow
-//      and end up with their own Connection (same id, different scope)
-//      via the SDK's innermost-wins shadowing.
+// v2: `start` runs an `authorization_code` client's flow by persisting an
+// `oauth_session` and returning a `redirect` result whose `authorizationUrl`
+// points at the OAuth server's authorize endpoint (the popup visits it; the
+// callback later calls `complete`). The wired surface (`probe`, `createClient`,
+// `start`, `cancel`) is exercised for real.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
 
-import { Effect, Result } from "effect";
-import { ScopeId } from "@executor-js/sdk";
-import { serveOAuthTestServer, type OAuthTestServerShape } from "@executor-js/sdk/testing";
+import { Effect } from "effect";
+import {
+  AuthTemplateSlug,
+  ConnectionName,
+  IntegrationSlug,
+  OAuthClientSlug,
+  OAuthState,
+} from "@executor-js/sdk";
+import { serveOAuthTestServer } from "@executor-js/sdk/testing";
 
-import { asOrg, asUser, testUserOrgScopeId } from "../testing/api-harness";
+import { asOrg } from "../testing/api-harness";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const countRequestsTo = (oauth: OAuthTestServerShape, path: string): Effect.Effect<number> =>
-  oauth.requests.pipe(Effect.map((requests) => requests.filter((r) => r.path === path).length));
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
+describe("oauth end-to-end (node pool, real OAuth server)", () => {
   it.effect(
-    "start rejects a redirectUrl on a different origin before discovery",
+    "probe discovers the authorization server's metadata",
     () =>
-      Effect.gen(function* () {
-        const org = `org_${crypto.randomUUID()}`;
-        const scopeId = ScopeId.make(org);
-        const start = Date.now();
+      Effect.scoped(
+        Effect.gen(function* () {
+          const oauth = yield* serveOAuthTestServer();
+          const org = `org_${crypto.randomUUID()}`;
 
-        const result = yield* asOrg(org, (client) =>
-          client.oauth.start({
-            params: { scopeId },
-            payload: {
-              endpoint: "https://example.test/api",
-              redirectUrl: "https://other.example/cb",
-              connectionId: "conn-foreign-redirect",
-              tokenScope: String(scopeId),
-              pluginId: "mcp",
-              strategy: { kind: "dynamic-dcr" },
-            },
-          }),
-        ).pipe(Effect.result);
+          const probed = yield* asOrg(org, (client) =>
+            client.oauth.probe({ payload: { url: oauth.issuerUrl } }),
+          );
 
-        expect(Result.isFailure(result)).toBe(true);
-        expect(Date.now() - start).toBeLessThan(1000);
-      }),
-    { timeout: 30_000 },
+          expect(probed.authorizationUrl).toBe(oauth.authorizationEndpoint);
+          expect(probed.tokenUrl).toBe(oauth.tokenEndpoint);
+        }),
+      ),
+    30_000,
   );
 
   it.effect(
-    "start rejects non-http redirectUrl schemes",
+    "createClient registers an owner-scoped OAuth app",
     () =>
-      Effect.gen(function* () {
-        const org = `org_${crypto.randomUUID()}`;
-        const scopeId = ScopeId.make(org);
+      Effect.scoped(
+        Effect.gen(function* () {
+          const oauth = yield* serveOAuthTestServer();
+          const org = `org_${crypto.randomUUID()}`;
+          const slug = OAuthClientSlug.make(`client_${crypto.randomUUID().slice(0, 8)}`);
 
-        for (const redirectUrl of [
-          "javascript:alert(1)",
-          "data:text/html,<script>alert(1)</script>",
-        ]) {
-          const start = Date.now();
+          const created = yield* asOrg(org, (client) =>
+            client.oauth.createClient({
+              payload: {
+                owner: "org",
+                slug,
+                authorizationUrl: oauth.authorizationEndpoint,
+                tokenUrl: oauth.tokenEndpoint,
+                grant: "authorization_code",
+                clientId: "test-client",
+                clientSecret: "test-secret",
+              },
+            }),
+          );
+          expect(created.client).toBe(slug);
+        }),
+      ),
+    30_000,
+  );
+
+  it.effect(
+    "start returns a redirect to the authorization endpoint",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const oauth = yield* serveOAuthTestServer();
+          const org = `org_${crypto.randomUUID()}`;
+          const slug = OAuthClientSlug.make(`client_${crypto.randomUUID().slice(0, 8)}`);
+
+          yield* asOrg(org, (client) =>
+            client.oauth.createClient({
+              payload: {
+                owner: "org",
+                slug,
+                authorizationUrl: oauth.authorizationEndpoint,
+                tokenUrl: oauth.tokenEndpoint,
+                grant: "authorization_code",
+                clientId: "test-client",
+                clientSecret: "test-secret",
+              },
+            }),
+          );
+
           const result = yield* asOrg(org, (client) =>
             client.oauth.start({
-              params: { scopeId },
               payload: {
-                endpoint: "https://example.test/api",
-                redirectUrl,
-                connectionId: `conn-${crypto.randomUUID().slice(0, 8)}`,
-                tokenScope: String(scopeId),
-                pluginId: "mcp",
-                strategy: { kind: "dynamic-dcr" },
-              },
-            }),
-          ).pipe(Effect.result);
-
-          expect(Result.isFailure(result)).toBe(true);
-          expect(Date.now() - start).toBeLessThan(1000);
-        }
-      }),
-    { timeout: 30_000 },
-  );
-
-  it.effect(
-    "startOAuth → authorize → completeOAuth writes tokens at the invoker scope",
-    () =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const oauth = yield* serveOAuthTestServer();
-          const organizationId = `org_${crypto.randomUUID()}`;
-          const userId = `user_${crypto.randomUUID()}`;
-          const userScope = ScopeId.make(testUserOrgScopeId(userId, organizationId));
-          const namespace = `ns_${crypto.randomUUID().slice(0, 8)}`;
-          const connectionId = `mcp-oauth2-${namespace}`;
-          const redirectUrl = "http://test.local/api/mcp/oauth/callback";
-
-          const started = yield* asUser(userId, organizationId, (client) =>
-            client.oauth.start({
-              params: { scopeId: userScope },
-              payload: {
-                endpoint: oauth.mcpResourceUrl,
-                redirectUrl,
-                connectionId,
-                tokenScope: String(userScope),
-                strategy: { kind: "dynamic-dcr" },
-                pluginId: "mcp",
+                client: slug,
+                clientOwner: "org",
+                owner: "org",
+                name: ConnectionName.make("main"),
+                integration: IntegrationSlug.make("some-integration"),
+                template: AuthTemplateSlug.make("oauth"),
               },
             }),
           );
-          expect(started.sessionId).toMatch(/^oauth2_session_/);
-          expect(started.authorizationUrl).not.toBeNull();
 
-          const { code, state } = yield* oauth.completeAuthorizationCodeFlow({
-            authorizationUrl: started.authorizationUrl!,
+          expect(result).toMatchObject({
+            status: "redirect",
+            authorizationUrl: expect.stringContaining(oauth.authorizationEndpoint),
+            state: expect.stringMatching(/.+/),
           });
-          expect(state).toBe(started.sessionId);
-
-          const completed = yield* asUser(userId, organizationId, (client) =>
-            client.oauth.complete({
-              params: { scopeId: userScope },
-              payload: { state, code },
-            }),
-          );
-          expect(completed.connectionId).toBe(connectionId);
         }),
       ),
     30_000,
   );
 
-  it.effect(
-    "second user on same source re-uses DCR client: registration endpoint is not re-hit",
-    () =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const oauth = yield* serveOAuthTestServer();
-          const organizationId = `org_${crypto.randomUUID()}`;
-          const userA = `user_${crypto.randomUUID()}`;
-          const userB = `user_${crypto.randomUUID()}`;
-          const scopeA = ScopeId.make(testUserOrgScopeId(userA, organizationId));
-          const scopeB = ScopeId.make(testUserOrgScopeId(userB, organizationId));
-          const namespace = `ns_${crypto.randomUUID().slice(0, 8)}`;
-          const connectionId = `mcp-oauth2-${namespace}`;
-          const endpoint = oauth.mcpResourceUrl;
-          const redirectUrl = "http://test.local/api/mcp/oauth/callback";
-
-          const regsBefore = yield* countRequestsTo(oauth, "/register");
-
-          // --- User A: full OAuth round-trip, fresh DCR. ---
-          const startedA = yield* asUser(userA, organizationId, (client) =>
-            client.oauth.start({
-              params: { scopeId: scopeA },
-              payload: {
-                endpoint,
-                redirectUrl,
-                connectionId,
-                tokenScope: String(scopeA),
-                strategy: { kind: "dynamic-dcr" },
-                pluginId: "mcp",
-              },
-            }),
-          );
-          const redirA = yield* oauth.completeAuthorizationCodeFlow({
-            authorizationUrl: startedA.authorizationUrl!,
-          });
-          const completedA = yield* asUser(userA, organizationId, (client) =>
-            client.oauth.complete({
-              params: { scopeId: scopeA },
-              payload: { state: redirA.state, code: redirA.code },
-            }),
-          );
-          expect(completedA.connectionId).toBe(connectionId);
-          expect(yield* countRequestsTo(oauth, "/register")).toBe(regsBefore + 1);
-
-          // --- User B: gets the same logical connection id in a different scope. ---
-          const startedB = yield* asUser(userB, organizationId, (client) =>
-            client.oauth.start({
-              params: { scopeId: scopeB },
-              payload: {
-                endpoint,
-                redirectUrl,
-                connectionId,
-                tokenScope: String(scopeB),
-                strategy: { kind: "dynamic-dcr" },
-                pluginId: "mcp",
-              },
-            }),
-          );
-          const redirB = yield* oauth.completeAuthorizationCodeFlow({
-            authorizationUrl: startedB.authorizationUrl!,
-          });
-          const completedB = yield* asUser(userB, organizationId, (client) =>
-            client.oauth.complete({
-              params: { scopeId: scopeB },
-              payload: { state: redirB.state, code: redirB.code },
-            }),
-          );
-          expect(completedB.connectionId).toBe(connectionId);
-          expect(yield* countRequestsTo(oauth, "/register")).toBe(regsBefore + 2);
+  it.effect("cancel is idempotent for an unknown session", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const cancelled = yield* asOrg(org, (client) =>
+        client.oauth.cancel({
+          payload: { state: OAuthState.make("oauth2_session_does_not_exist") },
         }),
-      ),
-    30_000,
+      );
+      expect(cancelled.cancelled).toBe(true);
+    }),
   );
 });

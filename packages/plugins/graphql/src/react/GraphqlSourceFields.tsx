@@ -5,14 +5,14 @@ import {
 } from "@executor-js/react/components/card-stack";
 import { Input } from "@executor-js/react/components/input";
 import {
-  SourceIdentityFieldRows,
-  type SourceIdentity,
-} from "@executor-js/react/plugins/source-identity";
+  IntegrationIdentityFieldRows,
+  type IntegrationIdentity,
+} from "@executor-js/react/plugins/integration-identity";
 
 export function GraphqlSourceFields(props: {
   readonly endpoint: string;
   readonly onEndpointChange: (endpoint: string) => void;
-  readonly identity: SourceIdentity;
+  readonly identity: IntegrationIdentity;
   readonly endpointDisabled?: boolean;
   readonly namespaceReadOnly?: boolean;
 }) {
@@ -31,7 +31,7 @@ export function GraphqlSourceFields(props: {
             disabled={props.endpointDisabled}
           />
         </CardStackEntryField>
-        <SourceIdentityFieldRows
+        <IntegrationIdentityFieldRows
           identity={props.identity}
           namePlaceholder="e.g. Shopify API"
           namespaceReadOnly={props.namespaceReadOnly}

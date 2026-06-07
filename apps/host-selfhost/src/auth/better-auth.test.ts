@@ -26,7 +26,9 @@ test("migrations create both the Better Auth and FumaDB executor schema regions"
   // invariant: there is no shared in-process handle anymore, yet a row Better
   // Auth wrote is immediately visible here on the same file: URL.
   const { createClient } = await import("@libsql/client");
-  const db = createClient({ url: `file:${join(process.env.EXECUTOR_DATA_DIR!, "data.db")}` });
+  const db = createClient({
+    url: `file:${join(process.env.EXECUTOR_DATA_DIR!, "data.db")}`,
+  });
   const names = (await db.execute("SELECT name FROM sqlite_master WHERE type='table'")).rows.map(
     // oxlint-disable-next-line executor/no-redundant-primitive-cast -- boundary: sqlite_master.name is TEXT; narrow libSQL's SQLValue to string for the table-name list
     (r) => r.name as string,
@@ -35,8 +37,9 @@ test("migrations create both the Better Auth and FumaDB executor schema regions"
   for (const t of ["user", "session", "account", "organization", "member"]) {
     expect(names).toContain(t);
   }
-  // FumaDB executor tables coexist in the same file
-  expect(names).toContain("secret");
+  // FumaDB executor tables coexist in the same file (v2: a connection IS the
+  // credential, so the `connection` table replaces the v1 `secret` table).
+  expect(names).toContain("connection");
 
   // CROSS-CONNECTION PROOF: the bootstrap admin Better Auth wrote through its
   // LibsqlDialect connection is readable through this independent connection.
@@ -51,7 +54,7 @@ test("migrations create both the Better Auth and FumaDB executor schema regions"
   db.close();
 });
 
-test("sign-up issues a bearer token and resolves to a per-user org-pinned scope", async () => {
+test("sign-up issues a bearer token and resolves to a per-user org-pinned identity", async () => {
   const inviteCode = await mintInviteCode(handler);
   const signUp = await handler(
     new Request(`${BASE}/api/auth/sign-up/email`, {
@@ -69,20 +72,24 @@ test("sign-up issues a bearer token and resolves to a per-user org-pinned scope"
   const token = signUp.headers.get("set-auth-token");
   expect(token).toBeTruthy();
 
-  const scoped = await handler(
-    new Request("http://localhost/api/scope", { headers: { authorization: `Bearer ${token}` } }),
+  // The bearer token resolves to the user pinned to their own org (the v2 binding
+  // is `{ tenant: org, subject: user }`; `/api/account/me` reflects both).
+  const me = await handler(
+    new Request("http://localhost/api/account/me", {
+      headers: { authorization: `Bearer ${token}` },
+    }),
   );
-  expect(scoped.status).toBe(200);
-  const body = (await scoped.json()) as { id: string; stack: ReadonlyArray<{ id: string }> };
-  expect(body.stack.length).toBe(2);
-  const inner = body.stack[0]!;
-  const outer = body.stack[1]!;
-  expect(outer.id).toBe(body.id);
-  expect(inner.id.startsWith("user-org:")).toBe(true);
-  expect(inner.id.endsWith(`:${outer.id}`)).toBe(true);
+  expect(me.status).toBe(200);
+  const body = (await me.json()) as {
+    user: { id: string; email: string };
+    organization: { id: string; name: string } | null;
+  };
+  expect(body.user.email).toBe("member@test.local");
+  expect(body.organization).not.toBeNull();
+  expect(body.organization!.id).toBeTruthy();
 });
 
 test("an unauthenticated request is rejected with 401", async () => {
-  const res = await handler(new Request("http://localhost/api/scope"));
+  const res = await handler(new Request("http://localhost/api/account/me"));
   expect(res.status).toBe(401);
 });

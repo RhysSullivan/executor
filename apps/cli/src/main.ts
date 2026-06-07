@@ -1507,9 +1507,8 @@ const runCallHelp = (
       serverName: args.serverName,
     });
     const client = yield* makeApiClient(connection);
-    const scopeInfo = yield* client.scope.info();
-    const tools = yield* client.tools.list({ params: { scopeId: scopeInfo.id } });
-    const toolPaths = tools.map((tool) => tool.id);
+    const tools = yield* client.tools.list({ query: {} });
+    const toolPaths = tools.map((tool) => tool.address);
 
     const inspection = yield* Effect.try({
       try: () =>
@@ -1575,15 +1574,14 @@ const runCallHelp = (
     }
 
     const exactTool = inspection.exactPath
-      ? tools.find((tool) => tool.id === inspection.exactPath)
+      ? tools.find((tool) => tool.address === inspection.exactPath)
       : undefined;
 
     if (exactTool && inspection.children.length === 0) {
       const schema = yield* client.tools
         .schema({
-          params: {
-            scopeId: scopeInfo.id,
-            toolId: exactTool.id,
+          query: {
+            address: exactTool.address,
           },
         })
         .pipe(
@@ -1596,7 +1594,7 @@ const runCallHelp = (
 
       yield* printCallLeafHelp({
         tool: {
-          id: exactTool.id,
+          id: exactTool.address,
           description: exactTool.description,
         },
         schema,
@@ -1618,7 +1616,7 @@ const runCallHelp = (
       limit: args.limit,
       exactTool: exactTool
         ? {
-            id: exactTool.id,
+            id: exactTool.address,
             description: exactTool.description,
           }
         : undefined,

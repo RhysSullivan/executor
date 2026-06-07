@@ -4,7 +4,8 @@ description: Create an Executor, add a source, and inspect its tools.
 ---
 
 import CreateExecutor from "/snippets/sdk/quickstart/create-executor.mdx";
-import AddSource from "/snippets/sdk/quickstart/add-source.mdx";
+import AddIntegration from "/snippets/sdk/quickstart/add-integration.mdx";
+import CreateConnection from "/snippets/sdk/quickstart/create-connection.mdx";
 import ListTools from "/snippets/sdk/quickstart/list-tools.mdx";
 import InspectSchema from "/snippets/sdk/quickstart/inspect-schema.mdx";
 import CloseExecutor from "/snippets/sdk/quickstart/close-executor.mdx";
@@ -13,7 +14,7 @@ import CloseExecutor from "/snippets/sdk/quickstart/close-executor.mdx";
 
 The SDK lets you embed Executor in a TypeScript application.
 
-This quickstart creates an Executor, loads an OpenAPI source from a local spec, lists the tools it contributed, and inspects one tool schema. The snippets on this page are generated from a runnable example in `examples/docs-sdk-quickstart`.
+This quickstart creates an Executor, adds an OpenAPI integration from a local spec, connects a credential so the integration's tools appear, lists those tools, and inspects one tool schema. The snippets on this page are generated from a runnable example in `examples/docs-sdk-quickstart`.
 
 ## Install
 
@@ -45,15 +46,23 @@ Import the SDK and configure the plugins you want to expose.
 
 `onElicitation: "accept-all"` is convenient for scripts and examples. Applications with interactive approval flows should pass a handler instead.
 
-## Add A Source
+The `providers` you pass register where credential values are stored. A writable provider is required before you can create a connection with an inline value; this example uses a tiny in-memory store.
 
-Sources add tools to the Executor catalog. This example registers an OpenAPI document under the `inventory` namespace.
+## Add An Integration
 
-<AddSource />
+An integration is the API surface. This example registers an OpenAPI document under the `inventory` slug and declares an apiKey authentication template — `variable("token")` marks where a connection's credential is placed on each request.
+
+<AddIntegration />
+
+## Create A Connection
+
+Tools are produced per connection. A connection is the saved credential for one integration; creating one with an inline `value` writes it to the default writable provider and yields the integration's tools.
+
+<CreateConnection />
 
 ## List Tools
 
-After a source is registered, its tools appear in the unified tool catalog.
+After a connection is created, its tools appear in the unified tool catalog, keyed by `address`.
 
 <ListTools />
 

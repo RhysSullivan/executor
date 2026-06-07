@@ -1,10 +1,13 @@
 import { Effect, Option, Predicate, Schema } from "effect";
 
 import {
+  type CredentialProvider,
+  Owner,
+  type OwnerBinding,
   type PluginStorageEntry,
-  parseUserOrgScopeId,
+  ProviderItemId,
+  ProviderKey,
   StorageError,
-  type SecretProvider,
   type StorageDeps,
   type StorageFailure,
 } from "@executor-js/sdk/core";
@@ -15,7 +18,7 @@ import {
   type WorkOSVaultObject,
 } from "./client";
 
-export const WORKOS_VAULT_PROVIDER_KEY = "workos-vault";
+export const WORKOS_VAULT_PROVIDER_KEY = ProviderKey.make("workos-vault");
 
 const DEFAULT_OBJECT_PREFIX = "executor";
 const MAX_WRITE_ATTEMPTS = 3;
@@ -27,9 +30,19 @@ const MAX_WRITE_ATTEMPTS = 3;
 const MAX_KEK_NOT_READY_ATTEMPTS = 20;
 const KEK_NOT_READY_BACKOFF_MS = 1000;
 
+// The vault `context` is the KEK-matching dimension. In v2 the connection row
+// owns the (tenant, owner, subject) partition, so the provider no longer
+// derives context from a scope id — it sees only an opaque `ProviderItemId`.
+// We use a single, flat, provider-private context so every object shares one
+// KEK. Each value key here stays colon-free by construction, sidestepping the
+// "KEK was created but is not yet ready" hang we previously hit when a context
+// value contained `:`.
+const VAULT_CONTEXT: Record<string, string> = { app: "executor" };
+
 // ---------------------------------------------------------------------------
 // Metadata storage — values live in WorkOS Vault; regular plugin storage
-// tracks what we know about and lets us enumerate.
+// tracks what we know about and lets us enumerate. Keyed by the opaque
+// `ProviderItemId`; writes carry the executor's `owner` binding.
 // ---------------------------------------------------------------------------
 
 const METADATA_COLLECTION = "metadata";
@@ -44,7 +57,6 @@ type WorkosVaultMetadataDataEncoded = typeof WorkosVaultMetadataData.Encoded;
 
 type MetadataRow = {
   readonly id: string;
-  readonly scope_id: string;
   readonly name: string;
   readonly purpose: string | null;
   readonly created_at: Date;
@@ -67,66 +79,89 @@ const metadataData = (row: MetadataRow): WorkosVaultMetadataDataEncoded => ({
 const entryToMetadataRow = (entry: PluginStorageEntry): MetadataRow | null =>
   Option.match(decodeMetadataData(coerceJson(entry.data)), {
     onNone: () => null,
-    onSome: (data) => ({
+    onSome: (data: WorkosVaultMetadataData): MetadataRow => ({
       id: entry.key,
-      scope_id: String(entry.scopeId),
       name: data.name,
       purpose: data.purpose,
       created_at: data.createdAt,
     }),
   });
 
+type WorkosVaultMetadataData = typeof WorkosVaultMetadataData.Type;
+
+/** Map the executor's (tenant, subject?) binding onto the storage `Owner`
+ *  literal: a bound subject writes the user's own partition, otherwise the
+ *  org-shared one. */
+const ownerOf = (binding: OwnerBinding): Owner =>
+  binding.subject == null ? Owner.make("org") : Owner.make("user");
+
 // ---------------------------------------------------------------------------
 // WorkosVaultStore — typed metadata-store the plugin uses internally.
+//
+// v2: keyed solely by the opaque `ProviderItemId`. Writes carry the executor's
+// `owner` (so plugin storage knows which partition to file under); reads/list
+// are not owner-filtered — the connection row that references the id owns the
+// partition.
 // ---------------------------------------------------------------------------
 
 export interface WorkosVaultStore {
-  readonly get: (id: string, scope: string) => Effect.Effect<MetadataRow | null, StorageFailure>;
+  readonly get: (id: string) => Effect.Effect<MetadataRow | null, StorageFailure>;
   readonly upsert: (row: MetadataRow) => Effect.Effect<void, StorageFailure>;
-  readonly remove: (id: string, scope: string) => Effect.Effect<boolean, StorageFailure>;
+  readonly remove: (id: string) => Effect.Effect<boolean, StorageFailure>;
   readonly list: () => Effect.Effect<readonly MetadataRow[], StorageFailure>;
 }
 
 export const makeWorkosVaultStore = (deps: StorageDeps): WorkosVaultStore => {
   const { pluginStorage } = deps;
+  const owner = ownerOf(deps.owner);
 
-  const findScoped = (id: string, scope: string) =>
+  const find = (id: string): Effect.Effect<MetadataRow | null, StorageFailure> =>
     pluginStorage
-      .getAtScope({ scope, collection: METADATA_COLLECTION, key: id })
-      .pipe(Effect.map((entry): MetadataRow | null => (entry ? entryToMetadataRow(entry) : null)));
+      .get({ collection: METADATA_COLLECTION, key: id })
+      .pipe(
+        Effect.map((entry: PluginStorageEntry | null): MetadataRow | null =>
+          entry ? entryToMetadataRow(entry) : null,
+        ),
+      );
 
   return {
-    get: (id, scope) => findScoped(id, scope),
-    upsert: (row) =>
+    get: (id: string) => find(id),
+    upsert: (row: MetadataRow) =>
       pluginStorage
         .put({
-          scope: row.scope_id,
+          owner,
           collection: METADATA_COLLECTION,
           key: row.id,
           data: metadataData(row),
         })
         .pipe(Effect.asVoid),
-    remove: (id, scope) =>
+    remove: (id: string) =>
       Effect.gen(function* () {
-        const existing = yield* findScoped(id, scope);
+        const existing = yield* find(id);
         if (!existing) return false;
-        yield* pluginStorage.remove({ scope, collection: METADATA_COLLECTION, key: id });
+        yield* pluginStorage.remove({ owner, collection: METADATA_COLLECTION, key: id });
         return true;
       }),
     list: () =>
       pluginStorage.list({ collection: METADATA_COLLECTION }).pipe(
-        Effect.map((rows): readonly MetadataRow[] =>
+        Effect.map((rows: readonly PluginStorageEntry[]): readonly MetadataRow[] =>
           rows
             .map(entryToMetadataRow)
             .filter(Predicate.isNotNull)
-            .sort((l, r) => l.created_at.getTime() - r.created_at.getTime()),
+            .sort(
+              (l: MetadataRow, r: MetadataRow) => l.created_at.getTime() - r.created_at.getTime(),
+            ),
         ),
       ),
   };
 };
 
 // ---------------------------------------------------------------------------
-// Vault helpers — scope-prefixed object naming + 409-retry upsert.
+// Vault helpers — opaque-id object naming + 409-retry upsert.
+//
+// v2: the object name is derived solely from the opaque provider item id; the
+// scope segment (and its legacy unencoded fallback) is gone. We still
+// URL-encode the id segment because opaque ids can carry `/`, `:`, etc.
 // ---------------------------------------------------------------------------
 
 const isStatusError = (error: WorkOSVaultClientError, status: number): boolean =>
@@ -135,83 +170,36 @@ const isStatusError = (error: WorkOSVaultClientError, status: number): boolean =
 const isKekNotReadyError = (error: WorkOSVaultClientError): boolean =>
   error.retryKind === "kek_not_ready";
 
-// Default context builder. Each semantic piece of a scope id lives in
-// its own vault-context key so WorkOS's KEK matcher sees individual
-// dimensions (org, user) rather than a single opaque compound string.
-// Splitting also sidesteps the "KEK was created but is not yet ready"
-// hang we hit when a context value contained `:` — per-field values are
-// colon-free by construction.
-//
-// Cloud's scope ids are either:
-//   - `user-org:<userId>:<orgId>`  → per-user-within-org scope
-//   - `<orgId>`                    → bare org scope
-//
-// Callers with other scope shapes can override via
-// `WorkOSVaultSecretProviderOptions.contextForScope`.
-export type WorkOSVaultContextForScope = (scopeId: string) => Record<string, string>;
-
-export const defaultWorkOSVaultContextForScope: WorkOSVaultContextForScope = (scopeId) => {
-  // Parser is single-sourced in `@executor-js/sdk` alongside the producer
-  // (`userOrgScopeId` / `makeUserOrgScopeStack`), so the id shape the host apps
-  // emit and the shape we split here cannot drift.
-  const parsed = parseUserOrgScopeId(scopeId);
-  const base: Record<string, string> = {
-    app: "executor",
-    organization_id: parsed ? parsed.organizationId : scopeId,
-  };
-  if (parsed) base.user_id = parsed.userId;
-  return base;
-};
-
 const encodeObjectNameSegment = (segment: string): string => encodeURIComponent(segment);
 
-const secretObjectName = (prefix: string, scopeId: string, secretId: string): string =>
-  `${prefix}/${encodeObjectNameSegment(scopeId)}/secrets/${encodeObjectNameSegment(secretId)}`;
-
-const legacySecretObjectName = (prefix: string, scopeId: string, secretId: string): string =>
-  `${prefix}/${scopeId}/secrets/${secretId}`;
+const secretObjectName = (prefix: string, secretId: string): string =>
+  `${prefix}/secrets/${encodeObjectNameSegment(secretId)}`;
 
 const loadSecretObject = (
   client: WorkOSVaultClient,
   prefix: string,
-  scopeId: string,
   secretId: string,
 ): Effect.Effect<WorkOSVaultObject | null, WorkOSVaultClientError, never> =>
-  client.readObjectByName(secretObjectName(prefix, scopeId, secretId)).pipe(
+  client.readObjectByName(secretObjectName(prefix, secretId)).pipe(
     Effect.catch((error: WorkOSVaultClientError) => {
-      if (isStatusError(error, 400)) return Effect.succeed(null);
-      if (!isStatusError(error, 404)) return Effect.fail(error);
-
-      const encodedName = secretObjectName(prefix, scopeId, secretId);
-      const legacyName = legacySecretObjectName(prefix, scopeId, secretId);
-      if (legacyName === encodedName) return Effect.succeed(null);
-
-      return client
-        .readObjectByName(legacyName)
-        .pipe(
-          Effect.catch((legacyError: WorkOSVaultClientError) =>
-            isStatusError(legacyError, 404) || isStatusError(legacyError, 400)
-              ? Effect.succeed(null)
-              : Effect.fail(legacyError),
-          ),
-        );
+      // 400 (invalid name) and 404 (absent) both mean "no value here".
+      if (isStatusError(error, 400) || isStatusError(error, 404)) return Effect.succeed(null);
+      return Effect.fail(error);
     }),
   );
 
 const upsertSecretValue = (
   client: WorkOSVaultClient,
   prefix: string,
-  scopeId: string,
   secretId: string,
   value: string,
-  contextForScope: WorkOSVaultContextForScope,
 ): Effect.Effect<void, WorkOSVaultClientError, never> => {
   const attemptWrite = (
     remainingConflictAttempts: number,
     remainingKekAttempts: number,
   ): Effect.Effect<void, WorkOSVaultClientError, never> =>
     Effect.gen(function* () {
-      const existing = yield* loadSecretObject(client, prefix, scopeId, secretId);
+      const existing = yield* loadSecretObject(client, prefix, secretId);
 
       if (existing) {
         yield* client.updateObject({
@@ -223,9 +211,9 @@ const upsertSecretValue = (
       }
 
       yield* client.createObject({
-        name: secretObjectName(prefix, scopeId, secretId),
+        name: secretObjectName(prefix, secretId),
         value,
-        context: contextForScope(scopeId),
+        context: VAULT_CONTEXT,
       });
     }).pipe(
       Effect.catch((error: WorkOSVaultClientError) => {
@@ -234,7 +222,7 @@ const upsertSecretValue = (
         }
         if (remainingKekAttempts > 1 && isKekNotReadyError(error)) {
           console.warn(
-            `[workos-vault] KEK not ready for scope=${scopeId} secret=${secretId} — ` +
+            `[workos-vault] KEK not ready for secret=${secretId} — ` +
               `retrying in ${KEK_NOT_READY_BACKOFF_MS}ms ` +
               `(${MAX_KEK_NOT_READY_ATTEMPTS - remainingKekAttempts + 1}/${MAX_KEK_NOT_READY_ATTEMPTS})`,
           );
@@ -245,7 +233,7 @@ const upsertSecretValue = (
         if (isKekNotReadyError(error)) {
           console.error(
             `[workos-vault] KEK still not ready after ${MAX_KEK_NOT_READY_ATTEMPTS} attempts ` +
-              `for scope=${scopeId} secret=${secretId}; giving up.`,
+              `for secret=${secretId}; giving up.`,
           );
         }
         return Effect.fail(error);
@@ -258,55 +246,48 @@ const upsertSecretValue = (
 const deleteSecretValue = (
   client: WorkOSVaultClient,
   prefix: string,
-  scopeId: string,
   secretId: string,
 ): Effect.Effect<boolean, WorkOSVaultClientError, never> =>
   Effect.gen(function* () {
-    const existing = yield* loadSecretObject(client, prefix, scopeId, secretId);
+    const existing = yield* loadSecretObject(client, prefix, secretId);
     if (!existing) return false;
     yield* client.deleteObject({ id: existing.id });
     return true;
   });
 
 // ---------------------------------------------------------------------------
-// makeWorkOSVaultSecretProvider — builds a SecretProvider backed by
+// makeWorkOSVaultCredentialProvider — builds a CredentialProvider backed by
 // WorkOS Vault for values and the plugin's own metadata table for
 // names/purpose/createdAt.
+//
+// v2: the provider sees only an opaque `ProviderItemId` — there is NO scope
+// arg. The connection row that references the id owns the (tenant, owner,
+// subject) partition. `delete` returns void; absence is not an error.
 // ---------------------------------------------------------------------------
 
-export interface WorkOSVaultSecretProviderOptions {
+export interface WorkOSVaultCredentialProviderOptions {
   readonly client: WorkOSVaultClient;
   readonly store: WorkosVaultStore;
   readonly objectPrefix?: string;
-  /**
-   * Build the vault `context` map from an executor scope id. Each key
-   * in the returned map becomes an independent dimension WorkOS uses
-   * for KEK matching, so splitting compound scope ids into their
-   * constituent fields (user/org) keeps per-KEK granularity aligned
-   * with the real identities rather than an opaque compound string.
-   * Defaults to `defaultWorkOSVaultContextForScope`.
-   */
-  readonly contextForScope?: WorkOSVaultContextForScope;
 }
 
-export const makeWorkOSVaultSecretProvider = (
-  options: WorkOSVaultSecretProviderOptions,
-): SecretProvider => {
+export const makeWorkOSVaultCredentialProvider = (
+  options: WorkOSVaultCredentialProviderOptions,
+): CredentialProvider => {
   const prefix = options.objectPrefix ?? DEFAULT_OBJECT_PREFIX;
-  const contextForScope = options.contextForScope ?? defaultWorkOSVaultContextForScope;
   const { client, store } = options;
 
   return {
     key: WORKOS_VAULT_PROVIDER_KEY,
     writable: true,
 
-    get: (id, scope) =>
+    get: (id: ProviderItemId) =>
       Effect.gen(function* () {
-        const meta = yield* store.get(id, scope);
+        const meta = yield* store.get(id);
         if (!meta) return null;
-        const object = yield* loadSecretObject(client, prefix, scope, id).pipe(
+        const object = yield* loadSecretObject(client, prefix, id).pipe(
           Effect.mapError(
-            (error) =>
+            (error: WorkOSVaultClientError) =>
               new StorageError({
                 message: "WorkOS Vault secret read failed",
                 cause: error,
@@ -317,12 +298,14 @@ export const makeWorkOSVaultSecretProvider = (
         return object.value;
       }),
 
-    set: (id, value, scope) =>
+    has: (id: ProviderItemId) => store.get(id).pipe(Effect.map((meta) => meta !== null)),
+
+    set: (id: ProviderItemId, value: string) =>
       Effect.gen(function* () {
-        const existing = yield* store.get(id, scope);
-        yield* upsertSecretValue(client, prefix, scope, id, value, contextForScope).pipe(
+        const existing = yield* store.get(id);
+        yield* upsertSecretValue(client, prefix, id, value).pipe(
           Effect.mapError(
-            (error) =>
+            (error: WorkOSVaultClientError) =>
               new StorageError({
                 message: "WorkOS Vault secret write failed",
                 cause: error,
@@ -331,31 +314,35 @@ export const makeWorkOSVaultSecretProvider = (
         );
         yield* store.upsert({
           id,
-          scope_id: scope,
           name: existing?.name ?? id,
           purpose: existing?.purpose ?? null,
           created_at: existing?.created_at ?? new Date(),
         });
       }),
 
-    delete: (id, scope) =>
+    delete: (id: ProviderItemId) =>
       Effect.gen(function* () {
-        const meta = yield* store.get(id, scope);
-        if (!meta) return false;
-        yield* deleteSecretValue(client, prefix, scope, id).pipe(
+        const meta = yield* store.get(id);
+        if (!meta) return;
+        yield* deleteSecretValue(client, prefix, id).pipe(
           Effect.mapError(
-            (error) =>
+            (error: WorkOSVaultClientError) =>
               new StorageError({
                 message: "WorkOS Vault secret delete failed",
                 cause: error,
               }),
           ),
         );
-        yield* store.remove(id, scope);
-        return true;
+        yield* store.remove(id);
       }),
 
     list: () =>
-      store.list().pipe(Effect.map((rows) => rows.map((r) => ({ id: r.id, name: r.name })))),
+      store
+        .list()
+        .pipe(
+          Effect.map((rows: readonly MetadataRow[]) =>
+            rows.map((r: MetadataRow) => ({ id: ProviderItemId.make(r.id), name: r.name })),
+          ),
+        ),
   };
 };

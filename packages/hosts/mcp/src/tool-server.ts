@@ -52,7 +52,7 @@ type SharedMcpServerConfig = {
    * Pre-built `execute` tool description. When provided, the factory skips
    * its internal `engine.getDescription` yield. Useful when the caller
    * wants to compute the description inside its own Effect tracer context
-   * so sub-spans (`executor.sources.list`, `executor.tools.list`) nest as
+   * so sub-spans (`executor.integrations.list`, `executor.tools.list`) nest as
    * children of the caller's root span.
    */
   readonly description?: string;

@@ -1,10 +1,4 @@
-import { Effect, Schema } from "effect";
-import {
-  ConfiguredCredentialValue,
-  credentialSlotKey,
-  SecretBackedValue,
-} from "@executor-js/sdk/shared";
-import { HttpConfiguredValueInput, HttpCredentialInput } from "@executor-js/sdk/http-source";
+import { Schema } from "effect";
 
 // ---------------------------------------------------------------------------
 // GraphQL operation kind
@@ -61,68 +55,77 @@ export const OperationBinding = Schema.Struct({
 export type OperationBinding = typeof OperationBinding.Type;
 
 // ---------------------------------------------------------------------------
+// Authentication template (v2)
+//
+// The integration's `config.authenticationTemplate` describes WHERE a
+// connection's resolved value is applied: an apiKey header / query param (with
+// an optional prefix like `Bearer `) or an OAuth bearer header. There are no
+// secret slots and no credential bindings — a connection IS the credential, and
+// the plugin renders `credential.value` onto the request through the template
+// matched by `credential.template` (D11: "auth state derived into the
+// auth-template format" — an OAuth access token renders exactly like an apiKey
+// bearer).
+// ---------------------------------------------------------------------------
+
+/** An apiKey-style template: place the value in a header or query parameter,
+ *  optionally prefixed (e.g. `Bearer `). */
+export const ApiKeyAuthTemplate = Schema.Struct({
+  kind: Schema.Literal("apiKey"),
+  /** The template slug a connection references via `connection.template`. */
+  slug: Schema.String,
+  in: Schema.Literals(["header", "query"]),
+  /** The header / query-parameter name the value is written to. */
+  name: Schema.String,
+  /** Optional prefix prepended to the value (e.g. `Bearer `). */
+  prefix: Schema.optional(Schema.String),
+});
+export type ApiKeyAuthTemplate = typeof ApiKeyAuthTemplate.Type;
+
+/** An OAuth bearer template: write `Authorization: Bearer <access-token>`. The
+ *  resolved (and refreshed) access token is `credential.value`. */
+export const OAuthAuthTemplate = Schema.Struct({
+  kind: Schema.Literal("oauth2"),
+  slug: Schema.String,
+  /** The header to write the bearer token to. Defaults to `Authorization`. */
+  header: Schema.optional(Schema.String),
+  /** The token prefix. Defaults to `Bearer `. */
+  prefix: Schema.optional(Schema.String),
+});
+export type OAuthAuthTemplate = typeof OAuthAuthTemplate.Type;
+
+export const AuthTemplate = Schema.Union([ApiKeyAuthTemplate, OAuthAuthTemplate]);
+export type AuthTemplate = typeof AuthTemplate.Type;
+
+// ---------------------------------------------------------------------------
+// Integration config — the opaque-to-core blob the graphql plugin stores on the
+// integration row. Holds everything `resolveTools` (introspection) and
+// `invokeTool` (request building + auth rendering) need.
+// ---------------------------------------------------------------------------
+
+export const GraphqlIntegrationConfig = Schema.Struct({
+  /** The GraphQL endpoint URL. */
+  endpoint: Schema.String,
+  /** Display name for the integration. */
+  name: Schema.String,
+  /** Optional introspection JSON text (when the endpoint doesn't support
+   *  live introspection). */
+  introspectionJson: Schema.optional(Schema.String),
+  /** Static headers applied to every request (and to add-time introspection). */
+  headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  /** Static query parameters applied to every request. */
+  queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  /** Auth methods a connection can be applied through. */
+  authenticationTemplate: Schema.Array(AuthTemplate),
+});
+export type GraphqlIntegrationConfig = typeof GraphqlIntegrationConfig.Type;
+
+export const decodeGraphqlIntegrationConfig = Schema.decodeUnknownEffect(GraphqlIntegrationConfig);
+export const decodeGraphqlIntegrationConfigOption =
+  Schema.decodeUnknownOption(GraphqlIntegrationConfig);
+
+// ---------------------------------------------------------------------------
 // Invocation
 // ---------------------------------------------------------------------------
-
-export const HeaderValue = SecretBackedValue;
-export type HeaderValue = typeof HeaderValue.Type;
-export const QueryParamValue = HeaderValue;
-export type QueryParamValue = typeof QueryParamValue.Type;
-
-export const ConfiguredGraphqlCredentialValue = ConfiguredCredentialValue;
-export type ConfiguredGraphqlCredentialValue = typeof ConfiguredGraphqlCredentialValue.Type;
-export const GraphqlConfiguredValueInput = HttpConfiguredValueInput;
-export type GraphqlConfiguredValueInput = typeof GraphqlConfiguredValueInput.Type;
-export const GraphqlCredentialInput = HttpCredentialInput;
-export type GraphqlCredentialInput = typeof GraphqlCredentialInput.Type;
-
-export const graphqlHeaderSlot = (name: string): string => credentialSlotKey("header", name);
-export const graphqlQueryParamSlot = (name: string): string =>
-  credentialSlotKey("query_param", name);
-export const GRAPHQL_OAUTH_CONNECTION_SLOT = "auth:oauth2:connection";
-
-// ---------------------------------------------------------------------------
-// Source auth
-// ---------------------------------------------------------------------------
-
-export const GraphqlSourceAuth = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("none") }),
-  Schema.Struct({
-    kind: Schema.Literal("oauth2"),
-    connectionSlot: Schema.String,
-  }),
-]);
-export type GraphqlSourceAuth = typeof GraphqlSourceAuth.Type;
-
-export const GraphqlSourceAuthInput = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("none"),
-  }),
-  Schema.Struct({
-    oauth2: Schema.optional(
-      Schema.Struct({
-        connection: Schema.optional(HttpCredentialInput),
-      }),
-    ),
-  }),
-]);
-export type GraphqlSourceAuthInput = typeof GraphqlSourceAuthInput.Type;
-
-export const InvocationConfig = Schema.Struct({
-  /** The GraphQL endpoint URL */
-  endpoint: Schema.String,
-  /** Headers applied to every request. Values can reference secrets. */
-  headers: Schema.Record(Schema.String, ConfiguredGraphqlCredentialValue).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-    Schema.withConstructorDefault(Effect.succeed({})),
-  ),
-  /** Query parameters applied to every request. Values can reference secrets. */
-  queryParams: Schema.Record(Schema.String, ConfiguredGraphqlCredentialValue).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-    Schema.withConstructorDefault(Effect.succeed({})),
-  ),
-});
-export type InvocationConfig = typeof InvocationConfig.Type;
 
 export const InvocationResult = Schema.Struct({
   status: Schema.Number,

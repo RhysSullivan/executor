@@ -1,33 +1,40 @@
+// oxlint-disable executor/no-try-catch-or-throw -- boundary: the fake WorkOS Vault client below simulates the real promise SDK, which throws to signal API errors
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-/* oxlint-disable executor/no-try-catch-or-throw -- boundary: fake WorkOS Promise client throws SDK-like errors so wrapper behavior can be tested */
+import {
+  Owner,
+  type OwnerBinding,
+  type PluginStorageEntry,
+  ProviderItemId,
+  type StorageDeps,
+  Subject,
+  Tenant,
+} from "@executor-js/sdk/core";
 
 import {
-  createExecutor,
-  RemoveSecretInput,
-  Scope,
-  ScopeId,
-  SecretId,
-  SetSecretInput,
-} from "@executor-js/sdk";
-import { makeTestConfig, makeTestExecutor } from "@executor-js/sdk/testing";
-
-import {
-  WorkOSVaultClientError,
   type WorkOSVaultClient,
+  WorkOSVaultClientError,
   type WorkOSVaultObject,
   type WorkOSVaultObjectMetadata,
+  type WorkOSVaultPromiseApi,
 } from "./client";
-import { workosVaultPlugin } from "./plugin";
+import { makeWorkOSVaultCredentialProvider, makeWorkosVaultStore } from "./secret-store";
 
-interface VaultMetadataStorageRow {
-  readonly key: string;
-  readonly scope_id: string;
-}
+// removed: the prior suite drove the provider through `executor.secrets.*`,
+// `ScopeId`, `Scope`, and `SetSecretInput`/`RemoveSecretInput`. v2 deletes the
+// secrets facade and the scope stack — the provider IS the credential backend
+// and is exercised directly through its `CredentialProvider` surface, keyed by
+// an opaque `ProviderItemId`. The multi-scope isolation and KEK-context suites
+// are gone with it: the connection row now owns the (tenant, owner, subject)
+// partition and the provider no longer derives a vault context from a scope id.
 
-const toVaultMetadataStorageRows = (rows: unknown): readonly VaultMetadataStorageRow[] =>
-  rows as readonly VaultMetadataStorageRow[];
+// ---------------------------------------------------------------------------
+// Fake WorkOS Vault client — in-memory, mirrors the Effect-shaped surface of
+// the real client. Errors carry a numeric `status` on `cause` so the
+// production `isStatusError` checks in `secret-store.ts` match the same
+// 404/409/400 paths the real SDK exercises.
+// ---------------------------------------------------------------------------
 
 class FakeNotFoundError extends Error {
   readonly status = 404;
@@ -69,7 +76,7 @@ const makeFakeClient = (options?: {
   ): Effect.Effect<A, WorkOSVaultClientError, never> =>
     Effect.tryPromise({
       try: fn,
-      catch: (cause) => new WorkOSVaultClientError({ cause, operation }),
+      catch: (cause: unknown) => new WorkOSVaultClientError({ cause, operation }),
     });
 
   const rawClient = {
@@ -118,7 +125,7 @@ const makeFakeClient = (options?: {
       readonly value: string;
       readonly versionCheck?: string;
     }) => {
-      const current = [...objects.values()].find((o) => o.id === id);
+      const current = [...objects.values()].find((o: WorkOSVaultObject) => o.id === id);
       if (!current) throw new FakeNotFoundError(`Object "${id}" not found`);
       if (conflictPending && current.name.endsWith("/secrets/conflict")) {
         conflictPending = false;
@@ -129,7 +136,7 @@ const makeFakeClient = (options?: {
       }
       const nextVersion = current.metadata.versionId.replace(
         /v(\d+)$/,
-        (_, version) => `v${Number(version) + 1}`,
+        (_: string, version: string) => `v${Number(version) + 1}`,
       );
       const next: WorkOSVaultObject = {
         ...current,
@@ -145,17 +152,19 @@ const makeFakeClient = (options?: {
     },
 
     deleteObject: async ({ id }: { readonly id: string }) => {
-      const entry = [...objects.entries()].find(([, o]) => o.id === id);
+      const entry = [...objects.entries()].find(
+        ([, o]: [string, WorkOSVaultObject]) => o.id === id,
+      );
       if (!entry) throw new FakeNotFoundError(`Object "${id}" not found`);
       objects.delete(entry[0]);
     },
   };
 
   return {
-    use: (operation, fn) =>
+    use: <A>(operation: string, fn: (client: WorkOSVaultPromiseApi) => Promise<A>) =>
       Effect.tryPromise({
         try: () => fn(rawClient),
-        catch: (cause) => new WorkOSVaultClientError({ cause, operation }),
+        catch: (cause: unknown) => new WorkOSVaultClientError({ cause, operation }),
       }),
     createObject: (opts) => wrap("create_object", () => rawClient.createObject(opts)),
     readObjectByName: (name) => wrap("read_object_by_name", () => rawClient.readObjectByName(name)),
@@ -164,398 +173,204 @@ const makeFakeClient = (options?: {
   };
 };
 
-const makeExecutor = (client: WorkOSVaultClient) =>
-  makeTestExecutor({ plugins: [workosVaultPlugin({ client })] as const });
+// ---------------------------------------------------------------------------
+// Fake plugin storage — owner-partitioned in-memory map, enough to back the
+// metadata store. v2 writes carry an `owner`; reads/list are not owner-filtered.
+// ---------------------------------------------------------------------------
 
-describe("WorkOS Vault secret provider", () => {
-  it.effect("stores and resolves secrets through WorkOS Vault", () =>
+const makeFakeStorageDeps = (binding: OwnerBinding): StorageDeps => {
+  const rows = new Map<string, { owner: Owner; collection: string; key: string; data: unknown }>();
+  const composite = (collection: string, key: string) => `${collection} ${key}`;
+  const toEntry = (row: {
+    owner: Owner;
+    collection: string;
+    key: string;
+    data: unknown;
+  }): PluginStorageEntry => ({
+    id: composite(row.collection, row.key),
+    owner: row.owner,
+    pluginId: "workosVault",
+    collection: row.collection,
+    key: row.key,
+    data: row.data,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  });
+
+  const pluginStorage = {
+    collection: () =>
+      expect.unreachable("collection() not used by the workos-vault metadata store"),
+    get: (input: { collection: string; key: string }) =>
+      Effect.sync(() => {
+        const row = rows.get(composite(input.collection, input.key));
+        return row ? (toEntry(row) as never) : null;
+      }),
+    getForOwner: (input: { collection: string; key: string; owner: Owner }) =>
+      Effect.sync(() => {
+        const row = rows.get(composite(input.collection, input.key));
+        return row && row.owner === input.owner ? (toEntry(row) as never) : null;
+      }),
+    list: (input: { collection: string }) =>
+      Effect.sync(
+        () =>
+          [...rows.values()]
+            .filter((row) => row.collection === input.collection)
+            .map((row) => toEntry(row)) as never,
+      ),
+    put: (input: { collection: string; key: string; owner: Owner; data: unknown }) =>
+      Effect.sync(() => {
+        const row = {
+          owner: input.owner,
+          collection: input.collection,
+          key: input.key,
+          data: input.data,
+        };
+        rows.set(composite(input.collection, input.key), row);
+        return toEntry(row) as never;
+      }),
+    remove: (input: { collection: string; key: string; owner: Owner }) =>
+      Effect.sync(() => {
+        rows.delete(composite(input.collection, input.key));
+      }),
+  };
+
+  return {
+    owner: binding,
+    // oxlint-disable-next-line executor/no-double-cast -- test boundary: blobs unused by the metadata store
+    blobs: undefined as never,
+    // oxlint-disable-next-line executor/no-double-cast -- test boundary: minimal PluginStorageFacade fake for the metadata store under test
+    pluginStorage: pluginStorage as never,
+  };
+};
+
+const orgBinding: OwnerBinding = { tenant: Tenant.make("tenant-a"), subject: null };
+
+const makeProvider = (
+  client: WorkOSVaultClient,
+  binding: OwnerBinding = orgBinding,
+): ReturnType<typeof makeWorkOSVaultCredentialProvider> => {
+  const deps = makeFakeStorageDeps(binding);
+  const store = makeWorkosVaultStore(deps);
+  return makeWorkOSVaultCredentialProvider({ client, store });
+};
+
+const id = (value: string) => ProviderItemId.make(value);
+
+describe("WorkOS Vault credential provider", () => {
+  it.effect("stores and resolves values through WorkOS Vault", () =>
     Effect.gen(function* () {
-      const executor = yield* makeExecutor(makeFakeClient());
+      const provider = makeProvider(makeFakeClient());
 
-      yield* executor.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("github-token"),
-          scope: ScopeId.make("test-scope"),
-          name: "GitHub Token",
-          value: "ghp_secret",
-        }),
-      );
+      yield* provider.set!(id("github-token"), "ghp_secret");
 
-      expect(yield* executor.secrets.get("github-token")).toBe("ghp_secret");
-      expect(executor.workosVault.providerKey).toBe("workos-vault");
+      expect(yield* provider.get(id("github-token"))).toBe("ghp_secret");
+      expect(provider.key).toBe("workos-vault");
 
-      const listed = yield* executor.secrets.list();
+      const listed = yield* provider.list!();
       expect(listed).toHaveLength(1);
-      expect(listed[0]!.name).toBe("GitHub Token");
-      expect(listed[0]!.provider).toBe("workos-vault");
+      expect(listed[0]!.id).toBe("github-token");
     }),
   );
 
-  it.effect("updates metadata and secret values in place", () =>
+  it.effect("updates values in place", () =>
     Effect.gen(function* () {
-      const executor = yield* makeExecutor(makeFakeClient());
+      const provider = makeProvider(makeFakeClient());
 
-      yield* executor.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-key"),
-          scope: ScopeId.make("test-scope"),
-          name: "Initial",
-          value: "v1",
-        }),
-      );
+      yield* provider.set!(id("api-key"), "v1");
+      yield* provider.set!(id("api-key"), "v2");
 
-      yield* executor.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-key"),
-          scope: ScopeId.make("test-scope"),
-          name: "Updated",
-          value: "v2",
-        }),
-      );
-
-      expect(yield* executor.secrets.get("api-key")).toBe("v2");
-
-      const listed = yield* executor.secrets.list();
-      expect(listed).toHaveLength(1);
-      expect(listed[0]!.name).toBe("Updated");
+      expect(yield* provider.get(id("api-key"))).toBe("v2");
+      expect(yield* provider.list!()).toHaveLength(1);
     }),
   );
 
-  it.effect("removes secrets from Vault and metadata store", () =>
+  it.effect("get returns null for an unknown id", () =>
     Effect.gen(function* () {
-      const executor = yield* makeExecutor(makeFakeClient());
-
-      yield* executor.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("remove-me"),
-          scope: ScopeId.make("test-scope"),
-          name: "Remove Me",
-          value: "gone soon",
-        }),
-      );
-
-      expect(yield* executor.secrets.get("remove-me")).toBe("gone soon");
-
-      yield* executor.secrets.remove(
-        RemoveSecretInput.make({
-          id: SecretId.make("remove-me"),
-          targetScope: ScopeId.make("test-scope"),
-        }),
-      );
-
-      expect(yield* executor.secrets.get("remove-me")).toBeNull();
-      expect(yield* executor.secrets.list()).toHaveLength(0);
+      const provider = makeProvider(makeFakeClient());
+      expect(yield* provider.get(id("absent"))).toBeNull();
     }),
   );
 
-  it.effect("treats invalid Vault object names as missing during removal", () =>
+  it.effect("has reflects presence", () =>
     Effect.gen(function* () {
-      const client = makeFakeClient({ rejectReadNamesLongerThan: 80 });
-      const executor = yield* makeExecutor(client);
-      const longSecretId = SecretId.make(
+      const provider = makeProvider(makeFakeClient());
+      expect(yield* provider.has!(id("k"))).toBe(false);
+      yield* provider.set!(id("k"), "v");
+      expect(yield* provider.has!(id("k"))).toBe(true);
+    }),
+  );
+
+  it.effect("removes values from Vault and the metadata store", () =>
+    Effect.gen(function* () {
+      const provider = makeProvider(makeFakeClient());
+
+      yield* provider.set!(id("remove-me"), "gone soon");
+      expect(yield* provider.get(id("remove-me"))).toBe("gone soon");
+
+      yield* provider.delete!(id("remove-me"));
+
+      expect(yield* provider.get(id("remove-me"))).toBeNull();
+      expect(yield* provider.list!()).toHaveLength(0);
+
+      // delete is idempotent and returns void; deleting an absent id is a no-op.
+      yield* provider.delete!(id("remove-me"));
+      expect(yield* provider.has!(id("remove-me"))).toBe(false);
+    }),
+  );
+
+  it.effect("treats invalid Vault object names as missing on read", () =>
+    Effect.gen(function* () {
+      // A read for a name longer than the cap returns 400; the provider must
+      // treat that as "no value" rather than failing.
+      const provider = makeProvider(makeFakeClient({ rejectReadNamesLongerThan: 40 }));
+      const longId = id(
         "openapi-oauth-example-api-oauth2-user-org-user-01kp6xm1zpvqvtpj77f0yv4eax.access_token",
       );
 
-      yield* executor.secrets.set(
-        SetSecretInput.make({
-          id: longSecretId,
-          scope: ScopeId.make("test-scope"),
-          name: "Long connection token",
-          value: "token",
-        }),
-      );
+      yield* provider.set!(longId, "token");
+      // The metadata row exists; the vault value read is treated as missing.
+      expect(yield* provider.get(longId)).toBeNull();
 
-      yield* executor.secrets.remove(
-        RemoveSecretInput.make({
-          id: longSecretId,
-          targetScope: ScopeId.make("test-scope"),
-        }),
-      );
-
-      expect(yield* executor.secrets.list()).toHaveLength(0);
+      yield* provider.delete!(longId);
+      expect(yield* provider.list!()).toHaveLength(0);
     }),
   );
 
-  it.effect("retries secret value writes on 409 version conflicts", () =>
+  it.effect("retries value writes on 409 version conflicts", () =>
     Effect.gen(function* () {
-      const executor = yield* makeExecutor(makeFakeClient({ conflictOnNextSecretUpdate: true }));
+      const provider = makeProvider(makeFakeClient({ conflictOnNextSecretUpdate: true }));
 
-      yield* executor.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("conflict"),
-          scope: ScopeId.make("test-scope"),
-          name: "Conflict",
-          value: "initial",
-        }),
-      );
+      yield* provider.set!(id("conflict"), "initial");
+      yield* provider.set!(id("conflict"), "retry-me");
 
-      yield* executor.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("conflict"),
-          scope: ScopeId.make("test-scope"),
-          name: "Conflict",
-          value: "retry-me",
-        }),
-      );
-
-      expect(yield* executor.secrets.get("conflict")).toBe("retry-me");
-
-      const listed = yield* executor.secrets.list();
-      expect(listed.map((s) => s.id)).toEqual(["conflict"]);
-    }),
-  );
-});
-
-const makeLayeredExecutors = (client: WorkOSVaultClient) =>
-  Effect.gen(function* () {
-    const plugins = [workosVaultPlugin({ client })] as const;
-
-    const outerId = ScopeId.make("org");
-    const innerId = ScopeId.make("user-org:u1:org");
-    const outerScope = Scope.make({
-      id: outerId,
-      name: "outer",
-      createdAt: new Date(),
-    });
-    const innerScope = Scope.make({
-      id: innerId,
-      name: "inner",
-      createdAt: new Date(),
-    });
-
-    const config = makeTestConfig({ scopes: [innerScope, outerScope], plugins });
-    const execOuter = yield* createExecutor({ ...config, scopes: [outerScope] });
-    const execInner = yield* createExecutor({ ...config, scopes: [innerScope, outerScope] });
-    return { execOuter, execInner, outerId, innerId, config };
-  });
-
-describe("WorkOS Vault secret provider — multi-scope isolation", () => {
-  it.effect("encodes personal scope ids before using them in Vault object names", () =>
-    Effect.gen(function* () {
-      const client = makeFakeClient({ rejectNamesWithColon: true });
-      const { execInner, innerId } = yield* makeLayeredExecutors(client);
-
-      yield* execInner.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: innerId,
-          name: "Personal token",
-          value: "personal",
-        }),
-      );
-
-      expect(yield* execInner.secrets.get("api-token")).toBe("personal");
+      expect(yield* provider.get(id("conflict"))).toBe("retry-me");
+      expect((yield* provider.list!()).map((s) => s.id)).toEqual(["conflict"]);
     }),
   );
 
-  it.effect("secrets.remove at the inner scope does not wipe outer-scope metadata", () =>
+  it.effect("encodes ids with colons before using them in Vault object names", () =>
     Effect.gen(function* () {
-      const client = makeFakeClient();
-      const { execOuter, execInner, outerId, innerId } = yield* makeLayeredExecutors(client);
+      // The object name URL-encodes the id segment, so a colon-bearing id never
+      // reaches the vault as a raw `:` (which the fake rejects with a 400).
+      const provider = makeProvider(makeFakeClient({ rejectNamesWithColon: true }));
 
-      yield* execOuter.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: outerId,
-          name: "Org default",
-          value: "org-default",
-        }),
-      );
-      yield* execInner.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: innerId,
-          name: "Personal override",
-          value: "personal-override",
-        }),
-      );
-
-      yield* execInner.secrets.remove(
-        RemoveSecretInput.make({
-          id: SecretId.make("api-token"),
-          targetScope: innerId,
-        }),
-      );
-
-      const outer = yield* execOuter.secrets.list();
-      expect(outer.map((r) => r.id)).toContain("api-token");
-      expect(yield* execOuter.secrets.get("api-token")).toBe("org-default");
+      yield* provider.set!(id("user-org:u1:org42"), "personal");
+      expect(yield* provider.get(id("user-org:u1:org42"))).toBe("personal");
     }),
   );
 
-  it.effect("shadowed `set` produces independent metadata rows per scope", () =>
+  it.effect("files metadata under the executor owner binding", () =>
     Effect.gen(function* () {
-      const client = makeFakeClient();
-      const { execOuter, execInner, outerId, innerId, config } =
-        yield* makeLayeredExecutors(client);
-
-      yield* execOuter.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: outerId,
-          name: "Org default",
-          value: "org-default",
-        }),
-      );
-      yield* execInner.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: innerId,
-          name: "Personal override",
-          value: "personal-override",
-        }),
-      );
-
-      const rows = toVaultMetadataStorageRows(
-        yield* Effect.promise(() =>
-          config.db.findMany("plugin_storage", {
-            where: (b) =>
-              b.and(
-                b("plugin_id", "=", "workosVault"),
-                b("collection", "=", "metadata"),
-                b("key", "=", "api-token"),
-              ),
-          }),
-        ),
-      );
-      expect(rows).toHaveLength(2);
-      const scopes = rows.map((r) => r.scope_id).sort();
-      expect(scopes).toEqual([outerId, innerId].sort());
-    }),
-  );
-
-  it.effect("list only includes metadata from the executor scope stack", () =>
-    Effect.gen(function* () {
-      const client = makeFakeClient();
-      const plugins = [workosVaultPlugin({ client })] as const;
-      const orgA = Scope.make({
-        id: ScopeId.make("org_a"),
-        name: "Org A",
-        createdAt: new Date(),
-      });
-      const orgB = Scope.make({
-        id: ScopeId.make("org_b"),
-        name: "Org B",
-        createdAt: new Date(),
-      });
-      const config = makeTestConfig({ scopes: [orgA], plugins });
-      const execA = yield* createExecutor({ ...config, scopes: [orgA] });
-      const execB = yield* createExecutor({ ...config, scopes: [orgB] });
-
-      yield* execA.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: orgA.id,
-          name: "Org A token",
-          value: "org-a-secret",
-        }),
-      );
-
-      expect((yield* execA.secrets.list()).map((row) => row.id)).toContain("api-token");
-      expect((yield* execB.secrets.list()).map((row) => row.id)).not.toContain("api-token");
-    }),
-  );
-
-  it.effect("shadowed secrets resolve independently per scope", () =>
-    Effect.gen(function* () {
-      const client = makeFakeClient();
-      const { execOuter, execInner, outerId, innerId } = yield* makeLayeredExecutors(client);
-
-      yield* execOuter.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: outerId,
-          name: "Org default",
-          value: "org-default",
-        }),
-      );
-      yield* execInner.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: innerId,
-          name: "Personal override",
-          value: "personal-override",
-        }),
-      );
-
-      expect(yield* execInner.secrets.get("api-token")).toBe("personal-override");
-      expect(yield* execOuter.secrets.get("api-token")).toBe("org-default");
-    }),
-  );
-});
-
-const makeExecutorForScope = (client: WorkOSVaultClient, scopeId: string) =>
-  makeTestExecutor({
-    plugins: [workosVaultPlugin({ client })] as const,
-    scopes: [
-      Scope.make({
-        id: ScopeId.make(scopeId),
-        name: scopeId,
-        createdAt: new Date(),
-      }),
-    ],
-  });
-
-describe("WorkOS Vault secret provider — KEK context", () => {
-  it.effect(
-    "splits `user-org:<user>:<org>` scopes into `user_id` + `organization_id` context fields",
-    () =>
-      Effect.gen(function* () {
-        const contexts: Record<string, string>[] = [];
-        const fake = makeFakeClient();
-        const recording: WorkOSVaultClient = {
-          ...fake,
-          createObject: (opts) => {
-            contexts.push(opts.context);
-            return fake.createObject(opts);
-          },
-        };
-        const executor = yield* makeExecutorForScope(recording, "user-org:u1:org42");
-
-        yield* executor.secrets.set(
-          SetSecretInput.make({
-            id: SecretId.make("api-token"),
-            scope: ScopeId.make("user-org:u1:org42"),
-            name: "Personal",
-            value: "v",
-          }),
-        );
-
-        expect(contexts).toHaveLength(1);
-        expect(contexts[0]).toEqual({
-          app: "executor",
-          user_id: "u1",
-          organization_id: "org42",
-        });
-      }),
-  );
-
-  it.effect("falls back to `{app, organization_id: scopeId}` for bare scope ids", () =>
-    Effect.gen(function* () {
-      const contexts: Record<string, string>[] = [];
-      const fake = makeFakeClient();
-      const recording: WorkOSVaultClient = {
-        ...fake,
-        createObject: (opts) => {
-          contexts.push(opts.context);
-          return fake.createObject(opts);
-        },
+      // A bound subject writes the user partition; the provider still keys
+      // solely by the opaque id, so resolution is unchanged.
+      const userBinding: OwnerBinding = {
+        tenant: Tenant.make("tenant-a"),
+        subject: Subject.make("subject-a"),
       };
-      const executor = yield* makeExecutorForScope(recording, "org42");
+      const provider = makeProvider(makeFakeClient(), userBinding);
 
-      yield* executor.secrets.set(
-        SetSecretInput.make({
-          id: SecretId.make("api-token"),
-          scope: ScopeId.make("org42"),
-          name: "Org default",
-          value: "v",
-        }),
-      );
-
-      expect(contexts[0]).toEqual({
-        app: "executor",
-        organization_id: "org42",
-      });
+      yield* provider.set!(id("token"), "v");
+      expect(yield* provider.get(id("token"))).toBe("v");
     }),
   );
 });

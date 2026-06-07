@@ -4,9 +4,9 @@ Edit examples/docs-sdk-quickstart/src/main.ts between the docs:start/docs:end ma
 _/}
 
 ```ts
-const tools = await executor.tools.list({ sourceId: "inventory" });
+const tools = await executor.tools.list({ integration: "inventory" });
 
 for (const tool of tools) {
-  console.log(`${tool.id}: ${tool.description}`);
+  console.log(`${tool.address}: ${tool.description}`);
 }
 ```

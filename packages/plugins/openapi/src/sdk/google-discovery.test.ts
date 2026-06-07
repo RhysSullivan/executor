@@ -239,7 +239,12 @@ it.effect("converts Google Discovery documents into Executor-preserving OpenAPI 
       Draft: "{ id?: string; message?: Message; }",
       Message: "{ id?: string; labelIds?: string[]; }",
     });
-    expect(result.oauth2?.identityScopes).toEqual(["openid", "email", "profile"]);
+    // v2: the conversion now exposes a v2 oauth `authenticationTemplate` rather
+    // than v1's `oauth2` source config.
+    // removed: identityScopes assertion — that field belonged to the v1
+    // OAuth2SourceConfig slot model, which no longer exists in v2.
+    const oauthTemplate = result.authenticationTemplate?.find((entry) => entry.type === "oauth");
+    expect(oauthTemplate).toBeDefined();
   }),
 );
 
@@ -434,9 +439,166 @@ it.effect("bundles Google Discovery documents into one Google OpenAPI source", (
     expect(extractedGmail?.baseUrl).toBe("https://gmail.googleapis.com/");
     expect(extractedChatMessage?.pathTemplate).toBe("/v1/{+name}");
     expect(extractedChatMessage?.baseUrl).toBe("https://chat.googleapis.com/");
-    expect(result.oauth2?.scopes).toEqual([
+    // v2: the bundled oauth scopes are carried on the oauth auth template.
+    const oauthTemplate = result.authenticationTemplate?.find((entry) => entry.type === "oauth");
+    expect(oauthTemplate?.type === "oauth" ? oauthTemplate.scopes : undefined).toEqual([
       "https://www.googleapis.com/auth/gmail.metadata",
       "https://www.googleapis.com/auth/chat.spaces.readonly",
+    ]);
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// The merged bundle scope set is the COMPACTED + FILTERED union: sub-scopes
+// collapse under their broad parent (`gmail.*` → `mail.google.com/`,
+// `calendar.*` → `calendar`, `userinfo.email` → `email`), and scopes a user
+// OAuth consent screen can't show (`chat.bot`, `chat.app.*`, `keep`) are
+// dropped. The persisted auth template, the spec `securitySchemes.googleOAuth2`
+// flow scopes, and the root `security` entry all agree — so the preview the
+// picker shows and the set `oauth.start` requests at connect are the same.
+// Per-operation `x-google-scopes`/`security` stay RAW (they describe per-method
+// scope needs, not consent).
+// ---------------------------------------------------------------------------
+
+const ConvertedSpecSecurity = Schema.Struct({
+  components: Schema.Struct({
+    securitySchemes: Schema.Record(
+      Schema.String,
+      Schema.Struct({
+        type: Schema.String,
+        flows: Schema.Struct({
+          authorizationCode: Schema.Struct({
+            scopes: Schema.Record(Schema.String, Schema.String),
+          }),
+        }),
+      }),
+    ),
+  }),
+  security: Schema.Array(Schema.Record(Schema.String, Schema.Array(Schema.String))),
+  paths: Schema.Record(
+    Schema.String,
+    Schema.Record(Schema.String, Schema.Struct({ "x-google-scopes": Schema.Array(Schema.String) })),
+  ),
+});
+const decodeConvertedSpecSecurity = Schema.decodeUnknownSync(
+  Schema.fromJsonString(ConvertedSpecSecurity),
+);
+
+it.effect("compacts and filters the merged bundle scope set into a clean consent set", () =>
+  Effect.gen(function* () {
+    const result = yield* convertGoogleDiscoveryBundleToOpenApi({
+      documents: [
+        {
+          discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest",
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          documentText: JSON.stringify({
+            name: "gmail",
+            version: "v1",
+            title: "Gmail API",
+            rootUrl: "https://gmail.googleapis.com/",
+            servicePath: "",
+            auth: {
+              oauth2: {
+                scopes: {
+                  // Broad parent + a sub-scope that must collapse under it.
+                  "https://mail.google.com/": { description: "Full Gmail access" },
+                  "https://www.googleapis.com/auth/gmail.readonly": { description: "Read Gmail" },
+                  // Identity scope normalized to `email`.
+                  "https://www.googleapis.com/auth/userinfo.email": { description: "Email" },
+                },
+              },
+            },
+            resources: {
+              users: {
+                resources: {
+                  messages: {
+                    methods: {
+                      list: {
+                        id: "gmail.users.messages.list",
+                        httpMethod: "GET",
+                        path: "gmail/v1/users/{userId}/messages",
+                        scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+                        parameters: {
+                          userId: { location: "path", required: true, type: "string" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            schemas: {},
+          }),
+        },
+        {
+          discoveryUrl: "https://chat.googleapis.com/$discovery/rest?version=v1",
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          documentText: JSON.stringify({
+            name: "chat",
+            version: "v1",
+            title: "Google Chat API",
+            rootUrl: "https://chat.googleapis.com/",
+            servicePath: "",
+            auth: {
+              oauth2: {
+                scopes: {
+                  // A keepable consent scope plus two that the user-consent filter
+                  // must drop (`chat.bot`, `chat.app.*`).
+                  "https://www.googleapis.com/auth/chat.spaces.readonly": { description: "Spaces" },
+                  "https://www.googleapis.com/auth/chat.bot": { description: "Bot" },
+                  "https://www.googleapis.com/auth/chat.app.spaces": { description: "App spaces" },
+                },
+              },
+            },
+            resources: {
+              spaces: {
+                methods: {
+                  get: {
+                    id: "chat.spaces.get",
+                    httpMethod: "GET",
+                    path: "v1/{+name}",
+                    scopes: ["https://www.googleapis.com/auth/chat.bot"],
+                    parameters: {
+                      name: { location: "path", required: true, type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            schemas: {},
+          }),
+        },
+      ],
+    });
+
+    const expectedConsentScopes = [
+      "https://mail.google.com/",
+      "email",
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+    ];
+
+    // The derived oauth auth template carries the compacted/filtered set
+    // (gmail.readonly collapsed, userinfo.email → email, chat.bot/chat.app.* dropped).
+    const oauthTemplate = result.authenticationTemplate?.find((entry) => entry.type === "oauth");
+    expect(oauthTemplate?.type === "oauth" ? [...oauthTemplate.scopes].sort() : undefined).toEqual(
+      [...expectedConsentScopes].sort(),
+    );
+
+    const spec = decodeConvertedSpecSecurity(result.specText);
+    // The spec's securitySchemes flow scopes match the consent set exactly.
+    expect(
+      Object.keys(spec.components.securitySchemes["googleOAuth2"]!.flows.authorizationCode.scopes)
+        .slice()
+        .sort(),
+    ).toEqual([...expectedConsentScopes].sort());
+    // The root security entry references the same compacted set.
+    expect([...(spec.security[0]?.["googleOAuth2"] ?? [])].sort()).toEqual(
+      [...expectedConsentScopes].sort(),
+    );
+    // Per-operation x-google-scopes stay RAW — a dropped consent scope can still
+    // be the scope a given method advertises.
+    expect(spec.paths["/v1/{name}"]?.get?.["x-google-scopes"]).toEqual([
+      "https://www.googleapis.com/auth/chat.bot",
     ]);
   }),
 );

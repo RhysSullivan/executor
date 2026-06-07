@@ -9,7 +9,6 @@ import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 import { NativeSelect, NativeSelectOption } from "./native-select";
 import { cn } from "../lib/utils";
-import { useScopeInfo } from "../api/scope-context";
 import { useOrganizationId } from "../api/organization-context";
 import {
   getExecutorServerAuthorizationHeader,
@@ -130,7 +129,6 @@ export function McpInstallCard(props: { className?: string }) {
   const [mode, setMode] = useState<TransportMode>("http");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [httpElicitationMode, setHttpElicitationMode] = useState<McpElicitationMode>("model");
-  const scopeInfo = useScopeInfo();
   const organizationId = useOrganizationId();
   const serverConnection = useExecutorServerConnection();
   // Desktop hosts ship Electron without putting an `executor` binary on
@@ -146,7 +144,6 @@ export function McpInstallCard(props: { className?: string }) {
     mode,
     isDev,
     origin: serverConnection.origin,
-    scopeDir: scopeInfo.dir,
     authorizationHeader,
     elicitationMode,
     devCliCwd,

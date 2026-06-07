@@ -92,7 +92,6 @@ export const Route = createRootRoute({
       },
       { rel: "stylesheet", href: appCss },
     ],
-    scripts: import.meta.env.DEV ? [{ src: "https://ui.sh/ui-picker.js" }] : [],
   }),
   component: RootComponent,
   shellComponent: RootDocument,
@@ -239,13 +238,15 @@ function AuthGate() {
   return (
     <AutumnProvider pathPrefix="/api/billing">
       <Sentry.ErrorBoundary fallback={<ShellErrorFallback />} showDialog={false}>
-        <ExecutorProvider fallback={<ShellSkeleton />} onHandledError={captureFrontendError}>
-          <ExecutorPluginsProvider plugins={clientPlugins}>
-            <OrganizationProvider organizationId={auth.organization.id}>
-              <Shell />
-              <Toaster />
-            </OrganizationProvider>
-          </ExecutorPluginsProvider>
+        <ExecutorProvider onHandledError={captureFrontendError}>
+          <React.Suspense fallback={<ShellSkeleton />}>
+            <ExecutorPluginsProvider plugins={clientPlugins}>
+              <OrganizationProvider organizationId={auth.organization.id}>
+                <Shell />
+                <Toaster />
+              </OrganizationProvider>
+            </ExecutorPluginsProvider>
+          </React.Suspense>
         </ExecutorProvider>
       </Sentry.ErrorBoundary>
     </AutumnProvider>

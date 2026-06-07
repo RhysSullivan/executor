@@ -1,15 +1,20 @@
-// Source endpoints — CRUD through HttpApiClient. Complements tenant
-// isolation tests by exercising add → get → update → remove flows and
-// the error paths (remove non-existent, remove static, etc.) within a
-// single org.
+// Integration + connection endpoints — CRUD through HttpApiClient (v2).
+//
+// Ports the v1 "sources api" suite onto the v2 catalog surface: integrations
+// are the tenant-shared catalog (was `sources`), connections are the owner-
+// scoped credentials (was `secrets` + credential bindings), and tools are
+// per-connection and address-keyed. The plugin extension routes
+// (`openapi.addSpec`, `mcp.addServer`, `graphql.addIntegration`) register an
+// integration; `connections.create` mints the per-connection tools; execution
+// invokes them by their dotted address.
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { ScopeId, SecretId } from "@executor-js/sdk";
+import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk";
 import {
   serveGraphqlTestServer,
   makeGreetingGraphqlSchema,
@@ -20,9 +25,8 @@ import {
   makeOpenApiHttpApiTestSpecPayload,
   serveOpenApiEchoTestServer,
 } from "@executor-js/plugin-openapi/testing";
-import { secretsForCredentialTarget } from "@executor-js/react/plugins/secret-header-auth";
 
-import { asOrg, asUser, testUserOrgScopeId } from "../testing/api-harness";
+import { asOrg, asUser } from "../testing/api-harness";
 
 const isJsonObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -35,16 +39,24 @@ const MinimalSourceApi = HttpApi.make("sourcesApiTest")
   .add(PingGroup)
   .annotateMerge(OpenApi.annotations({ title: "Sources API Test", version: "1.0.0" }));
 
-const makeMinimalOpenApiSourcePayload = (
-  namespace: string,
-  options: Omit<Parameters<typeof makeOpenApiHttpApiTestAddSpecPayload>[1], "namespace"> = {},
+const makeMinimalOpenApiSpecPayload = (
+  slug: string,
+  options: Omit<Parameters<typeof makeOpenApiHttpApiTestAddSpecPayload>[1], "slug"> = {},
 ) =>
   makeOpenApiHttpApiTestAddSpecPayload(MinimalSourceApi, {
-    namespace,
+    slug,
     ...options,
   });
 
 const makeMinimalOpenApiPreviewPayload = () => makeOpenApiHttpApiTestSpecPayload(MinimalSourceApi);
+
+const randomSlug = (prefix: string) =>
+  IntegrationSlug.make(`${prefix}_${crypto.randomUUID().replace(/-/g, "_")}`);
+
+const NAME_MAIN = ConnectionName.make("main");
+const NAME_PERSONAL = ConnectionName.make("personal");
+const TEMPLATE_API_KEY = AuthTemplateSlug.make("apiKey");
+const TEMPLATE_NONE = AuthTemplateSlug.make("none");
 
 // The Cloudflare OpenAPI spec is the biggest real spec we care about:
 // 16MB, 2700+ operations, thousands of shared schemas. Exercising
@@ -58,47 +70,41 @@ const CLOUDFLARE_SPEC_PATH = resolve(
 );
 const CLOUDFLARE_SPEC = readFileSync(CLOUDFLARE_SPEC_PATH, "utf-8");
 
-describe("sources api (HTTP)", () => {
-  it.effect("addSpec → sources.list includes the new namespace", () =>
+describe("integrations api (HTTP)", () => {
+  it.effect("addSpec → integrations.list includes the new slug", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
-      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const slug = randomSlug("ns");
 
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           const result = yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(org) },
-            payload: makeMinimalOpenApiSourcePayload(namespace),
+            payload: makeMinimalOpenApiSpecPayload(slug),
           });
-          expect(result.namespace).toBe(namespace);
+          expect(result.slug).toBe(slug);
           expect(result.toolCount).toBeGreaterThan(0);
         }),
       );
 
-      const sources = yield* asOrg(org, (client) =>
-        client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
-      );
-      expect(sources.map((s) => s.id)).toContain(namespace);
+      const integrations = yield* asOrg(org, (client) => client.integrations.list({}));
+      expect(integrations.map((s) => s.slug)).toContain(slug);
     }),
   );
 
-  it.effect("openapi.getSource returns the stored source after addSpec", () =>
+  it.effect("openapi.getIntegration returns the stored integration after addSpec", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
-      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const slug = randomSlug("ns");
 
       yield* asOrg(org, (client) =>
-        client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(org) },
-          payload: makeMinimalOpenApiSourcePayload(namespace),
-        }),
+        client.openapi.addSpec({ payload: makeMinimalOpenApiSpecPayload(slug) }),
       );
 
       const fetched = yield* asOrg(org, (client) =>
-        client.openapi.getSource({ params: { scopeId: ScopeId.make(org), namespace } }),
+        client.openapi.getIntegration({ params: { slug } }),
       );
       expect(fetched).not.toBeNull();
-      expect(fetched?.namespace).toBe(namespace);
+      expect(fetched?.slug).toBe(slug);
     }),
   );
 
@@ -106,10 +112,7 @@ describe("sources api (HTTP)", () => {
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
       const preview = yield* asOrg(org, (client) =>
-        client.openapi.previewSpec({
-          params: { scopeId: ScopeId.make(org) },
-          payload: makeMinimalOpenApiPreviewPayload(),
-        }),
+        client.openapi.previewSpec({ payload: makeMinimalOpenApiPreviewPayload() }),
       );
 
       expect(preview).toMatchObject({
@@ -131,8 +134,7 @@ describe("sources api (HTTP)", () => {
 
       const result = yield* asOrg(org, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(org) },
-          payload: makeMinimalOpenApiSourcePayload(`ns_${crypto.randomUUID().replace(/-/g, "_")}`, {
+          payload: makeMinimalOpenApiSpecPayload(randomSlug("ns"), {
             baseUrl: "http://example.com",
           }),
         }),
@@ -142,7 +144,7 @@ describe("sources api (HTTP)", () => {
     }),
   );
 
-  it.effect("added OpenAPI source can be listed, inspected, and invoked through execution", () =>
+  it.effect("added OpenAPI integration can be connected, listed, and invoked via execution", () =>
     Effect.gen(function* () {
       const server = yield* serveOpenApiEchoTestServer({
         transformSpec: (spec) => ({
@@ -154,42 +156,49 @@ describe("sources api (HTTP)", () => {
         }),
       });
       const org = `org_${crypto.randomUUID()}`;
-      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const slug = randomSlug("ns");
 
       const addResult = yield* asOrg(org, (client) =>
         client.openapi.addSpec({
-          params: { scopeId },
           payload: {
             spec: { kind: "blob", value: server.specJson },
-            name: "Invocable Source API",
+            slug,
+            description: "Invocable Source API",
             baseUrl: server.baseUrl,
-            namespace,
           },
         }),
       );
-      expect(addResult).toEqual({ namespace, toolCount: 1 });
+      expect(addResult.slug).toBe(slug);
 
       const fetched = yield* asOrg(org, (client) =>
-        client.openapi.getSource({ params: { scopeId, namespace } }),
+        client.openapi.getIntegration({ params: { slug } }),
       );
-      expect(fetched).toMatchObject({
-        namespace,
-        name: "Invocable Source API",
-        config: { baseUrl: server.baseUrl },
-      });
+      expect(fetched).toMatchObject({ slug, kind: "openapi" });
+
+      // Mint a connection so the per-connection tools are stamped + persisted.
+      yield* asOrg(org, (client) =>
+        client.connections.create({
+          payload: {
+            owner: "org",
+            name: NAME_MAIN,
+            integration: slug,
+            template: TEMPLATE_API_KEY,
+            value: "static-token",
+          },
+        }),
+      );
 
       const tools = yield* asOrg(org, (client) =>
-        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+        client.tools.list({ query: { integration: slug } }),
       );
-      const toolId = `${namespace}.echo.echoMessage`;
-      expect(tools.map((tool) => tool.id)).toContain(toolId);
+      const toolAddress = `tools.${slug}.org.main.echo.echoMessage`;
+      expect(tools.map((tool) => tool.address)).toContain(toolAddress);
 
       const execution = yield* asOrg(org, (client) =>
         client.executions.execute({
           payload: {
             code: [
-              `const result = await tools.${namespace}.echo.echoMessage({ message: "hello", suffix: "world" });`,
+              `const result = await ${toolAddress}({ message: "hello", suffix: "world" });`,
               "return result;",
             ].join("\n"),
           },
@@ -200,7 +209,6 @@ describe("sources api (HTTP)", () => {
       if (execution.status !== "completed") return;
       expect(execution.isError).toBe(false);
       expect(execution.structured).toMatchObject({
-        status: "completed",
         result: {
           ok: true,
           data: {
@@ -212,7 +220,6 @@ describe("sources api (HTTP)", () => {
             },
           },
         },
-        logs: [],
       });
       expect(yield* server.requests).toContainEqual(
         expect.objectContaining({ path: "/echo/hello" }),
@@ -220,91 +227,82 @@ describe("sources api (HTTP)", () => {
     }),
   );
 
-  it.effect("mcp.getSource returns a persisted source even when discovery failed", () =>
+  it.effect("mcp.addServer persists the integration without dialing (discovery is deferred)", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
-      const namespace = `mcp_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const slug = randomSlug("mcp");
 
+      // v2: addServer only registers the integration catalog row — it does NOT
+      // dial the server (discovery happens later at connection time). So a dead
+      // endpoint still registers successfully and getServer returns the row.
       const addResult = yield* asOrg(org, (client) =>
-        client.mcp
-          .addSource({
-            params: { scopeId },
-            payload: {
-              transport: "remote",
-              name: "Broken MCP",
-              endpoint: "http://127.0.0.1:1/mcp",
-              remoteTransport: "auto",
-              namespace,
-            },
-          })
-          .pipe(Effect.result),
+        client.mcp.addServer({
+          payload: {
+            transport: "remote",
+            name: "Broken MCP",
+            endpoint: "http://127.0.0.1:1/mcp",
+            remoteTransport: "auto",
+            slug,
+          },
+        }),
       );
-      expect(Result.isFailure(addResult)).toBe(true);
+      expect(addResult.slug).toBe(slug);
 
-      const fetched = yield* asOrg(org, (client) =>
-        client.mcp.getSource({ params: { scopeId, namespace } }),
-      );
+      const fetched = yield* asOrg(org, (client) => client.mcp.getServer({ params: { slug } }));
       expect(fetched).toMatchObject({
-        namespace,
-        name: "Broken MCP",
+        slug,
         config: {
           transport: "remote",
           endpoint: "http://127.0.0.1:1/mcp",
           remoteTransport: "auto",
         },
       });
-
-      const tools = yield* asOrg(org, (client) =>
-        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
-      );
-      expect(tools).toEqual([]);
     }),
   );
 
-  it.effect("added GraphQL source can be inspected and invoked through execution", () =>
+  it.effect("added GraphQL integration can be inspected and invoked through execution", () =>
     Effect.gen(function* () {
       const server = yield* serveGraphqlTestServer({
         schema: makeGreetingGraphqlSchema({ includeMutation: false }),
       });
       const org = `org_${crypto.randomUUID()}`;
-      const namespace = `gql_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const slug = randomSlug("gql");
 
       const added = yield* asOrg(org, (client) =>
-        client.graphql.addSource({
-          params: { scopeId },
+        client.graphql.addIntegration({
           payload: {
             endpoint: server.endpoint,
-            namespace,
+            slug,
             name: "Cloud GraphQL",
           },
         }),
       );
-      expect(added).toEqual({ namespace, toolCount: 1 });
+      expect(added.slug).toBe(slug);
 
-      const fetched = yield* asOrg(org, (client) =>
-        client.graphql.getSource({ params: { scopeId, namespace } }),
+      yield* asOrg(org, (client) =>
+        client.connections.create({
+          payload: {
+            owner: "org",
+            name: NAME_MAIN,
+            integration: slug,
+            template: TEMPLATE_NONE,
+            value: "unused",
+          },
+        }),
       );
-      expect(fetched).toMatchObject({
-        namespace,
-        name: "Cloud GraphQL",
-        endpoint: server.endpoint,
-      });
 
       const tools = yield* asOrg(org, (client) =>
-        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+        client.tools.list({ query: { integration: slug } }),
       );
-      const toolId = `${namespace}.query.hello`;
-      expect(tools.map((tool) => tool.id)).toContain(toolId);
+      const toolAddress = `tools.${slug}.org.main.query.hello`;
+      expect(tools.map((tool) => tool.address)).toContain(toolAddress);
 
       const execution = yield* asOrg(org, (client) =>
         client.executions.execute({
           payload: {
-            code: [
-              `const result = await tools.${namespace}.query.hello({ name: "Ada" });`,
-              "return result;",
-            ].join("\n"),
+            code: [`const result = await ${toolAddress}({ name: "Ada" });`, "return result;"].join(
+              "\n",
+            ),
           },
         }),
       );
@@ -313,7 +311,6 @@ describe("sources api (HTTP)", () => {
       if (execution.status !== "completed") return;
       expect(execution.isError).toBe(false);
       expect(execution.structured).toMatchObject({
-        status: "completed",
         result: { ok: true, data: { hello: "Hello Ada" } },
       });
       const requests = yield* server.requests;
@@ -326,67 +323,7 @@ describe("sources api (HTTP)", () => {
     }),
   );
 
-  it.effect(
-    "GraphQL add accepts a user-scoped bearer credential for org source introspection",
-    () =>
-      Effect.gen(function* () {
-        const server = yield* serveGraphqlTestServer({
-          schema: makeGreetingGraphqlSchema({ includeMutation: false }),
-          auth: {
-            validateAuthorization: (authorization) =>
-              Effect.succeed(authorization === "Bearer github-token"),
-          },
-        });
-        const organizationId = `org_${crypto.randomUUID()}`;
-        const userId = `user_${crypto.randomUUID()}`;
-        const userScope = testUserOrgScopeId(userId, organizationId);
-        const namespace = `github_graphql_${crypto.randomUUID().replace(/-/g, "_")}`;
-
-        yield* asUser(userId, organizationId, (client) =>
-          client.secrets.set({
-            params: { scopeId: ScopeId.make(userScope) },
-            payload: {
-              id: SecretId.make("github-graphql-authorization"),
-              name: "Github GraphQL Authorization",
-              value: "github-token",
-            },
-          }),
-        );
-
-        const added = yield* asUser(userId, organizationId, (client) =>
-          client.graphql.addSource({
-            params: { scopeId: ScopeId.make(organizationId) },
-            payload: {
-              endpoint: server.endpoint,
-              namespace,
-              name: "Github GraphQL",
-              headers: {
-                Authorization: { kind: "secret", prefix: "Bearer " },
-              },
-              credentials: {
-                scope: ScopeId.make(userScope),
-                headers: {
-                  Authorization: {
-                    kind: "secret",
-                    secretId: "github-graphql-authorization",
-                    secretScope: userScope,
-                    prefix: "Bearer ",
-                  },
-                },
-              },
-            },
-          }),
-        );
-
-        expect(added).toEqual({ namespace, toolCount: 1 });
-        const requests = yield* server.requests;
-        expect(
-          requests.some((request) => request.headers.authorization === "Bearer github-token"),
-        ).toBe(true);
-      }),
-  );
-
-  it.effect("added MCP source can be inspected and invoked through execution", () =>
+  it.effect("added MCP integration can be inspected and invoked through execution", () =>
     Effect.gen(function* () {
       const server = yield* serveMcpServer(() =>
         makeGreetingMcpServer({
@@ -396,29 +333,24 @@ describe("sources api (HTTP)", () => {
         }),
       );
       const org = `org_${crypto.randomUUID()}`;
-      const namespace = `mcp_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const slug = randomSlug("mcp");
 
       const added = yield* asOrg(org, (client) =>
-        client.mcp.addSource({
-          params: { scopeId },
+        client.mcp.addServer({
           payload: {
             transport: "remote",
             name: "Cloud MCP",
             endpoint: server.endpoint,
             remoteTransport: "streamable-http",
-            namespace,
+            slug,
           },
         }),
       );
-      expect(added).toEqual({ namespace, toolCount: 1 });
+      expect(added.slug).toBe(slug);
 
-      const fetched = yield* asOrg(org, (client) =>
-        client.mcp.getSource({ params: { scopeId, namespace } }),
-      );
+      const fetched = yield* asOrg(org, (client) => client.mcp.getServer({ params: { slug } }));
       expect(fetched).toMatchObject({
-        namespace,
-        name: "Cloud MCP",
+        slug,
         config: {
           transport: "remote",
           endpoint: server.endpoint,
@@ -426,19 +358,28 @@ describe("sources api (HTTP)", () => {
         },
       });
 
-      const tools = yield* asOrg(org, (client) =>
-        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+      yield* asOrg(org, (client) =>
+        client.connections.create({
+          payload: {
+            owner: "org",
+            name: NAME_MAIN,
+            integration: slug,
+            template: TEMPLATE_NONE,
+            value: "unused",
+          },
+        }),
       );
-      const toolId = `${namespace}.simple_echo`;
-      expect(tools.map((tool) => tool.id)).toContain(toolId);
+
+      const tools = yield* asOrg(org, (client) =>
+        client.tools.list({ query: { integration: slug } }),
+      );
+      const toolAddress = `tools.${slug}.org.main.simple_echo`;
+      expect(tools.map((tool) => tool.address)).toContain(toolAddress);
 
       const execution = yield* asOrg(org, (client) =>
         client.executions.execute({
           payload: {
-            code: [
-              `const result = await tools.${namespace}.simple_echo({});`,
-              "return result;",
-            ].join("\n"),
+            code: [`const result = await ${toolAddress}({});`, "return result;"].join("\n"),
           },
         }),
       );
@@ -447,7 +388,6 @@ describe("sources api (HTTP)", () => {
       if (execution.status !== "completed") return;
       expect(execution.isError).toBe(false);
       expect(execution.structured).toMatchObject({
-        status: "completed",
         result: {
           ok: true,
           data: { content: [{ type: "text", text: "cloud-mcp-ok" }] },
@@ -457,7 +397,7 @@ describe("sources api (HTTP)", () => {
     }),
   );
 
-  it.effect("generic source refresh updates MCP source tool rows", () =>
+  it.effect("connection refresh updates MCP per-connection tool rows", () =>
     Effect.gen(function* () {
       let toolName = "before_refresh";
       const server = yield* serveMcpServer(() =>
@@ -468,338 +408,142 @@ describe("sources api (HTTP)", () => {
         }),
       );
       const org = `org_${crypto.randomUUID()}`;
-      const namespace = `mcp_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const slug = randomSlug("mcp");
 
-      const added = yield* asOrg(org, (client) =>
-        client.mcp.addSource({
-          params: { scopeId },
+      yield* asOrg(org, (client) =>
+        client.mcp.addServer({
           payload: {
             transport: "remote",
             name: "Cloud Refresh MCP",
             endpoint: server.endpoint,
             remoteTransport: "streamable-http",
-            namespace,
+            slug,
           },
         }),
       );
-      expect(added).toEqual({ namespace, toolCount: 1 });
+
+      yield* asOrg(org, (client) =>
+        client.connections.create({
+          payload: {
+            owner: "org",
+            name: NAME_MAIN,
+            integration: slug,
+            template: TEMPLATE_NONE,
+            value: "unused",
+          },
+        }),
+      );
 
       const beforeTools = yield* asOrg(org, (client) =>
-        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+        client.tools.list({ query: { integration: slug } }),
       );
-      expect(beforeTools.map((tool) => tool.id)).toContain(`${namespace}.before_refresh`);
-      expect(beforeTools.map((tool) => tool.id)).not.toContain(`${namespace}.after_refresh`);
+      expect(beforeTools.map((tool) => tool.address)).toContain(
+        `tools.${slug}.org.main.before_refresh`,
+      );
 
       toolName = "after_refresh";
-      const refreshResult = yield* asOrg(org, (client) =>
-        client.sources.refresh({ params: { scopeId, sourceId: namespace } }),
+      yield* asOrg(org, (client) =>
+        client.connections.refresh({
+          params: { owner: "org", integration: slug, name: NAME_MAIN },
+        }),
       );
-      expect(refreshResult.refreshed).toBe(true);
 
       const afterTools = yield* asOrg(org, (client) =>
-        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+        client.tools.list({ query: { integration: slug } }),
       );
-      expect(afterTools.map((tool) => tool.id)).not.toContain(`${namespace}.before_refresh`);
-      expect(afterTools.map((tool) => tool.id)).toContain(`${namespace}.after_refresh`);
+      expect(afterTools.map((tool) => tool.address)).not.toContain(
+        `tools.${slug}.org.main.before_refresh`,
+      );
+      expect(afterTools.map((tool) => tool.address)).toContain(
+        `tools.${slug}.org.main.after_refresh`,
+      );
     }),
   );
 
-  it.effect("sources.remove deletes the source and it drops off sources.list", () =>
+  it.effect("integrations.remove deletes the integration and drops off the list", () =>
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
-      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const slug = randomSlug("ns");
 
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
-          yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(org) },
-            payload: makeMinimalOpenApiSourcePayload(namespace),
-          });
-          yield* client.sources.remove({
-            params: { scopeId: ScopeId.make(org), sourceId: namespace },
+          yield* client.openapi.addSpec({ payload: makeMinimalOpenApiSpecPayload(slug) });
+          yield* client.integrations.remove({ params: { slug } });
+        }),
+      );
+
+      const after = yield* asOrg(org, (client) => client.integrations.list({}));
+      expect(after.map((s) => s.slug)).not.toContain(slug);
+    }),
+  );
+
+  it.effect("integrations.update round-trips a description change", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const slug = randomSlug("ns");
+
+      yield* asOrg(org, (client) =>
+        Effect.gen(function* () {
+          yield* client.openapi.addSpec({ payload: makeMinimalOpenApiSpecPayload(slug) });
+          yield* client.integrations.update({
+            params: { slug },
+            payload: { description: "Renamed API" },
           });
         }),
       );
 
-      const after = yield* asOrg(org, (client) =>
-        client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
-      );
-      expect(after.map((s) => s.id)).not.toContain(namespace);
+      const fetched = yield* asOrg(org, (client) => client.integrations.get({ params: { slug } }));
+      expect(fetched?.description).toBe("Renamed API");
     }),
   );
 
-  it.effect("sources.remove on a non-existent sourceId is a no-op (idempotent)", () =>
-    Effect.gen(function* () {
-      const org = `org_${crypto.randomUUID()}`;
-      const ghost = `missing_${crypto.randomUUID().slice(0, 8)}`;
-
-      const result = yield* asOrg(org, (client) =>
-        client.sources
-          .remove({ params: { scopeId: ScopeId.make(org), sourceId: ghost } })
-          .pipe(Effect.result),
-      );
-      expect(Result.isSuccess(result)).toBe(true);
-    }),
-  );
-
-  it.effect("sources.remove on a static source is rejected", () =>
-    Effect.gen(function* () {
-      // `canRemove: false` is reserved for static (plugin-declared)
-      // sources. Plugin-owned executor tools are mounted under the
-      // built-in executor source.
-      const org = `org_${crypto.randomUUID()}`;
-
-      const result = yield* asOrg(org, (client) =>
-        client.sources
-          .remove({ params: { scopeId: ScopeId.make(org), sourceId: "executor" } })
-          .pipe(Effect.result),
-      );
-      expect(Result.isFailure(result)).toBe(true);
-    }),
-  );
-
-  it.effect("sources.configure round-trips OpenAPI baseUrl + name changes", () =>
-    Effect.gen(function* () {
-      const org = `org_${crypto.randomUUID()}`;
-      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
-
-      yield* asOrg(org, (client) =>
-        Effect.gen(function* () {
-          yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(org) },
-            payload: makeMinimalOpenApiSourcePayload(namespace),
-          });
-          yield* client.sources.configure({
-            params: { scopeId: ScopeId.make(org) },
-            payload: {
-              source: { id: namespace, scope: ScopeId.make(org) },
-              scope: ScopeId.make(org),
-              type: "openapi",
-              config: {
-                scope: org,
-                name: "Renamed API",
-                baseUrl: "https://override.example.com",
-              },
-            },
-          });
-        }),
-      );
-
-      const fetched = yield* asOrg(org, (client) =>
-        client.openapi.getSource({ params: { scopeId: ScopeId.make(org), namespace } }),
-      );
-      expect(fetched?.name).toBe("Renamed API");
-      expect(fetched?.config.baseUrl).toBe("https://override.example.com");
-    }),
-  );
-
-  it.effect("per-user source bindings isolate personal credentials over HTTP", () =>
+  it.effect("org + user connections produce distinct addresses with isolated values", () =>
     Effect.gen(function* () {
       const organizationId = `org_${crypto.randomUUID()}`;
       const aliceId = `user_${crypto.randomUUID().slice(0, 8)}`;
       const bobId = `user_${crypto.randomUUID().slice(0, 8)}`;
-      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const aliceScope = testUserOrgScopeId(aliceId, organizationId);
-      const bobScope = testUserOrgScopeId(bobId, organizationId);
+      const slug = randomSlug("ns");
 
       yield* asOrg(organizationId, (client) =>
-        client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(organizationId) },
-          payload: {
-            ...makeMinimalOpenApiSourcePayload(namespace),
-            headers: {
-              Authorization: {
-                kind: "secret",
-                prefix: "Bearer ",
-              },
-            },
-          },
-        }),
+        client.openapi.addSpec({ payload: makeMinimalOpenApiSpecPayload(slug) }),
       );
 
+      // Alice's personal (`owner: "user"`) connection.
       yield* asUser(aliceId, organizationId, (client) =>
-        Effect.gen(function* () {
-          yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(aliceScope) },
-            payload: {
-              id: SecretId.make("alice_pat"),
-              name: "Alice PAT",
-              value: "alice-secret",
-            },
-          });
-          const binding = yield* client.sources.setBinding({
-            params: { scopeId: ScopeId.make(aliceScope) },
-            payload: {
-              scope: ScopeId.make(aliceScope),
-              source: { id: namespace, scope: ScopeId.make(organizationId) },
-              slotKey: "header:authorization",
-              value: {
-                kind: "secret",
-                secretId: SecretId.make("alice_pat"),
-              },
-            },
-          });
-          expect(binding).toMatchObject({
-            sourceId: namespace,
-            sourceScopeId: ScopeId.make(organizationId),
-            scopeId: ScopeId.make(aliceScope),
-            slotKey: "header:authorization",
-            value: {
-              kind: "secret",
-              secretId: SecretId.make("alice_pat"),
-            },
-          });
-          expect(binding.createdAt).toBeInstanceOf(Date);
-          expect(binding.updatedAt).toBeInstanceOf(Date);
+        client.connections.create({
+          payload: {
+            owner: "user",
+            name: NAME_PERSONAL,
+            integration: slug,
+            template: TEMPLATE_API_KEY,
+            value: "alice-secret",
+          },
         }),
       );
 
+      // Bob's personal connection under the same org + integration.
       yield* asUser(bobId, organizationId, (client) =>
-        Effect.gen(function* () {
-          yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(bobScope) },
-            payload: {
-              id: SecretId.make("bob_pat"),
-              name: "Bob PAT",
-              value: "bob-secret",
-            },
-          });
-          yield* client.sources.setBinding({
-            params: { scopeId: ScopeId.make(bobScope) },
-            payload: {
-              scope: ScopeId.make(bobScope),
-              source: { id: namespace, scope: ScopeId.make(organizationId) },
-              slotKey: "header:authorization",
-              value: {
-                kind: "secret",
-                secretId: SecretId.make("bob_pat"),
-              },
-            },
-          });
-        }),
-      );
-
-      const aliceBindings = yield* asUser(aliceId, organizationId, (client) =>
-        client.sources.listBindings({
-          params: {
-            scopeId: ScopeId.make(aliceScope),
-            sourceId: namespace,
-            sourceScopeId: ScopeId.make(organizationId),
+        client.connections.create({
+          payload: {
+            owner: "user",
+            name: NAME_PERSONAL,
+            integration: slug,
+            template: TEMPLATE_API_KEY,
+            value: "bob-secret",
           },
         }),
       );
-      expect(aliceBindings).toContainEqual(
-        expect.objectContaining({
-          scopeId: ScopeId.make(aliceScope),
-          slotKey: "header:authorization",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("alice_pat"),
-            secretScopeId: ScopeId.make(aliceScope),
-          },
-        }),
-      );
-      expect(
-        aliceBindings.some(
-          (binding) =>
-            binding.slotKey === "header:authorization" &&
-            binding.value.kind === "secret" &&
-            binding.value.secretId === SecretId.make("bob_pat"),
-        ),
-      ).toBe(false);
 
-      const bobBindings = yield* asUser(bobId, organizationId, (client) =>
-        client.sources.listBindings({
-          params: {
-            scopeId: ScopeId.make(bobScope),
-            sourceId: namespace,
-            sourceScopeId: ScopeId.make(organizationId),
-          },
-        }),
+      // Each user sees only their own user-owned connection (no shadowing).
+      const aliceConnections = yield* asUser(aliceId, organizationId, (client) =>
+        client.connections.list({ query: { integration: slug, owner: "user" } }),
       );
-      expect(bobBindings).toContainEqual(
-        expect.objectContaining({
-          scopeId: ScopeId.make(bobScope),
-          slotKey: "header:authorization",
-          value: {
-            kind: "secret",
-            secretId: SecretId.make("bob_pat"),
-            secretScopeId: ScopeId.make(bobScope),
-          },
-        }),
+      expect(aliceConnections.map((c) => c.owner)).toEqual(["user"]);
+
+      const bobConnections = yield* asUser(bobId, organizationId, (client) =>
+        client.connections.list({ query: { integration: slug, owner: "user" } }),
       );
-      expect(
-        bobBindings.some(
-          (binding) =>
-            binding.slotKey === "header:authorization" &&
-            binding.value.kind === "secret" &&
-            binding.value.secretId === SecretId.make("alice_pat"),
-        ),
-      ).toBe(false);
-
-      const sources = yield* asOrg(organizationId, (client) =>
-        client.sources.list({ params: { scopeId: ScopeId.make(organizationId) } }),
-      );
-      expect(sources.find((source) => source.id === namespace)?.scopeId).toBe(
-        ScopeId.make(organizationId),
-      );
-    }),
-  );
-
-  it.effect("personal source override picker can see org-owned secrets over HTTP", () =>
-    Effect.gen(function* () {
-      const organizationId = `org_${crypto.randomUUID()}`;
-      const aliceId = `user_${crypto.randomUUID().slice(0, 8)}`;
-      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const aliceScope = testUserOrgScopeId(aliceId, organizationId);
-
-      yield* asOrg(organizationId, (client) =>
-        Effect.gen(function* () {
-          yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(organizationId) },
-            payload: {
-              ...makeMinimalOpenApiSourcePayload(namespace),
-              headers: {
-                Authorization: {
-                  kind: "secret",
-                  prefix: "Bearer ",
-                },
-              },
-            },
-          });
-
-          yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(organizationId) },
-            payload: {
-              id: SecretId.make("shared_pat"),
-              name: "Shared PAT",
-              value: "org-secret",
-            },
-          });
-        }),
-      );
-
-      const secrets = yield* asUser(aliceId, organizationId, (client) =>
-        client.secrets.listAll({ params: { scopeId: ScopeId.make(aliceScope) } }),
-      );
-
-      const pickerSecrets = secrets.map((secret) => ({
-        id: String(secret.id),
-        scopeId: String(secret.scopeId),
-        name: secret.name,
-        provider: secret.provider ? String(secret.provider) : undefined,
-      }));
-
-      expect(pickerSecrets).toContainEqual(
-        expect.objectContaining({ id: "shared_pat", scopeId: organizationId }),
-      );
-      expect(
-        secretsForCredentialTarget(pickerSecrets, ScopeId.make(aliceScope), [
-          { id: ScopeId.make(aliceScope) },
-          { id: ScopeId.make(organizationId) },
-        ]).map((secret) => secret.id),
-      ).toContain("shared_pat");
+      expect(bobConnections.map((c) => c.owner)).toEqual(["user"]);
     }),
   );
 
@@ -808,39 +552,30 @@ describe("sources api (HTTP)", () => {
     () =>
       Effect.gen(function* () {
         const org = `org_${crypto.randomUUID()}`;
-        const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+        const slug = randomSlug("ns");
 
         const result = yield* asOrg(org, (client) =>
           client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(org) },
             payload: {
               spec: { kind: "blob", value: CLOUDFLARE_SPEC },
-              name: namespace,
+              slug,
+              description: slug,
               baseUrl: "https://api.cloudflare.com/client/v4",
-              namespace,
             },
           }),
         );
-        expect(result.namespace).toBe(namespace);
+        expect(result.slug).toBe(slug);
         expect(result.toolCount).toBeGreaterThan(1000);
 
-        const sources = yield* asOrg(org, (client) =>
-          client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
-        );
-        expect(sources.map((s) => s.id)).toContain(namespace);
+        const integrations = yield* asOrg(org, (client) => client.integrations.list({}));
+        expect(integrations.map((s) => s.slug)).toContain(slug);
 
         // removeSpec on the same size must also land cleanly — catches
         // symmetrical regressions on the delete side (e.g. deleteMany
         // fanning out to per-row deletes).
-        yield* asOrg(org, (client) =>
-          client.sources.remove({
-            params: { scopeId: ScopeId.make(org), sourceId: namespace },
-          }),
-        );
-        const after = yield* asOrg(org, (client) =>
-          client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
-        );
-        expect(after.map((s) => s.id)).not.toContain(namespace);
+        yield* asOrg(org, (client) => client.integrations.remove({ params: { slug } }));
+        const after = yield* asOrg(org, (client) => client.integrations.list({}));
+        expect(after.map((s) => s.slug)).not.toContain(slug);
       }),
     // 60s is generous for a correct O(1) write path on local PGlite;
     // a per-row regression would take minutes and hit this ceiling

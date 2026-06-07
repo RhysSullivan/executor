@@ -55,12 +55,12 @@ describe("cloud composed-handler reachability", () => {
     expect(res.headers.get("content-type")).toContain("application/json");
     const spec = (await res.json()) as { paths?: Record<string, unknown> };
     expect(spec.paths).toBeDefined();
-    // The spec is prefixed with /api, so a real route like scope is present.
-    expect(Object.keys(spec.paths ?? {}).some((p) => p.includes("/scope"))).toBe(true);
+    // The spec is prefixed with /api, so a real v2 route like integrations is present.
+    expect(Object.keys(spec.paths ?? {}).some((p) => p.includes("/integrations"))).toBe(true);
   });
 
-  it("reaches the protected API auth gate at /api/scope (error JSON, NOT SPA HTML)", async () => {
-    const res = await call("GET", "/api/scope");
+  it("reaches the protected API auth gate at /api/integrations (error JSON, NOT SPA HTML)", async () => {
+    const res = await call("GET", "/api/integrations");
     expect([401, 403]).toContain(res.status);
     expect(res.headers.get("content-type")).toContain("application/json");
     expect(await res.json()).toHaveProperty("code");

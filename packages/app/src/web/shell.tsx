@@ -4,18 +4,17 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import type { Integration } from "@executor-js/sdk/shared";
 import {
-  connectionsAtom,
-  sourcesAtom,
-  sourcesOptimisticAtom,
-  toolsAtom,
+  integrationsAtom,
+  integrationsOptimisticAtom,
+  toolsAllAtom,
 } from "@executor-js/react/api/atoms";
-import { useScope, useScopeInfo } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
-import { sourcePresetIconUrl } from "@executor-js/react/components/source-favicon";
-import { SourceIconWithAccount } from "@executor-js/react/components/source-icon-with-account";
+import { integrationPresetIconUrl } from "@executor-js/react/components/integration-favicon";
+import { IntegrationIconWithAccount } from "@executor-js/react/components/integration-icon-with-account";
 import { CommandPalette } from "@executor-js/react/components/command-palette";
-import { useClientPlugins, useSourcePlugins } from "@executor-js/sdk/client";
+import { useClientPlugins, useIntegrationPlugins } from "@executor-js/sdk/client";
 import { ServerConnectionMenu } from "./server-connection-menu";
 
 // ── Env ─────────────────────────────────────────────────────────────────
@@ -270,39 +269,35 @@ function PluginNav(props: { pathname: string; onNavigate?: () => void }) {
   );
 }
 
-// ── SourceList ───────────────────────────────────────────────────────────
+// ── IntegrationList ───────────────────────────────────────────────────────────
 
-function SourceList(props: { pathname: string; onNavigate?: () => void }) {
-  const scopeId = useScope();
-  const sources = useAtomValue(sourcesOptimisticAtom(scopeId));
-  const connectionsResult = useAtomValue(connectionsAtom(scopeId));
-  const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
-  const sourcePlugins = useSourcePlugins();
+function IntegrationList(props: { pathname: string; onNavigate?: () => void }) {
+  const integrations = useAtomValue(integrationsOptimisticAtom);
+  const integrationPlugins = useIntegrationPlugins();
 
-  return AsyncResult.match(sources, {
+  return AsyncResult.match(integrations, {
     onInitial: () => <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>,
     onFailure: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
+      <div className="px-2.5 py-2 text-xs text-muted-foreground">No integrations yet</div>
     ),
-    onSuccess: ({ value }) =>
+    onSuccess: ({ value }: { readonly value: readonly Integration[] }) =>
       value.length === 0 ? (
         <div className="px-2.5 py-2 text-sm leading-relaxed text-muted-foreground">
-          No sources yet
+          No integrations yet
         </div>
       ) : (
         <div className="flex flex-col gap-px">
-          {value.map((s) => {
-            const detailPath = `/sources/${s.id}`;
+          {value.map((integration: Integration) => {
+            const slug = String(integration.slug);
+            const name = integration.description || slug;
+            const detailPath = `/integrations/${slug}`;
             const active =
               props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
-            const connection = connections.find((candidate) =>
-              s.connectionIds?.includes(candidate.id),
-            );
             return (
               <Link
-                key={s.id}
-                to="/sources/$namespace"
-                params={{ namespace: s.id }}
+                key={slug}
+                to="/integrations/$namespace"
+                params={{ namespace: slug }}
                 onClick={props.onNavigate}
                 className={[
                   "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
@@ -311,16 +306,17 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
                 ].join(" ")}
               >
-                <SourceIconWithAccount
-                  icon={sourcePresetIconUrl(s, sourcePlugins)}
-                  sourceId={s.id}
-                  url={s.url}
-                  connection={connection}
+                <IntegrationIconWithAccount
+                  icon={integrationPresetIconUrl(
+                    { id: slug, kind: integration.kind },
+                    integrationPlugins,
+                  )}
+                  sourceId={slug}
                   size="sm"
                 />
-                <span className="flex-1 truncate">{s.name}</span>
+                <span className="flex-1 truncate">{name}</span>
                 <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
-                  {s.kind}
+                  {integration.kind}
                 </span>
               </Link>
             );
@@ -328,28 +324,6 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
         </div>
       ),
   });
-}
-
-// ── ScopeLabel ───────────────────────────────────────────────────────────
-
-function ScopeLabel() {
-  const { name } = useScopeInfo();
-  // Show just the last folder name, with full path as tooltip
-  const parts = name.replace(/[/\\]+$/, "").split(/[/\\]/);
-  const folder = parts[parts.length - 1] || name;
-
-  return (
-    <div className="mb-1.5 flex items-center gap-1.5 rounded-md px-2.5 py-1.5" title={name}>
-      <svg viewBox="0 0 16 16" fill="none" className="size-3.5 shrink-0 text-muted-foreground">
-        <path
-          d="M2 4.5C2 3.67 2.67 3 3.5 3h3.09a1 1 0 0 1 .7.29l1.42 1.42a1 1 0 0 0 .7.29H12.5c.83 0 1.5.67 1.5 1.5v5.5c0 .83-.67 1.5-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5z"
-          stroke="currentColor"
-          strokeWidth="1.2"
-        />
-      </svg>
-      <span className="truncate text-xs font-medium text-foreground/80">{folder}</span>
-    </div>
-  );
 }
 
 // ── SidebarContent ───────────────────────────────────────────────────────
@@ -364,7 +338,6 @@ function SidebarContent(props: {
 }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
-  const isConnections = props.pathname === "/connections";
   const isPolicies = props.pathname === "/policies";
 
   return (
@@ -384,14 +357,7 @@ function SidebarContent(props: {
       )}
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
-        <ScopeLabel />
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
-        <NavItem
-          to="/connections"
-          label="Connections"
-          active={isConnections}
-          onNavigate={props.onNavigate}
-        />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
         <NavItem
           to="/policies"
@@ -404,10 +370,10 @@ function SidebarContent(props: {
 
         {/* Sources list */}
         <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          <span>Sources</span>
+          <span>Integrations</span>
         </div>
 
-        <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
+        <IntegrationList pathname={props.pathname} onNavigate={props.onNavigate} />
       </nav>
 
       {props.updateAvailable && props.latestVersion && (
@@ -447,9 +413,8 @@ function SidebarContent(props: {
 export function Shell() {
   const location = useLocation();
   const pathname = location.pathname;
-  const scopeId = useScope();
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
-  const refreshTools = useAtomRefresh(toolsAtom(scopeId));
+  const refreshSources = useAtomRefresh(integrationsAtom);
+  const refreshTools = useAtomRefresh(toolsAllAtom);
   const { latestVersion, updateAvailable, channel } = useLatestVersion(VITE_APP_VERSION);
   const lastPathname = useRef(pathname);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);

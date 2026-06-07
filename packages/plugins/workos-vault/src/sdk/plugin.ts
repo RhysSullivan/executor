@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { definePlugin } from "@executor-js/sdk/core";
+import { definePlugin, type CredentialProvider, type PluginCtx } from "@executor-js/sdk/core";
 
 import {
   makeConfiguredWorkOSVaultClient,
@@ -10,9 +10,8 @@ import {
 } from "./client";
 import {
   WORKOS_VAULT_PROVIDER_KEY,
-  makeWorkOSVaultSecretProvider,
+  makeWorkOSVaultCredentialProvider,
   makeWorkosVaultStore,
-  type WorkOSVaultContextForScope,
   type WorkosVaultStore,
 } from "./secret-store";
 
@@ -26,14 +25,6 @@ export interface WorkOSVaultPluginOptions {
   readonly client?: WorkOSVaultClient;
   readonly credentials?: WorkOSVaultCredentials;
   readonly objectPrefix?: string;
-  /**
-   * Override the default scope-id → vault-context mapping. Each key
-   * returned becomes an independent KEK-matching dimension, so hosts
-   * whose scope ids have a non-default shape can split them into
-   * meaningful fields (user/org/workspace/…) rather than a single
-   * opaque string.
-   */
-  readonly contextForScope?: WorkOSVaultContextForScope;
 }
 
 const makeWorkOSVaultExtension = () =>
@@ -44,9 +35,10 @@ const makeWorkOSVaultExtension = () =>
 export type WorkOSVaultExtension = ReturnType<typeof makeWorkOSVaultExtension>;
 
 // The plugin's typed store is just its metadata-store wrapper. The
-// secret provider closes over this store plus the resolved WorkOS
-// client; the scope id is threaded in per-call by the executor's
-// secrets facade.
+// credential provider closes over this store plus the resolved WorkOS
+// client. v2 has no scope partitioning — the connection row owns the
+// (tenant, owner, subject) partition; the provider only ever sees an opaque
+// `ProviderItemId`.
 type WorkosVaultPluginStore = WorkosVaultStore;
 
 const buildClient = (
@@ -70,18 +62,17 @@ export const workosVaultPlugin = definePlugin((options?: WorkOSVaultPluginOption
 
   extension: makeWorkOSVaultExtension,
 
-  secretProviders: (ctx) => {
-    // Build (or accept) the WorkOS client once at startup. If
-    // credentials are bad this throws synchronously via Effect.runSync,
-    // which is what we want — the executor fails to start rather
-    // than surfacing bad credentials on first secret access.
+  credentialProviders: (ctx: PluginCtx<WorkosVaultPluginStore>): readonly CredentialProvider[] => {
+    // Build (or accept) the WorkOS client once at startup. If credentials are
+    // bad this throws synchronously via Effect.runSync, which is what we
+    // want — the executor fails to start rather than surfacing bad
+    // credentials on first credential access.
     const client = Effect.runSync(buildClient(options));
     return [
-      makeWorkOSVaultSecretProvider({
+      makeWorkOSVaultCredentialProvider({
         client,
         store: ctx.storage,
         objectPrefix: options?.objectPrefix,
-        contextForScope: options?.contextForScope,
       }),
     ];
   },

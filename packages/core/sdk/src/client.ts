@@ -77,18 +77,18 @@ export interface WidgetDecl {
 export type SlotComponent = ComponentType<Record<string, unknown>>;
 
 // ---------------------------------------------------------------------------
-// SourcePlugin / SourcePreset — UI contract for plugins that expose
-// "sources" (OpenAPI specs, MCP servers, GraphQL endpoints, etc.). The
-// host owns the source list / detail chrome; the plugin owns the
+// IntegrationPlugin / IntegrationPreset — UI contract for plugins that expose
+// "integrations" (OpenAPI specs, MCP servers, GraphQL endpoints, etc.). The
+// host owns the integration list / detail chrome; the plugin owns the
 // add-flow, edit form, and (optional) summary + sign-in buttons.
 //
 // Lives here, not in `@executor-js/react`, so it's part of the plugin
-// contract: a plugin's `./client` entry assembles its `sourcePlugin`
+// contract: a plugin's `./client` entry assembles its `integrationPlugin`
 // alongside `pages`/`widgets`, and the host derives the union list
 // from `virtual:executor/plugins-client`.
 // ---------------------------------------------------------------------------
 
-export interface SourcePreset {
+export interface IntegrationPreset {
   /** Unique id (e.g. "stripe", "github-graphql"). */
   readonly id: string;
   readonly name: string;
@@ -101,16 +101,30 @@ export interface SourcePreset {
   readonly endpoint?: string;
   /** Optional icon URL (favicon, logo). */
   readonly icon?: string;
-  /** Shown in the top-level grid on the sources page when true. */
+  /** Shown in the top-level grid on the integrations page when true. */
   readonly featured?: boolean;
 }
 
-export interface SourcePlugin {
+export interface IntegrationAccountHandoff {
+  /** Changes on each handoff URL, so the accounts UI can open once per link. */
+  readonly key: string;
+  readonly owner?: "org" | "user";
+  /** Auth template/method to preselect when present. */
+  readonly template?: string;
+  /** Non-secret connection label to prefill. */
+  readonly label?: string;
+}
+
+export interface IntegrationPlugin {
   /** Unique key matching the SDK plugin id (e.g. "openapi"). */
   readonly key: string;
   readonly label: string;
   readonly add: ComponentType<{
-    readonly onComplete: () => void;
+    /** Called when the integration has been registered. Receives the slug of
+     *  the just-registered integration, so the host can route to its detail
+     *  hub (`/integrations/<slug>`). Optional so existing no-arg calls still
+     *  typecheck while plugins are threading the slug through. */
+    readonly onComplete: (slug?: string) => void;
     readonly onCancel: () => void;
     readonly initialUrl?: string;
     readonly initialPreset?: string;
@@ -125,7 +139,15 @@ export interface SourcePlugin {
     readonly variant?: "badge" | "panel";
     readonly onAction?: () => void;
   }>;
-  readonly presets?: readonly SourcePreset[];
+  /** Renders the integration's Accounts hub (auth methods + connections) inside
+   *  the detail page's Accounts tab. Plugins that declare auth methods implement
+   *  this; the page falls back to a generic accounts list when absent. */
+  readonly accounts?: ComponentType<{
+    readonly sourceId: string;
+    readonly integrationName: string;
+    readonly accountHandoff?: IntegrationAccountHandoff | null;
+  }>;
+  readonly presets?: readonly IntegrationPreset[];
   /** Trigger early download of the plugin's lazy component chunks (add/edit/etc.).
    *  Call from the host on intent (hover/focus) so the chunks land before the
    *  user navigates into the add page. Idempotent. */
@@ -150,11 +172,11 @@ export interface ClientPluginSpec<TId extends string = string> {
   readonly pages?: readonly PageDecl[];
   readonly widgets?: readonly WidgetDecl[];
   readonly slots?: Record<string, SlotComponent>;
-  /** Source plugin contribution — populated by plugins that expose
+  /** Integration plugin contribution — populated by plugins that expose
    *  `kind` rows in the core `source` table (openapi, mcp, graphql).
-   *  The host's sources page derives its provider
-   *  list from the union of every loaded plugin's `sourcePlugin`. */
-  readonly sourcePlugin?: SourcePlugin;
+   *  The host's integrations page derives its provider
+   *  list from the union of every loaded plugin's `integrationPlugin`. */
+  readonly integrationPlugin?: IntegrationPlugin;
   /** Secret provider plugin contribution — populated by plugins that
    *  also ship a `secretProviders` (or related) server-side capability
    *  AND want to expose a settings card on the host's secrets page. */
@@ -271,7 +293,7 @@ export const createPluginAtomClient = <
 //
 // The host wraps once at the root of its tree (typically reading from
 // `virtual:executor/plugins-client`); pages and shared components consume
-// via the focused hooks (`useSourcePlugins` etc.) so they don't import
+// via the focused hooks (`useIntegrationPlugins` etc.) so they don't import
 // from any host-app aggregator file. Pages stay portable across hosts —
 // the same component renders against whatever plugin set the surrounding
 // `<ExecutorPluginsProvider>` provides.
@@ -282,7 +304,7 @@ export const createPluginAtomClient = <
 
 interface ExecutorPluginsContextValue {
   readonly plugins: readonly ClientPluginSpec[];
-  readonly sourcePlugins: readonly SourcePlugin[];
+  readonly integrationPlugins: readonly IntegrationPlugin[];
   readonly secretProviderPlugins: readonly SecretProviderPlugin[];
 }
 
@@ -301,18 +323,20 @@ export function ExecutorPluginsProvider(
   const value = useMemo<ExecutorPluginsContextValue>(
     () => ({
       plugins,
-      sourcePlugins: plugins.flatMap((p) => (p.sourcePlugin ? [p.sourcePlugin] : [])),
+      integrationPlugins: plugins.flatMap((p) =>
+        p.integrationPlugin ? [p.integrationPlugin] : [],
+      ),
       secretProviderPlugins: plugins.flatMap((p) =>
         p.secretProviderPlugin ? [p.secretProviderPlugin] : [],
       ),
     }),
     [plugins],
   );
-  // Kick off lazy chunk downloads for every source plugin once the host
+  // Kick off lazy chunk downloads for every integration plugin once the host
   // mounts, so navigating into an add/edit page doesn't suspend.
   useEffect(() => {
-    for (const sp of value.sourcePlugins) sp.preload?.();
-  }, [value.sourcePlugins]);
+    for (const ip of value.integrationPlugins) ip.preload?.();
+  }, [value.integrationPlugins]);
   return createElement(ExecutorPluginsContext.Provider, { value }, children);
 }
 
@@ -329,9 +353,9 @@ const usePluginsCtx = (hookName: string): ExecutorPluginsContextValue => {
 export const useClientPlugins = (): readonly ClientPluginSpec[] =>
   usePluginsCtx("useClientPlugins").plugins;
 
-/** Source plugins extracted from `clientPlugins[].sourcePlugin`. */
-export const useSourcePlugins = (): readonly SourcePlugin[] =>
-  usePluginsCtx("useSourcePlugins").sourcePlugins;
+/** Integration plugins extracted from `clientPlugins[].integrationPlugin`. */
+export const useIntegrationPlugins = (): readonly IntegrationPlugin[] =>
+  usePluginsCtx("useIntegrationPlugins").integrationPlugins;
 
 /** Secret-provider plugins extracted from `clientPlugins[].secretProviderPlugin`. */
 export const useSecretProviderPlugins = (): readonly SecretProviderPlugin[] =>

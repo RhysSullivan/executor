@@ -70,7 +70,11 @@ type InviteState = {
   status: "idle" | "sending" | "error";
 };
 
-const initialInviteState: InviteState = { email: "", roleSlug: "member", status: "idle" };
+const initialInviteState: InviteState = {
+  email: "",
+  roleSlug: "member",
+  status: "idle",
+};
 
 type InviteAction =
   | { type: "setEmail"; email: string }
@@ -81,10 +85,22 @@ type InviteAction =
 
 function inviteReducer(state: InviteState, action: InviteAction): InviteState {
   return Match.value(action).pipe(
-    Match.discriminator("type")("setEmail", (a) => ({ ...state, email: a.email })),
-    Match.discriminator("type")("setRole", (a) => ({ ...state, roleSlug: a.roleSlug })),
-    Match.discriminator("type")("send", () => ({ ...state, status: "sending" as const })),
-    Match.discriminator("type")("error", () => ({ ...state, status: "error" as const })),
+    Match.discriminator("type")("setEmail", (a) => ({
+      ...state,
+      email: a.email,
+    })),
+    Match.discriminator("type")("setRole", (a) => ({
+      ...state,
+      roleSlug: a.roleSlug,
+    })),
+    Match.discriminator("type")("send", () => ({
+      ...state,
+      status: "sending" as const,
+    })),
+    Match.discriminator("type")("error", () => ({
+      ...state,
+      status: "error" as const,
+    })),
     Match.discriminator("type")("reset", () => initialInviteState),
     Match.exhaustive,
   );
@@ -103,7 +119,7 @@ function formatLastActive(lastActiveAt: string | null): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function OrgPage() {
+export function OrgPage(props: { domainsSection?: React.ReactNode }) {
   const auth = useAuth();
   const organizationName =
     auth.status === "authenticated" ? (auth.organization?.name ?? "Organization") : "Organization";
@@ -124,7 +140,10 @@ export function OrgPage() {
   });
 
   const handleRemove = async (membershipId: string, name: string) => {
-    const exit = await doRemove({ params: { membershipId }, reactivityKeys: orgMemberWriteKeys });
+    const exit = await doRemove({
+      params: { membershipId },
+      reactivityKeys: orgMemberWriteKeys,
+    });
     toast[Exit.isSuccess(exit) ? "success" : "error"](
       Exit.isSuccess(exit) ? `Removed ${name}` : "Failed to remove member",
     );
@@ -191,6 +210,7 @@ export function OrgPage() {
             )}
           </div>
         </section>
+        {props.domainsSection && props.domainsSection}
 
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
@@ -416,7 +436,10 @@ function InviteDialog(props: {
               placeholder="colleague@company.com"
               value={state.email}
               onChange={(e) =>
-                dispatch({ type: "setEmail", email: (e.target as HTMLInputElement).value })
+                dispatch({
+                  type: "setEmail",
+                  email: (e.target as HTMLInputElement).value,
+                })
               }
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleInvite();

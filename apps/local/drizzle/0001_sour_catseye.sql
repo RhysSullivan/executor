@@ -1,1 +1,0 @@
-ALTER TABLE `openapi_source` ADD `source_url` text;

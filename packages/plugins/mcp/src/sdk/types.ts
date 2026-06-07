@@ -1,20 +1,20 @@
-import { Effect, Schema } from "effect";
-import {
-  ConfiguredCredentialValue,
-  credentialSlotKey,
-  SecretBackedMap,
-  SecretBackedValue,
-} from "@executor-js/sdk/shared";
-import {
-  HttpConfiguredValueInput,
-  HttpCredentialInput,
-  HttpOAuthConfigureInput,
-} from "@executor-js/sdk/http-source";
-
-export { SecretBackedMap, SecretBackedValue };
+import { Effect, Option, Schema } from "effect";
 
 // ---------------------------------------------------------------------------
-// Remote transport type
+// MCP plugin v2 data model.
+//
+// An MCP integration is one server. Its `config` blob (opaque to core, stored
+// on the integration row) carries everything needed to dial the server plus an
+// `auth` *template* describing how a connection's resolved value is applied to
+// the request. A connection IS the credential: at execute time core resolves
+// the connection's value through its provider (refreshing OAuth tokens), and
+// the plugin renders it onto the request per the template (D11). The same path
+// covers an API key bearer and an OAuth access token — both resolve to a value
+// and render through their template.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Transport / remote transport
 // ---------------------------------------------------------------------------
 
 export const McpRemoteTransport = Schema.Literals(["streamable-http", "sse", "auto"]);
@@ -24,86 +24,53 @@ export type McpRemoteTransport = typeof McpRemoteTransport.Type;
 export const McpTransport = Schema.Literals(["streamable-http", "sse", "stdio", "auto"]);
 export type McpTransport = typeof McpTransport.Type;
 
-export const ConfiguredMcpCredentialValue = ConfiguredCredentialValue;
-export type ConfiguredMcpCredentialValue = typeof ConfiguredMcpCredentialValue.Type;
-
-export const McpConfiguredValueInput = HttpConfiguredValueInput;
-export type McpConfiguredValueInput = typeof McpConfiguredValueInput.Type;
-
-export const McpCredentialInput = HttpCredentialInput;
-export type McpCredentialInput = typeof McpCredentialInput.Type;
-
-export const mcpHeaderSlot = (name: string): string => credentialSlotKey("header", name);
-export const mcpQueryParamSlot = (name: string): string => credentialSlotKey("query_param", name);
-export const MCP_HEADER_AUTH_SLOT = "auth:header";
-export const MCP_OAUTH_CONNECTION_SLOT = "auth:oauth2:connection";
-export const MCP_OAUTH_CLIENT_ID_SLOT = "auth:oauth2:client-id";
-export const MCP_OAUTH_CLIENT_SECRET_SLOT = "auth:oauth2:client-secret";
-
 // ---------------------------------------------------------------------------
-// Connection auth (only applies to remote sources)
+// Auth template — how a connection's resolved value is applied to the request.
 //
-// `oauth2` is a source-owned credential slot. Concrete per-user or
-// per-workspace connection ids live in core credential_binding rows.
+//   none   — no credential (open server)
+//   header — render the value into a request header (e.g. `Authorization:
+//            Bearer <value>`); `prefix` is prepended to the value
+//   oauth2 — the value is an OAuth access token, applied as a Bearer header
+//            via the MCP SDK's OAuthClientProvider
 // ---------------------------------------------------------------------------
 
-/** JSON object loosely typed — used for opaque OAuth state we just round-trip. */
-const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
-export { JsonObject as McpJsonObject };
-
-export const McpConnectionAuth = Schema.Union([
+export const McpAuthTemplate = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("header"),
     headerName: Schema.String,
-    secretSlot: Schema.String,
     prefix: Schema.optional(Schema.String),
   }),
-  Schema.Struct({
-    kind: Schema.Literal("oauth2"),
-    connectionSlot: Schema.String,
-    clientIdSlot: Schema.optional(Schema.String),
-    clientSecretSlot: Schema.optional(Schema.String),
-  }),
+  Schema.Struct({ kind: Schema.Literal("oauth2") }),
 ]);
-export type McpConnectionAuth = typeof McpConnectionAuth.Type;
-
-export const McpConnectionAuthInput = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("none"),
-  }),
-  Schema.Struct({
-    oauth2: Schema.optional(HttpOAuthConfigureInput),
-  }),
-]);
-export type McpConnectionAuthInput = typeof McpConnectionAuthInput.Type;
+export type McpAuthTemplate = typeof McpAuthTemplate.Type;
 
 // ---------------------------------------------------------------------------
-// Stored source data — discriminated union on transport
+// Integration config — the opaque blob stored on the integration row. A
+// discriminated union on transport.
 // ---------------------------------------------------------------------------
 
-/** Common fields for remote string map schemas */
 const StringMap = Schema.Record(Schema.String, Schema.String);
 
-export const McpRemoteSourceData = Schema.Struct({
+export const McpRemoteIntegrationConfig = Schema.Struct({
   transport: Schema.Literal("remote"),
   /** The MCP server endpoint URL */
   endpoint: Schema.String,
-  /** Transport preference for this remote source */
+  /** Transport preference for this remote server */
   remoteTransport: McpRemoteTransport.pipe(
     Schema.optionalKey,
     Schema.withConstructorDefault(Effect.succeed("auto" as const)),
   ),
-  /** Extra query params appended to the endpoint URL */
-  queryParams: Schema.optional(Schema.Record(Schema.String, ConfiguredMcpCredentialValue)),
-  /** Extra headers sent on every request */
-  headers: Schema.optional(Schema.Record(Schema.String, ConfiguredMcpCredentialValue)),
-  /** Auth configuration */
-  auth: McpConnectionAuth,
+  /** Static query params appended to the endpoint URL (non-credential) */
+  queryParams: Schema.optional(StringMap),
+  /** Static headers sent on every request (non-credential) */
+  headers: Schema.optional(StringMap),
+  /** Auth template — how the connection's value is rendered onto requests */
+  auth: McpAuthTemplate,
 });
-export type McpRemoteSourceData = typeof McpRemoteSourceData.Type;
+export type McpRemoteIntegrationConfig = typeof McpRemoteIntegrationConfig.Type;
 
-export const McpStdioSourceData = Schema.Struct({
+export const McpStdioIntegrationConfig = Schema.Struct({
   transport: Schema.Literal("stdio"),
   /** The command to run */
   command: Schema.String,
@@ -114,13 +81,24 @@ export const McpStdioSourceData = Schema.Struct({
   /** Working directory */
   cwd: Schema.optional(Schema.String),
 });
-export type McpStdioSourceData = typeof McpStdioSourceData.Type;
+export type McpStdioIntegrationConfig = typeof McpStdioIntegrationConfig.Type;
 
-export const McpStoredSourceData = Schema.Union([McpRemoteSourceData, McpStdioSourceData]);
-export type McpStoredSourceData = typeof McpStoredSourceData.Type;
+export const McpIntegrationConfig = Schema.Union([
+  McpRemoteIntegrationConfig,
+  McpStdioIntegrationConfig,
+]);
+export type McpIntegrationConfig = typeof McpIntegrationConfig.Type;
+
+const decodeIntegrationConfig = Schema.decodeUnknownOption(McpIntegrationConfig);
+
+/** Parse an opaque integration `config` blob into a typed MCP config, or null
+ *  if it isn't this plugin's shape. */
+export const parseMcpIntegrationConfig = (config: unknown): McpIntegrationConfig | null =>
+  Option.getOrNull(decodeIntegrationConfig(config));
 
 // ---------------------------------------------------------------------------
-// Tool binding — maps a registered ToolId back to the MCP tool name
+// Tool annotations — upstream MCP ToolAnnotations we honour (destructiveHint
+// drives requiresApproval).
 // ---------------------------------------------------------------------------
 
 export const McpToolAnnotations = Schema.Struct({
@@ -132,8 +110,16 @@ export const McpToolAnnotations = Schema.Struct({
 });
 export type McpToolAnnotations = typeof McpToolAnnotations.Type;
 
+// ---------------------------------------------------------------------------
+// Tool binding — maps a persisted (sanitized) tool name back to its real MCP
+// tool name and upstream annotations, persisted per-connection so invokeTool
+// can dial the server with the correct name.
+// ---------------------------------------------------------------------------
+
 export const McpToolBinding = Schema.Struct({
+  /** Sanitized, address-safe tool name (the `<tool>` address segment). */
   toolId: Schema.String,
+  /** The real MCP tool name as advertised by the server. */
   toolName: Schema.String,
   description: Schema.NullOr(Schema.String),
   inputSchema: Schema.optional(Schema.Unknown),

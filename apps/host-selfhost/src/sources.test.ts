@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Effect, Layer } from "effect";
 import { afterAll, expect, test } from "@effect/vitest";
 
+import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk";
 import { makeScopedExecutor } from "@executor-js/api/server";
 
 import { createSelfHostDb, SelfHostDb } from "./db/self-host-db";
@@ -42,35 +43,48 @@ const TINY_SPEC = JSON.stringify({
   servers: [{ url: "https://httpbin.org" }],
   paths: {
     "/get": {
-      get: { operationId: "httpGet", summary: "GET", responses: { "200": { description: "ok" } } },
+      get: {
+        operationId: "httpGet",
+        summary: "GET",
+        responses: { "200": { description: "ok" } },
+      },
     },
   },
 });
 
-test("an org-scoped OpenAPI source registers tools shared across org members", async () => {
-  // Alice (a member) adds a source at the org install scope.
+test("an org-owned connection registers tools shared across org members", async () => {
+  // Alice (a member) uploads the integration spec and attaches an org-owned
+  // connection. Org-owned connections (and their per-connection tools) are
+  // visible to every member of the tenant.
   const added = await Effect.runPromise(
     Effect.gen(function* () {
       const alice = yield* createScopedExecutor("alice", "default-org", "Default");
-      return yield* alice.openapi.addSpec({
+      const result = yield* alice.openapi.addSpec({
         spec: { kind: "blob", value: TINY_SPEC },
-        scope: "default-org",
-        name: "tiny",
-        namespace: "tiny",
+        slug: "tiny",
         baseUrl: "",
       });
+      yield* alice.connections.create({
+        owner: "org",
+        name: ConnectionName.make("shared"),
+        integration: IntegrationSlug.make("tiny"),
+        template: AuthTemplateSlug.make("none"),
+        value: "",
+      });
+      return result;
     }).pipe(Effect.provide(dbLayer), Effect.scoped),
   );
-  expect(added.sourceId).toBe("tiny");
+  expect(String(added.slug)).toBe("tiny");
   expect(added.toolCount).toBeGreaterThan(0);
 
-  // Bob — a different user in the SAME org — sees the org-scoped source's tools.
-  const bobToolIds = await Effect.runPromise(
+  // Bob — a different user in the SAME org — sees the org-owned connection's
+  // tools (addressed `tools.tiny.org.shared.<tool>`).
+  const bobToolAddresses = await Effect.runPromise(
     Effect.gen(function* () {
       const bob = yield* createScopedExecutor("bob", "default-org", "Default");
       const tools = yield* bob.tools.list();
-      return tools.map((tool) => String(tool.id));
+      return tools.map((tool) => String(tool.address));
     }).pipe(Effect.provide(dbLayer), Effect.scoped),
   );
-  expect(bobToolIds.some((id) => id.startsWith("tiny."))).toBe(true);
+  expect(bobToolAddresses.some((address) => address.startsWith("tools.tiny.org."))).toBe(true);
 });

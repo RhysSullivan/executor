@@ -1,65 +1,47 @@
-import { useReducer, useCallback, useEffect, useRef, useState } from "react";
-import { useAtomSet } from "@effect/atom-react";
+import { useReducer, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { Link } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
-import { useScope } from "@executor-js/react/api/scope-context";
+import { integrationsOptimisticAtom } from "@executor-js/react/api/atoms";
 import { Button } from "@executor-js/react/components/button";
+import {
+  AuthTemplateEditor,
+  type AuthTemplateEditorKind,
+  type AuthTemplateEditorValue,
+} from "@executor-js/react/components/auth-template-editor";
 import {
   CardStack,
   CardStackContent,
   CardStackEntryField,
 } from "@executor-js/react/components/card-stack";
 import { FieldLabel } from "@executor-js/react/components/field";
-import { FilterTabs } from "@executor-js/react/components/filter-tabs";
 import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Input } from "@executor-js/react/components/input";
 import { Spinner } from "@executor-js/react/components/spinner";
 import { Textarea } from "@executor-js/react/components/textarea";
 import {
-  emptyHttpCredentials,
-  httpCredentialsValid,
-  HttpCredentialsEditor,
-  serializeConfigureHttpCredentials,
-  serializeHttpCredentials,
-  serializeTemplateHttpCredentials,
-} from "@executor-js/react/plugins/http-credentials";
-import {
-  sourceDisplayNameFromUrl,
+  integrationDisplayNameFromUrl,
   slugifyNamespace,
-  SourceIdentityFields,
-  useSourceIdentity,
-} from "@executor-js/react/plugins/source-identity";
-import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
-import {
-  oauthCallbackUrl,
-  oauthConnectionId,
-  useOAuthPopupFlow,
-  type OAuthCompletionPayload,
-} from "@executor-js/react/plugins/oauth-sign-in";
-import {
-  CredentialControlField,
-  CredentialUsageRow,
-  useCredentialTargetScope,
-} from "@executor-js/react/plugins/credential-target-scope";
-import {
-  defaultHeaderAuthPresets,
-  type HeaderAuthPreset,
-} from "@executor-js/react/plugins/secret-header-auth";
+  IntegrationIdentityFields,
+  useIntegrationIdentity,
+} from "@executor-js/react/plugins/integration-identity";
 
-type RemoteAuthMode = "none" | "oauth2";
-import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
-import { probeMcpEndpoint, addMcpSourceOptimistic } from "./atoms";
+import { integrationWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { probeMcpEndpoint, addMcpServer } from "./atoms";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
+import { mcpAuthTemplateFromEditorValue } from "./auth-method-config";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
-import type { McpConfiguredValueInput, McpCredentialInput } from "../sdk/types";
 
-const mcpHeaderPresets: readonly HeaderAuthPreset[] = [
-  { key: "text", label: "Plaintext header", name: "", valueKind: "text" },
-  ...defaultHeaderAuthPresets,
-];
+// Post-redesign the remote add flow only REGISTERS the auth template through the
+// shared `AuthTemplateEditor` — accounts (the API key value / OAuth sign-in) are
+// added later from the integration's detail hub (P6: add without auth, connect
+// later). An OAuth-only server (DCR-capable) is constrained to the OAuth tab.
 
 const ErrorMessage = Schema.Struct({ message: Schema.String });
 const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
@@ -77,6 +59,15 @@ const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: strin
     onSome: ({ message }) => message,
   });
 
+const isIntegrationAlreadyExistsExit = (exit: Exit.Exit<unknown, unknown>): boolean =>
+  Option.match(Exit.findErrorOption(exit), {
+    onNone: () => false,
+    onSome: Predicate.isTagged("IntegrationAlreadyExistsError"),
+  });
+
+const integrationExistsMessage = (slug: string): string =>
+  `An integration named "${slug}" already exists. To add more authentication, update your existing integration.`;
+
 // ---------------------------------------------------------------------------
 // Preset lookup
 // ---------------------------------------------------------------------------
@@ -90,14 +81,12 @@ function findPreset(id: string | undefined): McpPreset | undefined {
 // State machine (remote flow)
 // ---------------------------------------------------------------------------
 
-type OAuthTokens = OAuthCompletionPayload;
-
 type ProbeResult = {
   connected: boolean;
   requiresOAuth: boolean;
   supportsDynamicRegistration: boolean;
   name: string;
-  namespace: string;
+  slug: string;
   toolCount: number | null;
   serverName: string | null;
 };
@@ -106,25 +95,11 @@ type State =
   | { step: "url"; url: string }
   | { step: "probing"; url: string; probe: ProbeResult | null }
   | { step: "probed"; url: string; probe: ProbeResult }
-  | { step: "oauth-starting"; url: string; probe: ProbeResult }
-  | {
-      step: "oauth-waiting";
-      url: string;
-      probe: ProbeResult;
-      sessionId: string;
-    }
-  | { step: "oauth-done"; url: string; probe: ProbeResult; tokens: OAuthTokens }
-  | {
-      step: "adding";
-      url: string;
-      probe: ProbeResult;
-      tokens: OAuthTokens | null;
-    }
+  | { step: "adding"; url: string; probe: ProbeResult }
   | {
       step: "error";
       url: string;
       probe: ProbeResult | null;
-      tokens: OAuthTokens | null;
       error: string;
     };
 
@@ -133,12 +108,6 @@ type Action =
   | { type: "probe-start" }
   | { type: "probe-ok"; probe: ProbeResult }
   | { type: "probe-fail"; error: string }
-  | { type: "oauth-start" }
-  | { type: "oauth-waiting"; sessionId: string }
-  | { type: "oauth-ok"; tokens: OAuthTokens }
-  | { type: "oauth-fail"; error: string }
-  | { type: "oauth-cancelled" }
-  | { type: "oauth-reset" }
   | { type: "add-start" }
   | { type: "add-fail"; error: string }
   | { type: "retry" };
@@ -166,62 +135,13 @@ function reducer(state: State, action: Action): State {
         step: "error",
         url: state.url,
         probe: null,
-        tokens: null,
         error: a.error,
       }),
     ),
-    Match.discriminator("type")("oauth-start", (): State => {
-      if (state.step !== "probed" && state.step !== "error") return state;
-      return {
-        step: "oauth-starting",
-        url: state.url,
-        probe: state.step === "probed" ? state.probe : state.probe!,
-      };
-    }),
-    Match.discriminator("type")("oauth-waiting", (a): State => {
-      if (state.step !== "oauth-starting") return state;
-      return {
-        step: "oauth-waiting",
-        url: state.url,
-        probe: state.probe,
-        sessionId: a.sessionId,
-      };
-    }),
-    Match.discriminator("type")("oauth-ok", (a): State => {
-      if (state.step !== "oauth-waiting") return state;
-      return {
-        step: "oauth-done",
-        url: state.url,
-        probe: state.probe,
-        tokens: a.tokens,
-      };
-    }),
-    Match.discriminator("type")("oauth-fail", (a): State => {
-      if (state.step !== "oauth-starting" && state.step !== "oauth-waiting") return state;
-      return {
-        step: "error",
-        url: state.url,
-        probe: state.probe,
-        tokens: null,
-        error: a.error,
-      };
-    }),
-    Match.discriminator("type")("oauth-cancelled", (): State => {
-      if (state.step !== "oauth-waiting") return state;
-      return { step: "probed", url: state.url, probe: state.probe };
-    }),
-    Match.discriminator("type")("oauth-reset", (): State => {
-      if ("probe" in state && state.probe) {
-        return { step: "probed", url: state.url, probe: state.probe };
-      }
-      return state;
-    }),
     Match.discriminator("type")("add-start", (): State => {
-      const tokens =
-        state.step === "oauth-done" ? state.tokens : state.step === "probed" ? null : null;
       const probe = "probe" in state ? state.probe : null;
       if (!probe) return state;
-      return { step: "adding", url: state.url, probe, tokens };
+      return { step: "adding", url: state.url, probe };
     }),
     Match.discriminator("type")("add-fail", (a): State => {
       if (state.step !== "adding") return state;
@@ -229,21 +149,13 @@ function reducer(state: State, action: Action): State {
         step: "error",
         url: state.url,
         probe: state.probe,
-        tokens: state.tokens,
         error: a.error,
       };
     }),
     Match.discriminator("type")("retry", (): State => {
       if (state.step !== "error") return state;
       return state.probe
-        ? state.tokens
-          ? {
-              step: "oauth-done",
-              url: state.url,
-              probe: state.probe,
-              tokens: state.tokens,
-            }
-          : { step: "probed", url: state.url, probe: state.probe }
+        ? { step: "probed", url: state.url, probe: state.probe }
         : { step: "url", url: state.url };
     }),
     Match.exhaustive,
@@ -255,7 +167,7 @@ function reducer(state: State, action: Action): State {
 // ---------------------------------------------------------------------------
 
 export default function AddMcpSource(props: {
-  onComplete: () => void;
+  onComplete: (slug?: string) => void;
   onCancel: () => void;
   initialUrl?: string;
   initialPreset?: string;
@@ -279,7 +191,7 @@ export default function AddMcpSource(props: {
     isStdioPreset && preset.args ? preset.args.join(" ") : "",
   );
   const [stdioEnv, setStdioEnv] = useState("");
-  const stdioIdentity = useSourceIdentity({
+  const stdioIdentity = useIntegrationIdentity({
     fallbackName: isStdioPreset ? preset.name : stdioCommand,
   });
   const [stdioAdding, setStdioAdding] = useState(false);
@@ -296,46 +208,48 @@ export default function AddMcpSource(props: {
     remoteUrl ? { step: "url" as const, url: remoteUrl } : init,
   );
 
-  const scopeId = useScope();
-  const { credentialTargetScope: requestCredentialTargetScope } = useCredentialTargetScope();
-  const {
-    credentialTargetScope: oauthCredentialTargetScope,
-    setCredentialTargetScope: setOAuthCredentialTargetScope,
-    credentialScopeOptions,
-  } = useCredentialTargetScope();
   const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promiseExit" });
-  const doAdd = useAtomSet(addMcpSourceOptimistic(scopeId), {
-    mode: "promiseExit",
-  });
-  const secretList = useSecretPickerSecrets();
-  const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
-    popupName: "mcp-oauth",
-    popupBlockedMessage: "OAuth popup was blocked",
-    detectPopupClosed: false,
-    startErrorMessage: "Failed to start OAuth",
-  });
+  const doAddServer = useAtomSet(addMcpServer, { mode: "promiseExit" });
 
-  const [remoteAuthMode, setRemoteAuthMode] = useState<RemoteAuthMode>("none");
-  const [remoteCredentials, setRemoteCredentials] = useState(() => emptyHttpCredentials());
+  const [authValue, setAuthValue] = useState<AuthTemplateEditorValue>({ kind: "none" });
 
   const probe = "probe" in state ? state.probe : null;
-  const tokens = "tokens" in state ? state.tokens : null;
 
-  const remoteIdentity = useSourceIdentity({
+  // OAuth-only servers (DCR-capable) constrain the editor to the OAuth tab; all
+  // other servers offer none / API key / OAuth (matching the prior tab set).
+  const allowedAuthKinds: readonly AuthTemplateEditorKind[] =
+    probe?.requiresOAuth && probe.supportsDynamicRegistration
+      ? ["oauth"]
+      : ["none", "apikey", "oauth"];
+
+  const remoteIdentity = useIntegrationIdentity({
     fallbackName:
-      sourceDisplayNameFromUrl(state.url, "MCP") ?? probe?.serverName ?? probe?.name ?? "",
+      integrationDisplayNameFromUrl(state.url, "MCP") ?? probe?.serverName ?? probe?.name ?? "",
   });
   const isProbing = state.step === "probing";
   const isAdding = state.step === "adding";
-  const isOAuthBusy =
-    state.step === "oauth-starting" || state.step === "oauth-waiting" || oauth.busy;
-  const canUseNone = probe?.requiresOAuth !== true || probe.supportsDynamicRegistration === false;
-  const remoteCredentialsComplete = httpCredentialsValid(remoteCredentials);
-  const authReady = remoteAuthMode === "none" ? canUseNone : tokens !== null;
-  const canAdd =
-    Boolean(probe) && authReady && remoteCredentialsComplete && !isAdding && !isOAuthBusy;
+
+  // Pre-empt the API's `IntegrationAlreadyExistsError`: adding an integration
+  // whose slug already exists clobbers the existing one's connections/policies,
+  // so the API blocks it. Surface that here from the tenant-scoped catalog list.
+  // A blank derived namespace lets the server assign the slug, so only flag a
+  // collision when the user-derived slug is non-empty.
+  const integrationsResult = useAtomValue(integrationsOptimisticAtom);
+  const existingSlugs = useMemo(
+    () =>
+      AsyncResult.isSuccess(integrationsResult)
+        ? integrationsResult.value.map((integration) => String(integration.slug))
+        : [],
+    [integrationsResult],
+  );
+  const remoteSlug = slugifyNamespace(remoteIdentity.namespace);
+  const stdioSlug = slugifyNamespace(stdioIdentity.namespace);
+  const remoteSlugExists = remoteSlug.length > 0 && existingSlugs.includes(remoteSlug);
+  const stdioSlugExists = stdioSlug.length > 0 && existingSlugs.includes(stdioSlug);
+
+  const canAdd = Boolean(probe) && !isAdding && !remoteSlugExists;
   // Probe failures are shown inline on the URL field; other failures
-  // (OAuth start, add source) render in the bottom error block.
+  // (add server) render in the bottom error block.
   const probeError = state.step === "error" && state.probe === null ? state.error : null;
   const otherError = state.step === "error" && state.probe !== null ? state.error : null;
 
@@ -343,14 +257,8 @@ export default function AddMcpSource(props: {
 
   const handleProbe = useCallback(async () => {
     dispatch({ type: "probe-start" });
-    const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
     const exit = await doProbe({
-      params: { scopeId },
-      payload: {
-        endpoint: state.url.trim(),
-        ...(Object.keys(headers).length > 0 ? { headers } : {}),
-        ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
-      },
+      payload: { endpoint: state.url.trim() },
     });
     if (Exit.isFailure(exit)) {
       dispatch({
@@ -359,9 +267,13 @@ export default function AddMcpSource(props: {
       });
       return;
     }
-    setRemoteAuthMode(exit.value.requiresOAuth ? "oauth2" : "none");
+    setAuthValue(
+      exit.value.requiresOAuth
+        ? { kind: "oauth", authorizationUrl: "", tokenUrl: "", scopes: [] }
+        : { kind: "none" },
+    );
     dispatch({ type: "probe-ok", probe: exit.value });
-  }, [state.url, scopeId, doProbe, remoteCredentials]);
+  }, [state.url, doProbe]);
 
   // Keep the latest handleProbe in a ref so the debounced effect can call it
   // without depending on its identity (which changes every render).
@@ -381,142 +293,48 @@ export default function AddMcpSource(props: {
     return () => clearTimeout(handle);
   }, [transport, state.step, state.url]);
 
-  const handleRemoteCredentialsChange = useCallback((next: typeof remoteCredentials) => {
-    setRemoteCredentials(next);
-  }, []);
-
-  const handleOAuth = useCallback(async () => {
-    dispatch({ type: "oauth-start" });
-    const namespaceSlug =
-      slugifyNamespace(remoteIdentity.namespace) ||
-      slugifyNamespace(probe?.namespace ?? "") ||
-      "mcp";
-    const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
-    await oauth.start({
-      payload: {
-        endpoint: state.url.trim(),
-        ...(Object.keys(headers).length > 0 ? { headers } : {}),
-        ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
-        redirectUrl: oauthCallbackUrl(),
-        connectionId: oauthConnectionId({
-          pluginId: "mcp",
-          namespace: namespaceSlug,
-        }),
-        tokenScope: oauthCredentialTargetScope,
-        strategy: { kind: "dynamic-dcr" },
-        pluginId: "mcp",
-        identityLabel: `${remoteIdentity.name.trim() || probe?.serverName || probe?.name || "MCP"} OAuth`,
-      },
-      onSuccess: (result) => {
+  // Register the integration with the chosen auth template, returning the
+  // assigned slug (or null on failure — an error is dispatched in that case).
+  const registerIntegration = useCallback(
+    async (
+      auth:
+        | { kind: "none" }
+        | { kind: "header"; headerName: string; prefix?: string }
+        | { kind: "oauth2" },
+    ): Promise<string | null> => {
+      const displayName = remoteIdentity.name.trim() || probe?.serverName || probe?.name || "MCP";
+      const slug = slugifyNamespace(remoteIdentity.namespace) || undefined;
+      const exit = await doAddServer({
+        payload: {
+          transport: "remote" as const,
+          name: displayName,
+          endpoint: state.url.trim(),
+          ...(slug ? { slug } : {}),
+          auth,
+        },
+        reactivityKeys: integrationWriteKeys,
+      });
+      if (Exit.isFailure(exit)) {
         dispatch({
-          type: "oauth-ok",
-          tokens: {
-            connectionId: result.connectionId,
-            expiresAt: result.expiresAt,
-            scope: result.scope,
-          },
+          type: "add-fail",
+          error: isIntegrationAlreadyExistsExit(exit)
+            ? integrationExistsMessage(slug ?? displayName)
+            : errorMessageFromExit(exit, "Failed to add server"),
         });
-      },
-      onAuthorizationStarted: (result) =>
-        dispatch({ type: "oauth-waiting", sessionId: result.sessionId }),
-      onError: (error) => dispatch({ type: "oauth-fail", error }),
-    });
-  }, [state.url, remoteIdentity, probe, remoteCredentials, oauth, oauthCredentialTargetScope]);
-
-  const handleCancelOAuth = useCallback(() => {
-    oauth.cancel();
-    dispatch({ type: "oauth-cancelled" });
-  }, [oauth]);
+        return null;
+      }
+      return exit.value.slug;
+    },
+    [doAddServer, probe, remoteIdentity, state.url],
+  );
 
   const handleAddRemote = useCallback(async () => {
     if (!probe) return;
     dispatch({ type: "add-start" });
-    const templateCredentials = serializeTemplateHttpCredentials(remoteCredentials);
-    const configureCredentials = serializeConfigureHttpCredentials(
-      remoteCredentials,
-      requestCredentialTargetScope,
-    );
-    const remoteRequestHeaders = templateCredentials.headers as Record<
-      string,
-      McpConfiguredValueInput
-    >;
-    const hasInitialCredentials =
-      Object.keys(configureCredentials.headers).length > 0 ||
-      Object.keys(configureCredentials.queryParams).length > 0 ||
-      (remoteAuthMode === "oauth2" && tokens);
-    const displayName = remoteIdentity.name.trim() || probe.serverName || probe.name;
-    const slugNamespace = slugifyNamespace(remoteIdentity.namespace);
-    const exit = await doAdd({
-      params: { scopeId },
-      payload: {
-        transport: "remote" as const,
-        name: displayName,
-        namespace: slugNamespace || undefined,
-        endpoint: state.url.trim(),
-        ...(Object.keys(remoteRequestHeaders).length > 0 ? { headers: remoteRequestHeaders } : {}),
-        ...(Object.keys(templateCredentials.queryParams).length > 0
-          ? {
-              queryParams: templateCredentials.queryParams as Record<
-                string,
-                McpConfiguredValueInput
-              >,
-            }
-          : {}),
-        ...(hasInitialCredentials
-          ? {
-              credentials: {
-                scope: requestCredentialTargetScope,
-                ...(Object.keys(configureCredentials.headers).length > 0
-                  ? {
-                      headers: configureCredentials.headers as Record<string, McpCredentialInput>,
-                    }
-                  : {}),
-                ...(Object.keys(configureCredentials.queryParams).length > 0
-                  ? {
-                      queryParams: configureCredentials.queryParams as Record<
-                        string,
-                        McpCredentialInput
-                      >,
-                    }
-                  : {}),
-                ...(remoteAuthMode === "oauth2" && tokens
-                  ? {
-                      auth: {
-                        oauth2: {
-                          connection: {
-                            kind: "connection" as const,
-                            connectionId: tokens.connectionId,
-                          },
-                        },
-                      },
-                    }
-                  : {}),
-              },
-            }
-          : {}),
-      },
-      reactivityKeys: sourceWriteKeys,
-    });
-    if (Exit.isFailure(exit)) {
-      dispatch({
-        type: "add-fail",
-        error: errorMessageFromExit(exit, "Failed to add source"),
-      });
-      return;
-    }
-    props.onComplete();
-  }, [
-    probe,
-    remoteAuthMode,
-    remoteCredentials,
-    remoteIdentity,
-    tokens,
-    state.url,
-    doAdd,
-    props,
-    scopeId,
-    requestCredentialTargetScope,
-  ]);
+    const slug = await registerIntegration(mcpAuthTemplateFromEditorValue(authValue));
+    if (slug === null) return;
+    props.onComplete(slug);
+  }, [probe, authValue, registerIntegration, props]);
 
   // ---- Stdio actions ----
 
@@ -567,26 +385,29 @@ export default function AddMcpSource(props: {
     setStdioAdding(true);
     setStdioError(null);
     const displayName = stdioIdentity.name.trim() || cmd;
-    const slugNamespace = slugifyNamespace(stdioIdentity.namespace);
-    const exit = await doAdd({
-      params: { scopeId },
+    const slug = slugifyNamespace(stdioIdentity.namespace) || undefined;
+    const exit = await doAddServer({
       payload: {
         transport: "stdio" as const,
         name: displayName,
-        namespace: slugNamespace || undefined,
+        ...(slug ? { slug } : {}),
         command: cmd,
         args: parseStdioArgs(stdioArgs),
         env: parseStdioEnv(stdioEnv),
       },
-      reactivityKeys: sourceWriteKeys,
+      reactivityKeys: integrationWriteKeys,
     });
     if (Exit.isFailure(exit)) {
-      setStdioError(errorMessageFromExit(exit, "Failed to add source"));
+      setStdioError(
+        isIntegrationAlreadyExistsExit(exit)
+          ? integrationExistsMessage(slug ?? displayName)
+          : errorMessageFromExit(exit, "Failed to add server"),
+      );
       setStdioAdding(false);
       return;
     }
-    props.onComplete();
-  }, [stdioCommand, stdioArgs, stdioEnv, stdioIdentity, doAdd, scopeId, props]);
+    props.onComplete(exit.value.slug);
+  }, [stdioCommand, stdioArgs, stdioEnv, stdioIdentity, doAddServer, props]);
 
   // ---- Render ----
 
@@ -641,124 +462,21 @@ export default function AddMcpSource(props: {
             onRetry={handleProbe}
           />
 
-          <HttpCredentialsEditor
-            credentials={remoteCredentials}
-            onChange={handleRemoteCredentialsChange}
-            existingSecrets={secretList}
-            sourceName={remoteIdentity.name}
-            targetScope={requestCredentialTargetScope}
-            credentialScopeOptions={credentialScopeOptions}
-            bindingScopeOptions={credentialScopeOptions}
-            headerPresets={mcpHeaderPresets}
-            labels={{
-              headers: "Request headers",
-              queryParams: "Query parameters",
-            }}
-          />
-
-          {/* Authentication */}
+          {/* Authentication — declares the auth template to register through the
+              shared editor. The credential itself (API key value / OAuth sign-in)
+              is added from the integration's detail hub after adding. */}
           {probe && (
             <section className="space-y-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <FieldLabel>Authentication</FieldLabel>
-                <FilterTabs<RemoteAuthMode>
-                  tabs={
-                    probe.requiresOAuth && probe.supportsDynamicRegistration
-                      ? [{ value: "oauth2", label: "OAuth" }]
-                      : [
-                          { value: "none", label: "None" },
-                          { value: "oauth2", label: "OAuth" },
-                        ]
-                  }
-                  value={remoteAuthMode}
-                  onChange={setRemoteAuthMode}
-                />
-              </div>
-
-              {remoteAuthMode === "oauth2" && (
-                <CredentialUsageRow
-                  value={oauthCredentialTargetScope}
-                  options={credentialScopeOptions}
-                  onChange={(targetScope) => {
-                    setOAuthCredentialTargetScope(targetScope);
-                    dispatch({ type: "oauth-reset" });
-                  }}
-                  label="Connection saved to"
-                  help="Choose who can use the OAuth connection."
-                >
-                  <CredentialControlField
-                    label="Connect via OAuth"
-                    help="Start the provider OAuth flow."
-                  >
-                    {!tokens &&
-                      state.step === "probed" &&
-                      (probe.supportsDynamicRegistration ? (
-                        <Button
-                          type="button"
-                          onClick={handleOAuth}
-                          variant="outline"
-                          className="w-full"
-                        >
-                          Sign in
-                        </Button>
-                      ) : (
-                        <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                          This server requires OAuth, but its authorization server does not support
-                          dynamic client registration. Use request headers with a bearer token, or
-                          save the source and connect a supported OAuth connection later.
-                        </div>
-                      ))}
-
-                    {!tokens && state.step === "oauth-starting" && (
-                      <div className="flex min-h-9 items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                        <Spinner className="size-3.5" />
-                        <span className="text-xs text-muted-foreground">
-                          Starting authorization...
-                        </span>
-                      </div>
-                    )}
-
-                    {!tokens && state.step === "oauth-waiting" && (
-                      <div className="flex min-h-9 items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/5 px-3 py-2">
-                        <Spinner className="size-3.5 text-blue-500" />
-                        <span className="text-xs text-blue-600 dark:text-blue-400">
-                          Waiting for authorization...
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleCancelOAuth}
-                          className="ml-auto h-7 px-2 text-xs"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    )}
-
-                    {tokens && (
-                      <div className="flex min-h-9 items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
-                        <svg viewBox="0 0 16 16" fill="none" className="size-3.5 text-emerald-500">
-                          <path
-                            d="M3 8.5l3 3 7-7"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                          Authenticated
-                        </span>
-                      </div>
-                    )}
-                  </CredentialControlField>
-                </CredentialUsageRow>
-              )}
+              <FieldLabel>How does this server authenticate?</FieldLabel>
+              <AuthTemplateEditor
+                value={authValue}
+                onChange={setAuthValue}
+                allowedKinds={allowedAuthKinds}
+              />
             </section>
           )}
 
-          {/* Error (OAuth / add source). Probe errors show inline on the field. */}
+          {/* Error (add server). Probe errors show inline on the field. */}
           {otherError && (
             <div className="space-y-2">
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
@@ -776,14 +494,27 @@ export default function AddMcpSource(props: {
             </div>
           )}
 
+          {remoteSlugExists && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              <p className="text-[12px] text-destructive">
+                An integration named &quot;{remoteSlug}&quot; already exists. To add more
+                authentication, update your existing integration.{" "}
+                <Link
+                  to="/integrations/$namespace"
+                  params={{ namespace: remoteSlug }}
+                  className="font-medium underline underline-offset-2"
+                >
+                  Open it
+                </Link>
+              </p>
+            </div>
+          )}
+
           <FloatActions>
             <Button
               type="button"
               variant="ghost"
-              onClick={() => {
-                oauth.cancel();
-                props.onCancel();
-              }}
+              onClick={() => props.onCancel()}
               disabled={isAdding}
             >
               Cancel
@@ -846,7 +577,7 @@ export default function AddMcpSource(props: {
             </CardStackContent>
           </CardStack>
 
-          <SourceIdentityFields identity={stdioIdentity} namePlaceholder="My MCP Server" />
+          <IntegrationIdentityFields identity={stdioIdentity} namePlaceholder="My MCP Server" />
 
           {/* Stdio error */}
           {stdioError && (
@@ -855,14 +586,35 @@ export default function AddMcpSource(props: {
             </div>
           )}
 
+          {stdioSlugExists && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              <p className="text-[12px] text-destructive">
+                An integration named &quot;{stdioSlug}&quot; already exists. To add more
+                authentication, update your existing integration.{" "}
+                <Link
+                  to="/integrations/$namespace"
+                  params={{ namespace: stdioSlug }}
+                  className="font-medium underline underline-offset-2"
+                >
+                  Open it
+                </Link>
+              </p>
+            </div>
+          )}
+
           <FloatActions>
-            <Button type="button" variant="ghost" onClick={props.onCancel} disabled={stdioAdding}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => props.onCancel()}
+              disabled={stdioAdding}
+            >
               Cancel
             </Button>
             <Button
               type="button"
               onClick={handleAddStdio}
-              disabled={!stdioCommand.trim() || stdioAdding}
+              disabled={!stdioCommand.trim() || stdioAdding || stdioSlugExists}
             >
               {stdioAdding ? (
                 <>

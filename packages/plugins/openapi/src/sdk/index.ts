@@ -7,23 +7,25 @@ export {
   type GoogleDiscoveryOpenApiConversion,
 } from "./google-discovery";
 export { extract } from "./extract";
-export { invoke, invokeWithLayer, resolveHeaders, annotationsForOperation } from "./invoke";
+export { invoke, invokeWithLayer, annotationsForOperation } from "./invoke";
 export {
   openApiPlugin,
   type OpenApiSpecConfig,
-  type OpenApiConfigureCredentialInput,
   type OpenApiConfigureInput,
+  type OpenApiSpecInput,
+  type OpenApiPreviewInput,
   type OpenApiPluginExtension,
   type OpenApiPluginOptions,
-  type OpenApiSourceRef,
 } from "./plugin";
+export { type OpenapiStore, type StoredOperation, makeDefaultOpenapiStore } from "./store";
 export {
-  type OpenapiStore,
-  type StoredOperation,
-  type StoredSource,
-  type SourceConfig,
-  makeDefaultOpenapiStore,
-} from "./store";
+  decodeOpenApiIntegrationConfig,
+  renderAuthTemplate,
+  AuthenticationSchema,
+  OpenApiIntegrationConfigSchema,
+  type OpenApiIntegrationConfig,
+  type RenderedAuth,
+} from "./config";
 export {
   previewSpec,
   SecurityScheme,
@@ -48,6 +50,7 @@ export {
   OpenApiExtractionError,
   OpenApiInvocationError,
   OpenApiOAuthError,
+  OpenApiAuthRequiredError,
 } from "./errors";
 
 export {
@@ -56,7 +59,6 @@ export {
   ExtractionResult,
   InvocationResult,
   MediaBinding,
-  OAuth2SourceConfig,
   OperationBinding,
   OperationParameter,
   OperationRequestBody,
@@ -65,4 +67,9 @@ export {
   OperationId,
   HttpMethod,
   ParameterLocation,
+  variable,
+  type Authentication,
+  type APIKeyAuthentication,
+  type AuthenticationVariable,
+  type AuthenticationTemplateValue,
 } from "./types";
