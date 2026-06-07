@@ -19,8 +19,7 @@ import {
   updatePolicyOptimistic,
 } from "../api/atoms";
 import { policyWriteKeys } from "../api/reactivity-keys";
-import { ownerLabel } from "../api/scope-context";
-import { useOrganizationId } from "../api/organization-context";
+import { ownerLabel, useOwnerDisplay } from "../api/scope-context";
 import { badgeVariants } from "../components/badge";
 import { cn } from "../lib/utils";
 import {
@@ -102,13 +101,15 @@ function AddPolicyForm(props: {
   const [pattern, setPattern] = useState("");
   const [action, setAction] = useState<ToolPolicyAction>("require_approval");
   const valid = isValidPattern(pattern);
-  // Non-org hosts (local/desktop) have no Workspace — only Personal policies, so
-  // hide the "Applies to" owner select entirely.
-  const organizationId = useOrganizationId();
-  const ownerChoices =
-    organizationId === null
-      ? POLICY_OWNERS.filter((option) => option.owner === "user")
-      : POLICY_OWNERS;
+  // Non-org hosts (local/desktop) have one local workspace. New local policies
+  // are org-owned internally to match the v1->v2 migration.
+  const ownerDisplay = useOwnerDisplay();
+  const ownerChoices = ownerDisplay.isSinglePlayerHost
+    ? POLICY_OWNERS.filter((option) => option.owner === "org").map((option) => ({
+        ...option,
+        label: "Local",
+      }))
+    : POLICY_OWNERS;
 
   return (
     <form
@@ -201,15 +202,18 @@ function PolicyRow(props: {
   onChangeAction: (action: ToolPolicyAction) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  showOwnerLabel: boolean;
 }) {
   return (
     <CardStackEntry>
       <CardStackEntryContent>
         <CardStackEntryTitle className="flex items-center gap-2 font-mono text-sm">
           <span className="truncate">{props.policy.pattern}</span>
-          <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-sans text-[10px] leading-none text-muted-foreground">
-            {ownerLabel(props.policy.owner)}
-          </span>
+          {props.showOwnerLabel ? (
+            <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-sans text-[10px] leading-none text-muted-foreground">
+              {ownerLabel(props.policy.owner)}
+            </span>
+          ) : null}
         </CardStackEntryTitle>
       </CardStackEntryContent>
       <CardStackEntryActions>
@@ -280,10 +284,10 @@ export function PoliciesPage() {
   const doUpdate = useAtomSet(updatePolicyOptimistic, { mode: "promise" });
   const doRemove = useAtomSet(removePolicyOptimistic, { mode: "promise" });
   const [busy, setBusy] = useState(false);
-  // Default Workspace on an org host, Personal on a non-org host (local/desktop),
-  // where the owner picker is hidden and every policy is Personal.
-  const organizationId = useOrganizationId();
-  const [targetOwner, setTargetOwner] = useState<Owner>(organizationId === null ? "user" : "org");
+  const ownerDisplay = useOwnerDisplay();
+  // Policies default to org/workspace. On local this is the hidden Local owner
+  // that v1 local data migrates into.
+  const [targetOwner, setTargetOwner] = useState<Owner>("org");
 
   const handleCreate = async (input: {
     owner: Owner;
@@ -339,9 +343,8 @@ export function PoliciesPage() {
               Policies
             </h1>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              Override default approval behavior for tools. Rules are evaluated per owner; the most
-              restrictive matched action wins. Blocked tools are hidden from agent search and fail
-              at invoke.
+              Override default approval behavior for tools. The most restrictive matched action
+              wins. Blocked tools are hidden from agent search and fail at invoke.
             </p>
           </div>
         </div>
@@ -435,6 +438,7 @@ export function PoliciesPage() {
                           }}
                           isFirst={!reorderable || j === 0}
                           isLast={!reorderable || j === committed.length - 1}
+                          showOwnerLabel={ownerDisplay.showOwnerLabels}
                           onRemove={() => handleRemove({ id: p.id, owner: p.owner })}
                           onChangeAction={(action) =>
                             handleUpdate({ id: p.id, owner: p.owner }, action)

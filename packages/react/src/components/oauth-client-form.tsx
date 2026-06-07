@@ -5,14 +5,15 @@ import { OAuthClientSlug, type OAuthGrant, type Owner } from "@executor-js/sdk/s
 import { toast } from "sonner";
 
 import { createOAuthClient, probeOAuth, registerDynamicOAuthClient } from "../api/atoms";
-import { ownerLabel } from "../api/scope-context";
+import { ownerLabelForHost } from "../api/scope-context";
 import { useOrganizationId } from "../api/organization-context";
 import { oauthClientWriteKeys } from "../api/reactivity-keys";
 import { uniqueClientSlug } from "../plugins/use-effective-oauth-client";
 import { oauthCallbackUrl } from "../plugins/oauth-sign-in";
 import {
-  credentialTargetScopeOptions,
   CredentialScopeDropdown,
+  credentialTargetScopeOptionsForHost,
+  normalizeCredentialTargetScope,
 } from "../plugins/credential-target-scope";
 import { Button } from "./button";
 import { Input } from "./input";
@@ -66,22 +67,19 @@ export function OAuthClientForm(props: {
 }) {
   const { integrationName, existingSlugs, prefill, fixedSlug, fixedOwner, onCreated, onCancel } =
     props;
-  // Non-org hosts (local/desktop) have no Workspace — offer only Personal, so
-  // the owner dropdown (which hides on a single option) disappears.
+  // Non-org hosts (local/desktop) have one local workspace. Offer only Local,
+  // so the owner dropdown (which hides on a single option) disappears.
   const organizationId = useOrganizationId();
   const scopeOptions = useMemo(
-    () =>
-      organizationId === null
-        ? credentialTargetScopeOptions().filter((option) => option.owner === "user")
-        : credentialTargetScopeOptions(),
+    () => credentialTargetScopeOptionsForHost(organizationId),
     [organizationId],
   );
 
   // Explicit create-time choice (no ambient owner). Default Workspace (`org`) on
-  // an org host, Personal (`user`) on a non-org host, or the locked owner when
+  // an org host, Local (`org`) on a non-org host, or the locked owner when
   // editing.
   const [owner, setOwner] = useState<Owner>(
-    fixedOwner ?? (organizationId === null ? "user" : "org"),
+    fixedOwner ?? normalizeCredentialTargetScope("org", scopeOptions),
   );
   const [name, setName] = useState(integrationName);
   const [grant, setGrant] = useState<OAuthGrant>(prefill?.grant ?? "authorization_code");
@@ -420,7 +418,7 @@ export function OAuthClientForm(props: {
         <div className="space-y-1.5">
           <Label className="text-[11px] text-muted-foreground">Owner</Label>
           <p className="text-sm">
-            {ownerLabel(fixedOwner)}
+            {ownerLabelForHost(fixedOwner, organizationId)}
             <span className="ml-2 text-xs text-muted-foreground">
               can&apos;t change after creation
             </span>
@@ -432,8 +430,9 @@ export function OAuthClientForm(props: {
           options={scopeOptions}
           onChange={(next: Owner) => setOwner(next)}
           label="Register app for"
-          help={`Personal apps are yours only; Workspace apps are shared with everyone (each ${ownerLabel(
+          help={`Personal apps are yours only; Workspace apps are shared with everyone (each ${ownerLabelForHost(
             "user",
+            organizationId,
           ).toLowerCase()} still mints their own connection).`}
         />
       )}

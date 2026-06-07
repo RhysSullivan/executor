@@ -13,6 +13,7 @@ import { migrateLocalV1ToV2IfNeeded } from "./v1-v2-migration";
 
 const AuthFile = Schema.Record(Schema.String, Schema.String);
 const decodeAuthFile = Schema.decodeUnknownSync(Schema.fromJsonString(AuthFile));
+const decodeUnknownJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 let workDir: string;
 let previousXdgDataHome: string | undefined;
@@ -34,6 +35,8 @@ const seedV1Db = async (
   scopeId: string,
   options: {
     readonly includeSecretBackedOauth?: boolean;
+    readonly includeGraphqlTool?: boolean;
+    readonly includeMcpToolBinding?: boolean;
     readonly jsonBlobs?: boolean;
     readonly oauthConnectionProvider?: string;
   } = {},
@@ -250,6 +253,28 @@ const seedV1Db = async (
   );
   await executeSql(
     client,
+    "INSERT INTO plugin_storage (id, scope_id, plugin_id, collection, key, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [
+      "openapi-operation-stripe-charge",
+      scopeId,
+      "openapi",
+      "operation",
+      "stripe_api.charges.create",
+      json({
+        toolId: "stripe_api.charges.create",
+        sourceId: "stripe_api",
+        binding: {
+          method: "post",
+          pathTemplate: "/v1/charges",
+          parameters: [],
+        },
+      }),
+      now,
+      now,
+    ],
+  );
+  await executeSql(
+    client,
     "INSERT INTO definition (id, scope_id, source_id, plugin_id, name, schema, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     [
       "stripe_api.Charge",
@@ -272,6 +297,199 @@ const seedV1Db = async (
       JSON.stringify([`${scopeId}/onepassword`, "config"]),
     ],
   );
+
+  if (options.includeMcpToolBinding) {
+    await executeSql(
+      client,
+      "INSERT INTO source (id, scope_id, plugin_id, kind, name) VALUES (?, ?, ?, ?, ?)",
+      ["axiom_mcp", scopeId, "mcp", "mcp", "Axiom MCP"],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO plugin_storage (id, scope_id, plugin_id, collection, key, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "mcp-source-axiom",
+        scopeId,
+        "mcp",
+        "source",
+        "axiom_mcp",
+        json({
+          config: {
+            endpoint: "https://mcp.axiom.co/mcp",
+            headers: {
+              Authorization: {
+                kind: "binding",
+                slot: "header:authorization",
+                prefix: "Bearer ",
+              },
+            },
+            auth: { kind: "none" },
+          },
+        }),
+        now,
+        now,
+      ],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO secret (id, scope_id, name, provider, owned_by_connection_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ["axiom-token", scopeId, "Axiom MCP OAuth", "file", null, now],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO credential_binding (id, scope_id, plugin_id, source_id, source_scope_id, slot_key, kind, text_value, secret_id, connection_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "axiom-auth",
+        scopeId,
+        "mcp",
+        "axiom_mcp",
+        scopeId,
+        "header:authorization",
+        "secret",
+        null,
+        "axiom-token",
+        null,
+        now,
+        now,
+      ],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO tool (id, scope_id, source_id, plugin_id, name, description, input_schema, output_schema, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "axiom_mcp.querydataset",
+        scopeId,
+        "axiom_mcp",
+        "mcp",
+        "querydataset",
+        "Query Axiom datasets",
+        json({ type: "object" }),
+        json({ type: "object" }),
+        now,
+        now,
+      ],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO plugin_storage (id, scope_id, plugin_id, collection, key, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "mcp-binding-axiom-querydataset",
+        scopeId,
+        "mcp",
+        "binding",
+        "axiom_mcp.querydataset",
+        json({
+          namespace: "axiom_mcp",
+          toolId: "axiom_mcp.querydataset",
+          binding: {
+            toolId: "querydataset",
+            toolName: "queryDataset",
+            description: "Query Axiom datasets",
+            inputSchema: { type: "object" },
+            annotations: { title: "Query dataset", readOnlyHint: true },
+          },
+        }),
+        now,
+        now,
+      ],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO plugin_storage (id, scope_id, plugin_id, collection, key, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "graphql-operation-query-hello",
+        scopeId,
+        "graphql",
+        "operation",
+        "graphql_api.query.hello",
+        json({
+          toolId: "graphql_api.query.hello",
+          sourceId: "graphql_api",
+          binding: {
+            kind: "query",
+            fieldName: "hello",
+            operationString: "query { hello }",
+            variableNames: [],
+          },
+        }),
+        now,
+        now,
+      ],
+    );
+  }
+
+  if (options.includeGraphqlTool) {
+    await executeSql(
+      client,
+      "INSERT INTO source (id, scope_id, plugin_id, kind, name) VALUES (?, ?, ?, ?, ?)",
+      ["graphql_api", scopeId, "graphql", "graphql", "GraphQL API"],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO plugin_storage (id, scope_id, plugin_id, collection, key, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "graphql-source-api",
+        scopeId,
+        "graphql",
+        "source",
+        "graphql_api",
+        json({
+          config: {
+            endpoint: "https://api.example.com/graphql",
+            headers: {
+              Authorization: {
+                kind: "binding",
+                slot: "header:authorization",
+                prefix: "Bearer ",
+              },
+            },
+            auth: { kind: "none" },
+          },
+        }),
+        now,
+        now,
+      ],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO secret (id, scope_id, name, provider, owned_by_connection_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ["graphql-token", scopeId, "GraphQL token", "file", null, now],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO credential_binding (id, scope_id, plugin_id, source_id, source_scope_id, slot_key, kind, text_value, secret_id, connection_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "graphql-auth",
+        scopeId,
+        "graphql",
+        "graphql_api",
+        scopeId,
+        "header:authorization",
+        "secret",
+        null,
+        "graphql-token",
+        null,
+        now,
+        now,
+      ],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO tool (id, scope_id, source_id, plugin_id, name, description, input_schema, output_schema, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "graphql_api.query.hello",
+        scopeId,
+        "graphql_api",
+        "graphql",
+        "query.hello",
+        "GraphQL query",
+        json({ type: "object" }),
+        json({ type: "object" }),
+        now,
+        now,
+      ],
+    );
+  }
 
   if (options.includeSecretBackedOauth) {
     await executeSql(
@@ -402,7 +620,7 @@ describe("local v1 -> v2 migration", () => {
         owner: "org",
         subject: "",
         integration: "stripe_api",
-        name: "api-key",
+        name: "stripe-key",
         provider: "file",
         item_ids: JSON.stringify({ token: itemId }),
       },
@@ -422,7 +640,7 @@ describe("local v1 -> v2 migration", () => {
         owner: "org",
         subject: "",
         integration: "stripe_api",
-        connection: "api-key",
+        connection: "stripe-key",
         plugin_id: "openapi",
         name: "charges.create",
         input_schema: JSON.stringify({ type: "object" }),
@@ -438,7 +656,7 @@ describe("local v1 -> v2 migration", () => {
         owner: "org",
         subject: "",
         integration: "stripe_api",
-        connection: "api-key",
+        connection: "stripe-key",
         plugin_id: "openapi",
         name: "Charge",
         schema: JSON.stringify({ type: "object", properties: { id: { type: "string" } } }),
@@ -446,7 +664,7 @@ describe("local v1 -> v2 migration", () => {
     ]);
 
     const pluginStorage = await client.execute(
-      "SELECT tenant, owner, subject, plugin_id, collection, key, data FROM plugin_storage",
+      "SELECT tenant, owner, subject, plugin_id, collection, key, data FROM plugin_storage WHERE plugin_id = 'onepassword'",
     );
     expect(pluginStorage.rows).toEqual([
       {
@@ -472,6 +690,114 @@ describe("local v1 -> v2 migration", () => {
 
     const auth = decodeAuthFile(readFileSync(join(authDir, "auth.json"), "utf-8"));
     expect(auth[itemId]).toBe("sk_test_123");
+  });
+
+  it("preserves migrated tool slugs and stamps MCP tools with their upstream binding", async () => {
+    const scopeId = "executor-workspace-abcd1234";
+    const tenantId = "executor-workspace-abcd1234";
+    const dataDir = join(workDir, "data");
+    const dbPath = join(dataDir, "data.db");
+    mkdirSync(dataDir, { recursive: true });
+    await seedV1Db(dbPath, scopeId, { includeGraphqlTool: true, includeMcpToolBinding: true });
+
+    const authDir = join(process.env.XDG_DATA_HOME!, "executor");
+    mkdirSync(authDir, { recursive: true });
+    writeFileSync(
+      join(authDir, "auth.json"),
+      JSON.stringify(
+        {
+          [scopeId]: {
+            "stripe-key": "sk_test_123",
+            "axiom-token": "axiom-access-token",
+            "graphql-token": "graphql-access-token",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const result = await migrateLocalV1ToV2IfNeeded({
+      sqlitePath: dbPath,
+      tables: collectTables(),
+      namespace: "executor_local",
+      tenantId,
+    });
+
+    expect(result.migrated).toBe(true);
+
+    const client = await openLocalLibsql(dbPath);
+    const migratedToolNames = await client.execute(
+      "SELECT integration, plugin_id, name FROM tool ORDER BY integration, name",
+    );
+    expect(migratedToolNames.rows).toEqual([
+      { integration: "axiom_mcp", plugin_id: "mcp", name: "querydataset" },
+      { integration: "graphql_api", plugin_id: "graphql", name: "query.hello" },
+      { integration: "stripe_api", plugin_id: "openapi", name: "charges.create" },
+    ]);
+
+    const operationRows = await client.execute(
+      "SELECT tenant, owner, subject, plugin_id, collection, key, data FROM plugin_storage WHERE collection = 'operation' ORDER BY plugin_id, key",
+    );
+    expect(operationRows.rows).toEqual([
+      {
+        tenant: tenantId,
+        owner: "org",
+        subject: "",
+        plugin_id: "graphql",
+        collection: "operation",
+        key: "graphql_api.query.hello",
+        data: JSON.stringify({
+          integration: "graphql_api",
+          toolName: "query.hello",
+          binding: {
+            kind: "query",
+            fieldName: "hello",
+            operationString: "query { hello }",
+            variableNames: [],
+          },
+        }),
+      },
+      {
+        tenant: tenantId,
+        owner: "org",
+        subject: "",
+        plugin_id: "openapi",
+        collection: "operation",
+        key: "stripe_api.charges.create",
+        data: JSON.stringify({
+          integration: "stripe_api",
+          toolName: "charges.create",
+          binding: {
+            method: "post",
+            pathTemplate: "/v1/charges",
+            parameters: [],
+          },
+        }),
+      },
+    ]);
+
+    const rows = await client.execute(
+      "SELECT connection, name, annotations FROM tool WHERE integration = 'axiom_mcp'",
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      connection: "axiom-mcp-oauth",
+      name: "querydataset",
+    });
+
+    const annotations = decodeUnknownJson(String(rows.rows[0]!.annotations));
+    expect(annotations).toMatchObject({
+      requiresApproval: false,
+      mcp: {
+        toolName: "queryDataset",
+        upstream: {
+          title: "Query dataset",
+          readOnlyHint: true,
+        },
+      },
+    });
+    client.close();
   });
 
   it("resolves secret-backed v1 OAuth client ids into v2 oauth_client rows", async () => {

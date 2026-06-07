@@ -23,10 +23,13 @@ import {
 } from "../api/atoms";
 import { connectionWriteKeys, oauthClientWriteKeys } from "../api/reactivity-keys";
 import { messageFromExit } from "../api/error-reporting";
-import { ownerLabel } from "../api/scope-context";
+import { useOrganizationId } from "../api/organization-context";
+import { ownerLabel, ownerLabelForHost, useOwnerDisplay } from "../api/scope-context";
 import {
-  credentialTargetScopeOptions,
   CredentialScopeDropdown,
+  credentialTargetScopeOptionsForHost,
+  defaultCredentialTargetOwnerForHost,
+  normalizeCredentialTargetScope,
   type CredentialTargetScopeOption,
 } from "../plugins/credential-target-scope";
 import { oauthCallbackUrl, useOAuthPopupFlow } from "../plugins/oauth-sign-in";
@@ -349,6 +352,13 @@ function StepHeader(props: {
 export const connectionLabel = (label: string, owner: Owner, integrationName: string): string =>
   label.trim() || `${ownerLabel(owner)} ${integrationName}`;
 
+export const connectionLabelForHost = (
+  label: string,
+  owner: Owner,
+  integrationName: string,
+  organizationId: string | null,
+): string => label.trim() || `${ownerLabelForHost(owner, organizationId)} ${integrationName}`;
+
 /** The default owner a new connection is saved under when the user makes no
  *  explicit choice. Personal: a connection is most often a personal credential. */
 export const DEFAULT_CONNECTION_OWNER: Owner = "user";
@@ -365,9 +375,14 @@ export const mergeCustomMethods = (
 };
 
 /** Derive a stable-ish connection name slug from the label; the server canonicalizes. */
-const connectionNameFrom = (label: string, owner: Owner, integrationName: string): ConnectionName =>
+const connectionNameFrom = (
+  label: string,
+  owner: Owner,
+  integrationName: string,
+  organizationId: string | null,
+): ConnectionName =>
   ConnectionName.make(
-    (label.trim() || `${ownerLabel(owner)}-${integrationName}`)
+    connectionLabelForHost(label, owner, integrationName, organizationId)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "connection",
@@ -507,7 +522,13 @@ export function AddAccountModal(props: {
     initialState,
     createCustomMethod,
   } = props;
-  const scopeOptions = useMemo(() => credentialTargetScopeOptions(), []);
+  const organizationId = useOrganizationId();
+  const ownerDisplay = useOwnerDisplay();
+  const scopeOptions = useMemo(
+    () => credentialTargetScopeOptionsForHost(organizationId),
+    [organizationId],
+  );
+  const defaultOwner = defaultCredentialTargetOwnerForHost(organizationId);
 
   // The selectable methods: the declared ones plus any custom method created in
   // this session (so a just-created method shows + can be selected before the
@@ -528,9 +549,9 @@ export function AddAccountModal(props: {
   const [credentialOrigin, setCredentialOrigin] = useState<CredentialOrigin>("paste");
   const [onePasswordItemId, setOnePasswordItemId] = useState("");
   const [label, setLabel] = useState("");
-  // Explicit create-time choice (no ambient owner). Defaults to Personal
-  // (`DEFAULT_CONNECTION_OWNER`): a connection is most often a personal credential.
-  const [owner, setOwner] = useState<Owner>(DEFAULT_CONNECTION_OWNER);
+  // Explicit create-time choice (no ambient owner). Cloud defaults to Personal;
+  // local/desktop hide the picker and save to the one local workspace.
+  const [owner, setOwner] = useState<Owner>(defaultOwner);
   const [submitting, setSubmitting] = useState(false);
   const [pickedApp, setPickedApp] = useState<string | null>(null);
   const [ccBusy, setCcBusy] = useState(false);
@@ -565,14 +586,14 @@ export function AddAccountModal(props: {
         )
       : undefined;
     if (initialMethod) setMethodId(initialMethod.id);
-    if (initialState.owner) setOwner(initialState.owner);
+    setOwner(normalizeCredentialTargetScope(initialState.owner ?? defaultOwner, scopeOptions));
     if (initialState.label) setLabel(initialState.label);
     setValues({});
     setCredentialOrigin("paste");
     setOnePasswordItemId("");
     setPickedApp(null);
     setDcrFailed(false);
-  }, [initialState, allMethods]);
+  }, [initialState, allMethods, defaultOwner, scopeOptions]);
   const isOAuth = method?.kind === "oauth";
   // The distinct credential inputs the selected method needs — one per variable
   // across its placements. A single-input method yields one field (`token`); a
@@ -649,6 +670,9 @@ export function AddAccountModal(props: {
     [oauthSharedApp, scopeOptions],
   );
   const oauthConnectionOwner: Owner = oauthSharedApp ? owner : "user";
+  const savedToOptions = isOAuth && !dcrActive ? oauthSavedToOptions : scopeOptions;
+  const savedToOwner = isOAuth && !dcrActive ? oauthConnectionOwner : owner;
+  const showSavedToPicker = !oauthRegistering && savedToOptions.length > 1;
 
   const reset = () => {
     setMethodId(methods[0]?.id ?? "");
@@ -656,7 +680,7 @@ export function AddAccountModal(props: {
     setCredentialOrigin("paste");
     setOnePasswordItemId("");
     setLabel("");
-    setOwner(DEFAULT_CONNECTION_OWNER);
+    setOwner(defaultOwner);
     setSubmitting(false);
     setPickedApp(null);
     setCcBusy(false);
@@ -712,10 +736,10 @@ export function AddAccountModal(props: {
     setSubmitting(true);
     const commonPayload = {
       owner,
-      name: connectionNameFrom(label, owner, integrationName),
+      name: connectionNameFrom(label, owner, integrationName, organizationId),
       integration,
       template: method.template,
-      identityLabel: connectionLabel(label, owner, integrationName),
+      identityLabel: connectionLabelForHost(label, owner, integrationName, organizationId),
     };
     const exit = await doCreate({
       payload:
@@ -745,10 +769,15 @@ export function AddAccountModal(props: {
       client: chosenClient.slug,
       clientOwner: chosenClient.owner,
       owner: connectionOwner,
-      name: connectionNameFrom(label, connectionOwner, integrationName),
+      name: connectionNameFrom(label, connectionOwner, integrationName, organizationId),
       integration,
       template: method.template,
-      identityLabel: connectionLabel(label, connectionOwner, integrationName),
+      identityLabel: connectionLabelForHost(
+        label,
+        connectionOwner,
+        integrationName,
+        organizationId,
+      ),
     };
     // client_credentials mints inline (no redirect); authorization_code runs the popup.
     if (chosenClient.grant === "client_credentials") {
@@ -785,8 +814,8 @@ export function AddAccountModal(props: {
       return;
     }
     const dcrOwner = owner;
-    const connectionName = connectionNameFrom(label, dcrOwner, integrationName);
-    const identityLabel = connectionLabel(label, dcrOwner, integrationName);
+    const connectionName = connectionNameFrom(label, dcrOwner, integrationName, organizationId);
+    const identityLabel = connectionLabelForHost(label, dcrOwner, integrationName, organizationId);
     setDcrBusy(true);
     const outcome = await runDcrConnect(
       {
@@ -873,7 +902,9 @@ export function AddAccountModal(props: {
           <DialogHeader>
             <DialogTitle>Add account · {integrationName}</DialogTitle>
             <DialogDescription>
-              A connection is one credential for this integration, owned by you or the workspace.
+              {ownerDisplay.showOwnerLabels
+                ? "A connection is one credential for this integration, owned by you or the workspace."
+                : "A connection is one credential for this integration."}
             </DialogDescription>
           </DialogHeader>
 
@@ -888,7 +919,7 @@ export function AddAccountModal(props: {
               />
               <Input
                 id="connection-name"
-                placeholder={connectionLabel("", owner, integrationName)}
+                placeholder={connectionLabelForHost("", owner, integrationName, organizationId)}
                 value={label}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLabel(e.target.value)}
               />
@@ -999,7 +1030,9 @@ export function AddAccountModal(props: {
                                         : "you'll sign in"}
                                     </span>
                                   </span>
-                                  <Badge variant="outline">{ownerLabel(app.owner)}</Badge>
+                                  {ownerDisplay.showOwnerLabels ? (
+                                    <Badge variant="outline">{ownerLabel(app.owner)}</Badge>
+                                  ) : null}
                                 </Label>
                               ))}
                             </RadioGroup>
@@ -1041,7 +1074,9 @@ export function AddAccountModal(props: {
                                   : "you'll sign in"}
                               </span>
                             </span>
-                            <Badge variant="outline">{ownerLabel(app.owner)}</Badge>
+                            {ownerDisplay.showOwnerLabels ? (
+                              <Badge variant="outline">{ownerLabel(app.owner)}</Badge>
+                            ) : null}
                           </Label>
                         ))}
                         <Label
@@ -1101,12 +1136,12 @@ export function AddAccountModal(props: {
               while a Personal app mints Personal only (`oauthSavedToOptions`);
               for transparent DCR the app + connection land under the chosen
               owner; for a credential method it's the plain owner choice. */}
-            {!oauthRegistering && (
+            {showSavedToPicker && (
               <div className="space-y-2">
                 <StepHeader index={4} label="Connection saved to" />
                 <CredentialScopeDropdown
-                  value={isOAuth && !dcrActive ? oauthConnectionOwner : owner}
-                  options={isOAuth && !dcrActive ? oauthSavedToOptions : scopeOptions}
+                  value={savedToOwner}
+                  options={savedToOptions}
                   onChange={(next: Owner) => setOwner(next)}
                   label="Saved to"
                 />

@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import { connectionsAllAtom } from "@executor-js/react/api/atoms";
-import { ownerLabel } from "@executor-js/react/api/scope-context";
+import { ownerLabel, useOwnerDisplay } from "@executor-js/react/api/scope-context";
 import { IntegrationSlug, type Connection } from "@executor-js/sdk/shared";
 import { Badge } from "@executor-js/react/components/badge";
 import { Button } from "@executor-js/react/components/button";
@@ -32,6 +32,7 @@ export default function EditOpenApiSource(props: {
 }) {
   const slug = IntegrationSlug.make(props.sourceId);
   const integrationResult = useAtomValue(openApiIntegrationAtom(slug));
+  const ownerDisplay = useOwnerDisplay();
   // Connections across BOTH owners (omit-owner read); each row keeps its owner
   // for the per-connection badge below.
   const connectionsResult = useAtomValue(connectionsAllAtom);
@@ -98,7 +99,9 @@ export default function EditOpenApiSource(props: {
                     {String(connection.template)} · {String(connection.provider)}
                   </CardStackEntryDescription>
                 </CardStackEntryContent>
-                <Badge variant="outline">{ownerLabel(connection.owner)}</Badge>
+                {ownerDisplay.showOwnerLabels ? (
+                  <Badge variant="outline">{ownerLabel(connection.owner)}</Badge>
+                ) : null}
               </CardStackEntry>
             ))
           )}

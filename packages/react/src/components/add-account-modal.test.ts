@@ -10,6 +10,7 @@ import {
 import type { AuthMethod } from "../lib/auth-placements";
 import {
   connectionLabel,
+  connectionLabelForHost,
   createCredentialPayloadOrigin,
   DEFAULT_CONNECTION_OWNER,
   mergeCustomMethods,
@@ -62,6 +63,11 @@ describe("connectionLabel (name placeholder derivation)", () => {
 
   it("uses the typed label (trimmed) when one is provided", () => {
     expect(connectionLabel("  My Bot  ", "user", "GitHub")).toBe("My Bot");
+  });
+
+  it("uses Local in derived labels for non-org-scoped hosts", () => {
+    expect(connectionLabelForHost("", "org", "GitHub", null)).toBe("Local GitHub");
+    expect(connectionLabelForHost("", "org", "GitHub", "org_123")).toBe("Workspace GitHub");
   });
 });
 

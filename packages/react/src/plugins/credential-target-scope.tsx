@@ -38,6 +38,9 @@ export interface CredentialTargetScopeOption {
   readonly description: string;
 }
 
+export const DEFAULT_CREDENTIAL_OWNER: Owner = "user";
+export const LOCAL_CREDENTIAL_OWNER: Owner = "org";
+
 /** The two owner choices a credential can be saved under. */
 export const credentialTargetScopeOptions = (): readonly CredentialTargetScopeOption[] => [
   {
@@ -52,6 +55,22 @@ export const credentialTargetScopeOptions = (): readonly CredentialTargetScopeOp
   },
 ];
 
+export const localCredentialTargetScopeOptions = (): readonly CredentialTargetScopeOption[] => [
+  {
+    owner: LOCAL_CREDENTIAL_OWNER,
+    label: "Local",
+    description: "Saved on this device for this project.",
+  },
+];
+
+export const credentialTargetScopeOptionsForHost = (
+  organizationId: string | null,
+): readonly CredentialTargetScopeOption[] =>
+  organizationId === null ? localCredentialTargetScopeOptions() : credentialTargetScopeOptions();
+
+export const defaultCredentialTargetOwnerForHost = (organizationId: string | null): Owner =>
+  organizationId === null ? LOCAL_CREDENTIAL_OWNER : DEFAULT_CREDENTIAL_OWNER;
+
 export const normalizeCredentialTargetScope = (
   value: Owner,
   options: readonly CredentialTargetScopeOption[],
@@ -60,12 +79,13 @@ export const normalizeCredentialTargetScope = (
 /**
  * Owns the Personal/Workspace selection for a credential-create flow. The global
  * owner toggle is retired, so this is an explicit, required create-time choice
- * that defaults to `"user"` (Personal); pass `initialOwner` to override.
+ * that defaults to `"user"` (Personal) in org-scoped hosts; pass
+ * `initialOwner` to override.
  *
- * Non-org-scoped hosts (local/desktop) have no Workspace — there's one user and
- * everything is Personal. `useOrganizationId()` is `null` there, so we offer
- * only the Personal option; every picker below hides on a single option, so the
- * Personal/Workspace choice disappears entirely on local.
+ * Non-org-scoped hosts (local/desktop) have one local workspace. Existing local
+ * v1 data migrates there as `owner: "org"`, so we offer only a Local/org
+ * option; every picker below hides on a single option, so the owner choice
+ * disappears entirely on local.
  */
 export function useCredentialTargetScope(input?: { readonly initialOwner?: Owner }): {
   readonly credentialTargetOwner: Owner;
@@ -73,16 +93,13 @@ export function useCredentialTargetScope(input?: { readonly initialOwner?: Owner
   readonly credentialScopeOptions: readonly CredentialTargetScopeOption[];
 } {
   const organizationId = useOrganizationId();
-  const credentialScopeOptions =
-    organizationId === null
-      ? credentialTargetScopeOptions().filter((option) => option.owner === "user")
-      : credentialTargetScopeOptions();
+  const credentialScopeOptions = credentialTargetScopeOptionsForHost(organizationId);
   const [credentialTargetOwner, setCredentialTargetOwner] = useState<Owner>(
-    input?.initialOwner ?? "user",
+    input?.initialOwner ?? defaultCredentialTargetOwnerForHost(organizationId),
   );
 
   // Always keep the selection valid against the available options — on a
-  // non-org host this forces Personal regardless of any passed `initialOwner`.
+  // non-org host this forces Local regardless of any passed `initialOwner`.
   const normalizedOwner = normalizeCredentialTargetScope(
     credentialTargetOwner,
     credentialScopeOptions,

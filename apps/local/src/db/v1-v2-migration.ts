@@ -11,9 +11,12 @@ import { TextDecoder } from "node:util";
 
 import type { FumaTables } from "@executor-js/sdk";
 import {
+  buildV1RuntimeMetadataIndex,
   migrateGraphqlSourceConfig,
   migrateMcpSourceConfig,
   migrateOpenApiSourceConfig,
+  migrateV1PluginStorageRuntimeRow,
+  migrateV1ToolAnnotations,
   migrationSourceKey,
   parseScope,
   planMigration,
@@ -516,6 +519,7 @@ const insertPlan = async (
     subject: ownerSubject(connection.row.owner, connection.row.subject),
     connection: connection.row.name,
   }));
+  const runtimeMetadata = buildV1RuntimeMetadataIndex(snapshot.pluginStorage);
   const targetsFor = (scopeId: string, sourceId: string) =>
     connectionTargets.filter(
       (target) => target.sourceScopeId === scopeId && target.sourceId === sourceId,
@@ -604,7 +608,7 @@ const insertPlan = async (
             row.description,
             jsonText(row.inputSchema),
             jsonText(row.outputSchema),
-            jsonText(row.annotations),
+            jsonText(migrateV1ToolAnnotations(row, runtimeMetadata)),
             row.createdAt,
             row.updatedAt,
             createId(),
@@ -638,16 +642,21 @@ const insertPlan = async (
     }
 
     for (const row of snapshot.pluginStorage) {
-      const owner = ownerForScope(row.scopeId);
+      const migrated = migrateV1PluginStorageRuntimeRow(row);
+      const baseOwner = ownerForScope(row.scopeId);
+      const owner =
+        baseOwner && migrated.owner === "catalog"
+          ? { ...baseOwner, owner: "org" as const, subject: "" }
+          : baseOwner;
       if (!owner) continue;
       await executeSql(
         client,
         "INSERT INTO plugin_storage (plugin_id, collection, key, data, created_at, updated_at, row_id, tenant, owner, subject) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
-          row.pluginId,
-          row.collection,
-          row.key,
-          requiredJsonText(row.data),
+          migrated.pluginId,
+          migrated.collection,
+          migrated.key,
+          requiredJsonText(migrated.data),
           row.createdAt,
           row.updatedAt,
           createId(),

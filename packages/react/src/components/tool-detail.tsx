@@ -159,7 +159,7 @@ const breadcrumbParts = (name: string): string[] =>
 export function ToolDetail(props: {
   /** Full per-connection tool address `tools.<int>.<owner>.<conn>.<tool>`. */
   address: ToolAddress;
-  /** Policy id `<integration>.<tool>` — the tree path and copy value. */
+  /** Policy id `<integration>.<tool>` — the tree path and display value. */
   toolName: string;
   /** Resolved effective policy — user-authored or plugin-default,
    *  unified into one shape. Surfaces in the header. */
@@ -223,7 +223,7 @@ export function ToolDetail(props: {
           )}
           <div className="mt-1 flex items-center gap-2">
             <h3 className="text-base font-semibold text-foreground truncate">{displayName}</h3>
-            <CopyButton value={props.toolName} label="Copy tool ID" />
+            <CopyButton value={String(props.address)} label="Copy tool ID" />
             <PolicyBadgeMenu
               toolName={props.toolName}
               policy={props.policy}

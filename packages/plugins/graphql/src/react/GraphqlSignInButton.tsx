@@ -13,7 +13,7 @@ import {
   CredentialScopeDropdown,
   useCredentialTargetScope,
 } from "@executor-js/react/plugins/credential-target-scope";
-import { ownerLabel } from "@executor-js/react/api/scope-context";
+import { useOwnerDisplay } from "@executor-js/react/api/scope-context";
 
 import { graphqlConnectionName } from "./defaults";
 
@@ -36,6 +36,7 @@ export default function GraphqlSignInButton(props: {
     popupName: "graphql-oauth",
     startErrorMessage: "Failed to start OAuth",
   });
+  const ownerDisplay = useOwnerDisplay();
   const [connectedOwner, setConnectedOwner] = useState<string | null>(null);
 
   const existingForOwner = props.existing.find(
@@ -71,7 +72,7 @@ export default function GraphqlSignInButton(props: {
     <div className="space-y-2">
       {isConnected && (
         <p className="text-xs text-emerald-600 dark:text-emerald-400">
-          Connected in {ownerLabel(credentialTargetOwner)}
+          Connected in {ownerDisplay.label(credentialTargetOwner)}
           {existingForOwner?.identityLabel ? ` as ${existingForOwner.identityLabel}` : ""}.
         </p>
       )}

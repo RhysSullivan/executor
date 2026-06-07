@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, MoreHorizontalIcon, SearchIcon, XIcon } from "lucide-react";
 import type { EffectivePolicy, Owner, ToolPolicyAction } from "@executor-js/sdk/shared";
-import { ownerLabel } from "../api/scope-context";
+import { ownerLabel, useOwnerDisplay } from "../api/scope-context";
 import { toPolicyPattern } from "../lib/policy-pattern";
 import { Badge } from "./badge";
 import { Button } from "./button";
@@ -311,6 +311,7 @@ export function ToolTree(props: {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);
+  const ownerDisplay = useOwnerDisplay();
 
   const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
@@ -396,11 +397,13 @@ export function ToolTree(props: {
           accountGroups.map((group) => (
             <section key={group.key}>
               <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/30 bg-muted/40 px-3 py-1.5 backdrop-blur-sm">
-                <Badge variant="outline" className="shrink-0 text-[10px]">
-                  {ownerLabel(group.owner)}
-                </Badge>
+                {ownerDisplay.showOwnerLabels ? (
+                  <Badge variant="outline" className="shrink-0 text-[10px]">
+                    {ownerLabel(group.owner)}
+                  </Badge>
+                ) : null}
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-                  {group.connection}
+                  {group.connection || ownerDisplay.label(group.owner)}
                 </span>
                 <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
                   {group.tools.length}

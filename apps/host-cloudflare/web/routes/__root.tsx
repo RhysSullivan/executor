@@ -3,6 +3,7 @@ import { useEffect, type ReactNode } from "react";
 
 import { ExecutorProvider } from "@executor-js/react/api/provider";
 import { ExecutorPluginsProvider } from "@executor-js/sdk/client";
+import { OrganizationProvider } from "@executor-js/react/api/organization-context";
 import { Toaster } from "@executor-js/react/components/sonner";
 import { AuthProvider, useAuth } from "@executor-js/react/multiplayer/auth-context";
 import { Shell, defaultShellNavItems } from "@executor-js/react/multiplayer/shell";
@@ -56,16 +57,27 @@ function AuthGate({ children }: { children: ReactNode }) {
   );
 }
 
+function AuthenticatedApp() {
+  const auth = useAuth();
+  const organizationId = auth.status === "authenticated" ? (auth.organization?.id ?? null) : null;
+
+  return (
+    <ExecutorProvider>
+      <ExecutorPluginsProvider plugins={clientPlugins}>
+        <OrganizationProvider organizationId={organizationId}>
+          <Shell onSignOut={signOut} navItems={defaultShellNavItems} apiKeysTo={null} />
+          <Toaster />
+        </OrganizationProvider>
+      </ExecutorPluginsProvider>
+    </ExecutorProvider>
+  );
+}
+
 function RootComponent() {
   return (
     <AuthProvider>
       <AuthGate>
-        <ExecutorProvider>
-          <ExecutorPluginsProvider plugins={clientPlugins}>
-            <Shell onSignOut={signOut} navItems={defaultShellNavItems} apiKeysTo={null} />
-            <Toaster />
-          </ExecutorPluginsProvider>
-        </ExecutorProvider>
+        <AuthenticatedApp />
       </AuthGate>
     </AuthProvider>
   );

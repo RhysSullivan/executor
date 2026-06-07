@@ -101,6 +101,9 @@ export const oauthClientDedupKey = (
 export const serializeOAuthScopes = (scopes: readonly string[]): string =>
   [...new Set(scopes.filter((s) => s.length > 0))].join(" ");
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 // ---------------------------------------------------------------------------
 // Policy pattern migration.
 //
@@ -139,6 +142,187 @@ export const migratePolicyPattern = (
   if (rest === "") return { kind: "ok", pattern: newSlug };
   if (rest === "*") return { kind: "ok", pattern: `${newSlug}.*` };
   return { kind: "ok", pattern: `${newSlug}.*.*.${rest}` };
+};
+
+// ---------------------------------------------------------------------------
+// Plugin runtime metadata migration.
+//
+// v1 plugins persisted invocation metadata in plugin-specific storage alongside
+// source rows. v2 puts catalog-level operation metadata under org-owned
+// `plugin_storage[operation]`, and MCP stores the raw upstream tool name on the
+// tool row annotations. These helpers are shared by local + cloud runners so the
+// migration produces the same v2-native runtime shape everywhere.
+// ---------------------------------------------------------------------------
+
+const GRAPHQL_GREENFIELD_V1_PLUGIN_ID = "graphql-greenfield";
+const GRAPHQL_V2_PLUGIN_ID = "graphql";
+const OPENAPI_PLUGIN_ID = "openapi";
+const MCP_PLUGIN_ID = "mcp";
+const OPERATION_COLLECTION = "operation";
+const MCP_BINDING_COLLECTION = "binding";
+
+const normalizeRuntimePluginId = (pluginId: string): string =>
+  pluginId === GRAPHQL_GREENFIELD_V1_PLUGIN_ID ? GRAPHQL_V2_PLUGIN_ID : pluginId;
+
+export interface V1ToolRuntimeMetadataRow {
+  readonly scopeId: string;
+  readonly sourceId: string;
+  readonly pluginId: string;
+  readonly name: string;
+  readonly annotations: unknown;
+}
+
+export interface V1PluginStorageRuntimeRow {
+  readonly scopeId: string;
+  readonly pluginId: string;
+  readonly collection: string;
+  readonly key: string;
+  readonly data: unknown;
+}
+
+export interface LegacyMcpToolBinding {
+  readonly toolName: string;
+  readonly annotations?: Record<string, unknown>;
+}
+
+export interface V1RuntimeMetadataIndex {
+  readonly mcpBindings: ReadonlyMap<string, LegacyMcpToolBinding>;
+}
+
+export type MigratedPluginStorageOwner = "source" | "catalog";
+
+export interface MigratedPluginStorageRuntimeRow {
+  readonly pluginId: string;
+  readonly collection: string;
+  readonly key: string;
+  readonly data: unknown;
+  /** `catalog` rows are v2 integration metadata and must be org-owned. */
+  readonly owner: MigratedPluginStorageOwner;
+}
+
+const runtimeStorageKey = (scopeId: string, key: string): string => `${scopeId}\0${key}`;
+
+const fullToolKey = (sourceId: string, toolName: string): string => `${sourceId}.${toolName}`;
+
+const stripToolPrefix = (sourceId: string, toolId: string): string =>
+  toolId.startsWith(`${sourceId}.`) ? toolId.slice(sourceId.length + 1) : toolId;
+
+const legacyMcpToolBinding = (data: unknown): LegacyMcpToolBinding | null => {
+  if (!isRecord(data) || !isRecord(data.binding)) return null;
+  const toolName = data.binding.toolName;
+  if (typeof toolName !== "string" || toolName.length === 0) return null;
+  const annotations = isRecord(data.binding.annotations) ? data.binding.annotations : undefined;
+  return {
+    toolName,
+    ...(annotations ? { annotations } : {}),
+  };
+};
+
+export const buildV1RuntimeMetadataIndex = (
+  rows: readonly V1PluginStorageRuntimeRow[],
+): V1RuntimeMetadataIndex => {
+  const mcpBindings = new Map<string, LegacyMcpToolBinding>();
+  for (const row of rows) {
+    if (normalizeRuntimePluginId(row.pluginId) !== MCP_PLUGIN_ID) continue;
+    if (row.collection !== MCP_BINDING_COLLECTION) continue;
+    const binding = legacyMcpToolBinding(row.data);
+    if (!binding) continue;
+    mcpBindings.set(runtimeStorageKey(row.scopeId, row.key), binding);
+  }
+  return { mcpBindings };
+};
+
+export const migrateV1ToolAnnotations = (
+  tool: V1ToolRuntimeMetadataRow,
+  index: V1RuntimeMetadataIndex,
+): unknown => {
+  if (normalizeRuntimePluginId(tool.pluginId) !== MCP_PLUGIN_ID) return tool.annotations;
+  if (isRecord(tool.annotations) && isRecord(tool.annotations.mcp)) return tool.annotations;
+
+  const binding = index.mcpBindings.get(
+    runtimeStorageKey(tool.scopeId, fullToolKey(tool.sourceId, tool.name)),
+  );
+  if (!binding) return tool.annotations;
+
+  const base = isRecord(tool.annotations) ? tool.annotations : {};
+  const destructive = binding.annotations?.destructiveHint === true;
+  return {
+    ...base,
+    requiresApproval: base.requiresApproval ?? destructive,
+    ...(destructive && base.approvalDescription === undefined
+      ? { approvalDescription: binding.annotations?.title ?? binding.toolName }
+      : {}),
+    mcp: {
+      toolName: binding.toolName,
+      ...(binding.annotations ? { upstream: binding.annotations } : {}),
+    },
+  };
+};
+
+const migrateOperationStorageRow = (
+  row: V1PluginStorageRuntimeRow,
+): MigratedPluginStorageRuntimeRow | null => {
+  const pluginId = normalizeRuntimePluginId(row.pluginId);
+  if (
+    row.collection !== OPERATION_COLLECTION ||
+    (pluginId !== OPENAPI_PLUGIN_ID && pluginId !== GRAPHQL_V2_PLUGIN_ID)
+  ) {
+    return null;
+  }
+  if (!isRecord(row.data)) return null;
+
+  const existingIntegration = row.data.integration;
+  const existingToolName = row.data.toolName;
+  if (
+    typeof existingIntegration === "string" &&
+    typeof existingToolName === "string" &&
+    "binding" in row.data
+  ) {
+    return {
+      pluginId,
+      collection: row.collection,
+      key: fullToolKey(existingIntegration, existingToolName),
+      data: {
+        integration: existingIntegration,
+        toolName: existingToolName,
+        binding: row.data.binding,
+      },
+      owner: "catalog",
+    };
+  }
+
+  const sourceId = row.data.sourceId;
+  const toolId = row.data.toolId;
+  if (typeof sourceId !== "string" || typeof toolId !== "string" || !("binding" in row.data)) {
+    return null;
+  }
+
+  const toolName = stripToolPrefix(sourceId, toolId);
+  return {
+    pluginId,
+    collection: row.collection,
+    key: fullToolKey(sourceId, toolName),
+    data: {
+      integration: sourceId,
+      toolName,
+      binding: row.data.binding,
+    },
+    owner: "catalog",
+  };
+};
+
+export const migrateV1PluginStorageRuntimeRow = (
+  row: V1PluginStorageRuntimeRow,
+): MigratedPluginStorageRuntimeRow => {
+  const operation = migrateOperationStorageRow(row);
+  if (operation) return operation;
+  return {
+    pluginId: normalizeRuntimePluginId(row.pluginId),
+    collection: row.collection,
+    key: row.key,
+    data: row.data,
+    owner: "source",
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -977,11 +1161,33 @@ const bindingSourceScope = (binding: V1BindingRow): string =>
 const bindingSecretScope = (binding: V1BindingRow): string =>
   binding.secretScopeId ?? binding.scopeId;
 
-const slugifyName = (name: string): string =>
+const slugifyName = (name: string, fallback = "account"): string =>
   name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "account";
+    .replace(/^-+|-+$/g, "") || fallback;
+
+const secretRefKey = (scopeId: string, secretId: string): string => `${scopeId}\0${secretId}`;
+
+const staticConnectionNameForSecretBindings = (
+  bindings: readonly V1BindingRow[],
+  secrets: readonly V1SecretRow[],
+): string => {
+  const refs = new Map<string, { readonly scopeId: string; readonly secretId: string }>();
+  for (const binding of bindings) {
+    if (!binding.secretId) continue;
+    const scopeId = bindingSecretScope(binding);
+    refs.set(secretRefKey(scopeId, binding.secretId), { scopeId, secretId: binding.secretId });
+  }
+
+  if (refs.size !== 1) return "api-key";
+
+  const [ref] = refs.values();
+  if (!ref) return "api-key";
+  const secret = secrets.find((s) => s.scopeId === ref.scopeId && s.id === ref.secretId);
+  const nameSlug = secret?.name.trim() ? slugifyName(secret.name, "") : "";
+  return nameSlug || slugifyName(ref.secretId, "api-key");
+};
 
 const scopesFromProviderState = (ps: V1ProviderState | null): readonly string[] => {
   if (!ps) return [];
@@ -1194,11 +1400,14 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
         }) - 1;
       pendingClientSlug.push({ index, key: dedupKey });
     } else if (secretBindings.length > 0) {
-      // apiKey connection (1–2 distinct inputs → one connection).
+      // apiKey connection (one or more distinct inputs into one connection). A
+      // single-secret v1 binding keeps the user's secret label as the v2 account
+      // name; multi-input methods keep the deterministic generic fallback.
       const itemIds: Record<string, string> = {};
       let template = API_KEY_TEMPLATE_SLUG;
       const providers = new Set<string>();
       let targetProvider: string | null = null;
+      const connectionName = staticConnectionNameForSecretBindings(secretBindings, input.secrets);
       for (const b of secretBindings) {
         if (!b.secretId) continue;
         const secretScopeId = bindingSecretScope(b);
@@ -1227,7 +1436,7 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
       const row = planConnectionRow({
         scopeId,
         integration: sourceId,
-        name: "api-key",
+        name: connectionName,
         template,
         provider,
         identityLabel: null,

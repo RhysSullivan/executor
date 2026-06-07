@@ -11,7 +11,6 @@ import {
   type Owner,
 } from "@executor-js/sdk/shared";
 import { connectionsAllAtom } from "@executor-js/react/api/atoms";
-import { useOrganizationId } from "@executor-js/react/api/organization-context";
 import { OAuthSignInButton, useOAuthPopupFlow } from "@executor-js/react/plugins/oauth-sign-in";
 
 import { mcpServerAtom } from "./atoms";
@@ -26,15 +25,13 @@ const OAUTH_TEMPLATE = AuthTemplateSlug.make("oauth2");
 // owner already has a connection for this integration (the global owner toggle
 // is retired, so the check merges both owners). The NEW connection's owner is a
 // real create-target — chosen EXPLICITLY via the `owner` prop (default Workspace
-// `org` on an org-scoped host, Personal `user` on a non-org host like local),
+// `org` on an org-scoped host, Local `org` on a non-org host like local),
 // never read from an ambient owner.
 // ---------------------------------------------------------------------------
 
 export default function McpSignInButton(props: { sourceId: string; owner?: Owner }) {
   const slug = IntegrationSlug.make(props.sourceId);
-  // Non-org hosts (local/desktop) have no Workspace — default to Personal.
-  const organizationId = useOrganizationId();
-  const targetOwner: Owner = props.owner ?? (organizationId === null ? "user" : "org");
+  const targetOwner: Owner = props.owner ?? "org";
   const serverResult = useAtomValue(mcpServerAtom(slug));
   const connectionsResult = useAtomValue(connectionsAllAtom);
   const oauth = useOAuthPopupFlow({

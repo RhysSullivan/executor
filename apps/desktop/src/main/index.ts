@@ -53,16 +53,33 @@ let authHeaderUnsubscribe: (() => void) | null = null;
 
 const PRELOAD_PATH = fileURLToPath(new URL("../preload/index.js", import.meta.url));
 
+const liveMainWindow = (): BrowserWindow | null => {
+  const window = mainWindow;
+  if (!window) return null;
+  if (window.isDestroyed()) {
+    mainWindow = null;
+    return null;
+  }
+  return window;
+};
+
+const focusMainWindow = () => {
+  const window = liveMainWindow();
+  if (!window) {
+    if (connection) void createWindow(connection);
+    return;
+  }
+  if (window.isMinimized()) window.restore();
+  if (!window.isVisible()) window.show();
+  window.focus();
+};
+
 const ensureSingleInstance = () => {
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return false;
   }
-  app.on("second-instance", () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  });
+  app.on("second-instance", focusMainWindow);
   return true;
 };
 
@@ -142,7 +159,7 @@ const createWindow = async (conn: SidecarConnection) => {
 
   const linuxIcon = resolveLinuxIcon();
 
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     x: windowState.x,
     y: windowState.y,
     width: windowState.width,
@@ -160,12 +177,19 @@ const createWindow = async (conn: SidecarConnection) => {
       sandbox: true,
     },
   });
+  mainWindow = window;
 
-  windowState.manage(mainWindow);
+  windowState.manage(window);
 
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  window.once("closed", () => {
+    if (mainWindow === window) mainWindow = null;
+  });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url, disposition }) => {
+  window.once("ready-to-show", () => {
+    if (!window.isDestroyed()) window.show();
+  });
+
+  window.webContents.setWindowOpenHandler(({ url, disposition }) => {
     // JS-initiated `window.open(url, name, "popup=1,...")` calls (OAuth
     // sign-in flow in packages/react/src/api/oauth-popup.ts:73) come in
     // with disposition "new-window" — allow them as Electron child
@@ -196,7 +220,7 @@ const createWindow = async (conn: SidecarConnection) => {
     return { action: "deny" };
   });
 
-  await mainWindow.loadURL(conn.baseUrl);
+  await window.loadURL(conn.baseUrl);
 };
 
 const showPortInUseDialog = async (port: number) => {
@@ -237,7 +261,8 @@ const restartSidecarAndReload = async (): Promise<DesktopServerConnection> => {
   }
   connection = next;
   installBasicAuthHeader(next.baseUrl, next.authPassword);
-  if (mainWindow) await mainWindow.loadURL(next.baseUrl);
+  const window = liveMainWindow();
+  if (window) await window.loadURL(next.baseUrl);
   return toDesktopServerConnection(next);
 };
 
@@ -464,8 +489,7 @@ if (ensureSingleInstance()) {
   });
 
   app.on("activate", () => {
-    if (!connection) return;
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow(connection);
+    focusMainWindow();
   });
 
   app.on("before-quit", async (event) => {

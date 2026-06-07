@@ -1,5 +1,7 @@
 import type { Owner } from "@executor-js/sdk/shared";
 
+import { useOrganizationId } from "./organization-context";
+
 // ---------------------------------------------------------------------------
 // Owner labels (v2) — Personal vs Workspace.
 //
@@ -18,4 +20,25 @@ import type { Owner } from "@executor-js/sdk/shared";
 /** Human label for an owner, for badges and toggles. */
 export function ownerLabel(owner: Owner): string {
   return owner === "user" ? "Personal" : "Workspace";
+}
+
+/** Local/desktop are single-player hosts. The real partition there is the
+ *  cwd-derived local workspace, so do not expose Personal/Workspace language. */
+export function ownerLabelForHost(owner: Owner, organizationId: string | null): string {
+  if (organizationId === null) return owner === "org" ? "Local" : "Personal";
+  return ownerLabel(owner);
+}
+
+export function useOwnerDisplay(): {
+  readonly isSinglePlayerHost: boolean;
+  readonly showOwnerLabels: boolean;
+  readonly label: (owner: Owner) => string;
+} {
+  const organizationId = useOrganizationId();
+  const isSinglePlayerHost = organizationId === null;
+  return {
+    isSinglePlayerHost,
+    showOwnerLabels: !isSinglePlayerHost,
+    label: (owner) => ownerLabelForHost(owner, organizationId),
+  };
 }

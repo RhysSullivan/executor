@@ -26,6 +26,9 @@ import {
   migrateGraphqlSourceConfig,
   OAUTH_TEMPLATE_SLUG,
   planMigration,
+  buildV1RuntimeMetadataIndex,
+  migrateV1PluginStorageRuntimeRow,
+  migrateV1ToolAnnotations,
 } from "./migration-spec";
 import type { MigrationInput, MigratedSourceConfig } from "./migration-spec";
 
@@ -161,6 +164,137 @@ describe("migratePolicyPattern", () => {
     expect(migratePolicyPattern("api_githubcopilot_com.delete_file", M)).toEqual({
       kind: "dead",
       slug: "api_githubcopilot_com",
+    });
+  });
+});
+
+describe("plugin runtime metadata migration", () => {
+  it("stamps MCP tool annotations from the legacy binding without changing the Executor slug", () => {
+    const index = buildV1RuntimeMetadataIndex([
+      {
+        scopeId: "org_X",
+        pluginId: "mcp",
+        collection: "binding",
+        key: "axiom_mcp.querydataset",
+        data: {
+          namespace: "axiom_mcp",
+          toolId: "axiom_mcp.querydataset",
+          binding: {
+            toolId: "querydataset",
+            toolName: "queryDataset",
+            annotations: { title: "Query dataset", readOnlyHint: true },
+          },
+        },
+      },
+    ]);
+
+    const annotations = migrateV1ToolAnnotations(
+      {
+        scopeId: "org_X",
+        sourceId: "axiom_mcp",
+        pluginId: "mcp",
+        name: "querydataset",
+        annotations: null,
+      },
+      index,
+    );
+
+    expect(annotations).toEqual({
+      requiresApproval: false,
+      mcp: {
+        toolName: "queryDataset",
+        upstream: { title: "Query dataset", readOnlyHint: true },
+      },
+    });
+  });
+
+  it("keeps already-stamped MCP annotations unchanged for idempotent re-runs", () => {
+    const annotations = {
+      requiresApproval: true,
+      mcp: { toolName: "deleteDataset", upstream: { destructiveHint: true } },
+    };
+
+    expect(
+      migrateV1ToolAnnotations(
+        {
+          scopeId: "org_X",
+          sourceId: "axiom_mcp",
+          pluginId: "mcp",
+          name: "deletedataset",
+          annotations,
+        },
+        buildV1RuntimeMetadataIndex([]),
+      ),
+    ).toBe(annotations);
+  });
+
+  it("rewrites v1 OpenAPI operation storage to the v2 catalog-owned shape", () => {
+    expect(
+      migrateV1PluginStorageRuntimeRow({
+        scopeId: "user-org:user_U:org_X",
+        pluginId: "openapi",
+        collection: "operation",
+        key: "vercel_api.dns.getRecords",
+        data: {
+          toolId: "vercel_api.dns.getRecords",
+          sourceId: "vercel_api",
+          binding: { method: "get", pathTemplate: "/v4/domains/{domain}/records" },
+        },
+      }),
+    ).toEqual({
+      pluginId: "openapi",
+      collection: "operation",
+      key: "vercel_api.dns.getRecords",
+      data: {
+        integration: "vercel_api",
+        toolName: "dns.getRecords",
+        binding: { method: "get", pathTemplate: "/v4/domains/{domain}/records" },
+      },
+      owner: "catalog",
+    });
+  });
+
+  it("rewrites v1 GraphQL operation storage and normalizes graphql-greenfield ids", () => {
+    expect(
+      migrateV1PluginStorageRuntimeRow({
+        scopeId: "org_X",
+        pluginId: "graphql-greenfield",
+        collection: "operation",
+        key: "graphql_api.query.hello",
+        data: {
+          toolId: "graphql_api.query.hello",
+          sourceId: "graphql_api",
+          binding: { kind: "query", fieldName: "hello", operationString: "query { hello }" },
+        },
+      }),
+    ).toEqual({
+      pluginId: "graphql",
+      collection: "operation",
+      key: "graphql_api.query.hello",
+      data: {
+        integration: "graphql_api",
+        toolName: "query.hello",
+        binding: { kind: "query", fieldName: "hello", operationString: "query { hello }" },
+      },
+      owner: "catalog",
+    });
+  });
+
+  it("keeps source-owned plugin storage rows source-owned", () => {
+    expect(
+      migrateV1PluginStorageRuntimeRow({
+        scopeId: "org_X",
+        pluginId: "onepassword",
+        collection: "settings",
+        key: "config",
+        data: { vaultId: "vault_123" },
+      }),
+    ).toEqual({
+      pluginId: "onepassword",
+      collection: "settings",
+      key: "config",
+      data: { vaultId: "vault_123" },
+      owner: "source",
     });
   });
 });
@@ -797,7 +931,7 @@ describe("planMigration (the weave)", () => {
     // Connections: an apiKey (stripe) + an oauth (linear).
     const stripe = plan.connections.find((c) => c.row.integration === "stripe_api");
     const linear = plan.connections.find((c) => c.row.integration === "linear_mcp");
-    expect(stripe?.row.name).toBe("api-key");
+    expect(stripe?.row.name).toBe("stripe-key");
     expect(stripe?.row.template).toBe("apiKey");
     expect(stripe?.itemIds.token).toBe(migratedItemId("org_X", "stripe-key"));
     expect(stripe?.row.oauthClientSlug).toBeNull();
@@ -986,9 +1120,80 @@ describe("planMigration (the weave)", () => {
     ]);
     expect(plan.connections).toHaveLength(1);
     expect(plan.connections[0]?.sourceScopeId).toBe("org_X");
+    expect(plan.connections[0]?.row.name).toBe("shared-key");
     expect(plan.connections[0]?.row.owner).toBe("user");
     expect(plan.connections[0]?.row.template).toBe("bearer");
     expect(plan.connections[0]?.itemIds.token).toBe(migratedItemId("org_X", "shared-key"));
     expect(plan.secretOps[0]?.fromSecret?.scopeId).toBe("org_X");
+  });
+
+  it("keeps the generic api-key name for multi-secret static connections", () => {
+    const input: MigrationInput = {
+      nowMs: now,
+      sources: [{ scopeId: "org_X", id: "datadog_api", pluginId: "openapi", name: "Datadog" }],
+      migratedConfigs: new Map([
+        [
+          "org_X datadog_api",
+          cfg({
+            slotToTemplateSlug: {
+              "header:x-api-key": "apiKey",
+              "header:x-app-key": "apiKey",
+            },
+            slotToVariable: {
+              "header:x-api-key": "apiKey",
+              "header:x-app-key": "appKey",
+            },
+          }),
+        ],
+      ]),
+      connections: [],
+      bindings: [
+        {
+          scopeId: "org_X",
+          sourceId: "datadog_api",
+          slotKey: "header:x-api-key",
+          kind: "secret",
+          secretId: "dd-api-key",
+          connectionId: null,
+          textValue: null,
+        },
+        {
+          scopeId: "org_X",
+          sourceId: "datadog_api",
+          slotKey: "header:x-app-key",
+          kind: "secret",
+          secretId: "dd-app-key",
+          connectionId: null,
+          textValue: null,
+        },
+      ],
+      secrets: [
+        {
+          id: "dd-api-key",
+          scopeId: "org_X",
+          name: "Datadog API key",
+          provider: "workos-vault",
+          ownedByConnectionId: null,
+        },
+        {
+          id: "dd-app-key",
+          scopeId: "org_X",
+          name: "Datadog app key",
+          provider: "workos-vault",
+          ownedByConnectionId: null,
+        },
+      ],
+      policies: [],
+      toolSourceIds: [],
+    };
+
+    const plan = planMigration(input);
+
+    expect(plan.connections).toHaveLength(1);
+    expect(plan.connections[0]?.row.name).toBe("api-key");
+    expect(plan.connections[0]?.itemIds).toEqual({
+      apiKey: migratedItemId("org_X", "dd-api-key"),
+      appKey: migratedItemId("org_X", "dd-app-key"),
+    });
   });
 });

@@ -15,7 +15,7 @@ import {
 } from "../api/atoms";
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { messageFromExit } from "../api/error-reporting";
-import { ownerLabel } from "../api/scope-context";
+import { ownerLabel, useOwnerDisplay } from "../api/scope-context";
 import type { AuthMethod } from "../lib/auth-placements";
 import {
   connectionNeedsReconsent,
@@ -59,6 +59,7 @@ function AccountRow(props: {
   /** The integration declares scopes this connection was not granted — it must
    *  reconnect to grant the newly-needed access (e.g. after a service was added). */
   readonly needsReconsent: boolean;
+  readonly showOwnerLabel: boolean;
   readonly onReconnect: () => void;
   readonly onRemove: () => void;
 }) {
@@ -93,7 +94,9 @@ function AccountRow(props: {
         ) : null}
       </CardStackEntryContent>
       <CardStackEntryActions className="self-start pt-0.5">
-        <Badge variant="outline">{ownerLabel(connection.owner)}</Badge>
+        {props.showOwnerLabel ? (
+          <Badge variant="outline">{ownerLabel(connection.owner)}</Badge>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -125,6 +128,7 @@ function AccountRow(props: {
 function OwnerAccounts(props: {
   readonly integration: IntegrationSlug;
   readonly owner: Owner;
+  readonly showOwnerLabels: boolean;
   /** The integration's declared oauth scopes — compared against each connection's
    *  granted `oauthScope` to flag connections that must reconnect for new access. */
   readonly declaredScopes: readonly string[] | undefined;
@@ -217,13 +221,14 @@ function OwnerAccounts(props: {
 
   return (
     <CardStack>
-      <CardStackHeader>{ownerLabel(owner)}</CardStackHeader>
+      {props.showOwnerLabels ? <CardStackHeader>{ownerLabel(owner)}</CardStackHeader> : null}
       <CardStackContent>
         {rows.map((connection: Connection) => (
           <AccountRow
             key={`${connection.owner}:${connection.integration}:${connection.name}`}
             connection={connection}
             needsReconsent={connectionNeedsReconsent(connection, props.declaredScopes)}
+            showOwnerLabel={props.showOwnerLabels}
             onReconnect={() => void handleReconnect(connection)}
             onRemove={() => void handleRemove(connection)}
           />
@@ -244,6 +249,7 @@ export function AccountsSection(props: {
 }) {
   const { integration, integrationName, methods, accountHandoff, createCustomMethod } = props;
   const [adding, setAdding] = useState(false);
+  const ownerDisplay = useOwnerDisplay();
 
   useEffect(() => {
     if (accountHandoff) {
@@ -333,6 +339,7 @@ export function AccountsSection(props: {
               key={owner}
               integration={integration}
               owner={owner}
+              showOwnerLabels={ownerDisplay.showOwnerLabels}
               declaredScopes={declaredScopes}
             />
           ))}

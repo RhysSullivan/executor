@@ -14,7 +14,7 @@ import {
   CommandSeparator,
 } from "../components/command";
 import { Popover, PopoverAnchor, PopoverContent } from "../components/popover";
-import { ownerLabel } from "../api/scope-context";
+import { ownerLabel, useOwnerDisplay } from "../api/scope-context";
 
 // ---------------------------------------------------------------------------
 // Connection / provider-item picker (v2) — successor to v1's secret picker.
@@ -67,6 +67,7 @@ export function SecretPicker(props: {
   } = props;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const ownerDisplay = useOwnerDisplay();
 
   const selected =
     secrets.find(
@@ -171,9 +172,11 @@ export function SecretPicker(props: {
                         }}
                       >
                         <span className="min-w-0 flex-1 truncate">{secret.name}</span>
-                        <Badge variant="outline" className="ml-2 shrink-0 text-[10px]">
-                          {ownerLabel(secret.owner)}
-                        </Badge>
+                        {ownerDisplay.showOwnerLabels ? (
+                          <Badge variant="outline" className="ml-2 shrink-0 text-[10px]">
+                            {ownerLabel(secret.owner)}
+                          </Badge>
+                        ) : null}
                       </CommandItem>
                     ))}
                   </CommandGroup>
