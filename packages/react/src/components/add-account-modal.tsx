@@ -43,6 +43,7 @@ import {
 import { OAuthClientForm } from "./oauth-client-form";
 import { AddCustomMethodModal, type CreateCustomMethod } from "./add-custom-method-modal";
 import { PlacementLine, type AuthMethod } from "../lib/auth-placements";
+import { connectionIdentifier } from "../lib/connection-name";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { PlusIcon } from "lucide-react";
@@ -62,7 +63,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 // ---------------------------------------------------------------------------
 // Add-account modal — the connection-create form.
 //
-// Field order: (1) authentication method · (2) credential · (3) connection name
+// Field order: (1) display name · (2) authentication method · (3) credential
 // · (4) saved-to owner. A connection is immutable once created. Step 2 collects
 // one value per distinct input the method declares — usually one, but a
 // multi-input method (e.g. Datadog's two keys) shows one field per variable.
@@ -374,19 +375,14 @@ export const mergeCustomMethods = (
   return [...declared, ...created.filter((m: AuthMethod) => !ids.has(m.id))];
 };
 
-/** Derive a stable-ish connection name slug from the label; the server canonicalizes. */
-const connectionNameFrom = (
+/** Derive a stable JS-identifier-safe callable connection name from the label. */
+export const connectionNameFrom = (
   label: string,
   owner: Owner,
   integrationName: string,
   organizationId: string | null,
 ): ConnectionName =>
-  ConnectionName.make(
-    connectionLabelForHost(label, owner, integrationName, organizationId)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "connection",
-  );
+  connectionIdentifier(connectionLabelForHost(label, owner, integrationName, organizationId));
 
 // ---------------------------------------------------------------------------
 // Transparent DCR (RFC 7591) connect orchestration.
@@ -673,6 +669,7 @@ export function AddAccountModal(props: {
   const savedToOptions = isOAuth && !dcrActive ? oauthSavedToOptions : scopeOptions;
   const savedToOwner = isOAuth && !dcrActive ? oauthConnectionOwner : owner;
   const showSavedToPicker = !oauthRegistering && savedToOptions.length > 1;
+  const callableName = connectionNameFrom(label, savedToOwner, integrationName, organizationId);
 
   const reset = () => {
     setMethodId(methods[0]?.id ?? "");
@@ -909,11 +906,11 @@ export function AddAccountModal(props: {
           </DialogHeader>
 
           <div className="flex flex-col gap-5">
-            {/* 1. connection name */}
+            {/* 1. display name */}
             <div className="space-y-2">
               <StepHeader
                 index={1}
-                label="Connection name"
+                label="Display name"
                 hint="how you'll tell accounts apart"
                 htmlFor="connection-name"
               />
@@ -923,6 +920,10 @@ export function AddAccountModal(props: {
                 value={label}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLabel(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                This connection will be callable as{" "}
+                <span className="font-mono text-foreground">{String(callableName)}</span>.
+              </p>
             </div>
 
             {/* 2. method */}

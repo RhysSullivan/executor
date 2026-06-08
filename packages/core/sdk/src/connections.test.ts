@@ -99,6 +99,31 @@ describe("connections.create", () => {
     }),
   );
 
+  it.effect("normalizes free-form names into JS-callable connection identifiers", () =>
+    Effect.gen(function* () {
+      const executor = yield* setup();
+      const connection = yield* executor.connections.create({
+        owner: "org",
+        name: ConnectionName.make("my-api-key"),
+        integration: INTEG,
+        template: TEMPLATE,
+        value: "secret-token",
+      });
+
+      expect(String(connection.name)).toBe("myApiKey");
+      expect(String(connection.address)).toBe("tools.vercel.org.myApiKey");
+
+      const tools = yield* executor.tools.list();
+      expect(tools.map((t) => String(t.address)).sort()).toEqual([
+        "tools.vercel.org.myApiKey.deploy",
+        "tools.vercel.org.myApiKey.list",
+      ]);
+
+      const value = yield* executor.demo.resolveValue("org", "myApiKey");
+      expect(value).toBe("secret-token");
+    }),
+  );
+
   it.effect("external `from` references a provider item without writing it", () =>
     Effect.gen(function* () {
       const executor = yield* setup();

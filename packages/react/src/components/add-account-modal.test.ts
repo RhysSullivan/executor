@@ -9,6 +9,7 @@ import {
 
 import type { AuthMethod } from "../lib/auth-placements";
 import {
+  connectionNameFrom,
   connectionLabel,
   connectionLabelForHost,
   createCredentialPayloadOrigin,
@@ -68,6 +69,22 @@ describe("connectionLabel (name placeholder derivation)", () => {
   it("uses Local in derived labels for non-org-scoped hosts", () => {
     expect(connectionLabelForHost("", "org", "GitHub", null)).toBe("Local GitHub");
     expect(connectionLabelForHost("", "org", "GitHub", "org_123")).toBe("Workspace GitHub");
+  });
+});
+
+describe("connectionNameFrom", () => {
+  it("derives the JS-callable name from the display name", () => {
+    expect(String(connectionNameFrom("Autumn Production", "user", "Autumn", "org_123"))).toBe(
+      "autumnProduction",
+    );
+    expect(String(connectionNameFrom("linear-mcp-oauth", "user", "Linear MCP", "org_123"))).toBe(
+      "linearMcpOauth",
+    );
+  });
+
+  it("derives a callable default from owner and integration when the display name is empty", () => {
+    expect(String(connectionNameFrom("", "org", "GitHub", "org_123"))).toBe("workspaceGithub");
+    expect(String(connectionNameFrom("", "org", "GitHub", null))).toBe("localGithub");
   });
 });
 
