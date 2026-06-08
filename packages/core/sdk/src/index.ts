@@ -50,6 +50,7 @@ export {
   Subject,
   Owner,
 } from "./ids";
+export { connectionIdentifier, isConnectionIdentifier } from "./connection-name-identifier";
 
 // Errors (tagged) — the ExecuteError set + integration lifecycle.
 export {

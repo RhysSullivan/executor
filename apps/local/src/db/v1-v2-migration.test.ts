@@ -622,7 +622,7 @@ describe("local v1 -> v2 migration", () => {
         owner: "org",
         subject: "",
         integration: "stripe_api",
-        name: "stripe-key",
+        name: "stripeKey",
         provider: "file",
         item_ids: JSON.stringify({ token: itemId }),
       },
@@ -642,7 +642,7 @@ describe("local v1 -> v2 migration", () => {
         owner: "org",
         subject: "",
         integration: "stripe_api",
-        connection: "stripe-key",
+        connection: "stripeKey",
         plugin_id: "openapi",
         name: "charges.create",
         input_schema: JSON.stringify({ type: "object" }),
@@ -658,7 +658,7 @@ describe("local v1 -> v2 migration", () => {
         owner: "org",
         subject: "",
         integration: "stripe_api",
-        connection: "stripe-key",
+        connection: "stripeKey",
         plugin_id: "openapi",
         name: "Charge",
         schema: JSON.stringify({ type: "object", properties: { id: { type: "string" } } }),
@@ -784,7 +784,7 @@ describe("local v1 -> v2 migration", () => {
     );
     expect(rows.rows).toHaveLength(1);
     expect(rows.rows[0]).toMatchObject({
-      connection: "axiom-mcp-oauth",
+      connection: "axiomMcpOauth",
       name: "querydataset",
     });
 
@@ -871,7 +871,7 @@ describe("local v1 -> v2 migration", () => {
     expect(connections.rows).toHaveLength(1);
     expect(connections.rows[0]).toMatchObject({
       integration: "dealcloud_api",
-      name: "dealcloud-api",
+      name: "dealcloudApi",
       template: "dealCloudOAuth",
       provider: "file",
       item_ids: JSON.stringify({ token: accessItemId }),

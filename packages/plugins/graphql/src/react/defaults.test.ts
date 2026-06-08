@@ -25,7 +25,7 @@ describe("graphqlApiKeyAuthTemplate", () => {
 
 describe("graphqlConnectionName", () => {
   it("is deterministic per integration + owner", () => {
-    expect(String(graphqlConnectionName("github_com", "user"))).toBe("github_com-user");
-    expect(String(graphqlConnectionName("github_com", "org"))).toBe("github_com-org");
+    expect(String(graphqlConnectionName("github_com", "user"))).toBe("githubComUser");
+    expect(String(graphqlConnectionName("github_com", "org"))).toBe("githubComOrg");
   });
 });

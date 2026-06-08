@@ -11,6 +11,8 @@
 
 import { createHash } from "node:crypto";
 
+import { connectionIdentifier } from "./connection-name-identifier";
+
 export {
   migrationOAuthAuthorizationUrlFor,
   migrationOAuthClientPlanKey,
@@ -1176,10 +1178,7 @@ const bindingSecretScope = (binding: V1BindingRow): string =>
   binding.secretScopeId ?? binding.scopeId;
 
 const slugifyName = (name: string, fallback = "account"): string =>
-  name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || fallback;
+  String(connectionIdentifier(name, fallback));
 
 const secretRefKey = (scopeId: string, secretId: string): string => `${scopeId}\0${secretId}`;
 

@@ -5,13 +5,13 @@ import * as Exit from "effect/Exit";
 
 import {
   AuthTemplateSlug,
-  ConnectionName,
   IntegrationSlug,
   OAuthClientSlug,
   type Owner,
 } from "@executor-js/sdk/shared";
 import { createConnection } from "@executor-js/react/api/atoms";
 import { connectionWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { connectionIdentifier } from "@executor-js/react/lib/connection-name";
 import {
   CredentialControlField,
   CredentialUsageRow,
@@ -80,7 +80,7 @@ function RemoteEdit(props: {
     const exit = await doCreate({
       payload: {
         owner: credentialTargetOwner,
-        name: ConnectionName.make(`${server.slug}-key`),
+        name: connectionIdentifier(`${server.slug} key`),
         integration: server.slug,
         template: HEADER_TEMPLATE,
         identityLabel: server.description || String(server.slug),
@@ -107,7 +107,7 @@ function RemoteEdit(props: {
         // MCP registers its client (DCR) under the connection owner.
         clientOwner: owner,
         owner,
-        name: ConnectionName.make(`${server.slug}-oauth`),
+        name: connectionIdentifier(`${server.slug} oauth`),
         integration: server.slug,
         template: OAUTH_TEMPLATE,
         identityLabel: `${server.description || String(server.slug)} OAuth`,

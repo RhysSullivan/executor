@@ -933,12 +933,12 @@ describe("planMigration (the weave)", () => {
     // Connections: an apiKey (stripe) + an oauth (linear).
     const stripe = plan.connections.find((c) => c.row.integration === "stripe_api");
     const linear = plan.connections.find((c) => c.row.integration === "linear_mcp");
-    expect(stripe?.row.name).toBe("stripe-key");
+    expect(stripe?.row.name).toBe("stripeKey");
     expect(stripe?.row.template).toBe("apiKey");
     expect(stripe?.itemIds.token).toBe(migratedItemId("org_X", "stripe-key"));
     expect(stripe?.row.oauthClientSlug).toBeNull();
 
-    expect(linear?.row.name).toBe("linear-mcp-oauth");
+    expect(linear?.row.name).toBe("linearMcpOauth");
     expect(linear?.row.template).toBe("oauth2");
     expect(linear?.row.owner).toBe("user");
     expect(linear?.itemIds.token).toBe(migratedItemId("user-org:user_U:org_X", "linear-access"));
@@ -1126,7 +1126,7 @@ describe("planMigration (the weave)", () => {
     ]);
     expect(plan.connections).toHaveLength(1);
     expect(plan.connections[0]?.sourceScopeId).toBe("org_X");
-    expect(plan.connections[0]?.row.name).toBe("shared-key");
+    expect(plan.connections[0]?.row.name).toBe("sharedKey");
     expect(plan.connections[0]?.row.owner).toBe("user");
     expect(plan.connections[0]?.row.template).toBe("bearer");
     expect(plan.connections[0]?.itemIds.token).toBe(migratedItemId("org_X", "shared-key"));
