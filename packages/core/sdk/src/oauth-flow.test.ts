@@ -68,7 +68,7 @@ describe("oauth.start / oauth.complete", () => {
             owner: "org",
             client: CLIENT,
             clientOwner: "org",
-            name: ConnectionName.make("main"),
+            name: ConnectionName.make("main-account"),
             integration: INTEG,
             template: TEMPLATE,
           });
@@ -86,8 +86,8 @@ describe("oauth.start / oauth.complete", () => {
             state: started.state,
             code: callback.code,
           });
-          expect(String(connection.name)).toBe("main");
-          expect(String(connection.address)).toBe("tools.acme.org.main");
+          expect(String(connection.name)).toBe("mainAccount");
+          expect(String(connection.address)).toBe("tools.acme.org.mainAccount");
           expect(connection.expiresAt).toBeGreaterThan(Date.now());
 
           // The connection produced its tools.
@@ -97,7 +97,7 @@ describe("oauth.start / oauth.complete", () => {
           // Executing the tool resolves the minted access token, which the AS
           // recognises as one it issued.
           const out = (yield* executor.execute(
-            ToolAddress.make("tools.acme.org.main.whoami"),
+            ToolAddress.make("tools.acme.org.mainAccount.whoami"),
             {},
           )) as { token: string };
           expect(out.token).toMatch(/^at_/);

@@ -134,6 +134,7 @@ import {
   shouldRefreshToken,
   type OAuthEndpointUrlPolicy,
 } from "./oauth-helpers";
+import { connectionIdentifier } from "./connection-name-identifier";
 
 const MAX_APPROVAL_ARGUMENT_PREVIEW_CHARS = 4_000;
 
@@ -1747,6 +1748,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       IntegrationNotFoundError | CredentialProviderNotRegisteredError | StorageFailure
     > =>
       Effect.gen(function* () {
+        const name = connectionIdentifier(String(input.name));
         yield* requireUserSubject(input.owner);
         const integrationRow = yield* findIntegrationRow(input.integration);
         if (!integrationRow) {
@@ -1801,7 +1803,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           }
           providerKey = String(provider.key);
           for (const i of pasted) {
-            const itemId = `connection:${input.owner}:${input.integration}:${input.name}:${i.variable}`;
+            const itemId = `connection:${input.owner}:${input.integration}:${name}:${i.variable}`;
             if ("value" in i.origin && provider.set) {
               yield* provider.set(ProviderItemId.make(itemId), i.origin.value);
             }
@@ -1819,7 +1821,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             const existing = yield* findConnectionRow({
               owner: input.owner,
               integration: input.integration,
-              name: input.name,
+              name,
             });
             const set: Record<string, unknown> = {
               template: String(input.template),
@@ -1834,7 +1836,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                   b.and(
                     byOwner(input.owner)(b),
                     b("integration", "=", String(input.integration)),
-                    b("name", "=", String(input.name)),
+                    b("name", "=", String(name)),
                   ),
                 set,
               });
@@ -1844,7 +1846,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                 owner: keys.owner,
                 subject: keys.subject,
                 integration: String(input.integration),
-                name: String(input.name),
+                name: String(name),
                 template: String(input.template),
                 provider: providerKey,
                 item_ids: itemIds,
@@ -1864,7 +1866,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         const ref: ConnectionRef = {
           owner: input.owner,
           integration: input.integration,
-          name: input.name,
+          name,
         };
         // Produce + persist tools for the new connection.
         yield* produceConnectionTools(integrationRow, ref).pipe(
@@ -1879,7 +1881,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               owner: keys.owner,
               subject: keys.subject,
               integration: String(input.integration),
-              name: String(input.name),
+              name: String(name),
               template: String(input.template),
               provider: providerKey,
               item_ids: itemIds,
@@ -1902,6 +1904,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       input: MintOAuthConnectionInput,
     ): Effect.Effect<Connection, StorageFailure> =>
       Effect.gen(function* () {
+        const name = connectionIdentifier(String(input.name));
         yield* requireUserSubject(input.owner);
         const integrationRow = yield* findIntegrationRow(input.integration);
         if (!integrationRow) {
@@ -1918,7 +1921,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         const ref: ConnectionRef = {
           owner: input.owner,
           integration: input.integration,
-          name: input.name,
+          name,
         };
         yield* transaction(
           Effect.gen(function* () {
@@ -1941,7 +1944,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                   b.and(
                     byOwner(input.owner)(b),
                     b("integration", "=", String(input.integration)),
-                    b("name", "=", String(input.name)),
+                    b("name", "=", String(name)),
                   ),
                 set,
               });
@@ -1951,7 +1954,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                 owner: keys.owner,
                 subject: keys.subject,
                 integration: String(input.integration),
-                name: String(input.name),
+                name: String(name),
                 template: String(input.template),
                 provider: input.provider,
                 item_ids: { [PRIMARY_INPUT_VARIABLE]: input.itemId },
@@ -1983,7 +1986,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               owner: keys.owner,
               subject: keys.subject,
               integration: String(input.integration),
-              name: String(input.name),
+              name: String(name),
               template: String(input.template),
               provider: input.provider,
               item_ids: { [PRIMARY_INPUT_VARIABLE]: input.itemId },

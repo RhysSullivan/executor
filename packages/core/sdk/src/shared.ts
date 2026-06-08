@@ -26,6 +26,7 @@ export {
   ToolAddress,
   ToolName,
 } from "./ids";
+export { connectionIdentifier, isConnectionIdentifier } from "./connection-name-identifier";
 
 // Domain projections (types only — no runtime cost).
 export type {

@@ -4,13 +4,13 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import {
   AuthTemplateSlug,
-  ConnectionName,
   IntegrationSlug,
   OAuthClientSlug,
   type Connection,
   type Owner,
 } from "@executor-js/sdk/shared";
 import { connectionsAllAtom } from "@executor-js/react/api/atoms";
+import { connectionIdentifier } from "@executor-js/react/lib/connection-name";
 import { OAuthSignInButton, useOAuthPopupFlow } from "@executor-js/react/plugins/oauth-sign-in";
 
 import { mcpServerAtom } from "./atoms";
@@ -59,7 +59,7 @@ export default function McpSignInButton(props: { sourceId: string; owner?: Owner
         // MCP registers its client (DCR) under the connection owner.
         clientOwner: targetOwner,
         owner: targetOwner,
-        name: ConnectionName.make(`${slug}-oauth`),
+        name: connectionIdentifier(`${slug} oauth`),
         integration: slug,
         template: OAUTH_TEMPLATE,
         identityLabel: `${server.description || String(slug)} OAuth`,
