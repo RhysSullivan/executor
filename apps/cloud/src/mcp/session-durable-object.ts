@@ -22,7 +22,6 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 
 import { createExecutorMcpServer } from "@executor-js/host-mcp/tool-server";
-import { buildExecuteDescription } from "@executor-js/execution";
 import {
   McpSessionDOBase,
   type BuiltMcpServer,
@@ -30,6 +29,7 @@ import {
   type McpSessionInit,
   type SessionMeta,
 } from "@executor-js/cloudflare/mcp/durable-object";
+import { buildExecuteDescription } from "@executor-js/execution";
 
 // The DO only needs the neutral boot-scoped service (WorkOSClient). It never
 // bills, so it does NOT depend on any billing service — `CloudExecutionStackLayer`
@@ -195,13 +195,9 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
         Effect.provide(CloudExecutionStackLayer),
         Effect.withSpan("McpSessionDO.makeExecutionStack"),
       );
-      // Build the description here so the postgres query it runs
-      // (`executor.integrations.list`) lands as a child of `McpSessionDO.createRuntime`.
-      // It also tags the span with this org's integration/connection inventory
-      // (slugs, kinds, plugin ids, connection counts) — see `buildExecuteDescription`
-      // — so a failing init names *what* it was resolving without re-listing.
-      // host-mcp would otherwise call `Effect.runPromise(engine.getDescription)`
-      // at its async MCP-SDK boundary and orphan the sub-span.
+      // Build the description here so `executor.connections.list()` stays under
+      // the DO startup span and the MCP SDK receives a concrete string instead
+      // of invoking `engine.getDescription` across its async boundary.
       const description = yield* buildExecuteDescription(executor);
       const sessionElicitationMode = sessionMeta.elicitationMode ?? "model";
       const mcpServer = yield* createExecutorMcpServer({

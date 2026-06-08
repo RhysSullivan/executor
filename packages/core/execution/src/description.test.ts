@@ -1,23 +1,53 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { IntegrationSlug, createExecutor, definePlugin } from "@executor-js/sdk";
+import {
+  AuthTemplateSlug,
+  ConnectionName,
+  IntegrationSlug,
+  ProviderItemId,
+  ProviderKey,
+  createExecutor,
+  definePlugin,
+  type CredentialProvider,
+} from "@executor-js/sdk";
 import { makeTestConfig } from "@executor-js/sdk/testing";
 
 import { buildExecuteDescription } from "./description";
 
-// v2 port: namespaces are the integration catalog, not v1 `staticSources`.
-// Two plugins register integrations whose slugs are distinct from their
-// pluginIds. If `buildExecuteDescription` ever renders the wrong field (e.g.
-// pluginId, an internal UUID, or a display name), these assertions fail — the
-// class of bug a hand-rolled fake `Executor` would miss.
+const memoryProvider = (): CredentialProvider => {
+  const store = new Map<string, string>();
+  return {
+    key: ProviderKey.make("memory"),
+    writable: true,
+    get: (id) => Effect.sync(() => store.get(String(id)) ?? null),
+    set: (id, value) => Effect.sync(() => void store.set(String(id), value)),
+    has: (id) => Effect.sync(() => store.has(String(id))),
+    list: () =>
+      Effect.sync(() =>
+        Array.from(store.keys()).map((key) => ({
+          id: ProviderItemId.make(key),
+          name: key,
+        })),
+      ),
+  };
+};
+
+const GITHUB = IntegrationSlug.make("github");
+const SLACK = IntegrationSlug.make("slack");
+const TEMPLATE = AuthTemplateSlug.make("apiKey");
+
+// v2 port: available entries are saved connection prefixes, not integration
+// slugs. Multiple saved connections can point at the same integration, and the
+// callable path needs `<integration>.<owner>.<connection>`.
 const githubPlugin = definePlugin(() => ({
   id: "github-plugin" as const,
+  credentialProviders: [memoryProvider()],
   storage: () => ({}),
   extension: (ctx) => ({
     seed: () =>
       ctx.core.integrations.register({
-        slug: IntegrationSlug.make("github"),
+        slug: GITHUB,
         description: "GitHub",
         config: {},
       }),
@@ -30,7 +60,7 @@ const slackPlugin = definePlugin(() => ({
   extension: (ctx) => ({
     seed: () =>
       ctx.core.integrations.register({
-        slug: IntegrationSlug.make("slack"),
+        slug: SLACK,
         description: "Slack Workspace",
         config: {},
       }),
@@ -38,48 +68,57 @@ const slackPlugin = definePlugin(() => ({
 }))();
 
 describe("buildExecuteDescription", () => {
-  it.effect(
-    "renders real integration slugs as namespaces (sorted) through the real executor flow",
-    () =>
-      Effect.gen(function* () {
-        // Intentionally register in non-alphabetical order — the formatter
-        // is expected to sort by integration slug.
-        const executor = yield* createExecutor(
-          makeTestConfig({ plugins: [slackPlugin, githubPlugin] as const }),
-        );
-        yield* executor["slack-plugin"].seed();
-        yield* executor["github-plugin"].seed();
+  it.effect("renders real connection prefixes separately through the real executor flow", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [slackPlugin, githubPlugin] as const }),
+      );
+      yield* executor["slack-plugin"].seed();
+      yield* executor["github-plugin"].seed();
+      yield* executor.connections.create({
+        owner: "user",
+        name: ConnectionName.make("personal"),
+        integration: GITHUB,
+        template: TEMPLATE,
+        value: "user-token",
+      });
+      yield* executor.connections.create({
+        owner: "org",
+        name: ConnectionName.make("prod"),
+        integration: GITHUB,
+        template: TEMPLATE,
+        value: "org-token",
+      });
 
-        const description = yield* buildExecuteDescription(executor);
+      const description = yield* buildExecuteDescription(executor);
 
-        // Stable anchor from the workflow preamble.
-        expect(description).toContain("Execute TypeScript in a sandboxed runtime");
-        // The namespaces section header.
-        expect(description).toContain("## Available namespaces");
-        // Each integration renders with its ACTUAL slug, without descriptions or plugin ids.
-        expect(description).toContain("- `github`");
-        expect(description).toContain("- `slack`");
-        expect(description).not.toContain("Slack Workspace");
-        expect(description).not.toContain("`github-plugin`");
-        expect(description).not.toContain("`slack-plugin`");
+      // Stable anchor from the workflow preamble.
+      expect(description).toContain("Execute TypeScript in a sandboxed runtime");
+      expect(description).toContain("## Available connection prefixes");
+      expect(description).toContain("- `github.org.prod`");
+      expect(description).toContain("- `github.user.personal`");
+      expect(description).not.toContain("## Available namespaces");
+      expect(description).not.toContain("Slack Workspace");
+      expect(description).not.toContain("`github-plugin`");
+      expect(description).not.toContain("`slack-plugin`");
+      expect(description).not.toContain("- `github`");
 
-        // Sort order: `github` before `slack`.
-        const githubIdx = description.indexOf("`github`");
-        const slackIdx = description.indexOf("`slack`");
-        expect(githubIdx).toBeGreaterThan(-1);
-        expect(slackIdx).toBeGreaterThan(-1);
-        expect(githubIdx).toBeLessThan(slackIdx);
-      }),
+      const orgIdx = description.indexOf("`github.org.prod`");
+      const userIdx = description.indexOf("`github.user.personal`");
+      expect(orgIdx).toBeGreaterThan(-1);
+      expect(userIdx).toBeGreaterThan(-1);
+      expect(orgIdx).toBeLessThan(userIdx);
+    }),
   );
 
-  it.effect("omits the Available namespaces section when no integrations are registered", () =>
+  it.effect("omits the Available connection prefixes section when no connections exist", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(makeTestConfig({ plugins: [] as const }));
 
       const description = yield* buildExecuteDescription(executor);
 
       expect(description).toContain("Execute TypeScript in a sandboxed runtime");
-      expect(description).not.toContain("## Available namespaces");
+      expect(description).not.toContain("## Available connection prefixes");
     }),
   );
 });

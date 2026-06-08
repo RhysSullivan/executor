@@ -1,51 +1,59 @@
 import { Effect } from "effect";
-import type { Executor, Integration } from "@executor-js/sdk/core";
+import type { Connection, Executor } from "@executor-js/sdk/core";
 
 /**
  * Builds a tool description dynamically.
  *
  * Structure:
  *   1. Workflow (top — critical, least likely to be truncated)
- *   2. Available namespaces (bottom)
+ *   2. Available connection prefixes (bottom)
  *
- * v2: namespaces are the integration catalog. A tool's sandbox address is
- * `tools.<integration>.<owner>.<connection>.<tool>`, so the integration slug
- * is the first callable segment the model needs to know about.
+ * v2: callable API tools are scoped by saved connections. A tool's sandbox
+ * address is `tools.<integration>.<owner>.<connection>.<tool>`, so the useful
+ * inventory is the connection prefix rather than only the integration slug.
  */
 export const buildExecuteDescription = (executor: Executor): Effect.Effect<string> =>
   Effect.gen(function* () {
-    const integrations: readonly Integration[] = yield* executor.integrations.list().pipe(
+    const connections: readonly Connection[] = yield* executor.connections.list().pipe(
       // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: ExecutionEngine.getDescription currently exposes no error channel; engine typed-error widening is covered separately
       Effect.orDie,
-      Effect.withSpan("executor.integrations.list"),
+      Effect.withSpan("executor.connections.list"),
     );
 
-    const description = yield* Effect.sync(() => formatDescription(integrations)).pipe(
+    const description = yield* Effect.sync(() =>
+      formatDescription(connections.map((connection) => connectionPath(connection))),
+    ).pipe(
       Effect.withSpan("schema.compile.description", {
-        attributes: { "executor.integration_count": integrations.length },
+        attributes: { "executor.connection_count": connections.length },
       }),
     );
 
     yield* Effect.annotateCurrentSpan({
-      "executor.integration_count": integrations.length,
+      "executor.connection_count": connections.length,
       "schema.kind": "execute",
-      // Integration inventory so a failing session build (which runs this
-      // during init) names *what* it was resolving: empty/OpenAPI-only
-      // catalogs build cleanly, catalogs with remote MCP integrations are the
-      // ones that fail.
-      "executor.integration_slugs": integrations
-        .map((integration) => String(integration.slug))
+      // Connection inventory so a failing session build (which runs this during
+      // init) names the callable prefixes it resolved without listing tools.
+      "executor.connection_addresses": connections
+        .map((connection) => connectionPath(connection))
         .slice(0, 50)
         .join(","),
-      "executor.integration_kinds": [
-        ...new Set(integrations.map((integration) => integration.kind)),
+      "executor.connection_integrations": [
+        ...new Set(connections.map((connection) => String(connection.integration))),
+      ].join(","),
+      "executor.connection_owners": [
+        ...new Set(connections.map((connection) => connection.owner)),
       ].join(","),
     });
 
     return description;
   }).pipe(Effect.withSpan("schema.describe.execute"));
 
-const formatDescription = (integrations: readonly Integration[]): string => {
+const connectionPath = (connection: Connection): string => {
+  const address = String(connection.address);
+  return address.startsWith("tools.") ? address.slice("tools.".length) : address;
+};
+
+const formatDescription = (connectionPrefixes: readonly string[]): string => {
   const lines: string[] = [
     "Execute TypeScript in a sandboxed runtime with access to configured API tools.",
     "",
@@ -55,19 +63,19 @@ const formatDescription = (integrations: readonly Integration[]): string => {
     '2. `const path = matches[0]?.path; if (!path) return "No matching tools found.";`',
     "3. `const details = await tools.describe.tool({ path });`",
     "4. Use `details.inputTypeScript` / `details.outputTypeScript` and `details.typeScriptDefinitions` for compact shapes.",
-    "5. Use `tools.executor.sources.list()` when you need configured integration inventory.",
+    "5. Use `tools.executor.coreTools.connections.list({})` when you need live saved-connection inventory.",
     "6. Call the tool: `const result = await tools.<path>(input);`",
     "",
     "## Rules",
     "",
     "- `tools.search()` returns paginated, ranked matches: `{ items, total, hasMore, nextOffset }`. Best-first. Use short intent phrases like `github issues`, `repo details`, or `create calendar event`.",
     '- When you already know the namespace, narrow with `tools.search({ namespace: "github", query: "issues" })`.',
-    "- `tools.executor.sources.list()` returns the same paged shape: `{ items: [{ id, toolCount, ... }], total, hasMore, nextOffset }`.",
+    "- `tools.executor.coreTools.connections.list({})` returns saved connections with `{ address, integration, owner, name, ... }`. The `address` field includes the leading `tools.` root.",
     "- Tool calls return a value union: `{ ok: true, data }` for success or `{ ok: false, error: { code, message, status?, details?, retryable? } }` for expected tool/domain failures. Branch on `result.ok`.",
-    "- If `hasMore` is true and you didn't find what you need, fetch the next page: `tools.search({ query, offset: nextOffset, limit })`. Same `offset` parameter on `tools.executor.sources.list({ offset, limit })`.",
-    "- Always use the full address when calling tools: `tools.<integration>.<owner>.<connection>.<tool>(args)`. The `path` returned by `tools.search()` / `tools.describe.tool()` is already this exact address — call `tools[path]` rather than guessing segments.",
-    "- The `tools` object is a lazy proxy — `Object.keys(tools)` won't work. Use `tools.search()` or `tools.executor.sources.list()` instead.",
-    '- Pass an object to system tools, e.g. `tools.search({ query: "..." })`, `tools.executor.sources.list()`, and `tools.describe.tool({ path })`.',
+    "- If `tools.search()` returns `hasMore: true` and you didn't find what you need, fetch the next page: `tools.search({ query, offset: nextOffset, limit })`.",
+    "- Always use the full address when calling tools: `tools.<integration>.<owner>.<connection>.<tool>(args)`. The `path` returned by `tools.search()` / `tools.describe.tool()` is already the exact path under `tools` — call `tools[path]` rather than guessing segments.",
+    "- The `tools` object is a lazy proxy — `Object.keys(tools)` won't work. Use `tools.search()` or `tools.executor.coreTools.connections.list({})` instead.",
+    '- Pass an object to system tools, e.g. `tools.search({ query: "..." })`, `tools.executor.coreTools.connections.list({})`, and `tools.describe.tool({ path })`.',
     "- `tools.describe.tool()` returns compact TypeScript shapes. Use `inputTypeScript`, `outputTypeScript`, and `typeScriptDefinitions`.",
     "- For tools that return large collections (e.g. `getStates`, `getAll`), filter results in code rather than calling per-item tools.",
     "- Do not use `fetch` — all API calls go through `tools.*`.",
@@ -75,18 +83,17 @@ const formatDescription = (integrations: readonly Integration[]): string => {
     "- TypeScript type syntax (`: T`, `as T`, generics, interfaces, type aliases) is stripped before execution — feel free to write idiomatic TypeScript using the shapes from `tools.describe.tool()`. Decorators and `enum` are not supported.",
   ];
 
-  if (integrations.length > 0) {
+  if (connectionPrefixes.length > 0) {
     lines.push("");
-    lines.push("## Available namespaces");
+    lines.push("## Available connection prefixes");
     lines.push("");
-    const sorted = [...integrations]
-      .sort((a, b) => String(a.slug).localeCompare(String(b.slug)))
-      .slice(0, 50);
-    for (const integration of sorted) {
-      lines.push(`- \`${integration.slug}\``);
+    lines.push("These are paths under `tools.`; append the final tool segment.");
+    const sorted = [...connectionPrefixes].sort((a, b) => a.localeCompare(b)).slice(0, 50);
+    for (const prefix of sorted) {
+      lines.push(`- \`${prefix}\``);
     }
-    if (integrations.length > sorted.length) {
-      lines.push(`- ... ${integrations.length - sorted.length} more`);
+    if (connectionPrefixes.length > sorted.length) {
+      lines.push(`- ... ${connectionPrefixes.length - sorted.length} more`);
     }
   }
 
