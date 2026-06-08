@@ -444,15 +444,29 @@ describe("createExecutor", () => {
           id: ProviderItemId.make("v"),
         },
       });
+      yield* executor.connections.create({
+        owner: "org",
+        name: ConnectionName.make("other"),
+        integration: INTEG,
+        template: TEMPLATE,
+        from: {
+          provider: ProviderKey.make("memory"),
+          id: ProviderItemId.make("v"),
+        },
+      });
 
-      const result = yield* Effect.result(executor.execute(addr("nope"), {}));
+      const result = yield* Effect.result(executor.execute(addr("un"), {}));
       expect(Result.isFailure(result)).toBe(true);
       if (!Result.isFailure(result)) return;
       const error = result.failure;
       expect(Predicate.isTagged(error, "ToolNotFoundError")).toBe(true);
       const suggestions = (error as ToolNotFoundError).suggestions ?? [];
-      // The two produced tools are suggested.
-      expect(suggestions.length).toBeGreaterThan(0);
+      expect(suggestions).toEqual([addr("run")]);
+      expect(
+        suggestions.every((suggestion) =>
+          String(suggestion).startsWith(`tools.${INTEG}.org.${CONN}.`),
+        ),
+      ).toBe(true);
     }),
   );
 });

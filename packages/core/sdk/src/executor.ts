@@ -2434,10 +2434,42 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     // execute — the invoke path.
     // ------------------------------------------------------------------
 
-    const toolSuggestions = (
-      address: ToolAddress,
-      rows: readonly ToolRow[],
-    ): readonly ToolAddress[] => rows.map((row) => rowToTool(row).address).slice(0, 5);
+    const TOOL_SUGGESTION_LIMIT = 5;
+
+    const toolSuggestions = (rows: readonly ToolRow[]): readonly ToolAddress[] =>
+      rows.map((row) => rowToTool(row).address);
+
+    const toolRowsForConnectionWhere = (parsed: ParsedToolAddress) => (b: AnyCb) =>
+      b.and(
+        byOwner(parsed.owner)(b),
+        b("integration", "=", String(parsed.integration)),
+        b("connection", "=", String(parsed.connection)),
+      );
+
+    const searchToolRowsForConnection = (
+      parsed: ParsedToolAddress,
+    ): Effect.Effect<readonly ToolRow[], StorageFailure> =>
+      core.findMany("tool", {
+        where: (b: AnyCb) =>
+          b.and(
+            toolRowsForConnectionWhere(parsed)(b),
+            b.or(
+              b("name", "contains", String(parsed.tool)),
+              b("description", "contains", String(parsed.tool)),
+            ),
+          ),
+        orderBy: ["name", "asc"],
+        limit: TOOL_SUGGESTION_LIMIT,
+      });
+
+    const findToolRowsForConnection = (
+      parsed: ParsedToolAddress,
+    ): Effect.Effect<readonly ToolRow[], StorageFailure> =>
+      core.findMany("tool", {
+        where: toolRowsForConnectionWhere(parsed),
+        orderBy: ["name", "asc"],
+        limit: TOOL_SUGGESTION_LIMIT,
+      });
 
     const execute = (
       address: ToolAddress,
@@ -2508,10 +2540,12 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             ),
         });
         if (!row) {
-          const all = yield* core.findMany("tool", {});
+          const searchMatches = yield* searchToolRowsForConnection(parsed);
+          const connectionTools =
+            searchMatches.length > 0 ? searchMatches : yield* findToolRowsForConnection(parsed);
           return yield* new ToolNotFoundError({
             address,
-            suggestions: toolSuggestions(address, all),
+            suggestions: toolSuggestions(connectionTools),
           });
         }
 
