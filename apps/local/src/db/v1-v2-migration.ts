@@ -1,4 +1,4 @@
-/* oxlint-disable executor/no-json-parse, executor/no-try-catch-or-throw -- boundary: one-shot local SQLite/auth-file migration normalizes legacy on-disk state */
+/* oxlint-disable executor/no-json-parse, executor/no-raw-fetch, executor/no-try-catch-or-throw -- boundary: one-shot local SQLite/auth-file migration normalizes legacy on-disk state */
 
 import type { Client } from "@libsql/client";
 import { Effect } from "effect";
@@ -171,6 +171,97 @@ const buildConfig = (kind: string, data: Record<string, unknown>): MigratedSourc
   return migrateOpenApiSourceConfig(cfg as never);
 };
 
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const sourceKeyForBinding = (binding: Row): string =>
+  migrationSourceKey(
+    binding.source_scope_id == null ? String(binding.scope_id) : String(binding.source_scope_id),
+    String(binding.source_id),
+  );
+
+const mcpOAuthEndpoint = (config: MigratedSourceConfig | undefined): string | null => {
+  const value = config?.config;
+  if (!isObjectRecord(value)) return null;
+  if (typeof value.endpoint !== "string" || value.endpoint.length === 0) return null;
+  if (!isObjectRecord(value.auth) || value.auth.kind !== "oauth2") return null;
+  return value.endpoint;
+};
+
+const canonicalResource = (value: string): string | null => {
+  try {
+    const url = new URL(value);
+    return `${url.protocol.toLowerCase()}//${url.host.toLowerCase()}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return null;
+  }
+};
+
+const resourceMatchesEndpoint = (resource: string, endpoint: string): boolean => {
+  const actual = canonicalResource(resource);
+  const expected = canonicalResource(endpoint);
+  return (
+    actual != null && expected != null && (actual === expected || expected.startsWith(`${actual}/`))
+  );
+};
+
+const protectedResourceMetadataUrls = (endpoint: string): readonly string[] => {
+  try {
+    const url = new URL(endpoint);
+    const origin = url.origin;
+    const path = url.pathname.replace(/\/+$/, "");
+    const urls: string[] = [];
+    if (path && path !== "/") urls.push(`${origin}/.well-known/oauth-protected-resource${path}`);
+    urls.push(`${origin}/.well-known/oauth-protected-resource`);
+    return [...new Set(urls)];
+  } catch {
+    return [];
+  }
+};
+
+const discoverProtectedResource = async (endpoint: string): Promise<string | null> => {
+  for (const url of protectedResourceMetadataUrls(endpoint)) {
+    try {
+      const response = await fetch(url, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!response.ok) continue;
+      const json = (await response.json()) as unknown;
+      if (!isObjectRecord(json) || typeof json.resource !== "string") continue;
+      if (resourceMatchesEndpoint(json.resource, endpoint)) return json.resource;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+};
+
+const discoverMcpOAuthResourceOverrides = async (
+  bindings: readonly Row[],
+  migratedConfigs: ReadonlyMap<string, MigratedSourceConfig>,
+): Promise<ReadonlyMap<string, string>> => {
+  const endpointByKey = new Map<string, string>();
+  for (const binding of bindings) {
+    if (binding.kind !== "connection") continue;
+    const key = sourceKeyForBinding(binding);
+    const endpoint = mcpOAuthEndpoint(migratedConfigs.get(key));
+    if (endpoint) endpointByKey.set(key, endpoint);
+  }
+  const resourceByEndpoint = new Map<string, string | null>();
+  await Promise.all(
+    [...new Set(endpointByKey.values())].map(async (endpoint) => {
+      resourceByEndpoint.set(endpoint, await discoverProtectedResource(endpoint));
+    }),
+  );
+  const overrides = new Map<string, string>();
+  for (const [key, endpoint] of endpointByKey) {
+    const resource = resourceByEndpoint.get(endpoint);
+    if (resource) overrides.set(key, resource);
+  }
+  return overrides;
+};
+
 const localOwnerForScope =
   (tenantId: string) =>
   (scopeId: string): OwnerKeys | null => {
@@ -247,6 +338,7 @@ const readV1Snapshot = async (client: Client, tenantId: string): Promise<LocalV1
       buildConfig(String(row.kind), data),
     );
   }
+  const oauthResourceOverrides = await discoverMcpOAuthResourceOverrides(bindings, migratedConfigs);
 
   return {
     input: {
@@ -262,6 +354,7 @@ const readV1Snapshot = async (client: Client, tenantId: string): Promise<LocalV1
         }),
       ),
       migratedConfigs,
+      oauthResourceOverrides,
       connections: connections.map((connection) => ({
         id: String(connection.id),
         scopeId: String(connection.scope_id),

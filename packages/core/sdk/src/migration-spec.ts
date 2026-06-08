@@ -134,6 +134,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export const DEFAULT_STATIC_NAMESPACES: readonly string[] = ["executor", "openapi"];
 
+const MICROSOFT_GRAPH_LEGACY_SLUG = "microsoft_graph";
+const MICROSOFT_GRAPH_CURATED_SLUG =
+  "microsoft_graph_v1_0_sharepoint_files_excel_outlook_combined_curated";
+
 export type PolicyTransformResult =
   | { readonly kind: "ok"; readonly pattern: string }
   | { readonly kind: "static"; readonly pattern: string }
@@ -444,6 +448,12 @@ interface Placement {
   readonly slot?: string;
 }
 
+const legacyOAuthSlotSchemeVariants = (securitySchemeName: string): readonly string[] => {
+  const lower = securitySchemeName.toLowerCase();
+  const hyphenated = lower.replaceAll("_", "-");
+  return [...new Set([lower, hyphenated])];
+};
+
 export const migrateOpenApiAuthTemplate = (
   config: V1OpenApiAuthConfig,
 ): OpenApiAuthTemplateResult => {
@@ -530,9 +540,11 @@ export const migrateOpenApiAuthTemplate = (
     });
     // The oauth connection slot binds to the oauth method, not the apiKey one;
     // OAuth is single-input, so its value fills the `token` variable.
-    const slot = `oauth2:${o.securitySchemeName.toLowerCase()}:connection`;
-    slotToTemplateSlug[slot] = o.securitySchemeName;
-    slotToVariable[slot] = PRIMARY_INPUT_VARIABLE;
+    for (const scheme of legacyOAuthSlotSchemeVariants(o.securitySchemeName)) {
+      const slot = `oauth2:${scheme}:connection`;
+      slotToTemplateSlug[slot] = o.securitySchemeName;
+      slotToVariable[slot] = PRIMARY_INPUT_VARIABLE;
+    }
   }
 
   return {
@@ -689,6 +701,10 @@ export const classifyBindingSlot = (slotKey: string): SecretRole => {
   if (slotKey.endsWith(":connection")) return "oauth-access";
   return "apikey";
 };
+
+const isOAuthClientCredentialSlot = (slotKey: string): boolean =>
+  slotKey.startsWith("oauth2:") &&
+  (slotKey.endsWith(":client-id") || slotKey.endsWith(":client-secret"));
 
 // ---------------------------------------------------------------------------
 // oauth_client dedup (190 → 173).
@@ -1154,6 +1170,10 @@ export interface MigrationInput {
   /** `${scopeId} ${sourceId}` → the migrated config + slot maps (the runner
    *  builds these per kind via the `migrate*SourceConfig` assemblers). */
   readonly migratedConfigs: ReadonlyMap<string, MigratedSourceConfig>;
+  /** `${sourceScopeId} ${sourceId}` → live OAuth resource discovered from
+   *  protected-resource metadata. Runners populate this for MCP sources; the
+   *  pure planner stays deterministic and only consumes explicit overrides. */
+  readonly oauthResourceOverrides?: ReadonlyMap<string, string>;
   readonly connections: readonly V1ConnectionRow[];
   readonly bindings: readonly V1BindingRow[];
   readonly secrets: readonly V1SecretRow[];
@@ -1175,6 +1195,26 @@ const sourceKey = migrationSourceKey;
 
 const bindingSourceScope = (binding: V1BindingRow): string =>
   binding.sourceScopeId ?? binding.scopeId;
+
+const secretExists = (
+  secrets: readonly V1SecretRow[],
+  scopeId: string,
+  secretId: string,
+): boolean => secrets.some((secret) => secret.scopeId === scopeId && secret.id === secretId);
+
+const resolveProviderStateSecretScope = (
+  secrets: readonly V1SecretRow[],
+  options: {
+    readonly explicitScopeId?: string | null;
+    readonly connectionScopeId: string;
+    readonly sourceScopeId: string;
+    readonly secretId: string;
+  },
+): string => {
+  if (options.explicitScopeId) return options.explicitScopeId;
+  if (secretExists(secrets, options.sourceScopeId, options.secretId)) return options.sourceScopeId;
+  return options.connectionScopeId;
+};
 
 const bindingSecretScope = (binding: V1BindingRow): string =>
   binding.secretScopeId ?? binding.scopeId;
@@ -1223,6 +1263,9 @@ const authorizationUrlFromProviderState = (ps: V1ProviderState | null): string =
   nonEmptyString(ps?.issuerUrl) ??
   "";
 
+const secretOpDedupeKey = (op: SecretOp): string =>
+  `${op.targetProvider}\0${op.owner.tenant}\0${op.owner.owner}\0${op.owner.subject}\0${op.itemId}`;
+
 export const planMigration = (input: MigrationInput): MigrationPlan => {
   const warnings: string[] = [];
   const secretOps: SecretOp[] = [];
@@ -1233,9 +1276,17 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
   // --- Integrations (one per source) + the policy slug map (source ∪ tool ids).
   const integrations: PlannedIntegrationRow[] = [];
   const slugMap = new Map<string, string>();
+  const sourceIdsByTenant = new Map<string, Set<string>>();
+  const addSourceIdForOwner = (owner: OwnerKeys | null, sourceId: string): void => {
+    if (!owner) return;
+    const set = sourceIdsByTenant.get(owner.tenant) ?? new Set<string>();
+    set.add(sourceId);
+    sourceIdsByTenant.set(owner.tenant, set);
+  };
   for (const id of input.toolSourceIds) slugMap.set(id, id);
   for (const source of input.sources) {
     slugMap.set(source.id, source.id);
+    addSourceIdForOwner(ownerForScope(source.scopeId), source.id);
     const migrated = input.migratedConfigs.get(sourceKey(source.scopeId, source.id));
     const row = planIntegrationRow({
       scopeId: source.scopeId,
@@ -1252,6 +1303,17 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
     integrations.push(row);
     for (const w of migrated?.warnings ?? []) warnings.push(`[${source.id}] ${w}`);
   }
+
+  const policySlugMapForOwner = (owner: OwnerKeys): ReadonlyMap<string, string> => {
+    const tenantSourceIds = sourceIdsByTenant.get(owner.tenant);
+    if (
+      tenantSourceIds?.has(MICROSOFT_GRAPH_CURATED_SLUG) &&
+      !tenantSourceIds.has(MICROSOFT_GRAPH_LEGACY_SLUG)
+    ) {
+      return new Map(slugMap).set(MICROSOFT_GRAPH_LEGACY_SLUG, MICROSOFT_GRAPH_CURATED_SLUG);
+    }
+    return slugMap;
+  };
 
   // --- Group bindings by (scope, source); each group → one connection.
   const groups = new Map<string, V1BindingRow[]>();
@@ -1299,7 +1361,9 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
       config?.slotToVariable[slot] ?? PRIMARY_INPUT_VARIABLE;
 
     const connBinding = bindings.find((b) => b.kind === "connection");
-    const secretBindings = bindings.filter((b) => b.kind === "secret");
+    const secretBindings = bindings.filter(
+      (b) => b.kind === "secret" && !isOAuthClientCredentialSlot(b.slotKey),
+    );
     const textBindings = bindings.filter((b) => b.kind === "text");
 
     if (connBinding && connBinding.connectionId) {
@@ -1346,7 +1410,12 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
       // OAuth client.
       let clientSecretItemId: string | null = null;
       if (ps?.clientSecretSecretId) {
-        const clientSecretScopeId = ps.clientSecretSecretScopeId ?? scopeId;
+        const clientSecretScopeId = resolveProviderStateSecretScope(input.secrets, {
+          explicitScopeId: ps.clientSecretSecretScopeId,
+          connectionScopeId: scopeId,
+          sourceScopeId,
+          secretId: ps.clientSecretSecretId,
+        });
         clientSecretItemId = migratedItemId(clientSecretScopeId, ps.clientSecretSecretId);
         const provider = providerForSecret(
           input.secrets,
@@ -1362,18 +1431,21 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
         });
         consume(clientSecretScopeId, ps.clientSecretSecretId);
       }
-      const clientIdSecretScopeId = ps?.clientIdSecretScopeId ?? scopeId;
       const clientIdSecretRef =
         ps?.clientIdSecretId != null
-          ? {
-              scopeId: clientIdSecretScopeId,
-              secretId: ps.clientIdSecretId,
-              provider: providerForSecret(
-                input.secrets,
-                clientIdSecretScopeId,
-                ps.clientIdSecretId,
-              ),
-            }
+          ? (() => {
+              const clientIdScopeId = resolveProviderStateSecretScope(input.secrets, {
+                explicitScopeId: ps.clientIdSecretScopeId,
+                connectionScopeId: scopeId,
+                sourceScopeId,
+                secretId: ps.clientIdSecretId,
+              });
+              return {
+                scopeId: clientIdScopeId,
+                secretId: ps.clientIdSecretId,
+                provider: providerForSecret(input.secrets, clientIdScopeId, ps.clientIdSecretId),
+              };
+            })()
           : null;
       if (clientIdSecretRef) consume(clientIdSecretRef.scopeId, clientIdSecretRef.secretId);
       if (!ps?.clientId && !clientIdSecretRef) {
@@ -1389,7 +1461,10 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
         authorizationUrl: authorizationUrlFromProviderState(ps),
         authorizationServerMetadataUrl: nonEmptyString(ps?.authorizationServerMetadataUrl),
         grant,
-        resource: ps?.resource ?? null,
+        resource:
+          input.oauthResourceOverrides?.get(sourceKey(sourceScopeId, sourceId)) ??
+          ps?.resource ??
+          null,
         clientSecretRef: ps?.clientSecretSecretId ?? null,
       };
       oauthClientInputs.push(clientInput);
@@ -1577,7 +1652,7 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
       warnings.push(`Skipped policy "${p.pattern}": unparseable scope "${p.scopeId}".`);
       continue;
     }
-    const result = migratePolicyPattern(p.pattern, slugMap);
+    const result = migratePolicyPattern(p.pattern, policySlugMapForOwner(owner));
     if (result.kind === "dead") {
       deadInert += 1;
       warnings.push(
@@ -1615,10 +1690,10 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
     );
   }
 
-  // Dedupe secret ops by their (deterministic) item id — a secret referenced more
-  // than once yields one op. The runner is idempotent regardless, but a clean op
-  // set makes the dry-run count meaningful.
-  const dedupedSecretOps = [...new Map(secretOps.map((o) => [o.itemId, o])).values()];
+  // Dedupe secret ops by their provider + owner partition + deterministic item id.
+  // WorkOS Vault values are globally named by item id, but the metadata sidecar is
+  // owner-scoped; collapsing only by item id drops metadata for other owners.
+  const dedupedSecretOps = [...new Map(secretOps.map((o) => [secretOpDedupeKey(o), o])).values()];
 
   return {
     integrations,

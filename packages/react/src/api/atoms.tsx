@@ -155,8 +155,8 @@ export const detectIntegration = ExecutorApiClient.mutation("integrations", "det
 
 export const createOAuthClient = ExecutorApiClient.mutation("oauth", "createClient");
 
-/** RFC 7591 Dynamic Client Registration — mint a public (PKCE, no secret) client
- *  against the server's registration endpoint, with NO pasted client id/secret.
+/** RFC 7591 Dynamic Client Registration — mint a client against the server's
+ *  registration endpoint, with NO pasted client id/secret.
  *  Pass `reactivityKeys: oauthClientWriteKeys` at the call site to refresh the
  *  clients list. */
 export const registerDynamicOAuthClient = ExecutorApiClient.mutation("oauth", "registerDynamic");

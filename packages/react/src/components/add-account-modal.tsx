@@ -388,8 +388,8 @@ export const connectionNameFrom = (
 // Transparent DCR (RFC 7591) connect orchestration.
 //
 // For DCR-capable methods (MCP OAuth) the user clicks one "Connect" button and
-// we do everything: probe the integration's discovery URL → register a public
-// (PKCE, no secret) client against the advertised registration endpoint → start
+// we do everything: probe the integration's discovery URL → register a client
+// against the advertised registration endpoint → start
 // the OAuth flow with the minted client. No app picker, no pasted client id.
 //
 // This is extracted as a pure-ish orchestrator (injected `probe`/`register`/
@@ -441,7 +441,7 @@ type RunDcrConnectDeps = {
   /** Probe the discovery URL → resolved endpoints + (maybe) a registration
    *  endpoint. Resolves to null when the probe fails. */
   readonly probe: (url: string) => Promise<DcrProbeResult | null>;
-  /** Register a public DCR client → the minted client slug, or null on failure. */
+  /** Register a DCR client → the minted client slug, or null on failure. */
   readonly register: (args: DcrRegisterArgs) => Promise<OAuthClientSlug | null>;
   /** Start the OAuth flow with the minted client (popup / inline). */
   readonly start: (args: DcrStartArgs) => void;

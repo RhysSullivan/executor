@@ -73,7 +73,7 @@ const CreateClientResponse = Schema.Struct({
 
 // ---------------------------------------------------------------------------
 // registerDynamic — RFC 7591 Dynamic Client Registration. The server mints the
-// client id (public / PKCE, no secret); the user pastes NOTHING. The payload
+// client id (and possibly a client secret); the user pastes NOTHING. The payload
 // deliberately carries NO clientId/clientSecret, and the response is the slug
 // only — the minted secret is never returned over the wire.
 // ---------------------------------------------------------------------------

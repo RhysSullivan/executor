@@ -134,6 +134,7 @@ export interface RegisterDynamicClientInput {
   readonly registrationEndpoint: string;
   readonly authorizationUrl: string;
   readonly tokenUrl: string;
+  /** RFC 8707 Resource Indicator (MCP). Persisted on the minted client when known. */
   readonly resource?: string | null;
   readonly scopes: readonly string[];
   /** Auth methods the server advertises. When it allows `none` a public

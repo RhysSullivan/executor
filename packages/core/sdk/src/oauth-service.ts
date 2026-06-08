@@ -431,7 +431,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
           metadata: {
             client_name: input.clientName,
             redirect_uris: [flowRedirectUri],
-            grant_types: ["authorization_code"],
+            grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],
             token_endpoint_auth_method: authMethod,
             scope: input.scopes.length > 0 ? input.scopes.join(" ") : undefined,
@@ -449,8 +449,9 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
       );
 
       // Persist the minted client. DCR-minted public clients have no secret; we
-      // store "" so the PKCE-only token exchange omits `client_secret`. The
-      // grant is always interactive authorization_code for a DCR public client.
+      // store "" so the PKCE-only token exchange omits `client_secret`.
+      // Confidential DCR clients keep the returned secret in the credential
+      // provider. The persisted grant is interactive authorization_code.
       // `input.scopes` was already sent to the AS at registration above; the
       // stored client carries no scope set (the integration drives requests).
       yield* createClient({
@@ -693,11 +694,11 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
             scopes: requestedScopes,
             state: String(state),
             codeChallenge: challenge,
+            resource: client.resource ?? undefined,
             // Provider quirks (Google: access_type=offline + prompt=consent) —
             // without these Google returns no refresh token and won't re-consent
             // to widen scopes on reconnect.
             extraParams: providerAuthorizeExtras(client.authorizationUrl),
-            resource: client.resource ?? undefined,
             endpointUrlPolicy: deps.endpointUrlPolicy,
           }),
         catch: (cause) =>

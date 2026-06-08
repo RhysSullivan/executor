@@ -122,6 +122,13 @@ describe("oauth.registerDynamicClient", () => {
         const registerRequest = requests.find((r) => r.path === "/register" && r.method === "POST");
         expect(registerRequest).toBeDefined();
         expect(registerRequest!.body).toContain(FLOW_REDIRECT_URI);
+        expect(registerRequest!.body).toContain("authorization_code");
+        expect(registerRequest!.body).toContain("refresh_token");
+        const authorizationRequest = requests.find(
+          (r) => r.path === "/authorize" && r.method === "GET",
+        );
+        expect(authorizationRequest).toBeDefined();
+        expect(authorizationRequest!.query.resource).toBe(server.mcpResourceUrl);
         const tokenRequest = requests.find(
           (r) => r.path === "/token" && r.method === "POST" && r.body.includes("grant_type"),
         );

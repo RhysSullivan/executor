@@ -376,6 +376,21 @@ describe("migrateOpenApiAuthTemplate", () => {
     expect(r.slotToTemplateSlug).toEqual({ "oauth2:googleoauth2:connection": "googleOAuth2" });
   });
 
+  it("maps hyphenated legacy oauth slot names to underscored oauth slugs", () => {
+    const r = migrateOpenApiAuthTemplate({
+      oauth2: {
+        securitySchemeName: "oauth_2_0",
+        flow: "authorizationCode",
+        authorizationUrl: "https://accounts.spotify.com/authorize",
+        tokenUrl: "https://accounts.spotify.com/api/token",
+        scopes: ["user-read-email"],
+      },
+    });
+
+    expect(r.slotToTemplateSlug["oauth2:oauth-2-0:connection"]).toBe("oauth_2_0");
+    expect(r.slotToVariable["oauth2:oauth-2-0:connection"]).toBe("token");
+  });
+
   it("a source offering both apiKey and oauth declares both methods", () => {
     const r = migrateOpenApiAuthTemplate({
       headers: {
@@ -539,7 +554,7 @@ describe("dedupeOAuthClients", () => {
       {
         ownerKeys: orgKeys,
         clientId: "cid",
-        tokenUrl: "https://resolve.dealcloud.com/oauth/token",
+        tokenUrl: "https://tenant.dealcloud.example/oauth/token",
         authorizationUrl: "",
         grant: "client_credentials",
         resource: null,
@@ -549,7 +564,7 @@ describe("dedupeOAuthClients", () => {
       {
         ownerKeys: orgKeys,
         clientId: "cid",
-        tokenUrl: "https://resolve.dealcloud.com/oauth/token",
+        tokenUrl: "https://tenant.dealcloud.example/oauth/token",
         authorizationUrl: "",
         grant: "client_credentials",
         resource: null,
@@ -559,7 +574,7 @@ describe("dedupeOAuthClients", () => {
       {
         ownerKeys: userKeys,
         clientId: "cid",
-        tokenUrl: "https://resolve.dealcloud.com/oauth/token",
+        tokenUrl: "https://tenant.dealcloud.example/oauth/token",
         authorizationUrl: "",
         grant: "client_credentials",
         resource: null,
@@ -579,7 +594,7 @@ describe("dedupeOAuthClients", () => {
         ownerKeys: orgKeys,
         clientId: "",
         clientIdSecretRef: { scopeId: "org_X", secretId: "client-id-a", provider: "workos" },
-        tokenUrl: "https://resolve.dealcloud.com/oauth/token",
+        tokenUrl: "https://tenant.dealcloud.example/oauth/token",
         authorizationUrl: "",
         grant: "client_credentials",
         resource: null,
@@ -589,7 +604,7 @@ describe("dedupeOAuthClients", () => {
         ownerKeys: orgKeys,
         clientId: "",
         clientIdSecretRef: { scopeId: "org_X", secretId: "client-id-b", provider: "workos" },
-        tokenUrl: "https://resolve.dealcloud.com/oauth/token",
+        tokenUrl: "https://tenant.dealcloud.example/oauth/token",
         authorizationUrl: "",
         grant: "client_credentials",
         resource: null,
@@ -980,6 +995,128 @@ describe("planMigration (the weave)", () => {
     expect(plan.report.policies).toEqual({ ok: 1, static: 0, deadInert: 1 });
   });
 
+  it("uses discovered MCP OAuth resource overrides instead of stale provider state", () => {
+    const input: MigrationInput = {
+      nowMs: now,
+      sources: [
+        { scopeId: "user-org:user_U:org_X", id: "linear_mcp", pluginId: "mcp", name: "Linear MCP" },
+      ],
+      migratedConfigs: new Map([
+        [
+          "user-org:user_U:org_X linear_mcp",
+          cfg({
+            slotToTemplateSlug: { "auth:oauth2:connection": "oauth2" },
+            slotToVariable: { "auth:oauth2:connection": "token" },
+          }),
+        ],
+      ]),
+      oauthResourceOverrides: new Map([
+        ["user-org:user_U:org_X linear_mcp", "https://mcp.linear.app/mcp"],
+      ]),
+      connections: [
+        {
+          id: "linear-oauth",
+          scopeId: "user-org:user_U:org_X",
+          provider: "workos-vault",
+          identityLabel: "Linear MCP OAuth",
+          accessTokenSecretId: "linear-access",
+          refreshTokenSecretId: "linear-refresh",
+          expiresAt: 555,
+          providerState: {
+            kind: "dynamic-dcr",
+            clientId: "cid-linear",
+            tokenEndpoint: "https://mcp.linear.app/token",
+            authorizationServerUrl: "https://mcp.linear.app/authorize",
+            resource: "https://mcp.linear.app",
+          },
+        },
+      ],
+      bindings: [
+        {
+          scopeId: "user-org:user_U:org_X",
+          sourceId: "linear_mcp",
+          slotKey: "auth:oauth2:connection",
+          kind: "connection",
+          secretId: null,
+          connectionId: "linear-oauth",
+          textValue: null,
+        },
+      ],
+      secrets: [
+        {
+          id: "linear-access",
+          scopeId: "user-org:user_U:org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: "linear-oauth",
+        },
+        {
+          id: "linear-refresh",
+          scopeId: "user-org:user_U:org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: "linear-oauth",
+        },
+      ],
+      policies: [],
+      toolSourceIds: [],
+    };
+
+    const plan = planMigration(input);
+
+    expect(plan.oauthClients).toHaveLength(1);
+    expect(plan.oauthClients[0]?.resource).toBe("https://mcp.linear.app/mcp");
+  });
+
+  it("rewrites legacy Microsoft Graph policies only for tenants migrated to the curated slug", () => {
+    const curatedSlug = "microsoft_graph_v1_0_sharepoint_files_excel_outlook_combined_curated";
+    const input: MigrationInput = {
+      nowMs: now,
+      sources: [
+        {
+          scopeId: "org_CURATED",
+          id: curatedSlug,
+          pluginId: "openapi",
+          name: "Microsoft Graph Curated",
+        },
+        {
+          scopeId: "org_LEGACY",
+          id: "microsoft_graph",
+          pluginId: "openapi",
+          name: "Microsoft Graph",
+        },
+      ],
+      migratedConfigs: new Map([
+        [`org_CURATED ${curatedSlug}`, cfg()],
+        ["org_LEGACY microsoft_graph", cfg()],
+      ]),
+      connections: [],
+      bindings: [],
+      secrets: [],
+      policies: [
+        {
+          scopeId: "org_CURATED",
+          pattern: "microsoft_graph.meMessage.meDeleteMessages",
+          action: "block",
+        },
+        {
+          scopeId: "org_LEGACY",
+          pattern: "microsoft_graph.meMessage.meDeleteMessages",
+          action: "block",
+        },
+      ],
+      toolSourceIds: [],
+    };
+
+    const plan = planMigration(input);
+
+    expect(plan.policies.map((p) => p.pattern)).toEqual([
+      `${curatedSlug}.*.*.meMessage.meDeleteMessages`,
+      "microsoft_graph.*.*.meMessage.meDeleteMessages",
+    ]);
+    expect(plan.report.policies).toEqual({ ok: 2, static: 0, deadInert: 0 });
+  });
+
   it("plans a v1 client-credentials OAuth connection with secret-backed client credentials", () => {
     const input: MigrationInput = {
       nowMs: now,
@@ -1006,7 +1143,7 @@ describe("planMigration (the weave)", () => {
             kind: "client-credentials",
             clientIdSecretId: "dealcloud-client-id",
             clientSecretSecretId: "dealcloud-client-secret",
-            tokenEndpoint: "https://resolve.dealcloud.com/oauth/token",
+            tokenEndpoint: "https://tenant.dealcloud.example/oauth/token",
             resource: "https://api.dealcloud.com",
             scopes: ["data", "reporting"],
           },
@@ -1062,7 +1199,7 @@ describe("planMigration (the weave)", () => {
         provider: "workos-vault",
       },
       grant: "client_credentials",
-      tokenUrl: "https://resolve.dealcloud.com/oauth/token",
+      tokenUrl: "https://tenant.dealcloud.example/oauth/token",
       authorizationUrl: "",
       resource: "https://api.dealcloud.com",
       clientSecretItemId: migratedItemId("org_X", "dealcloud-client-secret"),
@@ -1078,6 +1215,344 @@ describe("planMigration (the weave)", () => {
     expect(connection?.itemIds.token).toBe(migratedItemId("org_X", "dealcloud-access"));
     expect(plan.secretOps.map((op) => op.role).sort()).toEqual(["client-secret", "oauth-access"]);
     expect(plan.report.warnings).toEqual([]);
+  });
+
+  it("does not turn oauth client credential bindings into visible api-key connections", () => {
+    const input: MigrationInput = {
+      nowMs: now,
+      sources: [{ scopeId: "org_X", id: "spotify_web_api", pluginId: "openapi", name: "Spotify" }],
+      migratedConfigs: new Map([
+        [
+          "org_X spotify_web_api",
+          cfg({
+            slotToTemplateSlug: { "oauth2:oauth-2-0:connection": "oauth_2_0" },
+            slotToVariable: { "oauth2:oauth-2-0:connection": "token" },
+          }),
+        ],
+      ]),
+      connections: [
+        {
+          id: "spotify-oauth",
+          scopeId: "user-org:user_U:org_X",
+          provider: "oauth2",
+          identityLabel: "Spotify Web API OAuth",
+          accessTokenSecretId: "spotify-access",
+          refreshTokenSecretId: "spotify-refresh",
+          expiresAt: 123,
+          providerState: {
+            kind: "authorization-code",
+            clientIdSecretId: "spotify-client-id",
+            clientSecretSecretId: "spotify-client-secret",
+            clientIdSecretScopeId: "org_X",
+            clientSecretSecretScopeId: "org_X",
+            tokenEndpoint: "https://accounts.spotify.com/api/token",
+            issuerUrl: "https://accounts.spotify.com",
+            scopes: ["user-read-email"],
+          },
+        },
+      ],
+      bindings: [
+        {
+          scopeId: "org_X",
+          sourceId: "spotify_web_api",
+          slotKey: "oauth2:oauth-2-0:client-id",
+          kind: "secret",
+          secretId: "spotify-client-id",
+          connectionId: null,
+          textValue: null,
+        },
+        {
+          scopeId: "org_X",
+          sourceId: "spotify_web_api",
+          slotKey: "oauth2:oauth-2-0:client-secret",
+          kind: "secret",
+          secretId: "spotify-client-secret",
+          connectionId: null,
+          textValue: null,
+        },
+        {
+          scopeId: "user-org:user_U:org_X",
+          sourceScopeId: "org_X",
+          sourceId: "spotify_web_api",
+          slotKey: "oauth2:oauth-2-0:connection",
+          kind: "connection",
+          secretId: null,
+          connectionId: "spotify-oauth",
+          textValue: null,
+        },
+      ],
+      secrets: [
+        {
+          id: "spotify-access",
+          scopeId: "user-org:user_U:org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: "spotify-oauth",
+        },
+        {
+          id: "spotify-refresh",
+          scopeId: "user-org:user_U:org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: "spotify-oauth",
+        },
+        {
+          id: "spotify-client-id",
+          scopeId: "org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: null,
+        },
+        {
+          id: "spotify-client-secret",
+          scopeId: "org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: null,
+        },
+      ],
+      policies: [],
+      toolSourceIds: [],
+    };
+
+    const plan = planMigration(input);
+
+    expect(plan.connections).toHaveLength(1);
+    expect(plan.connections[0]?.row.owner).toBe("user");
+    expect(plan.connections[0]?.row.template).toBe("oauth_2_0");
+    expect(plan.connections[0]?.row.oauthClientSlug).toBe("spotify");
+    expect(plan.connections[0]?.itemIds.token).toBe(
+      migratedItemId("user-org:user_U:org_X", "spotify-access"),
+    );
+    expect(plan.connections[0]?.refreshItemId).toBe(
+      migratedItemId("user-org:user_U:org_X", "spotify-refresh"),
+    );
+    expect(plan.oauthClients[0]).toMatchObject({
+      slug: "spotify",
+      clientIdSecretRef: {
+        scopeId: "org_X",
+        secretId: "spotify-client-id",
+        provider: "workos-vault",
+      },
+      clientSecretItemId: migratedItemId("org_X", "spotify-client-secret"),
+    });
+    expect(plan.secretOps.map((op) => op.role).sort()).toEqual([
+      "client-secret",
+      "oauth-access",
+      "oauth-refresh",
+    ]);
+  });
+
+  it("resolves legacy client credential secret ids from the source scope for personal bindings", () => {
+    const input: MigrationInput = {
+      nowMs: now,
+      sources: [{ scopeId: "org_X", id: "dealcloud_api", pluginId: "openapi", name: "DealCloud" }],
+      migratedConfigs: new Map([
+        [
+          "org_X dealcloud_api",
+          cfg({
+            slotToTemplateSlug: { "oauth2:dealcloudoauth:connection": "dealCloudOAuth" },
+            slotToVariable: { "oauth2:dealcloudoauth:connection": "token" },
+          }),
+        ],
+      ]),
+      connections: [
+        {
+          id: "personal-dealcloud-oauth",
+          scopeId: "user-org:user_U:org_X",
+          provider: "workos-vault",
+          identityLabel: "DealCloud API",
+          accessTokenSecretId: "dealcloud-access",
+          refreshTokenSecretId: null,
+          expiresAt: null,
+          providerState: {
+            kind: "client-credentials",
+            clientIdSecretId: "dealcloud-client-id",
+            clientSecretSecretId: "dealcloud-client-secret",
+            tokenEndpoint: "https://tenant.dealcloud.example/oauth/token",
+          },
+        },
+      ],
+      bindings: [
+        {
+          scopeId: "user-org:user_U:org_X",
+          sourceScopeId: "org_X",
+          sourceId: "dealcloud_api",
+          slotKey: "oauth2:dealcloudoauth:connection",
+          kind: "connection",
+          secretId: null,
+          connectionId: "personal-dealcloud-oauth",
+          textValue: null,
+        },
+      ],
+      secrets: [
+        {
+          id: "dealcloud-access",
+          scopeId: "user-org:user_U:org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: "personal-dealcloud-oauth",
+        },
+        {
+          id: "dealcloud-client-id",
+          scopeId: "org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: null,
+        },
+        {
+          id: "dealcloud-client-secret",
+          scopeId: "org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: null,
+        },
+      ],
+      policies: [],
+      toolSourceIds: [],
+    };
+
+    const plan = planMigration(input);
+
+    expect(plan.oauthClients[0]).toMatchObject({
+      ownerKeys: {
+        owner: "user",
+        subject: "user_U",
+        tenant: "org_X",
+      },
+      clientIdSecretRef: {
+        scopeId: "org_X",
+        secretId: "dealcloud-client-id",
+        provider: "workos-vault",
+      },
+      clientSecretItemId: migratedItemId("org_X", "dealcloud-client-secret"),
+    });
+    expect(plan.secretOps.find((op) => op.role === "client-secret")).toMatchObject({
+      itemId: migratedItemId("org_X", "dealcloud-client-secret"),
+      fromSecret: {
+        scopeId: "org_X",
+        secretId: "dealcloud-client-secret",
+        provider: "workos-vault",
+      },
+    });
+    expect(plan.connections[0]?.row.owner).toBe("user");
+    expect(plan.connections[0]?.itemIds.token).toBe(
+      migratedItemId("user-org:user_U:org_X", "dealcloud-access"),
+    );
+    expect(plan.report.warnings).toEqual([]);
+  });
+
+  it("keeps metadata-producing secret ops for the same item id in different owner partitions", () => {
+    const input: MigrationInput = {
+      nowMs: now,
+      sources: [{ scopeId: "org_X", id: "dealcloud_api", pluginId: "openapi", name: "DealCloud" }],
+      migratedConfigs: new Map([
+        [
+          "org_X dealcloud_api",
+          cfg({
+            slotToTemplateSlug: { "oauth2:dealcloudoauth:connection": "dealCloudOAuth" },
+            slotToVariable: { "oauth2:dealcloudoauth:connection": "token" },
+          }),
+        ],
+      ]),
+      connections: [
+        {
+          id: "org-dealcloud-oauth",
+          scopeId: "org_X",
+          provider: "workos-vault",
+          identityLabel: "DealCloud API",
+          accessTokenSecretId: "org-access",
+          refreshTokenSecretId: null,
+          expiresAt: null,
+          providerState: {
+            kind: "client-credentials",
+            clientId: "client-id",
+            clientSecretSecretId: "shared-client-secret",
+            tokenEndpoint: "https://tenant.dealcloud.example/oauth/token",
+          },
+        },
+        {
+          id: "personal-dealcloud-oauth",
+          scopeId: "user-org:user_U:org_X",
+          provider: "workos-vault",
+          identityLabel: "DealCloud API",
+          accessTokenSecretId: "personal-access",
+          refreshTokenSecretId: null,
+          expiresAt: null,
+          providerState: {
+            kind: "client-credentials",
+            clientId: "client-id",
+            clientSecretSecretId: "shared-client-secret",
+            tokenEndpoint: "https://tenant.dealcloud.example/oauth/token",
+          },
+        },
+      ],
+      bindings: [
+        {
+          scopeId: "org_X",
+          sourceId: "dealcloud_api",
+          slotKey: "oauth2:dealcloudoauth:connection",
+          kind: "connection",
+          secretId: null,
+          connectionId: "org-dealcloud-oauth",
+          textValue: null,
+        },
+        {
+          scopeId: "user-org:user_U:org_X",
+          sourceScopeId: "org_X",
+          sourceId: "dealcloud_api",
+          slotKey: "oauth2:dealcloudoauth:connection",
+          kind: "connection",
+          secretId: null,
+          connectionId: "personal-dealcloud-oauth",
+          textValue: null,
+        },
+      ],
+      secrets: [
+        {
+          id: "org-access",
+          scopeId: "org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: "org-dealcloud-oauth",
+        },
+        {
+          id: "personal-access",
+          scopeId: "user-org:user_U:org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: "personal-dealcloud-oauth",
+        },
+        {
+          id: "shared-client-secret",
+          scopeId: "org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: null,
+        },
+      ],
+      policies: [],
+      toolSourceIds: [],
+    };
+
+    const plan = planMigration(input);
+    const clientSecretOps = plan.secretOps.filter((op) => op.role === "client-secret");
+
+    expect(clientSecretOps).toHaveLength(2);
+    expect(clientSecretOps.map((op) => op.itemId)).toEqual([
+      migratedItemId("org_X", "shared-client-secret"),
+      migratedItemId("org_X", "shared-client-secret"),
+    ]);
+    expect(clientSecretOps.map((op) => `${op.owner.owner}:${op.owner.subject}`).sort()).toEqual([
+      "org:",
+      "user:user_U",
+    ]);
+    expect(plan.secretOps.map((op) => op.role).sort()).toEqual([
+      "client-secret",
+      "client-secret",
+      "oauth-access",
+      "oauth-access",
+    ]);
   });
 
   it("uses source_scope_id for templates and secret_scope_id for shared secret values", () => {

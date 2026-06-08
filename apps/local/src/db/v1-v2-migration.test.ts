@@ -17,16 +17,19 @@ const decodeUnknownJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.
 
 let workDir: string;
 let previousXdgDataHome: string | undefined;
+let previousFetch: typeof globalThis.fetch;
 
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "executor-local-v1-v2-"));
   previousXdgDataHome = process.env.XDG_DATA_HOME;
+  previousFetch = globalThis.fetch;
   process.env.XDG_DATA_HOME = join(workDir, "xdg");
 });
 
 afterEach(() => {
   if (previousXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
   else process.env.XDG_DATA_HOME = previousXdgDataHome;
+  globalThis.fetch = previousFetch;
   rmSync(workDir, { recursive: true, force: true });
 });
 
@@ -37,6 +40,7 @@ const seedV1Db = async (
     readonly includeSecretBackedOauth?: boolean;
     readonly includeGraphqlTool?: boolean;
     readonly includeMcpToolBinding?: boolean;
+    readonly includeMcpOauth?: boolean;
     readonly jsonBlobs?: boolean;
     readonly oauthConnectionProvider?: string;
     readonly oauthProviderStateOverrides?: Record<string, unknown>;
@@ -513,7 +517,7 @@ const seedV1Db = async (
             oauth2: {
               securitySchemeName: "dealCloudOAuth",
               flow: "clientCredentials",
-              tokenUrl: "https://resolve.dealcloud.com/oauth/token",
+              tokenUrl: "https://tenant.dealcloud.example/oauth/token",
               scopes: ["data"],
             },
           },
@@ -539,7 +543,7 @@ const seedV1Db = async (
           clientIdSecretScopeId: scopeId,
           clientSecretSecretId: "dealcloud-client-secret",
           clientSecretSecretScopeId: scopeId,
-          tokenEndpoint: "https://resolve.dealcloud.com/oauth/token",
+          tokenEndpoint: "https://tenant.dealcloud.example/oauth/token",
           resource: "https://api.dealcloud.com",
           scopes: ["data"],
           ...(options.oauthProviderStateOverrides ?? {}),
@@ -573,6 +577,83 @@ const seedV1Db = async (
         client,
         "INSERT INTO secret (id, scope_id, name, provider, owned_by_connection_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         [id, scopeId, name, "file", owner, now],
+      );
+    }
+  }
+
+  if (options.includeMcpOauth) {
+    await executeSql(
+      client,
+      "INSERT INTO source (id, scope_id, plugin_id, kind, name) VALUES (?, ?, ?, ?, ?)",
+      ["pscale_mcp", scopeId, "mcp", "mcp", "PlanetScale MCP"],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO plugin_storage (id, scope_id, plugin_id, collection, key, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "mcp-source-pscale",
+        scopeId,
+        "mcp",
+        "source",
+        "pscale_mcp",
+        json({
+          config: {
+            endpoint: "https://mcp.pscale.dev/mcp/planetscale",
+            transport: "remote",
+            auth: { kind: "oauth2", connectionSlot: "auth:oauth2:connection" },
+          },
+        }),
+        now,
+        now,
+      ],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO connection (id, scope_id, provider, identity_label, access_token_secret_id, refresh_token_secret_id, expires_at, provider_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "pscale-oauth",
+        scopeId,
+        options.oauthConnectionProvider ?? "oauth2",
+        "PlanetScale MCP OAuth",
+        "pscale-access",
+        "pscale-refresh",
+        now + 60_000,
+        json({
+          kind: "authorization-code",
+          clientId: "pscale-client",
+          tokenEndpoint: "https://auth.pscale.dev/oauth/token",
+          authorizationServerUrl: "https://mcp.pscale.dev/oauth/authorize",
+          resource: "https://mcp.pscale.dev",
+          scopes: ["read"],
+        }),
+      ],
+    );
+    await executeSql(
+      client,
+      "INSERT INTO credential_binding (id, scope_id, plugin_id, source_id, source_scope_id, slot_key, kind, text_value, secret_id, connection_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        "pscale-auth",
+        scopeId,
+        "mcp",
+        "pscale_mcp",
+        scopeId,
+        "auth:oauth2:connection",
+        "connection",
+        null,
+        null,
+        "pscale-oauth",
+        now,
+        now,
+      ],
+    );
+    for (const [id, name] of [
+      ["pscale-access", "PlanetScale access token"],
+      ["pscale-refresh", "PlanetScale refresh token"],
+    ] as const) {
+      await executeSql(
+        client,
+        "INSERT INTO secret (id, scope_id, name, provider, owned_by_connection_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        [id, scopeId, name, "file", "pscale-oauth", now],
       );
     }
   }
@@ -858,7 +939,7 @@ describe("local v1 -> v2 migration", () => {
         grant: "client_credentials",
         client_id: "dealcloud-client",
         client_secret_item_id: clientSecretItemId,
-        token_url: "https://resolve.dealcloud.com/oauth/token",
+        token_url: "https://tenant.dealcloud.example/oauth/token",
         authorization_url: "",
         resource: "https://api.dealcloud.com",
       },
@@ -957,6 +1038,70 @@ describe("local v1 -> v2 migration", () => {
         slug: "dealcloud",
         grant: "authorization_code",
         authorization_url: "https://app.planetscale.com/oauth/authorize",
+        resource: "https://mcp.pscale.dev/mcp/planetscale",
+      },
+    ]);
+    client.close();
+  });
+
+  it("discovers MCP OAuth protected-resource metadata before writing oauth_client rows", async () => {
+    const scopeId = "executor-workspace-abcd1234";
+    const tenantId = "executor-workspace-abcd1234";
+    const dataDir = join(workDir, "data");
+    const dbPath = join(dataDir, "data.db");
+    mkdirSync(dataDir, { recursive: true });
+    await seedV1Db(dbPath, scopeId, { includeMcpOauth: true });
+
+    const authDir = join(process.env.XDG_DATA_HOME!, "executor");
+    mkdirSync(authDir, { recursive: true });
+    writeFileSync(
+      join(authDir, "auth.json"),
+      JSON.stringify({
+        [scopeId]: {
+          "stripe-key": "sk_test_123",
+          "pscale-access": "old-access-token",
+          "pscale-refresh": "old-refresh-token",
+        },
+      }),
+    );
+
+    const seenResourceUrls: string[] = [];
+    globalThis.fetch = Object.assign(
+      async (input: RequestInfo | URL) => {
+        const url = String(input);
+        seenResourceUrls.push(url);
+        if (url.includes("/.well-known/oauth-protected-resource")) {
+          return new Response(
+            JSON.stringify({ resource: "https://mcp.pscale.dev/mcp/planetscale" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
+      },
+      { preconnect: previousFetch.preconnect },
+    );
+
+    const result = await migrateLocalV1ToV2IfNeeded({
+      sqlitePath: dbPath,
+      tables: collectTables(),
+      namespace: "executor_local",
+      tenantId,
+    });
+
+    expect(result.migrated).toBe(true);
+    expect(seenResourceUrls).toContain(
+      "https://mcp.pscale.dev/.well-known/oauth-protected-resource/mcp/planetscale",
+    );
+
+    const client = await openLocalLibsql(dbPath);
+    const oauthClients = await client.execute(
+      "SELECT slug, authorization_url, token_url, resource FROM oauth_client WHERE slug = 'pscale'",
+    );
+    expect(oauthClients.rows).toEqual([
+      {
+        slug: "pscale",
+        authorization_url: "https://mcp.pscale.dev/oauth/authorize",
+        token_url: "https://auth.pscale.dev/oauth/token",
         resource: "https://mcp.pscale.dev/mcp/planetscale",
       },
     ]);

@@ -1277,6 +1277,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                 clientId: String(clientRow.client_id),
                 clientSecret,
                 scopes: grantedScopes,
+                resource: clientRow.resource ? String(clientRow.resource) : undefined,
                 endpointUrlPolicy: config.oauthEndpointUrlPolicy,
               }).pipe(
                 // A client_credentials failure is never a rotated-refresh-token

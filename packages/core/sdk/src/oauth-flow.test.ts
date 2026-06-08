@@ -62,6 +62,7 @@ describe("oauth.start / oauth.complete", () => {
             grant: "authorization_code",
             clientId: "test-client",
             clientSecret: "test-secret",
+            resource: server.mcpResourceUrl,
           });
 
           const started = yield* executor.oauth.start({
@@ -89,6 +90,17 @@ describe("oauth.start / oauth.complete", () => {
           expect(String(connection.name)).toBe("mainAccount");
           expect(String(connection.address)).toBe("tools.acme.org.mainAccount");
           expect(connection.expiresAt).toBeGreaterThan(Date.now());
+          const requests = yield* server.requests;
+          const authorizationRequest = requests.find(
+            (r) => r.path === "/authorize" && r.method === "GET",
+          );
+          expect(authorizationRequest?.query.resource).toBe(server.mcpResourceUrl);
+          const tokenRequest = requests.find(
+            (r) => r.path === "/token" && r.method === "POST" && r.body.includes("grant_type"),
+          );
+          expect(tokenRequest?.body).toContain(
+            `resource=${encodeURIComponent(server.mcpResourceUrl)}`,
+          );
 
           // The connection produced its tools.
           const tools = yield* executor.tools.list();
@@ -318,6 +330,7 @@ describe("oauth token refresh in resolveConnectionValue", () => {
           grant: "authorization_code",
           clientId: "test-client",
           clientSecret: "test-secret",
+          resource: server.mcpResourceUrl,
         });
 
         const started = yield* executor.oauth.start({
@@ -362,6 +375,13 @@ describe("oauth token refresh in resolveConnectionValue", () => {
         expect(refreshedToken.token).toMatch(/^at_/);
         expect(refreshedToken.token).not.toBe(firstToken.token);
         expect(yield* server.acceptsAccessToken(refreshedToken.token)).toBe(true);
+        const requests = yield* server.requests;
+        const refreshRequest = requests.find(
+          (r) => r.path === "/token" && r.method === "POST" && r.body.includes("refresh_token"),
+        );
+        expect(refreshRequest?.body).toContain(
+          `resource=${encodeURIComponent(server.mcpResourceUrl)}`,
+        );
       }),
     ),
   );
@@ -385,6 +405,7 @@ describe("oauth token refresh in resolveConnectionValue", () => {
             grant: "authorization_code",
             clientId: "test-client",
             clientSecret: "test-secret",
+            resource: server.mcpResourceUrl,
           });
 
           // … minting a PERSONAL (user) connection.

@@ -116,7 +116,7 @@ describe("IntegrationFavicon", () => {
     ).toBe("https://example.com/sentry.png");
   });
 
-  it("matches migrated MCP slugs with whole normalized ids", () => {
+  it("matches migrated MCP slugs with host/suffix noise", () => {
     const presets = [
       {
         key: "mcp",
@@ -136,6 +136,12 @@ describe("IntegrationFavicon", () => {
             summary: "Issues.",
             icon: "https://example.com/linear.png",
           },
+          {
+            id: "planetscale",
+            name: "PlanetScale",
+            summary: "Databases.",
+            icon: "https://example.com/pscale.png",
+          },
         ],
       },
     ];
@@ -152,6 +158,9 @@ describe("IntegrationFavicon", () => {
         presets,
       ),
     ).toBe("https://example.com/linear.png");
+    expect(
+      integrationPresetIconUrl({ id: "pscale_mcp", kind: "mcp", name: "Pscale MCP" }, presets),
+    ).toBe("https://example.com/pscale.png");
   });
 
   it("matches migrated OpenAPI slugs with API/REST suffixes", () => {
