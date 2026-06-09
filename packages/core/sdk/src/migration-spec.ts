@@ -1559,6 +1559,15 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
         template = slotTemplate(b.slotKey);
         consume(secretScopeId, b.secretId);
       }
+      // All-null secret ids (malformed v1 rows) would plan a credentialed
+      // connection with an empty `item_ids` map — a credential with no
+      // credential that the runtime refuses to produce tools for. Skip loudly.
+      if (Object.keys(itemIds).length === 0) {
+        warnings.push(
+          `Skipped binding group "${sourceId}" in scope "${scopeId}": its secret bindings reference no secrets.`,
+        );
+        continue;
+      }
       const provider = targetProvider ?? defaultWritableProvider;
       if (providers.size > 1) {
         warnings.push(
@@ -1596,7 +1605,11 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
       let template = API_KEY_TEMPLATE_SLUG;
       for (const b of textBindings) {
         const variable = slotVar(b.slotKey);
-        const itemId = migratedItemId(scopeId, `text:${b.slotKey}`);
+        // The source id is part of the key: two sources in one scope can bind
+        // the same slot (e.g. `header:authorization`) with different values —
+        // without it they'd collide on one item id and one would silently
+        // read the other's secret.
+        const itemId = migratedItemId(scopeId, `text:${sourceId}:${b.slotKey}`);
         secretOps.push({
           itemId,
           role: "apikey",
@@ -1632,6 +1645,52 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
           refreshItemId: null,
         });
       }
+    } else {
+      // Nothing migratable in the group: a connection binding without a
+      // connection id, or only OAuth client-credential slots (the app config
+      // migrates via the bound connection's provider state — an app that was
+      // configured but never connected has nothing to attach to). Say so
+      // instead of dropping the group silently.
+      warnings.push(
+        `Skipped binding group "${sourceId}" in scope "${scopeId}": no migratable credential binding (its secrets fall to the orphan re-key).`,
+      );
+    }
+  }
+
+  // --- No-auth sources (mcp/graphql `auth.kind === "none"`) have no credential
+  // bindings, but v2 produces tools per CONNECTION — without one the migrated
+  // integration is dead (no tools, nothing to invoke). Plan the canonical
+  // no-auth connection: template "none", empty item_ids. (This is the planner
+  // fix for the gap that required the prod `{}` backfill.)
+  for (const source of input.sources) {
+    if (groups.has(sourceKey(source.scopeId, source.id))) continue;
+    const migrated = input.migratedConfigs.get(sourceKey(source.scopeId, source.id));
+    const auth = (migrated?.config as { auth?: { kind?: string } } | undefined)?.auth;
+    if (auth?.kind !== "none") continue;
+    const row = planConnectionRow({
+      scopeId: source.scopeId,
+      integration: source.id,
+      name: "workspace",
+      template: "none",
+      provider: defaultWritableProvider,
+      identityLabel: null,
+      grant: "authorization_code",
+      v1ExpiresAt: null,
+      oauthScopes: [],
+      oauthClientSlug: null,
+      oauthClientOwner: null,
+      nowMs: input.nowMs,
+      ownerForScope,
+    });
+    if (row) {
+      connections.push({
+        credentialScopeId: source.scopeId,
+        sourceScopeId: source.scopeId,
+        sourceId: source.id,
+        row,
+        itemIds: {},
+        refreshItemId: null,
+      });
     }
   }
 
@@ -1659,7 +1718,10 @@ export const planMigration = (input: MigrationInput): MigrationPlan => {
   for (const s of input.secrets) {
     if (consumed.has(`${s.scopeId} ${s.id}`)) continue;
     const owner = ownerForScope(s.scopeId);
-    if (!owner) continue; // unparseable scope orphan — skip + (counted via warnings below)
+    if (!owner) {
+      warnings.push(`Skipped orphan secret "${s.id}": unparseable scope "${s.scopeId}".`);
+      continue;
+    }
     secretOps.push({
       itemId: migratedItemId(s.scopeId, s.id),
       role: "orphan",
