@@ -361,19 +361,26 @@ describe("graphqlPlugin real protocol server", () => {
   it.effect("sends named operations derived from the field name", () =>
     Effect.gen(function* () {
       const server = yield* serveGreetingServer;
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
-      );
+      const executor = yield* makeExecutor();
 
-      yield* executor.graphql.addSource({
+      yield* executor.graphql.addIntegration({
         endpoint: server.endpoint,
-        scope: TEST_SCOPE,
-        namespace: "named_ops",
+        slug: "named_ops",
       });
+      yield* createOrgConnection(executor, {
+        integration: "named_ops",
+        name: "main",
+        template: "none",
+        value: "unused",
+      });
+
+      yield* executor.execute(toolAddr("named_ops", "main", "query.hello"), { name: "Ada" });
       yield* server.clearRequests;
 
-      yield* executor.tools.invoke("named_ops.query.hello", { name: "Ada" });
-      yield* executor.tools.invoke("named_ops.mutation.setGreeting", { message: "hi" });
+      yield* executor.execute(toolAddr("named_ops", "main", "query.hello"), { name: "Ada" });
+      yield* executor.execute(toolAddr("named_ops", "main", "mutation.setGreeting"), {
+        message: "hi",
+      });
 
       const requests = yield* server.requests;
       expect(requests[0]?.payload.query).toMatch(/^query Hello\b/);
