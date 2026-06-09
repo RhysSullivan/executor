@@ -1786,24 +1786,18 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         const inputs = normalizeConnectionInputs(input);
         const pasted = inputs.filter((i) => "value" in i.origin);
         const external = inputs.filter((i) => "from" in i.origin);
-        // A connection is born wired: it must reference at least one non-empty
-        // credential input. An empty binding (no inputs, or a blank pasted
-        // secret) is a credential with no credential — it would persist, produce
-        // a full tool catalog, and then fail every invocation with
-        // `connection_value_missing`. Reject it here. (OAuth connections are
-        // minted via `mintOAuthConnection`, not this path; an external `from`
-        // reference is allowed to resolve to null — the item may be written later
-        // or removed upstream — and is surfaced at invoke time, not here.)
+        // A connection is born wired: it must reference at least one credential
+        // input. An empty binding (no inputs at all — e.g. an empty `values`/
+        // `inputs` map) is a credential with no credential: it would persist,
+        // produce a full tool catalog, and then fail every invocation with
+        // `connection_value_missing`. Reject it here. (An empty-string value is
+        // NOT rejected — no-auth integrations like MCP deliberately bind one, and
+        // it yields a non-empty `item_ids`. OAuth connections are minted via
+        // `mintOAuthConnection`, not this path; an external `from` reference may
+        // resolve to null and is surfaced at invoke time, not here.)
         if (inputs.length === 0) {
           return yield* new StorageError({
             message: "A connection must supply at least one credential input.",
-            cause: undefined,
-          });
-        }
-        const blankPasted = pasted.find((i) => "value" in i.origin && i.origin.value.trim() === "");
-        if (blankPasted) {
-          return yield* new StorageError({
-            message: `Credential input "${blankPasted.variable}" cannot be empty.`,
             cause: undefined,
           });
         }

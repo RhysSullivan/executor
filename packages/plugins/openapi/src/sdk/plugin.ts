@@ -356,7 +356,7 @@ const openApiAuthToolFailure = (failure: {
   readonly owner: "org" | "user";
   readonly integration: string;
   readonly connection: string;
-  readonly credentialKind: "secret" | "connection" | "oauth" | "upstream";
+  readonly credentialKind: "secret" | "oauth" | "upstream";
   readonly credentialLabel?: string;
   readonly status?: number;
   readonly details?: unknown;
