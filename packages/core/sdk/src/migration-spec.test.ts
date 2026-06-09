@@ -1117,6 +1117,79 @@ describe("planMigration (the weave)", () => {
     expect(plan.report.policies).toEqual({ ok: 2, static: 0, deadInert: 0 });
   });
 
+  // The prod Microsoft shape: v1 stored only a bare issuer origin plus the
+  // full token endpoint (no discrete authorize endpoint — v1 discovered it at
+  // runtime). A bare origin is a dead authorize URL (sign-in completes but
+  // never redirects back), so the planner must derive the same-origin
+  // `…/authorize` sibling of the token endpoint instead.
+  it("derives the authorize endpoint from the token endpoint when v1 only stored a bare issuer", () => {
+    const input: MigrationInput = {
+      nowMs: now,
+      sources: [
+        { scopeId: "org_X", id: "microsoft_graph", pluginId: "openapi", name: "Microsoft Graph" },
+      ],
+      migratedConfigs: new Map([
+        [
+          "org_X microsoft_graph",
+          cfg({
+            slotToTemplateSlug: { "oauth2:azureaddelegated:connection": "azureAdDelegated" },
+            slotToVariable: { "oauth2:azureaddelegated:connection": "token" },
+          }),
+        ],
+      ]),
+      connections: [
+        {
+          id: "openapi-oauth-microsoft-graph",
+          scopeId: "org_X",
+          provider: "oauth2",
+          identityLabel: null,
+          accessTokenSecretId: "ms-access",
+          refreshTokenSecretId: null,
+          expiresAt: null,
+          providerState: {
+            kind: "authorization-code",
+            clientId: "cid-ms",
+            issuerUrl: "https://login.microsoftonline.com",
+            tokenEndpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            scopes: ["User.Read"],
+          },
+        },
+      ],
+      bindings: [
+        {
+          scopeId: "org_X",
+          sourceId: "microsoft_graph",
+          slotKey: "oauth2:azureaddelegated:connection",
+          kind: "connection",
+          secretId: null,
+          connectionId: "openapi-oauth-microsoft-graph",
+          textValue: null,
+        },
+      ],
+      secrets: [
+        {
+          id: "ms-access",
+          scopeId: "org_X",
+          name: "",
+          provider: "workos-vault",
+          ownedByConnectionId: "openapi-oauth-microsoft-graph",
+        },
+      ],
+      policies: [],
+      toolSourceIds: [],
+    };
+
+    const plan = planMigration(input);
+
+    expect(plan.oauthClients).toHaveLength(1);
+    expect(plan.oauthClients[0]?.authorizationUrl).toBe(
+      "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    );
+    expect(plan.oauthClients[0]?.tokenUrl).toBe(
+      "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    );
+  });
+
   it("plans a v1 client-credentials OAuth connection with secret-backed client credentials", () => {
     const input: MigrationInput = {
       nowMs: now,
