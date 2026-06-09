@@ -52,13 +52,23 @@ export function oauthReconnectPayload(connection: Connection): OAuthStartPayload
 // explicable. Never blocks connect.
 // ---------------------------------------------------------------------------
 
-/** Normalize a scope list: trim, drop empties, de-dupe (order-preserving). A
- *  scope set is compared as a SET — duplicates and blanks never widen it. */
+const OAUTH_SCOPE_ALIASES: Readonly<Record<string, string>> = {
+  // Google accepts OIDC shorthand scopes but records the expanded People API
+  // scopes in token responses. Treat them as the same grant for reconsent UI.
+  "https://www.googleapis.com/auth/userinfo.email": "email",
+  "https://www.googleapis.com/auth/userinfo.profile": "profile",
+};
+
+const canonicalScope = (scope: string): string => OAUTH_SCOPE_ALIASES[scope] ?? scope;
+
+/** Normalize a scope list: trim, canonicalize known provider aliases, drop
+ *  empties, de-dupe (order-preserving). A scope set is compared as a SET —
+ *  duplicates and blanks never widen it. */
 const normalizeScopes = (scopes: readonly string[]): readonly string[] => {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of scopes) {
-    const scope = raw.trim();
+    const scope = canonicalScope(raw.trim());
     if (scope.length === 0 || seen.has(scope)) continue;
     seen.add(scope);
     out.push(scope);

@@ -94,4 +94,18 @@ describe("missingScopes (Part 2 informational subset warning)", () => {
     expect(missingScopes([" a ", "a", "b", ""], ["a"])).toEqual(["b"]);
     expect(missingScopes(["a", "b"], [" a ", "a", ""])).toEqual(["b"]);
   });
+
+  it("treats Google's expanded userinfo scopes as OIDC profile/email grants", () => {
+    expect(
+      missingScopes(
+        ["profile", "email", "https://www.googleapis.com/auth/calendar"],
+        [
+          "https://www.googleapis.com/auth/userinfo.profile",
+          "https://www.googleapis.com/auth/userinfo.email",
+          "https://www.googleapis.com/auth/calendar",
+          "openid",
+        ],
+      ),
+    ).toEqual([]);
+  });
 });

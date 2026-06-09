@@ -87,10 +87,6 @@ function AccountRow(props: {
           <CardStackEntryDescription className="mt-1 text-xs text-amber-700 dark:text-amber-400">
             This integration now needs access this connection wasn't granted.
           </CardStackEntryDescription>
-        ) : connection.expiresAt != null ? (
-          <CardStackEntryDescription className="mt-1 text-xs text-muted-foreground">
-            Token expires {new Date(connection.expiresAt).toLocaleString()}
-          </CardStackEntryDescription>
         ) : null}
       </CardStackEntryContent>
       <CardStackEntryActions className="self-start pt-0.5">
