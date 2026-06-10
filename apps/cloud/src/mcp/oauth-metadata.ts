@@ -22,7 +22,10 @@ export const protectedResourceMetadataResponse = (organizationId: string | null 
     resource: resourceUrlFor(organizationId),
     authorization_servers: [AUTHKIT_DOMAIN],
     bearer_methods_supported: ["header"],
-    scopes_supported: [],
+    // Spec-faithful clients (OpenCode, mcporter) request exactly what is
+    // advertised here; without offline_access they get no refresh token and
+    // silently sign out at every access-token expiry.
+    scopes_supported: ["openid", "profile", "email", "offline_access"],
   });
 
 export const authorizationServerMetadataResponse: Effect.Effect<Response> = Effect.tryPromise({

@@ -150,7 +150,10 @@ scenario(
       resource: new URL("/mcp", target.baseUrl).toString(),
       authorization_servers: [expect.any(String)],
       bearer_methods_supported: ["header"],
-      scopes_supported: [],
+      // offline_access MUST stay advertised: spec-faithful clients request
+      // exactly this list, and it is what earns them a refresh token (the
+      // OpenCode daily re-auth bug).
+      scopes_supported: ["openid", "profile", "email", "offline_access"],
     });
 
     // The advertised server must itself be discoverable — that is what lets
