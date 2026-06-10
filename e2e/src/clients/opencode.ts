@@ -3,6 +3,7 @@
 // /mcp, and an `open`(1) shim on PATH so the OAuth browser hop becomes a file
 // we can read instead of a window. What OpenCode does with discovery, scopes,
 // tokens, and refresh is entirely its own code — that is the point.
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,6 +66,18 @@ export const makeOpenCodeHome = (serverName: string, mcpUrl: string): OpenCodeHo
       return store[name]?.tokens;
     },
   };
+};
+
+/**
+ * Run OpenCode's one-time first-run work (database migration) off camera so
+ * a recorded session starts clean. The command itself needs no auth.
+ */
+export const warmUp = (home: OpenCodeHome): void => {
+  spawnSync("opencode", ["mcp", "list"], {
+    cwd: home.projectDir,
+    env: home.env,
+    timeout: 60_000,
+  });
 };
 
 /**

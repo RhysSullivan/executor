@@ -18,7 +18,7 @@ import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { scenario } from "../src/scenario";
-import { completeOAuthConsent, makeOpenCodeHome } from "../src/clients/opencode";
+import { completeOAuthConsent, makeOpenCodeHome, warmUp } from "../src/clients/opencode";
 import { WORKOS_EMULATOR_PORT } from "../targets/cloud";
 
 const SERVER_NAME = "executor";
@@ -43,39 +43,49 @@ scenario(
       const identity = yield* ctx.target.newIdentity();
       const email = identity.credentials?.email ?? identity.label;
       const home = makeOpenCodeHome(SERVER_NAME, ctx.target.mcpUrl);
+      // First-run database migration happens off camera.
+      yield* Effect.sync(() => warmUp(home));
 
       yield* seedAccessTokenTtl(TTL_SECONDS);
       yield* ctx.cli
         .session(
           ["bash", "--norc"],
           async (term) => {
-            // Sentinels are typed quoted ("DO""NE") so waitForText can't
-            // match the echoed command line, only the command's output.
-            const sh = async (line: string, sentinel: string, timeoutMs: number) => {
-              await term.keyboard.type(
-                `${line}; echo ${sentinel.slice(0, 2)}""${sentinel.slice(2)}`,
-              );
+            // Don't type into a shell that hasn't painted its prompt yet —
+            // early keystrokes echo above the prompt in the recording.
+            await term.screen.waitForText("$", { timeoutMs: 10_000 });
+
+            // A command is done when the bare prompt is back as the last
+            // line — no sentinel noise in the recording, just a shell.
+            const promptReturned = (text: string) => {
+              const trimmed = text.trimEnd();
+              return trimmed === "$" || trimmed.endsWith("\n$");
+            };
+            const sh = async (line: string, timeoutMs: number) => {
+              await term.keyboard.type(line);
               await term.keyboard.press("Enter");
-              await term.screen.waitForText(sentinel, { timeoutMs });
-              return term.screen.text();
+              const snapshot = await term.screen.waitUntil(
+                (current) => promptReturned(current.text),
+                { timeoutMs },
+              );
+              return snapshot.text;
             };
 
             // OpenCode completes MCP OAuth for real: discovery, DCR, PKCE,
             // its own scope request, its own token store.
             const consent = completeOAuthConsent(home, email, home.openedUrls().length);
-            const auth = await sh(`opencode mcp auth ${SERVER_NAME}`, "AUTH-DONE", 60_000);
+            const auth = await sh(`opencode mcp auth ${SERVER_NAME}`, 60_000);
             await consent;
             expect(auth, "opencode mcp auth completes").not.toContain("failed");
 
             // While the token is fresh, OpenCode is a working MCP client.
-            const fresh = await sh("clear; opencode mcp list", "FRESH-DONE", 60_000);
+            const fresh = await sh("clear; opencode mcp list", 60_000);
             expect(fresh, "OpenCode connects on a fresh token").toContain("connected");
 
             // The access token genuinely expires on camera (server-honored
             // TTL, no fakes), then the same command runs again.
             const expired = await sh(
               `sleep ${TTL_SECONDS + 3}; clear; opencode mcp list`,
-              "EXPIRED-DONE",
               (TTL_SECONDS + 3) * 1000 + 60_000,
             );
 
@@ -92,7 +102,7 @@ scenario(
           },
           {
             cwd: home.projectDir,
-            env: { ...home.env, PS1: "$ " },
+            env: { ...home.env, PS1: "$ ", BASH_SILENCE_DEPRECATION_WARNING: "1" },
             record: join(ctx.dir, "terminal.cast"),
             viewport: { cols: 100, rows: 30 },
           },
