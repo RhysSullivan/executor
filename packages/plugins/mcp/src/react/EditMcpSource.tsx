@@ -33,6 +33,7 @@ import type {
 import {
   editorValueFromMcpAuthMethod,
   mcpAuthMethodInputFromEditorValue,
+  mcpWireAuthInput,
 } from "./auth-method-config";
 
 type McpServer = {
@@ -136,7 +137,9 @@ function RemoteEdit(props: {
       params: { slug: server.slug },
       payload: {
         authenticationTemplate:
-          editedMethods.length > 0 ? editedMethods : [{ kind: "none" as const }],
+          editedMethods.length > 0
+            ? editedMethods.map(mcpWireAuthInput)
+            : [{ kind: "none" as const }],
         mode: "replace",
       },
       reactivityKeys: integrationWriteKeys,

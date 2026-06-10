@@ -11,13 +11,18 @@ import { AuthTemplateSlug } from "@executor-js/sdk/shared";
 import type { AuthTemplateEditorValue } from "@executor-js/react/components/auth-template-editor";
 import type { AuthMethod, Placement } from "@executor-js/react/lib/auth-placements";
 import {
+  wireAuthInputFromShared,
   authMethodFromSharedTemplate,
   editorValueFromSharedMethod,
   sharedMethodInputFromEditorValue,
   wirePlacementsFromEditor,
 } from "@executor-js/react/lib/shared-auth-method-codec";
 
-import type { GraphqlAuthMethod, GraphqlAuthMethodInput } from "../sdk/types";
+import type {
+  GraphqlAuthMethod,
+  GraphqlAuthMethodInput,
+  GraphqlCanonicalAuthMethodInput,
+} from "../sdk/types";
 
 const oauthAuthMethod = (slug: string): AuthMethod => ({
   id: slug,
@@ -70,5 +75,11 @@ export function graphqlAuthMethodInputsFromPlacements(
 ): GraphqlAuthMethodInput[] {
   const wire = wirePlacementsFromEditor(placements);
   if (wire.length === 0) return [];
-  return [{ kind: "apikey", placements: wire }];
+  return [graphqlWireAuthInput({ kind: "apikey", placements: wire })];
 }
+
+/** Serialize a canonical method into the wire input union (apikey → the
+ *  request-shaped dialect; none/oauth2 pass through). */
+export const graphqlWireAuthInput = (
+  method: GraphqlAuthMethod | GraphqlCanonicalAuthMethodInput,
+): GraphqlAuthMethodInput => wireAuthInputFromShared(method) as GraphqlAuthMethodInput;

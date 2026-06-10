@@ -16,7 +16,14 @@ import {
   wirePlacementsFromEditor,
 } from "@executor-js/react/lib/shared-auth-method-codec";
 
-import type { McpAuthMethod, McpCanonicalAuthMethodInput } from "../sdk/types";
+import { wireAuthInputFromShared } from "@executor-js/react/lib/shared-auth-method-codec";
+import type { McpAuthMethod, McpAuthMethodInput, McpCanonicalAuthMethodInput } from "../sdk/types";
+
+/** Serialize a canonical method into the wire input union (apikey → the
+ *  request-shaped dialect; none/oauth2 pass through). */
+export const mcpWireAuthInput = (
+  method: McpAuthMethod | McpCanonicalAuthMethodInput,
+): McpAuthMethodInput => wireAuthInputFromShared(method) as McpAuthMethodInput;
 
 const oauthAuthMethod = (slug: string, endpoint: string): AuthMethod => ({
   id: slug,

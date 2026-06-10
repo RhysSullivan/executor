@@ -34,7 +34,11 @@ import {
   useSlugAlreadyExists,
 } from "@executor-js/react/lib/integration-add";
 
-import { authenticationFromEditorValue, editorValueFromAuthentication } from "./auth-method-config";
+import {
+  authenticationFromEditorValue,
+  editorValueFromAuthentication,
+  openApiWireAuthInput,
+} from "./auth-method-config";
 import { addOpenApiSpec, previewOpenApiSpec } from "./atoms";
 import { OpenApiSourceDetailsFields } from "./OpenApiSourceDetailsFields";
 import { GoogleProductPicker } from "./GoogleProductPicker";
@@ -450,10 +454,8 @@ export default function AddOpenApiSource(props: {
         baseUrl: resolvedBaseUrl,
         ...(!isGoogleBundlePreset && editedAuthenticationTemplate.length > 0
           ? {
-              authenticationTemplate: editedAuthenticationTemplate.map((entry) => ({
-                ...entry,
-                slug: String(entry.slug),
-              })),
+              // Serialize to the wire input dialect (apikey → request-shaped).
+              authenticationTemplate: editedAuthenticationTemplate.map(openApiWireAuthInput),
             }
           : {}),
       },

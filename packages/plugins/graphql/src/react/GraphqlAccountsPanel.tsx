@@ -15,7 +15,11 @@ import {
 } from "@executor-js/react/lib/custom-auth-methods";
 
 import { graphqlConfigAtom, graphqlConfigure } from "./atoms";
-import { authMethodsFromConfig, graphqlAuthMethodInputsFromPlacements } from "./auth-method-config";
+import {
+  authMethodsFromConfig,
+  graphqlAuthMethodInputsFromPlacements,
+  graphqlWireAuthInput,
+} from "./auth-method-config";
 import type { GraphqlAuthMethod } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
@@ -59,7 +63,7 @@ export default function GraphqlAccountsPanel(props: {
       const exit = await doConfigure({
         params: { slug: String(slug) },
         payload: {
-          authenticationTemplate: input.authenticationTemplate,
+          authenticationTemplate: input.authenticationTemplate.map(graphqlWireAuthInput),
           ...(input.mode ? { mode: input.mode } : {}),
         },
         reactivityKeys: integrationWriteKeys,

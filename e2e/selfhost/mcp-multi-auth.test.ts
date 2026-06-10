@@ -47,8 +47,8 @@ scenario(
             authenticationTemplate: [
               { kind: "oauth2" },
               {
-                kind: "apikey",
-                placements: [{ carrier: "header", name: "Authorization", prefix: "Bearer " }],
+                type: "apiKey",
+                headers: { Authorization: ["Bearer ", { type: "variable", name: "token" }] },
               },
             ],
           },

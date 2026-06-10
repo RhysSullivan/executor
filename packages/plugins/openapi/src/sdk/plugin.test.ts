@@ -32,7 +32,7 @@ import {
 } from "@executor-js/sdk/testing";
 
 import { openApiPlugin } from "./plugin";
-import { type Authentication } from "./types";
+import { type AuthenticationInput } from "./types";
 import {
   addOpenApiTestConnection,
   makeOpenApiHttpApiTestSourceConfig,
@@ -154,14 +154,14 @@ const servePluginTestApi = () =>
   });
 
 // An apiKey auth template that places the connection value into `x-api-key`.
-const apiKeyTemplate: Authentication = {
+const apiKeyTemplate: AuthenticationInput = {
   slug: AuthTemplateSlug.make("apiKey"),
-  kind: "apikey",
-  placements: [{ carrier: "header", name: "x-api-key" }],
+  type: "apiKey",
+  headers: { "x-api-key": [{ type: "variable" as const, name: "token" }] },
 };
 
 // An oauth template — the connection value renders as a bearer token.
-const oauthTemplate: Authentication = {
+const oauthTemplate: AuthenticationInput = {
   slug: AuthTemplateSlug.make("oauth"),
   type: "oauth",
   authorizationUrl: "https://auth.example.test/authorize",

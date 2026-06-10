@@ -28,7 +28,7 @@ import {
 import { makeTestConfig, memoryCredentialsPlugin } from "@executor-js/sdk/testing";
 
 import { openApiPlugin } from "./plugin";
-import type { APIKeyAuthentication, Authentication } from "./types";
+import type { APIKeyAuthentication, Authentication, AuthenticationInput } from "./types";
 import { variable } from "@executor-js/sdk/http-auth";
 import {
   makeOpenApiHttpApiTestSourceConfig,
@@ -72,19 +72,20 @@ const specText = () => {
   return spec.url;
 };
 
-// A custom apiKey method that places the connection value into `x-api-key`.
-const customApiKey: APIKeyAuthentication = {
+// A custom apiKey method that places the connection value into `x-api-key`,
+// authored request-shaped (the one apikey input dialect).
+const customApiKey: AuthenticationInput = {
   slug: "my_custom",
-  kind: "apikey",
-  placements: [{ carrier: "header", name: "x-api-key" }],
+  type: "apiKey",
+  headers: { "x-api-key": [variable("token")] },
 };
 
 // Build an apiKey method WITHOUT a slug — simulating an untyped JSON caller that
 // omits it, which `configure` should backfill with a generated `custom_<id>`.
 // The cast is confined to this one boundary helper.
-const sluglessApiKey = (placement: Omit<APIKeyAuthentication, "slug" | "kind">): Authentication =>
-  // lint-allow-double-cast: fixture — simulates a JSON caller omitting `slug`; configure backfills it
-  ({ kind: "apikey", ...placement }) as unknown as Authentication;
+const sluglessApiKey = (
+  template: Omit<AuthenticationInput & { type: "apiKey" }, "slug" | "type">,
+): AuthenticationInput => ({ type: "apiKey", ...template });
 
 describe("OpenAPI Plugin — configure (custom auth method)", () => {
   it.effect("adds a custom apiKey method and getConfig reflects it", () =>
@@ -121,10 +122,10 @@ describe("OpenAPI Plugin — configure (custom auth method)", () => {
       Effect.gen(function* () {
         const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-        const seedTemplate: Authentication = {
+        const seedTemplate: AuthenticationInput = {
           slug: "seed",
-          kind: "apikey",
-          placements: [{ carrier: "header", name: "authorization", prefix: "Bearer " }],
+          type: "apiKey",
+          headers: { authorization: ["Bearer ", variable("token")] },
         };
 
         yield* executor.openapi.addSpec({
@@ -152,9 +153,7 @@ describe("OpenAPI Plugin — configure (custom auth method)", () => {
           slug: "cfg_genslug",
         });
 
-        const slugless = sluglessApiKey({
-          placements: [{ carrier: "header", name: "x-api-key" }],
-        });
+        const slugless = sluglessApiKey({ headers: { "x-api-key": [variable("token")] } });
 
         const merged = yield* executor.openapi.configure("cfg_genslug", {
           authenticationTemplate: [slugless],
@@ -178,17 +177,13 @@ describe("OpenAPI Plugin — configure (custom auth method)", () => {
         });
 
         // Re-submit the same slug with a different placement → replace in place.
-        const replacement: APIKeyAuthentication = {
+        const replacement: AuthenticationInput = {
           slug: "my_custom",
-          kind: "apikey",
-          placements: [{ carrier: "header", name: "x-other" }],
+          type: "apiKey",
+          headers: { "x-other": [variable("token")] },
         };
-        const slugless = sluglessApiKey({
-          placements: [{ carrier: "query", name: "api_key" }],
-        });
-        const slugless2 = sluglessApiKey({
-          placements: [{ carrier: "query", name: "token" }],
-        });
+        const slugless = sluglessApiKey({ queryParams: { api_key: [variable("token")] } });
+        const slugless2 = sluglessApiKey({ queryParams: { token: [variable("token")] } });
 
         const merged = yield* executor.openapi.configure("cfg_dedupe", {
           authenticationTemplate: [replacement, slugless, slugless2],
@@ -216,10 +211,10 @@ describe("OpenAPI Plugin — configure (custom auth method)", () => {
       Effect.gen(function* () {
         const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-        const seedTemplate: Authentication = {
+        const seedTemplate: AuthenticationInput = {
           slug: "seed",
-          kind: "apikey",
-          placements: [{ carrier: "header", name: "authorization", prefix: "Bearer " }],
+          type: "apiKey",
+          headers: { authorization: ["Bearer ", variable("token")] },
         };
 
         yield* executor.openapi.addSpec({

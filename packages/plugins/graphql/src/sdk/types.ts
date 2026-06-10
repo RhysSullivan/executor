@@ -106,25 +106,24 @@ export const GraphqlAuthMethodInput = Schema.Union([
   Schema.Struct({ slug: Schema.optional(Schema.String), kind: Schema.Literal("none") }),
   Schema.Struct({
     slug: Schema.optional(Schema.String),
-    kind: Schema.Literal("apikey"),
-    label: Schema.optional(Schema.String),
-    placements: ApiKeyAuthMethod.fields.placements,
-  }),
-  Schema.Struct({
-    slug: Schema.optional(Schema.String),
     kind: Schema.Literal("oauth2"),
     header: Schema.optional(Schema.String),
     prefix: Schema.optional(Schema.String),
   }),
-  // Request-shaped authoring dialect: `{ type: "apiKey", headers: {
-  // Authorization: ["Bearer ", variable("token")] }, queryParams: { … } }`.
+  // Credential methods are authored request-shaped — the ONE apikey input
+  // dialect: `{ type: "apiKey", headers: { Authorization: ["Bearer ",
+  // variable("token")] }, queryParams: { … } }`. Stored configs and the
+  // catalog read as canonical placements; `apiKeyAuthTemplateFromMethod`
+  // serializes them back for read-modify-write flows.
   ApiKeyAuthTemplate,
 ]);
 export type GraphqlAuthMethodInput = typeof GraphqlAuthMethodInput.Type;
 
-/** The canonical (kind-keyed) subset of the input union — what the UI
- *  authors directly; the request-shaped dialect expands into it. */
-export type GraphqlCanonicalAuthMethodInput = Exclude<GraphqlAuthMethodInput, ApiKeyAuthTemplate>;
+/** The expansion target: input arms with the dialect resolved to canonical
+ *  placements (slug still optional — backfill is a separate pass). */
+export type GraphqlCanonicalAuthMethodInput =
+  | Exclude<GraphqlAuthMethodInput, ApiKeyAuthTemplate>
+  | (Omit<ApiKeyAuthMethod, "slug"> & { readonly slug?: string });
 
 /** The default slug for a slug-less input method. Carrier-derived for the
  *  single-placement apikey cases (`header` / `query`) so the UI, agent, and

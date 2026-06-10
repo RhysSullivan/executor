@@ -38,14 +38,16 @@ export const isApiKeyAuthentication = (
   template: Authentication,
 ): template is APIKeyAuthentication => "kind" in template && template.kind === "apikey";
 
-/** What auth inputs accept: the canonical shapes plus the request-shaped
- *  authoring dialect (`type: "apiKey"`, headers/queryParams records). */
-export type AuthenticationInput = Authentication | ApiKeyAuthTemplate;
+/** What auth inputs accept: oauth templates plus the request-shaped apikey
+ *  dialect (`type: "apiKey"`, headers/queryParams records) — the ONE apikey
+ *  authoring shape. Stored configs and the catalog read as canonical
+ *  placements; `apiKeyAuthTemplateFromMethod` serializes them back for
+ *  read-modify-write flows. */
+export type AuthenticationInput = OAuthAuthentication | ApiKeyAuthTemplate;
 
-/** Expand the request-shaped dialect into canonical placements; canonical
+/** Expand the request-shaped dialect into canonical placements; oauth
  *  entries pass through. A dialect entry without a slug gets a blank one —
- *  `mergeAuthTemplates` backfills `custom_<id>` exactly like a slug-less
- *  canonical entry. */
+ *  `mergeAuthTemplates` backfills `custom_<id>`. */
 export const normalizeOpenApiAuthInputs = (
   inputs: readonly AuthenticationInput[],
 ): readonly Authentication[] =>

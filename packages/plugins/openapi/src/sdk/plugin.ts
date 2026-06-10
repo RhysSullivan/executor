@@ -50,11 +50,7 @@ import {
   normalizeOpenApiAuthInputs,
   type AuthenticationInput,
 } from "./types";
-import {
-  ApiKeyAuthMethod,
-  ApiKeyAuthTemplate,
-  describeApiKeyAuthMethod,
-} from "@executor-js/sdk/http-auth";
+import { ApiKeyAuthTemplate, describeApiKeyAuthMethod } from "@executor-js/sdk/http-auth";
 
 // ---------------------------------------------------------------------------
 // Plugin config
@@ -306,7 +302,6 @@ const OpenApiSpecInputSchema = Schema.Union([
 ]);
 
 const AuthenticationSchema = Schema.Union([
-  ApiKeyAuthMethod,
   Schema.Struct({
     slug: Schema.String,
     type: Schema.Literal("oauth"),
@@ -314,8 +309,9 @@ const AuthenticationSchema = Schema.Union([
     tokenUrl: Schema.String,
     scopes: Schema.Array(Schema.String),
   }),
-  // Request-shaped authoring dialect: `{ type: "apiKey", headers: {
-  // Authorization: ["Bearer ", variable("token")] }, queryParams: { … } }`.
+  // Credential methods are authored request-shaped — the ONE apikey input
+  // dialect: `{ type: "apiKey", headers: { Authorization: ["Bearer ",
+  // variable("token")] }, queryParams: { … } }`.
   ApiKeyAuthTemplate,
 ]);
 
@@ -908,7 +904,7 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
                   headers: input.headers,
                   queryParams: input.queryParams,
                   authenticationTemplate: input.authenticationTemplate as
-                    | readonly Authentication[]
+                    | readonly AuthenticationInput[]
                     | undefined,
                 })
                 .pipe(

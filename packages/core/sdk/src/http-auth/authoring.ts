@@ -111,6 +111,36 @@ export const apiKeyMethodFromAuthTemplate = (
   };
 };
 
+/** Serialize a canonical method back into the request-shaped dialect — the
+ *  write side of read-modify-write flows (stored configs and the catalog
+ *  read as placements; auth INPUTS accept only this dialect). Same-named
+ *  same-carrier placements collapse, exactly as the renderer's header/query
+ *  records do. */
+export const apiKeyAuthTemplateFromMethod = (method: {
+  readonly slug?: string;
+  readonly label?: string;
+  readonly placements: readonly AuthPlacement[];
+}): ApiKeyAuthTemplate => {
+  const headers: Record<string, AuthTemplateValue> = {};
+  const queryParams: Record<string, AuthTemplateValue> = {};
+  for (const placement of method.placements) {
+    const target = placement.carrier === "header" ? headers : queryParams;
+    target[placement.name] =
+      placement.literal !== undefined
+        ? placement.literal
+        : placement.prefix
+          ? [placement.prefix, variable(placement.variable ?? TOKEN_VARIABLE)]
+          : [variable(placement.variable ?? TOKEN_VARIABLE)];
+  }
+  return {
+    ...(method.slug !== undefined ? { slug: method.slug } : {}),
+    type: "apiKey",
+    ...(method.label !== undefined ? { label: method.label } : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+  };
+};
+
 /** Whether an input union member is the request-shaped dialect. */
 export const isApiKeyAuthTemplate = (input: {
   readonly kind?: string;

@@ -63,8 +63,8 @@ scenario(
               authenticationTemplate: [
                 {
                   slug: "apiKey",
-                  kind: "apikey",
-                  placements: [{ carrier: "header", name: "x-api-key" }],
+                  type: "apiKey",
+                  headers: { "x-api-key": [{ type: "variable", name: "token" }] },
                 },
               ],
             },

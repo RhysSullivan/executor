@@ -13,6 +13,7 @@ import {
   authMethodFromSharedTemplate,
   editorPlacementsFromWire,
   editorValueFromSharedMethod,
+  wireAuthInputFromShared,
   wirePlacementsFromEditor,
 } from "@executor-js/react/lib/shared-auth-method-codec";
 
@@ -20,7 +21,13 @@ import {
   isOAuthAuthentication,
   type APIKeyAuthentication,
   type Authentication,
+  type AuthenticationInput,
 } from "../sdk/types";
+
+/** Serialize a canonical method into the wire input union (apikey → the
+ *  request-shaped dialect; oauth passes through). */
+export const openApiWireAuthInput = (method: Authentication): AuthenticationInput =>
+  isOAuthAuthentication(method) ? method : (wireAuthInputFromShared(method) as AuthenticationInput);
 
 export const placementsFromApiKey = (template: APIKeyAuthentication): readonly Placement[] =>
   editorPlacementsFromWire(template.placements);

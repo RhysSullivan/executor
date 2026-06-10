@@ -161,11 +161,9 @@ describe("graphqlAuthMethodInputsFromPlacements", () => {
       ]),
     ).toEqual([
       {
-        kind: "apikey",
-        placements: [
-          { carrier: "header", name: "X-Token", prefix: "Bearer ", variable: "x_token" },
-          { carrier: "query", name: "team_id", variable: "team_id" },
-        ],
+        type: "apiKey",
+        headers: { "X-Token": ["Bearer ", { type: "variable", name: "x_token" }] },
+        queryParams: { team_id: [{ type: "variable", name: "team_id" }] },
       },
     ]);
   });
@@ -173,7 +171,7 @@ describe("graphqlAuthMethodInputsFromPlacements", () => {
   it("builds a query method from a query placement", () => {
     expect(
       graphqlAuthMethodInputsFromPlacements([{ carrier: "query", name: "token", prefix: "" }]),
-    ).toEqual([{ kind: "apikey", placements: [{ carrier: "query", name: "token" }] }]);
+    ).toEqual([{ type: "apiKey", queryParams: { token: [{ type: "variable", name: "token" }] } }]);
   });
 
   it("skips unnamed placements", () => {
@@ -182,7 +180,7 @@ describe("graphqlAuthMethodInputsFromPlacements", () => {
         { carrier: "query", name: "", prefix: "" },
         { carrier: "query", name: "token", prefix: "" },
       ]),
-    ).toEqual([{ kind: "apikey", placements: [{ carrier: "query", name: "token" }] }]);
+    ).toEqual([{ type: "apiKey", queryParams: { token: [{ type: "variable", name: "token" }] } }]);
   });
 
   it("is empty when no placement has a usable name", () => {

@@ -3,7 +3,7 @@ import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor-js/api";
 import { AuthTemplateSlug } from "@executor-js/sdk/shared";
-import type { Authentication, AuthenticationInput } from "../sdk";
+import type { AuthenticationInput } from "../sdk";
 import type { OpenApiPluginExtension } from "../sdk/plugin";
 import { OpenApiGroup } from "./group";
 
@@ -62,11 +62,11 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
             queryParams: payload.queryParams ? { ...payload.queryParams } : undefined,
             authenticationTemplate: payload.authenticationTemplate?.map(
               (entry): AuthenticationInput =>
-                // The request-shaped dialect may omit its slug (backfilled
-                // later); canonical entries carry the branded slug.
-                "type" in entry && entry.type === "apiKey"
+                // The apikey dialect may omit its slug (backfilled later);
+                // oauth templates carry the branded slug.
+                entry.type === "apiKey"
                   ? entry
-                  : ({ ...entry, slug: AuthTemplateSlug.make(entry.slug ?? "") } as Authentication),
+                  : { ...entry, slug: AuthTemplateSlug.make(entry.slug) },
             ),
           });
         }),
@@ -119,9 +119,9 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           const authenticationTemplate = yield* ext.configure(params.slug, {
             authenticationTemplate: payload.authenticationTemplate.map(
               (entry): AuthenticationInput =>
-                "type" in entry && entry.type === "apiKey"
+                entry.type === "apiKey"
                   ? entry
-                  : ({ ...entry, slug: AuthTemplateSlug.make(entry.slug ?? "") } as Authentication),
+                  : { ...entry, slug: AuthTemplateSlug.make(entry.slug) },
             ),
             mode: payload.mode ?? "merge",
           });

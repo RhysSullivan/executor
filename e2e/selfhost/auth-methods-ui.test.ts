@@ -187,16 +187,9 @@ scenario(
             authenticationTemplate: [
               {
                 slug: "token_and_team",
-                kind: "apikey",
-                placements: [
-                  {
-                    carrier: "header",
-                    name: "Authorization",
-                    prefix: "Bearer ",
-                    variable: "api_token",
-                  },
-                  { carrier: "query", name: "team_id", variable: "team_id" },
-                ],
+                type: "apiKey",
+                headers: { Authorization: ["Bearer ", { type: "variable", name: "api_token" }] },
+                queryParams: { team_id: [{ type: "variable", name: "team_id" }] },
               },
             ],
           },

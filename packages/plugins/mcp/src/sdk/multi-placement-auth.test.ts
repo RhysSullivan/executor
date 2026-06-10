@@ -5,7 +5,8 @@
 // bearer HEADER and a team-id QUERY PARAM, each rendered from its own
 // credential input — plus the single-placement query case (servers like ui.sh
 // authenticate via `?token=`), and the explicit failure when an input is
-// missing. Assertions are made against what the server actually RECEIVED.
+// missing. Methods are authored request-shaped (the one input dialect); assertions are
+// made against what the server actually RECEIVED.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
@@ -49,16 +50,9 @@ describe("MCP multi-placement auth", () => {
         authenticationTemplate: [
           {
             slug: "token_and_team",
-            kind: "apikey",
-            placements: [
-              {
-                carrier: "header",
-                name: "Authorization",
-                prefix: "Bearer ",
-                variable: "api_token",
-              },
-              { carrier: "query", name: "team_id", variable: "team_id" },
-            ],
+            type: "apiKey",
+            headers: { Authorization: ["Bearer ", variable("api_token")] },
+            queryParams: { team_id: [variable("team_id")] },
           },
         ],
       });
@@ -101,9 +95,7 @@ describe("MCP multi-placement auth", () => {
         name: "Query MCP",
         endpoint: server.url,
         slug: "query_mcp",
-        authenticationTemplate: [
-          { kind: "apikey", placements: [{ carrier: "query", name: "token" }] },
-        ],
+        authenticationTemplate: [{ type: "apiKey", queryParams: { token: [variable("token")] } }],
       });
 
       // Slug-less single-query-placement methods get the `query` slug.
@@ -145,13 +137,13 @@ describe("MCP multi-placement auth", () => {
         authenticationTemplate: [
           {
             slug: "bearer",
-            kind: "apikey",
-            placements: [{ carrier: "header", name: "Authorization", prefix: "Bearer " }],
+            type: "apiKey",
+            headers: { Authorization: ["Bearer ", variable("token")] },
           },
           {
             slug: "query_token",
-            kind: "apikey",
-            placements: [{ carrier: "query", name: "auth_token" }],
+            type: "apiKey",
+            queryParams: { auth_token: [variable("token")] },
           },
         ],
       });
@@ -193,51 +185,6 @@ describe("MCP multi-placement auth", () => {
     }),
   );
 
-  it.effect("the request-shaped authoring dialect lands identically on the wire", () =>
-    Effect.gen(function* () {
-      const server = yield* serveRecordingServer;
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [memoryCredentialsPlugin(), mcpPlugin()] as const }),
-      );
-
-      // Same method as the mixed-case test, authored request-shaped.
-      yield* executor.mcp.addServer({
-        name: "Authored MCP",
-        endpoint: server.url,
-        slug: "authored_mcp",
-        authenticationTemplate: [
-          {
-            slug: "token_and_team",
-            type: "apiKey",
-            headers: { Authorization: ["Bearer ", variable("api_token")] },
-            queryParams: { team_id: [variable("team_id")] },
-          },
-        ],
-      });
-
-      yield* executor.connections.create({
-        owner: "org",
-        name: ConnectionName.make("main"),
-        integration: IntegrationSlug.make("authored_mcp"),
-        template: AuthTemplateSlug.make("token_and_team"),
-        values: { api_token: "tok_A", team_id: "team_B" },
-      });
-
-      const before = (yield* server.requests).length;
-      const result = yield* executor.execute(
-        ToolAddress.make("tools.authored_mcp.org.main.whoami"),
-        { marker: "authored" },
-        { onElicitation: "accept-all" },
-      );
-      expect(result).toMatchObject({ ok: true });
-
-      const requests = (yield* server.requests).slice(before);
-      expect(requests.length).toBeGreaterThan(0);
-      expect(requests.every((request) => request.authorization === "Bearer tok_A")).toBe(true);
-      expect(requests.every((request) => request.url.includes("team_id=team_B"))).toBe(true);
-    }),
-  );
-
   it.effect("invoking with a missing credential input fails explicitly, not silently", () =>
     Effect.gen(function* () {
       const server = yield* serveRecordingServer;
@@ -252,11 +199,9 @@ describe("MCP multi-placement auth", () => {
         authenticationTemplate: [
           {
             slug: "two_inputs",
-            kind: "apikey",
-            placements: [
-              { carrier: "header", name: "Authorization", prefix: "Bearer ", variable: "a" },
-              { carrier: "query", name: "team_id", variable: "b" },
-            ],
+            type: "apiKey",
+            headers: { Authorization: ["Bearer ", variable("a")] },
+            queryParams: { team_id: [variable("b")] },
           },
         ],
       });

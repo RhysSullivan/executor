@@ -18,6 +18,8 @@ import { makeEchoMcpServer, serveMcpServer } from "@executor-js/plugin-mcp/testi
 import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
 import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk/shared";
 
+import { variable } from "@executor-js/sdk/http-auth";
+
 import { scenario } from "../src/scenario";
 
 const api = composePluginApi([mcpHttpPlugin(), graphqlHttpPlugin()] as const);
@@ -45,10 +47,7 @@ scenario(
           slug,
           authenticationTemplate: [
             { kind: "oauth2" },
-            {
-              kind: "apikey",
-              placements: [{ carrier: "header", name: "X-Api-Key", prefix: "Bearer " }],
-            },
+            { type: "apiKey", headers: { "X-Api-Key": ["Bearer ", variable("token")] } },
           ],
         },
       });
@@ -109,7 +108,7 @@ scenario(
           params: { slug: IntegrationSlug.make(slug) },
           payload: {
             authenticationTemplate: [
-              { kind: "apikey", placements: [{ carrier: "header", name: "X-Api-Key" }] },
+              { type: "apiKey", headers: { "X-Api-Key": [variable("token")] } },
             ],
           },
         });
@@ -166,10 +165,7 @@ scenario(
           params: { slug: IntegrationSlug.make(slug) },
           payload: {
             authenticationTemplate: [
-              {
-                kind: "apikey",
-                placements: [{ carrier: "header", name: "Authorization", prefix: "Bearer " }],
-              },
+              { type: "apiKey", headers: { Authorization: ["Bearer ", variable("token")] } },
             ],
           },
         });
@@ -206,16 +202,8 @@ scenario(
           slug,
           name: "Multi-auth GraphQL",
           authenticationTemplate: [
-            {
-              kind: "apikey",
-              slug: "apiKey",
-              placements: [{ carrier: "header", name: "X-Api-Key" }],
-            },
-            {
-              kind: "apikey",
-              slug: "apikey-2",
-              placements: [{ carrier: "query", name: "api_key" }],
-            },
+            { slug: "apiKey", type: "apiKey", headers: { "X-Api-Key": [variable("token")] } },
+            { slug: "apikey-2", type: "apiKey", queryParams: { api_key: [variable("token")] } },
           ],
         },
       });
@@ -284,26 +272,19 @@ scenario(
             { kind: "oauth2" },
             {
               slug: "token_and_team",
-              kind: "apikey",
-              placements: [
-                {
-                  carrier: "header",
-                  name: "Authorization",
-                  prefix: "Bearer ",
-                  variable: "api_token",
-                },
-                { carrier: "query", name: "team_id", variable: "team_id" },
-              ],
+              type: "apiKey",
+              headers: { Authorization: ["Bearer ", variable("api_token")] },
+              queryParams: { team_id: [variable("team_id")] },
             },
             {
               slug: "bearer",
-              kind: "apikey",
-              placements: [{ carrier: "header", name: "Authorization", prefix: "Bearer " }],
+              type: "apiKey",
+              headers: { Authorization: ["Bearer ", variable("token")] },
             },
             {
               slug: "query_token",
-              kind: "apikey",
-              placements: [{ carrier: "query", name: "auth_token" }],
+              type: "apiKey",
+              queryParams: { auth_token: [variable("token")] },
             },
           ],
         },

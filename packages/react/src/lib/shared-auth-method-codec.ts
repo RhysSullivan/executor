@@ -16,8 +16,10 @@
 import { AuthTemplateSlug } from "@executor-js/sdk/shared";
 import {
   TOKEN_VARIABLE,
+  apiKeyAuthTemplateFromMethod,
   apiKeyMethodLabel,
   type ApiKeyAuthMethod,
+  type ApiKeyAuthTemplate,
   type AuthPlacement,
   type NoneAuthMethod,
 } from "@executor-js/sdk/http-auth";
@@ -149,6 +151,21 @@ export const sharedMethodInputFromEditorValue = (
   const placements = wirePlacementsFromEditor(value.placements);
   return placements.length > 0 ? { kind: "apikey", placements } : { kind: "none" };
 };
+
+/** Serialize an apikey method (stored or slug-optional) into the wire input
+ *  dialect — auth INPUTS accept only the request-shaped template; stored
+ *  configs and the catalog read as placements. Non-apikey arms pass through
+ *  untouched. */
+export const wireAuthInputFromShared = <T extends { readonly kind: string }>(
+  method:
+    | T
+    | (Omit<ApiKeyAuthMethod, "slug"> & { readonly slug?: string; readonly kind: "apikey" }),
+): T | ApiKeyAuthTemplate =>
+  method.kind === "apikey"
+    ? apiKeyAuthTemplateFromMethod(
+        method as Omit<ApiKeyAuthMethod, "slug"> & { readonly slug?: string },
+      )
+    : (method as T);
 
 const sourceOf = (slug: string): "spec" | "custom" =>
   slug.startsWith("custom_") ? "custom" : "spec";

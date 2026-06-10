@@ -316,7 +316,7 @@ describe("mcpPlugin", () => {
 
       const merged = yield* executor.mcp.configureAuth("oauth_mcp", {
         authenticationTemplate: [
-          { kind: "apikey", placements: [{ carrier: "header", name: "X-Api-Key" }] },
+          { type: "apiKey", headers: { "X-Api-Key": [{ type: "variable", name: "token" }] } },
         ],
       });
 
@@ -344,8 +344,8 @@ describe("mcpPlugin", () => {
         authenticationTemplate: [
           { kind: "oauth2" },
           {
-            kind: "apikey",
-            placements: [{ carrier: "header", name: "Authorization", prefix: "Bearer " }],
+            type: "apiKey",
+            headers: { Authorization: ["Bearer ", { type: "variable", name: "token" }] },
           },
         ],
         mode: "replace",

@@ -95,22 +95,21 @@ export const mcpAuthMethodFromShorthand = (auth: McpAuthShorthand): McpAuthMetho
  *  `normalizeMcpAuthMethods` backfills it. */
 export const McpAuthMethodInput = Schema.Union([
   Schema.Struct({ slug: Schema.optional(Schema.String), kind: Schema.Literal("none") }),
-  Schema.Struct({
-    slug: Schema.optional(Schema.String),
-    kind: Schema.Literal("apikey"),
-    label: Schema.optional(Schema.String),
-    placements: ApiKeyAuthMethod.fields.placements,
-  }),
   Schema.Struct({ slug: Schema.optional(Schema.String), kind: Schema.Literal("oauth2") }),
-  // Request-shaped authoring dialect: `{ type: "apiKey", headers: {
-  // Authorization: ["Bearer ", variable("token")] }, queryParams: { … } }`.
+  // Credential methods are authored request-shaped — the ONE apikey input
+  // dialect: `{ type: "apiKey", headers: { Authorization: ["Bearer ",
+  // variable("token")] }, queryParams: { … } }`. Stored configs and the
+  // catalog read as canonical placements; `apiKeyAuthTemplateFromMethod`
+  // serializes them back for read-modify-write flows.
   ApiKeyAuthTemplate,
 ]);
 export type McpAuthMethodInput = typeof McpAuthMethodInput.Type;
 
-/** The canonical (kind-keyed) subset of the input union — what the UI
- *  authors directly; the request-shaped dialect expands into it. */
-export type McpCanonicalAuthMethodInput = Exclude<McpAuthMethodInput, ApiKeyAuthTemplate>;
+/** The expansion target: input arms with the dialect resolved to canonical
+ *  placements (slug still optional — backfill is a separate pass). */
+export type McpCanonicalAuthMethodInput =
+  | Exclude<McpAuthMethodInput, ApiKeyAuthTemplate>
+  | (Omit<ApiKeyAuthMethod, "slug"> & { readonly slug?: string });
 
 /** The default slug for a slug-less input method. Carrier-derived for the
  *  single-placement apikey cases (`header` / `query`) — the slugs those

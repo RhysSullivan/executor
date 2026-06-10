@@ -19,6 +19,7 @@ export {
 export {
   ApiKeyAuthTemplate,
   AuthTemplateValue,
+  apiKeyAuthTemplateFromMethod,
   apiKeyMethodFromAuthTemplate,
   isApiKeyAuthTemplate,
   variable,

@@ -17,6 +17,7 @@ import { Effect, Layer } from "effect";
 import { addGroup, observabilityMiddleware } from "@executor-js/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor-js/api/server";
 
+import { expandGraphqlAuthMethodInputs } from "../sdk/types";
 import type { GraphqlPluginExtension } from "../sdk/plugin";
 import type {
   GraphqlAuthMethod,
@@ -68,7 +69,12 @@ const makeStubExtension = (
       Effect.sync((): readonly GraphqlAuthMethod[] => {
         const current = store.get(slug);
         if (!current) return [];
-        const merged = merge(current.authenticationTemplate, input.authenticationTemplate);
+        // Mirror the real configureAuth: dialect inputs expand to canonical
+        // placements before the merge (stored configs stay canonical).
+        const merged = merge(
+          current.authenticationTemplate,
+          expandGraphqlAuthMethodInputs(input.authenticationTemplate),
+        );
         store.set(slug, { ...current, authenticationTemplate: merged });
         return merged;
       }),
@@ -141,7 +147,11 @@ describe("GraphqlHandlers — config surface", () => {
 
       const configureRes = yield* post(web, "http://localhost/graphql/integrations/gql/config", {
         authenticationTemplate: [
-          { slug: "custom", kind: "apikey", placements: [{ carrier: "query", name: "key" }] },
+          {
+            slug: "custom",
+            type: "apiKey",
+            queryParams: { key: [{ type: "variable", name: "token" }] },
+          },
         ],
       });
       expect(configureRes.status).toBe(200);
@@ -168,7 +178,11 @@ describe("GraphqlHandlers — config surface", () => {
 
       const res = yield* post(web, "http://localhost/graphql/integrations/gql/config", {
         authenticationTemplate: [
-          { slug: "seed", kind: "apikey", placements: [{ carrier: "header", name: "X-New" }] },
+          {
+            slug: "seed",
+            type: "apiKey",
+            headers: { "X-New": [{ type: "variable", name: "token" }] },
+          },
         ],
       });
       expect(res.status).toBe(200);
@@ -193,7 +207,11 @@ describe("GraphqlHandlers — config surface", () => {
 
       const res = yield* post(web, "http://localhost/graphql/integrations/nope/config", {
         authenticationTemplate: [
-          { slug: "custom", kind: "apikey", placements: [{ carrier: "query", name: "key" }] },
+          {
+            slug: "custom",
+            type: "apiKey",
+            queryParams: { key: [{ type: "variable", name: "token" }] },
+          },
         ],
       });
       expect(res.status).toBe(200);
