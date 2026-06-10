@@ -140,6 +140,7 @@ const RunView = ({ target, slug }: { target: string; slug: string }) => {
   const base = `${target}/${slug}`;
   const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"video" | "source">("video");
 
   useEffect(() => {
     fetch(`${base}/result.json`)
@@ -183,30 +184,48 @@ const RunView = ({ target, slug }: { target: string; slug: string }) => {
         {new Date(result.endedAt).toLocaleString()}
       </p>
       {result.error && <pre className="errbox">{result.error}</pre>}
-      {has("test.ts") && (
+      {video && has("test.ts") && (
+        <div className="tabs">
+          <button
+            className={tab === "video" ? "tab active" : "tab"}
+            onClick={() => setTab("video")}
+          >
+            ▶ video
+          </button>
+          <button
+            className={tab === "source" ? "tab active" : "tab"}
+            onClick={() => setTab("source")}
+          >
+            {"</>"} test source
+          </button>
+        </div>
+      )}
+      {(!video || tab === "source") && has("test.ts") && (
         <Suspense fallback={<p className="dim">loading test source…</p>}>
-          <h2 className="section">The test</h2>
+          {!video && <h2 className="section">The test</h2>}
           <TestSource url={`${base}/test.ts`} />
         </Suspense>
       )}
-      {video && (
-        <video className="hero-video" controls preload="metadata" src={`${base}/${video}`} />
+      {video && tab === "video" && (
+        <>
+          <video className="hero-video" controls preload="metadata" src={`${base}/${video}`} />
+          {screenshots.length > 0 && (
+            <div className="shots">
+              {screenshots.map((shot) => (
+                <a key={shot} href={`${base}/${shot}`} target="_blank" rel="noreferrer">
+                  <figure>
+                    <img loading="lazy" src={`${base}/${shot}`} alt={shot} />
+                    <figcaption className={shot === "failure.png" ? "error-text" : undefined}>
+                      {labelOf(shot)}
+                    </figcaption>
+                  </figure>
+                </a>
+              ))}
+            </div>
+          )}
+        </>
       )}
-      {screenshots.length > 0 && (
-        <div className="shots">
-          {screenshots.map((shot) => (
-            <a key={shot} href={`${base}/${shot}`} target="_blank" rel="noreferrer">
-              <figure>
-                <img loading="lazy" src={`${base}/${shot}`} alt={shot} />
-                <figcaption className={shot === "failure.png" ? "error-text" : undefined}>
-                  {labelOf(shot)}
-                </figcaption>
-              </figure>
-            </a>
-          ))}
-        </div>
-      )}
-      {!video && screenshots.length === 0 && (
+      {!video && !has("test.ts") && screenshots.length === 0 && (
         <p className="dim">
           No visual artifacts — this surface's source of truth is the test code and its assertions.
         </p>

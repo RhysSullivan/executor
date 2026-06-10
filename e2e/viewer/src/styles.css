@@ -154,3 +154,28 @@ a.watch.no {
   border-radius: 8px;
   overflow: hidden;
 }
+
+/* run-page tabs (video / source) */
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin: 1rem 0 0.6rem;
+  border-bottom: 1px solid #161b22;
+}
+.tab {
+  font: inherit;
+  font-size: 13px;
+  color: #6b7785;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+.tab:hover {
+  color: #d7dce5;
+}
+.tab.active {
+  color: #d7dce5;
+  border-bottom-color: #388bfd;
+}
