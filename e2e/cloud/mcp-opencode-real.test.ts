@@ -55,20 +55,25 @@ scenario(
             // early keystrokes echo above the prompt in the recording.
             await term.screen.waitForText("$", { timeoutMs: 10_000 });
 
-            // A command is done when the bare prompt is back as the last
-            // line — no sentinel noise in the recording, just a shell.
-            const promptReturned = (text: string) => {
-              const trimmed = text.trimEnd();
-              return trimmed === "$" || trimmed.endsWith("\n$");
+            // A command is done when its echoed line is on screen AND the
+            // bare prompt is back after it — no sentinel noise, no clears,
+            // and the pre-command prompt can't satisfy the wait. Returns
+            // only what THIS command produced, so earlier output can't
+            // satisfy a later assertion and the scrollback stays natural.
+            const outputAfter = (text: string, line: string): string | null => {
+              const echoed = text.lastIndexOf(line);
+              if (echoed === -1) return null;
+              const after = text.slice(echoed + line.length);
+              return after.trimEnd().endsWith("\n$") ? after : null;
             };
             const sh = async (line: string, timeoutMs: number) => {
               await term.keyboard.type(line);
               await term.keyboard.press("Enter");
               const snapshot = await term.screen.waitUntil(
-                (current) => promptReturned(current.text),
+                (current) => outputAfter(current.text, line) !== null,
                 { timeoutMs },
               );
-              return snapshot.text;
+              return outputAfter(snapshot.text, line) ?? "";
             };
 
             // OpenCode completes MCP OAuth for real: discovery, DCR, PKCE,
@@ -79,13 +84,13 @@ scenario(
             expect(auth, "opencode mcp auth completes").not.toContain("failed");
 
             // While the token is fresh, OpenCode is a working MCP client.
-            const fresh = await sh("clear; opencode mcp list", 60_000);
+            const fresh = await sh("opencode mcp list", 60_000);
             expect(fresh, "OpenCode connects on a fresh token").toContain("connected");
 
             // The access token genuinely expires on camera (server-honored
             // TTL, no fakes), then the same command runs again.
             const expired = await sh(
-              `sleep ${TTL_SECONDS + 3}; clear; opencode mcp list`,
+              `sleep ${TTL_SECONDS + 3}; opencode mcp list`,
               (TTL_SECONDS + 3) * 1000 + 60_000,
             );
 
@@ -104,7 +109,10 @@ scenario(
             cwd: home.projectDir,
             env: { ...home.env, PS1: "$ ", BASH_SILENCE_DEPRECATION_WARNING: "1" },
             record: join(ctx.dir, "terminal.cast"),
-            viewport: { cols: 100, rows: 30 },
+            // Tall enough that the whole session stays on screen — the
+            // per-command slice in sh() depends on the echoed line not
+            // scrolling away.
+            viewport: { cols: 100, rows: 40 },
           },
         )
         .pipe(Effect.ensuring(seedAccessTokenTtl(null)));

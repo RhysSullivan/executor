@@ -70,14 +70,16 @@ export const makeOpenCodeHome = (serverName: string, mcpUrl: string): OpenCodeHo
 
 /**
  * Run OpenCode's one-time first-run work (database migration) off camera so
- * a recorded session starts clean. The command itself needs no auth.
+ * a recorded session starts clean. Runs in a bare project with NO MCP
+ * servers configured: `mcp auth` errors with "Unexpected status: needs_auth"
+ * if an earlier `mcp list` already probed the server, so the warm-up must
+ * never touch it.
  */
 export const warmUp = (home: OpenCodeHome): void => {
-  spawnSync("opencode", ["mcp", "list"], {
-    cwd: home.projectDir,
-    env: home.env,
-    timeout: 60_000,
-  });
+  const bare = join(home.projectDir, "..", "warmup");
+  mkdirSync(bare, { recursive: true });
+  writeFileSync(join(bare, "opencode.json"), "{}");
+  spawnSync("opencode", ["mcp", "list"], { cwd: bare, env: home.env, timeout: 60_000 });
 };
 
 /**
