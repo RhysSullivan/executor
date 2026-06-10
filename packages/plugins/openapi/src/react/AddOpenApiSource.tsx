@@ -49,8 +49,6 @@ import {
   type APIKeyAuthentication,
   type Authentication,
   type ServerInfo,
-  TOKEN_VARIABLE,
-  variable,
 } from "../sdk/types";
 import { expandServerUrlOptions } from "../sdk/openapi-utils";
 
@@ -172,14 +170,16 @@ const headerPrefix = (preset: HeaderPreset, headerName: string): string | undefi
 const apiKeyTemplateFromHeaderPreset = (
   preset: HeaderPreset,
   slug: AuthTemplateSlug,
-): APIKeyAuthentication => {
-  const headers: Record<string, (string | ReturnType<typeof variable>)[]> = {};
-  for (const headerName of preset.secretHeaders) {
+): APIKeyAuthentication => ({
+  slug,
+  kind: "apikey",
+  // Every secret header shares the one credential input (the canonical
+  // `token`, stored as an absent placement variable).
+  placements: preset.secretHeaders.map((headerName) => {
     const prefix = headerPrefix(preset, headerName);
-    headers[headerName] = prefix ? [prefix, variable(TOKEN_VARIABLE)] : [variable(TOKEN_VARIABLE)];
-  }
-  return { slug, type: "apiKey", headers };
-};
+    return { carrier: "header" as const, name: headerName, ...(prefix ? { prefix } : {}) };
+  }),
+});
 
 const oauthTemplateFromPreset = (
   preset: OAuth2Preset,

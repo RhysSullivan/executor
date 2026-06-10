@@ -1,5 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
+import { ApiKeyAuthMethod } from "@executor-js/http-auth";
 import {
   InternalError,
   IntegrationAlreadyExistsError,
@@ -46,21 +47,8 @@ const OpenApiSpecInputPayload = Schema.Union([
   }),
 ]);
 
-const AuthenticationVariablePayload = Schema.Struct({
-  type: Schema.Literal("variable"),
-  name: Schema.String,
-});
-const AuthenticationTemplateValuePayload = Schema.Union([
-  Schema.String,
-  Schema.Array(Schema.Union([Schema.String, AuthenticationVariablePayload])),
-]);
 const AuthenticationPayload = Schema.Union([
-  Schema.Struct({
-    slug: Schema.String,
-    type: Schema.Literal("apiKey"),
-    headers: Schema.optional(Schema.Record(Schema.String, AuthenticationTemplateValuePayload)),
-    queryParams: Schema.optional(Schema.Record(Schema.String, AuthenticationTemplateValuePayload)),
-  }),
+  ApiKeyAuthMethod,
   Schema.Struct({
     slug: Schema.String,
     type: Schema.Literal("oauth"),

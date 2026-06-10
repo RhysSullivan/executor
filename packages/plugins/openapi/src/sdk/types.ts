@@ -1,43 +1,38 @@
 import { Schema } from "effect";
-import type { AuthTemplateSlug } from "@executor-js/sdk/shared";
 import type { OAuthAuthentication } from "@executor-js/sdk/shared";
+import type { ApiKeyAuthMethod } from "@executor-js/http-auth";
 
 // ---------------------------------------------------------------------------
-// Auth-template model (ported from the v2 scaffold `openapi/types.ts`).
+// Auth-template model.
 //
-// The apiKey template is HTTP-transport-specific: it declares where the user's
-// credential goes on the outbound request (headers / query params) via the
-// `variable()` templating below. That placement is why it lives with the
-// openapi plugin rather than in core. The oauth template is mechanism-intrinsic
-// and comes from core (`OAuthAuthentication`); an integration's `Authentication`
-// union composes the two. Client credentials (clientId/secret) live on the core
-// `OAuthClient`, not here.
+// The apiKey method is the SHARED placements model (`@executor-js/http-auth`,
+// the same shape the graphql/mcp plugins store): N header/query placements,
+// each rendered from its own credential input. The oauth template is
+// mechanism-intrinsic and comes from core (`OAuthAuthentication`, keyed
+// `type: "oauth"` with stored endpoints+scopes); an integration's
+// `Authentication` union composes the two. Client credentials
+// (clientId/secret) live on the core `OAuthClient`, not here.
+//
+// Pre-canonical stored templates (`type: "apiKey"` with `variable()`-templated
+// header/query records) are rewritten by the one-off config migration
+// (`migrate-config.ts`) — runtime code knows only this model.
 // ---------------------------------------------------------------------------
 
-export type AuthenticationVariable = {
-  readonly type: "variable";
-  readonly name: string;
-};
+export { TOKEN_VARIABLE } from "@executor-js/http-auth";
 
-/** A literal string, or a parts-array mixing literals and variable refs. */
-export type AuthenticationTemplateValue = string | readonly (string | AuthenticationVariable)[];
-
-export const variable = (name: string): AuthenticationVariable => ({
-  type: "variable",
-  name,
-});
-
-/** The variable name the resolved credential value renders into. */
-export const TOKEN_VARIABLE = "token" as const;
-
-export type APIKeyAuthentication = {
-  readonly slug: AuthTemplateSlug;
-  readonly type: "apiKey";
-  readonly headers?: Record<string, AuthenticationTemplateValue>;
-  readonly queryParams?: Record<string, AuthenticationTemplateValue>;
-};
+export type APIKeyAuthentication = ApiKeyAuthMethod;
 
 export type Authentication = OAuthAuthentication | APIKeyAuthentication;
+
+/** The union mixes discriminator keys (`type: "oauth"` is a core shape;
+ *  `kind: "apikey"` is the shared placements shape) — narrow through these. */
+export const isOAuthAuthentication = (
+  template: Authentication,
+): template is OAuthAuthentication => !("kind" in template);
+
+export const isApiKeyAuthentication = (
+  template: Authentication,
+): template is APIKeyAuthentication => "kind" in template && template.kind === "apikey";
 
 // ---------------------------------------------------------------------------
 // Branded IDs

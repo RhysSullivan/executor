@@ -67,9 +67,9 @@ export {
   OperationId,
   HttpMethod,
   ParameterLocation,
-  variable,
+  TOKEN_VARIABLE,
+  isApiKeyAuthentication,
+  isOAuthAuthentication,
   type Authentication,
   type APIKeyAuthentication,
-  type AuthenticationVariable,
-  type AuthenticationTemplateValue,
 } from "./types";

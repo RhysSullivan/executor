@@ -7,7 +7,7 @@ import {
 } from "@executor-js/sdk/core";
 
 import { describeOpenApiAuthMethods, describeOpenApiIntegrationDisplay } from "./plugin";
-import { variable, type Authentication } from "./types";
+import { type Authentication } from "./types";
 
 // ---------------------------------------------------------------------------
 // `describeOpenApiAuthMethods` projects the stored `authenticationTemplate[]`
@@ -33,8 +33,8 @@ describe("describeOpenApiAuthMethods", () => {
       recordWith([
         {
           slug: AuthTemplateSlug.make("bearer"),
-          type: "apiKey",
-          headers: { Authorization: ["Bearer ", variable("token")] },
+          kind: "apikey",
+          placements: [{ carrier: "header", name: "Authorization", prefix: "Bearer " }],
         },
       ]),
     );
@@ -45,9 +45,8 @@ describe("describeOpenApiAuthMethods", () => {
         label: "API key (Authorization)",
         kind: "apikey",
         template: "bearer",
-        placements: [
-          { carrier: "header", name: "Authorization", prefix: "Bearer ", variable: "token" },
-        ],
+        // The canonical `token` input is stored (and projected) as absent.
+        placements: [{ carrier: "header", name: "Authorization", prefix: "Bearer " }],
       },
     ]);
   });

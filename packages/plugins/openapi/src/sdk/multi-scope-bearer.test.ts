@@ -36,7 +36,7 @@ import {
 } from "@executor-js/plugin-openapi/testing";
 
 import { openApiPlugin } from "./plugin";
-import { variable, type Authentication } from "./types";
+import { type Authentication } from "./types";
 
 // ---------------------------------------------------------------------------
 // Test API — a single endpoint that echoes the Authorization header so the
@@ -70,8 +70,8 @@ const serveVercel = () =>
 // Bearer template: the connection value renders into `Authorization: Bearer …`.
 const bearerTemplate: Authentication = {
   slug: AuthTemplateSlug.make("bearer"),
-  type: "apiKey",
-  headers: { authorization: ["Bearer ", variable("token")] },
+  kind: "apikey",
+  placements: [{ carrier: "header", name: "authorization", prefix: "Bearer " }],
 };
 
 const testPlugins = () =>

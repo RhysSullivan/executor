@@ -13,7 +13,6 @@ import {
   mergeAuthTemplates,
   tool,
   type AuthMethodDescriptor,
-  type AuthPlacementDescriptor,
   type Integration,
   type IntegrationConfig,
   type IntegrationRecord,
@@ -44,8 +43,9 @@ import { annotationsForOperation, invokeWithLayer } from "./invoke";
 import { previewSpec, type SpecPreview } from "./preview";
 import { openApiPresets } from "./presets";
 import { makeDefaultOpenapiStore, type OpenapiStore, type StoredOperation } from "./store";
-import type { Authentication, AuthenticationTemplateValue } from "./types";
-import { OperationBinding, TOKEN_VARIABLE } from "./types";
+import type { Authentication } from "./types";
+import { OperationBinding, isOAuthAuthentication } from "./types";
+import { ApiKeyAuthMethod, describeApiKeyAuthMethod } from "@executor-js/http-auth";
 
 // ---------------------------------------------------------------------------
 // Plugin config
@@ -295,21 +295,8 @@ const OpenApiSpecInputSchema = Schema.Union([
   }),
 ]);
 
-const AuthenticationVariableSchema = Schema.Struct({
-  type: Schema.Literal("variable"),
-  name: Schema.String,
-});
-const AuthenticationTemplateValueSchema = Schema.Union([
-  Schema.String,
-  Schema.Array(Schema.Union([Schema.String, AuthenticationVariableSchema])),
-]);
 const AuthenticationSchema = Schema.Union([
-  Schema.Struct({
-    slug: Schema.String,
-    type: Schema.Literal("apiKey"),
-    headers: Schema.optional(Schema.Record(Schema.String, AuthenticationTemplateValueSchema)),
-    queryParams: Schema.optional(Schema.Record(Schema.String, AuthenticationTemplateValueSchema)),
-  }),
+  ApiKeyAuthMethod,
   Schema.Struct({
     slug: Schema.String,
     type: Schema.Literal("oauth"),
@@ -525,52 +512,9 @@ const specInputToGoogleBundle = (spec: OpenApiSpecInput): readonly string[] | un
 // Declared auth methods — project the stored `authenticationTemplate` into the
 // catalog's plugin-agnostic `AuthMethodDescriptor[]`. This mirrors the client's
 // `authMethodsFromConfig` (in the React auth-method-config module) on the
-// server so the catalog field is consistent. OpenAPI also renders its own
-// accounts slot, so this projection is consistency work, not a fix; an absent /
-// malformed config yields `[]` with no regression.
-//
-// Placement prefix extraction: a header/query slot serializes the credential as
-// `name -> [prefix, variable("token")]`; the leading literals before the
-// `variable("token")` part are the prefix (empty for a bare `[token]`).
+// server so the catalog field is consistent. apikey/none projection comes from
+// the shared model; the oauth method carries the stored endpoints + scopes.
 // ---------------------------------------------------------------------------
-
-/** Extract the literal prefix preceding the credential variable, plus the
- *  variable name a placement renders from (`token` for single-input methods, a
- *  distinct name per input for multi-input ones). */
-const parseTemplateValue = (
-  value: AuthenticationTemplateValue,
-): { readonly prefix: string; readonly variable: string } => {
-  if (typeof value === "string") return { prefix: "", variable: TOKEN_VARIABLE };
-  const parts: string[] = [];
-  for (const part of value) {
-    if (typeof part !== "string" && part.type === "variable") {
-      return { prefix: parts.join(""), variable: part.name };
-    }
-    if (typeof part === "string") parts.push(part);
-  }
-  return { prefix: parts.join(""), variable: TOKEN_VARIABLE };
-};
-
-const placementsFromAuthentication = (
-  template: Extract<Authentication, { readonly type: "apiKey" }>,
-): readonly AuthPlacementDescriptor[] => {
-  const placements: AuthPlacementDescriptor[] = [];
-  for (const [name, value] of Object.entries(template.headers ?? {})) {
-    const { prefix, variable } = parseTemplateValue(value);
-    placements.push({ carrier: "header", name, prefix, variable });
-  }
-  for (const [name, value] of Object.entries(template.queryParams ?? {})) {
-    const { prefix, variable } = parseTemplateValue(value);
-    placements.push({ carrier: "query", name, prefix, variable });
-  }
-  return placements;
-};
-
-const apiKeyLabel = (slug: string, placements: readonly AuthPlacementDescriptor[]): string => {
-  const first = placements[0];
-  if (first) return `API key (${first.name || (first.carrier === "header" ? "header" : "query")})`;
-  return `API key (${slug})`;
-};
 
 export const describeOpenApiAuthMethods = (
   record: IntegrationRecord,
@@ -579,13 +523,12 @@ export const describeOpenApiAuthMethods = (
   if (!config) return [];
   return (config.authenticationTemplate ?? []).map(
     (template: Authentication): AuthMethodDescriptor => {
-      const slug = String(template.slug);
-      if (template.type === "oauth") {
+      if (isOAuthAuthentication(template)) {
         return {
-          id: slug,
+          id: String(template.slug),
           label: "OAuth2",
           kind: "oauth",
-          template: slug,
+          template: String(template.slug),
           oauth: {
             authorizationUrl: template.authorizationUrl,
             tokenUrl: template.tokenUrl,
@@ -593,14 +536,7 @@ export const describeOpenApiAuthMethods = (
           },
         };
       }
-      const placements = placementsFromAuthentication(template);
-      return {
-        id: slug,
-        label: apiKeyLabel(slug, placements),
-        kind: "apikey",
-        template: slug,
-        placements,
-      };
+      return describeApiKeyAuthMethod(template);
     },
   );
 };
@@ -1073,13 +1009,14 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           });
           if (missing.length > 0) {
             return openApiAuthToolFailure({
-              code:
-                template.type === "oauth" ? "oauth_connection_missing" : "connection_value_missing",
+              code: isOAuthAuthentication(template)
+                ? "oauth_connection_missing"
+                : "connection_value_missing",
               message: `Connection "${credential.connection}" for "${integration}" has no resolvable credential value. Re-authenticate or update the connection.`,
               owner: credential.owner,
               integration,
               connection: String(credential.connection),
-              credentialKind: template.type === "oauth" ? "oauth" : "secret",
+              credentialKind: isOAuthAuthentication(template) ? "oauth" : "secret",
             });
           }
           const rendered = renderAuthTemplate(template, credential.values);
