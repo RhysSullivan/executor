@@ -12,7 +12,9 @@ export {
 } from "./plugin";
 
 export {
-  McpAuthTemplate,
+  McpAuthMethod,
+  McpAuthMethodInput,
+  McpAuthShorthand,
   McpIntegrationConfig,
   McpRemoteIntegrationConfig,
   McpStdioIntegrationConfig,
@@ -22,6 +24,11 @@ export {
   McpToolBinding,
   parseMcpIntegrationConfig,
 } from "./types";
+
+export { migrateMcpAuthConfig } from "./migrate-config";
+
+// Request-shaped authoring: `headers: { Authorization: ["Bearer ", variable("token")] }`.
+export { variable, type ApiKeyAuthTemplate } from "@executor-js/sdk/http-auth";
 
 export {
   McpConnectionError,

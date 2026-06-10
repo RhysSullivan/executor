@@ -1,111 +1,118 @@
 import { describe, expect, it } from "@effect/vitest";
 import { AuthTemplateSlug } from "@executor-js/sdk/shared";
-import type { AuthTemplateEditorValue } from "@executor-js/react/components/auth-template-editor";
 
 import {
+  authMethodsFromConfig,
   authenticationFromEditorValue,
   editorValueFromAuthentication,
   templateFromPlacements,
 } from "./auth-method-config";
-import { TOKEN_VARIABLE, variable, type Authentication } from "../sdk/types";
+import type { Authentication } from "../sdk/types";
 
-describe("editorValueFromAuthentication", () => {
-  it("maps a bearer apiKey header template → an apikey editor value with prefix", () => {
-    const template: Authentication = {
-      slug: AuthTemplateSlug.make("apikey-0"),
-      type: "apiKey",
-      headers: { Authorization: ["Bearer ", variable(TOKEN_VARIABLE)] },
-    };
-    expect(editorValueFromAuthentication(template)).toEqual({
+describe("authMethodsFromConfig", () => {
+  it("projects oauth templates with their stored endpoints + scopes", () => {
+    const methods = authMethodsFromConfig([
+      {
+        slug: AuthTemplateSlug.make("oauth"),
+        kind: "oauth2",
+        authorizationUrl: "https://x.example/auth",
+        tokenUrl: "https://x.example/token",
+        scopes: ["read"],
+      },
+    ]);
+    expect(methods[0]).toMatchObject({
+      id: "oauth",
+      kind: "oauth",
+      source: "spec",
+      oauth: {
+        authorizationUrl: "https://x.example/auth",
+        tokenUrl: "https://x.example/token",
+        scopes: ["read"],
+      },
+    });
+  });
+
+  it("projects apikey methods, multi-placement and multi-variable intact", () => {
+    const methods = authMethodsFromConfig([
+      {
+        slug: "custom_dd",
+        kind: "apikey",
+        placements: [
+          { carrier: "header", name: "DD-API-KEY", variable: "dd_api_key" },
+          { carrier: "query", name: "team_id", variable: "team_id" },
+        ],
+      },
+    ]);
+    expect(methods[0]).toMatchObject({ id: "custom_dd", kind: "apikey", source: "custom" });
+    expect(methods[0]?.placements).toEqual([
+      { carrier: "header", name: "DD-API-KEY", prefix: "", variable: "dd_api_key" },
+      { carrier: "query", name: "team_id", prefix: "", variable: "team_id" },
+    ]);
+  });
+});
+
+describe("editor round-trip", () => {
+  it("apikey stored → editor → stored preserves placements and shared token input", () => {
+    const stored: Authentication = {
+      slug: "bearer",
       kind: "apikey",
       placements: [
-        { carrier: "header", name: "Authorization", prefix: "Bearer ", variable: "token" },
+        { carrier: "header", name: "Authorization", prefix: "Bearer " },
+        { carrier: "query", name: "token" },
+      ],
+    };
+    const editor = editorValueFromAuthentication(stored);
+    const back = authenticationFromEditorValue(editor, "bearer");
+    expect(back).toEqual(stored);
+  });
+
+  it("oauth stored → editor carries endpoints + scopes", () => {
+    expect(
+      editorValueFromAuthentication({
+        slug: AuthTemplateSlug.make("oauth"),
+        kind: "oauth2",
+        authorizationUrl: "https://x.example/auth",
+        tokenUrl: "https://x.example/token",
+        scopes: ["a", "b"],
+      }),
+    ).toEqual({
+      kind: "oauth",
+      authorizationUrl: "https://x.example/auth",
+      tokenUrl: "https://x.example/token",
+      scopes: ["a", "b"],
+    });
+  });
+
+  it("none editor value yields no method", () => {
+    expect(authenticationFromEditorValue({ kind: "none" })).toBeNull();
+  });
+});
+
+describe("templateFromPlacements", () => {
+  it("multi-placement custom methods assign distinct name-derived variables", () => {
+    expect(
+      templateFromPlacements(
+        [
+          { carrier: "header", name: "DD-API-KEY", prefix: "" },
+          { carrier: "header", name: "DD-APPLICATION-KEY", prefix: "" },
+        ],
+        "custom_dd",
+      ),
+    ).toEqual({
+      slug: "custom_dd",
+      kind: "apikey",
+      placements: [
+        { carrier: "header", name: "DD-API-KEY", variable: "dd_api_key" },
+        { carrier: "header", name: "DD-APPLICATION-KEY", variable: "dd_application_key" },
       ],
     });
   });
 
-  it("maps a query apiKey template → an apikey editor value (empty prefix)", () => {
-    const template: Authentication = {
-      slug: AuthTemplateSlug.make("apikey-1"),
-      type: "apiKey",
-      queryParams: { api_key: [variable(TOKEN_VARIABLE)] },
-    };
-    expect(editorValueFromAuthentication(template)).toEqual({
+  it("a lone placement keeps the canonical token input (stored absent)", () => {
+    expect(templateFromPlacements([{ carrier: "query", name: "api_key", prefix: "" }])).toEqual({
+      slug: "",
       kind: "apikey",
-      placements: [{ carrier: "query", name: "api_key", prefix: "", variable: "token" }],
+      placements: [{ carrier: "query", name: "api_key" }],
     });
-  });
-
-  it("maps an oauth template → an oauth editor value carrying endpoints + scopes", () => {
-    const template: Authentication = {
-      slug: AuthTemplateSlug.make("oauth-google"),
-      type: "oauth",
-      authorizationUrl: "https://accounts.example.com/o/oauth2/auth",
-      tokenUrl: "https://oauth2.example.com/token",
-      scopes: ["openid", "email"],
-    };
-    expect(editorValueFromAuthentication(template)).toEqual({
-      kind: "oauth",
-      authorizationUrl: "https://accounts.example.com/o/oauth2/auth",
-      tokenUrl: "https://oauth2.example.com/token",
-      scopes: ["openid", "email"],
-    });
-  });
-});
-
-describe("authenticationFromEditorValue", () => {
-  it("returns null for a 'none' value (nothing to register)", () => {
-    expect(authenticationFromEditorValue({ kind: "none" })).toBeNull();
-  });
-
-  it("builds an apiKey template from placements, stamping the slug", () => {
-    const value: AuthTemplateEditorValue = {
-      kind: "apikey",
-      placements: [{ carrier: "header", name: "X-Token", prefix: "" }],
-    };
-    expect(authenticationFromEditorValue(value, "custom_x")).toEqual(
-      templateFromPlacements(value.placements, "custom_x"),
-    );
-  });
-
-  it("builds an oauth template from an oauth value", () => {
-    const value: AuthTemplateEditorValue = {
-      kind: "oauth",
-      authorizationUrl: "https://a.example.com/auth",
-      tokenUrl: "https://a.example.com/token",
-      scopes: ["read"],
-    };
-    expect(authenticationFromEditorValue(value, "oauth-0")).toEqual({
-      slug: AuthTemplateSlug.make("oauth-0"),
-      type: "oauth",
-      authorizationUrl: "https://a.example.com/auth",
-      tokenUrl: "https://a.example.com/token",
-      scopes: ["read"],
-    });
-  });
-});
-
-describe("round-trip (apiKey + oauth)", () => {
-  it("apiKey: editorValue ∘ authentication is identity for the placement shape", () => {
-    const template: Authentication = {
-      slug: AuthTemplateSlug.make("apikey-0"),
-      type: "apiKey",
-      headers: { Authorization: ["Bearer ", variable(TOKEN_VARIABLE)] },
-    };
-    const value = editorValueFromAuthentication(template);
-    const back = authenticationFromEditorValue(value, "apikey-0");
-    expect(back).toEqual(template);
-  });
-
-  it("oauth: editorValue ∘ authentication preserves endpoints + scopes", () => {
-    const template: Authentication = {
-      slug: AuthTemplateSlug.make("oauth-x"),
-      type: "oauth",
-      authorizationUrl: "https://a.example.com/auth",
-      tokenUrl: "https://a.example.com/token",
-      scopes: ["read", "write"],
-    };
-    const back = authenticationFromEditorValue(editorValueFromAuthentication(template), "oauth-x");
-    expect(back).toEqual(template);
   });
 });

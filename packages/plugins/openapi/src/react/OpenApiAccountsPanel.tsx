@@ -18,7 +18,11 @@ import {
 } from "@executor-js/react/lib/custom-auth-methods";
 
 import { openApiConfigAtom, openapiConfigure } from "./atoms";
-import { authMethodsFromConfig, templateFromPlacements } from "./auth-method-config";
+import {
+  authMethodsFromConfig,
+  templateFromPlacements,
+  openApiWireAuthInput,
+} from "./auth-method-config";
 import { googleAudienceWarningsForUrls } from "../sdk/google-presets";
 import type { Authentication } from "../sdk/types";
 
@@ -82,7 +86,7 @@ export default function OpenApiAccountsPanel(props: {
       const exit = await doConfigure({
         params: { slug },
         payload: {
-          authenticationTemplate: input.authenticationTemplate,
+          authenticationTemplate: input.authenticationTemplate.map(openApiWireAuthInput),
           ...(input.mode ? { mode: input.mode } : {}),
         },
         reactivityKeys: integrationWriteKeys,

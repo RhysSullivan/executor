@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import { InternalError, IntegrationAlreadyExistsError } from "@executor-js/sdk/shared";
 
 import { GraphqlIntrospectionError, GraphqlExtractionError } from "../sdk/errors";
-import { AuthTemplate } from "../sdk/types";
+import { GraphqlAuthMethod, GraphqlAuthMethodInput } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -24,14 +24,15 @@ const AddIntegrationPayload = Schema.Struct({
   introspectionJson: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  authenticationTemplate: Schema.optional(Schema.Array(AuthTemplate)),
+  authenticationTemplate: Schema.optional(Schema.Array(GraphqlAuthMethodInput)),
 });
 
 // The `configure` payload — the custom auth methods to merge-append onto the
-// integration's `authenticationTemplate`. Reuses the same `AuthTemplate` schema
-// as `addIntegration` so a custom apiKey method round-trips identically.
+// integration's `authenticationTemplate`. Reuses the same input schema as
+// `addIntegration` (slug optional — the backend backfills it) so a custom
+// apikey method round-trips identically.
 const ConfigurePayload = Schema.Struct({
-  authenticationTemplate: Schema.Array(AuthTemplate),
+  authenticationTemplate: Schema.Array(GraphqlAuthMethodInput),
   mode: Schema.optional(Schema.Literals(["merge", "replace"])),
 });
 
@@ -52,13 +53,13 @@ const GraphqlConfigView = Schema.Struct({
   introspectionJson: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  authenticationTemplate: Schema.Array(AuthTemplate),
+  authenticationTemplate: Schema.Array(GraphqlAuthMethod),
 });
 
 // The configure result — the merged `authenticationTemplate` after the new
 // custom methods were appended/replaced.
 const ConfigureResponse = Schema.Struct({
-  authenticationTemplate: Schema.Array(AuthTemplate),
+  authenticationTemplate: Schema.Array(GraphqlAuthMethod),
 });
 
 // ---------------------------------------------------------------------------

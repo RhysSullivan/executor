@@ -1,16 +1,23 @@
 import { Effect, Option, Schema } from "effect";
+import {
+  ApiKeyAuthMethod,
+  ApiKeyAuthTemplate,
+  NoneAuthMethod,
+  apiKeyMethodFromAuthTemplate,
+  isApiKeyAuthTemplate,
+  normalizeAuthMethodSlugs,
+} from "@executor-js/sdk/http-auth";
 
 // ---------------------------------------------------------------------------
 // MCP plugin v2 data model.
 //
 // An MCP integration is one server. Its `config` blob (opaque to core, stored
-// on the integration row) carries everything needed to dial the server plus an
-// `auth` *template* describing how a connection's resolved value is applied to
-// the request. A connection IS the credential: at execute time core resolves
-// the connection's value through its provider (refreshing OAuth tokens), and
-// the plugin renders it onto the request per the template (D11). The same path
-// covers an API key bearer and an OAuth access token — both resolve to a value
-// and render through their template.
+// on the integration row) carries everything needed to dial the server plus
+// the declared auth methods describing how a connection's resolved credential
+// values are applied to the request. A connection IS the credential: at
+// execute time core resolves the connection's values through its provider
+// (refreshing OAuth tokens), and the plugin renders them onto the request per
+// the method the connection binds (D11).
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -25,35 +32,35 @@ export const McpTransport = Schema.Literals(["streamable-http", "sse", "stdio", 
 export type McpTransport = typeof McpTransport.Type;
 
 // ---------------------------------------------------------------------------
-// Auth methods — the ways a connection's resolved value can be applied to the
-// request. An integration declares zero or more methods, each with a stable
-// `slug` a connection binds against (`connection.template`), mirroring the
-// OpenAPI/GraphQL `authenticationTemplate` arrays.
+// Auth methods — the shared placements vocabulary (`@executor-js/sdk/http-auth`)
+// plus MCP's own oauth variant. An integration declares zero or more methods,
+// each with a stable `slug` a connection binds against (`connection.template`),
+// mirroring the OpenAPI/GraphQL `authenticationTemplate` arrays.
 //
 //   none   — no credential (open server)
-//   header — render the value into a request header (e.g. `Authorization:
-//            Bearer <value>`); `prefix` is prepended to the value
+//   apikey — render the connection's values through the method's header/query
+//            placements (one credential input per distinct placement
+//            `variable`; servers like ui.sh authenticate via a `?token=`
+//            query placement, and a method may mix carriers — e.g. a bearer
+//            header plus a team-id query param)
 //   oauth2 — the value is an OAuth access token, applied as a Bearer header
-//            via the MCP SDK's OAuthClientProvider
+//            via the MCP SDK's OAuthClientProvider. MCP oauth carries no
+//            stored endpoints: metadata is discovered live at connect time.
 // ---------------------------------------------------------------------------
 
-export const McpAuthMethod = Schema.Union([
-  Schema.Struct({ slug: Schema.String, kind: Schema.Literal("none") }),
-  Schema.Struct({
-    slug: Schema.String,
-    kind: Schema.Literal("header"),
-    headerName: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
-  Schema.Struct({ slug: Schema.String, kind: Schema.Literal("oauth2") }),
-]);
+export const McpOAuthMethod = Schema.Struct({
+  slug: Schema.String,
+  kind: Schema.Literal("oauth2"),
+});
+export type McpOAuthMethod = typeof McpOAuthMethod.Type;
+
+export const McpAuthMethod = Schema.Union([NoneAuthMethod, ApiKeyAuthMethod, McpOAuthMethod]);
 export type McpAuthMethod = typeof McpAuthMethod.Type;
 
-/** Legacy single-method template (pre-array configs and the `auth` input
- *  shorthand on `addServer`): the method without a slug. Lifted into a
- *  one-element `authenticationTemplate` whose slug is the method kind, which
- *  matches the template slugs existing connections were created against. */
-export const McpAuthTemplate = Schema.Union([
+/** Single-method `auth` shorthand on `addServer` — agent convenience for the
+ *  common cases. Normalized into `authenticationTemplate` at the boundary;
+ *  never stored. */
+export const McpAuthShorthand = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("header"),
@@ -62,41 +69,84 @@ export const McpAuthTemplate = Schema.Union([
   }),
   Schema.Struct({ kind: Schema.Literal("oauth2") }),
 ]);
-export type McpAuthTemplate = typeof McpAuthTemplate.Type;
+export type McpAuthShorthand = typeof McpAuthShorthand.Type;
 
-export const mcpAuthMethodFromLegacy = (auth: McpAuthTemplate): McpAuthMethod => ({
-  ...auth,
-  slug: auth.kind,
-});
+/** Expand the `auth` shorthand into a declared method. Slugs match what the
+ *  shorthand has always produced (`none` / `header` / `oauth2`) so existing
+ *  connections bound to them keep matching. */
+export const mcpAuthMethodFromShorthand = (auth: McpAuthShorthand): McpAuthMethod => {
+  if (auth.kind === "header") {
+    return {
+      slug: "header",
+      kind: "apikey",
+      placements: [
+        {
+          carrier: "header",
+          name: auth.headerName,
+          ...(auth.prefix !== undefined ? { prefix: auth.prefix } : {}),
+        },
+      ],
+    };
+  }
+  return { slug: auth.kind, kind: auth.kind };
+};
 
 /** Input variant of `McpAuthMethod` — callers (UI, agents) may omit the slug;
- *  `normalizeMcpAuthMethods` backfills it from the kind. */
+ *  `normalizeMcpAuthMethods` backfills it. */
 export const McpAuthMethodInput = Schema.Union([
   Schema.Struct({ slug: Schema.optional(Schema.String), kind: Schema.Literal("none") }),
-  Schema.Struct({
-    slug: Schema.optional(Schema.String),
-    kind: Schema.Literal("header"),
-    headerName: Schema.String,
-    prefix: Schema.optional(Schema.String),
-  }),
   Schema.Struct({ slug: Schema.optional(Schema.String), kind: Schema.Literal("oauth2") }),
+  // Credential methods are authored request-shaped — the ONE apikey input
+  // dialect: `{ type: "apiKey", headers: { Authorization: ["Bearer ",
+  // variable("token")] }, queryParams: { … } }`. Stored configs and the
+  // catalog read as canonical placements; `apiKeyAuthTemplateFromMethod`
+  // serializes them back for read-modify-write flows.
+  ApiKeyAuthTemplate,
 ]);
 export type McpAuthMethodInput = typeof McpAuthMethodInput.Type;
 
-/** Assign each method a stable slug: a caller-provided one wins, otherwise the
- *  kind (`oauth2`, `header`, `none`), suffixed `_2`, `_3`, … on collision. */
+/** The expansion target: input arms with the dialect resolved to canonical
+ *  placements (slug still optional — backfill is a separate pass). */
+export type McpCanonicalAuthMethodInput =
+  | Exclude<McpAuthMethodInput, ApiKeyAuthTemplate>
+  | (Omit<ApiKeyAuthMethod, "slug"> & { readonly slug?: string });
+
+/** The default slug for a slug-less input method. Carrier-derived for the
+ *  single-placement apikey cases (`header` / `query`) — the slugs those
+ *  methods have always had — so the shorthand, UI, and migration paths all
+ *  converge on the same names. */
+const defaultMcpAuthSlug = (method: McpCanonicalAuthMethodInput): string => {
+  if (method.kind !== "apikey") return method.kind;
+  if (method.placements.length === 1) {
+    return method.placements[0]!.carrier === "header" ? "header" : "query";
+  }
+  return "apikey";
+};
+
+/** Expand request-shaped dialect entries into canonical placements; canonical
+ *  entries pass through. Slug backfill is the caller's concern
+ *  (`normalizeMcpAuthMethods` for declare flows, `mergeAuthTemplates` for the
+ *  custom-method merge). */
+export const expandMcpAuthMethodInputs = (
+  methods: readonly McpAuthMethodInput[],
+): readonly McpCanonicalAuthMethodInput[] =>
+  methods.map(
+    (method): McpCanonicalAuthMethodInput =>
+      isApiKeyAuthTemplate(method)
+        ? (apiKeyMethodFromAuthTemplate(method) as McpCanonicalAuthMethodInput)
+        : (method as McpCanonicalAuthMethodInput),
+  );
+
+/** Assign each method a stable slug: a caller-provided one wins, otherwise a
+ *  kind/carrier-derived default, suffixed `_2`, `_3`, … on collision. The
+ *  request-shaped dialect is expanded to canonical placements first. */
 export const normalizeMcpAuthMethods = (
   methods: readonly McpAuthMethodInput[],
-): readonly McpAuthMethod[] => {
-  const taken = new Set<string>();
-  return methods.map((method: McpAuthMethodInput): McpAuthMethod => {
-    const requested = method.slug?.trim() || method.kind;
-    let slug = requested;
-    for (let n = 2; taken.has(slug); n += 1) slug = `${requested}_${n}`;
-    taken.add(slug);
-    return { ...method, slug };
-  });
-};
+): readonly McpAuthMethod[] =>
+  normalizeAuthMethodSlugs(
+    expandMcpAuthMethodInputs(methods),
+    defaultMcpAuthSlug,
+  ) as readonly McpAuthMethod[];
 
 // ---------------------------------------------------------------------------
 // Integration config — the opaque blob stored on the integration row. A
@@ -118,7 +168,7 @@ export const McpRemoteIntegrationConfig = Schema.Struct({
   queryParams: Schema.optional(StringMap),
   /** Static headers sent on every request (non-credential) */
   headers: Schema.optional(StringMap),
-  /** Declared auth methods — how a connection's value is rendered onto
+  /** Declared auth methods — how a connection's values are rendered onto
    *  requests. A connection's `template` picks one by slug. */
   authenticationTemplate: Schema.Array(McpAuthMethod),
 });
@@ -144,36 +194,13 @@ export const McpIntegrationConfig = Schema.Union([
 export type McpIntegrationConfig = typeof McpIntegrationConfig.Type;
 
 const decodeIntegrationConfig = Schema.decodeUnknownOption(McpIntegrationConfig);
-const decodeLegacyAuth = Schema.decodeUnknownOption(McpAuthTemplate);
 
 /** Parse an opaque integration `config` blob into a typed MCP config, or null
- *  if it isn't this plugin's shape. Stored legacy shapes are lifted in place:
- *  a singular `auth` becomes a one-element `authenticationTemplate` (slug =
- *  kind, matching the template slugs existing connections carry), and a remote
- *  config with neither field is an open server (`[{ slug: "none", … }]`). */
-export const parseMcpIntegrationConfig = (config: unknown): McpIntegrationConfig | null => {
-  if (
-    typeof config === "object" &&
-    config !== null &&
-    "transport" in config &&
-    config.transport === "remote" &&
-    !("authenticationTemplate" in config)
-  ) {
-    const legacyAuth =
-      "auth" in config
-        ? Option.getOrNull(decodeLegacyAuth(config.auth))
-        : { kind: "none" as const };
-    if (legacyAuth === null) return null;
-    const { auth: _auth, ...rest } = config as { auth?: unknown };
-    return Option.getOrNull(
-      decodeIntegrationConfig({
-        ...rest,
-        authenticationTemplate: [mcpAuthMethodFromLegacy(legacyAuth)],
-      }),
-    );
-  }
-  return Option.getOrNull(decodeIntegrationConfig(config));
-};
+ *  if it isn't this plugin's (canonical) shape. Pre-canonical stored shapes
+ *  are rewritten by the one-off config migration (`migrate-config.ts`), not
+ *  decoded here — runtime code knows only the canonical model. */
+export const parseMcpIntegrationConfig = (config: unknown): McpIntegrationConfig | null =>
+  Option.getOrNull(decodeIntegrationConfig(config));
 
 // ---------------------------------------------------------------------------
 // Tool annotations — upstream MCP ToolAnnotations we honour (destructiveHint

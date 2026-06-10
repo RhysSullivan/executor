@@ -37,7 +37,7 @@ import { integrationWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import type { McpAuthMethodInput } from "../sdk/types";
 import { probeMcpEndpoint, addMcpServer } from "./atoms";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
-import { mcpAuthMethodInputFromEditorValue } from "./auth-method-config";
+import { mcpAuthMethodInputFromEditorValue, mcpWireAuthInput } from "./auth-method-config";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
 
 // The remote add flow REGISTERS the server's declared auth methods through the
@@ -322,7 +322,7 @@ export default function AddMcpSource(props: {
     // Every row registers as a declared method (a lone no-auth row registers
     // the open-server method). Slugs are assigned server-side by kind.
     const methods = authMethodList.rows.map((row: AuthMethodRow) =>
-      mcpAuthMethodInputFromEditorValue(row.value),
+      mcpWireAuthInput(mcpAuthMethodInputFromEditorValue(row.value)),
     );
     const slug = await registerIntegration(
       methods.length > 0 ? methods : [{ kind: "none" as const }],

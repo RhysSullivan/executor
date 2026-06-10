@@ -1,5 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
+import { ApiKeyAuthMethod, ApiKeyAuthTemplate } from "@executor-js/sdk/http-auth";
 import {
   InternalError,
   IntegrationAlreadyExistsError,
@@ -46,29 +47,19 @@ const OpenApiSpecInputPayload = Schema.Union([
   }),
 ]);
 
-const AuthenticationVariablePayload = Schema.Struct({
-  type: Schema.Literal("variable"),
-  name: Schema.String,
+const OAuthTemplatePayload = Schema.Struct({
+  slug: Schema.String,
+  kind: Schema.Literal("oauth2"),
+  authorizationUrl: Schema.String,
+  tokenUrl: Schema.String,
+  scopes: Schema.Array(Schema.String),
 });
-const AuthenticationTemplateValuePayload = Schema.Union([
-  Schema.String,
-  Schema.Array(Schema.Union([Schema.String, AuthenticationVariablePayload])),
-]);
-const AuthenticationPayload = Schema.Union([
-  Schema.Struct({
-    slug: Schema.String,
-    type: Schema.Literal("apiKey"),
-    headers: Schema.optional(Schema.Record(Schema.String, AuthenticationTemplateValuePayload)),
-    queryParams: Schema.optional(Schema.Record(Schema.String, AuthenticationTemplateValuePayload)),
-  }),
-  Schema.Struct({
-    slug: Schema.String,
-    type: Schema.Literal("oauth"),
-    authorizationUrl: Schema.String,
-    tokenUrl: Schema.String,
-    scopes: Schema.Array(Schema.String),
-  }),
-]);
+
+/** Auth INPUTS: oauth templates + the request-shaped apikey dialect. */
+const AuthenticationPayload = Schema.Union([OAuthTemplatePayload, ApiKeyAuthTemplate]);
+
+/** Auth in RESPONSES: the canonical stored shapes (placements). */
+const AuthenticationResponse = Schema.Union([OAuthTemplatePayload, ApiKeyAuthMethod]);
 
 const AddSpecPayload = Schema.Struct({
   spec: OpenApiSpecInputPayload,
@@ -119,13 +110,13 @@ const OpenApiConfigView = Schema.Struct({
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  authenticationTemplate: Schema.optional(Schema.Array(AuthenticationPayload)),
+  authenticationTemplate: Schema.optional(Schema.Array(AuthenticationResponse)),
 });
 
 // The configure result — the merged `authenticationTemplate` after the new
 // custom methods were appended/replaced.
 const ConfigureResponse = Schema.Struct({
-  authenticationTemplate: Schema.Array(AuthenticationPayload),
+  authenticationTemplate: Schema.Array(AuthenticationResponse),
 });
 
 // ---------------------------------------------------------------------------

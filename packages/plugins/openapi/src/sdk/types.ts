@@ -1,43 +1,58 @@
 import { Schema } from "effect";
-import type { AuthTemplateSlug } from "@executor-js/sdk/shared";
-import type { OAuthAuthentication } from "@executor-js/sdk/shared";
+import { AuthTemplateSlug, type OAuthAuthentication } from "@executor-js/sdk/shared";
+import {
+  apiKeyMethodFromAuthTemplate,
+  isApiKeyAuthTemplate,
+  type ApiKeyAuthMethod,
+  type ApiKeyAuthTemplate,
+} from "@executor-js/sdk/http-auth";
 
 // ---------------------------------------------------------------------------
-// Auth-template model (ported from the v2 scaffold `openapi/types.ts`).
+// Auth-template model.
 //
-// The apiKey template is HTTP-transport-specific: it declares where the user's
-// credential goes on the outbound request (headers / query params) via the
-// `variable()` templating below. That placement is why it lives with the
-// openapi plugin rather than in core. The oauth template is mechanism-intrinsic
-// and comes from core (`OAuthAuthentication`); an integration's `Authentication`
-// union composes the two. Client credentials (clientId/secret) live on the core
-// `OAuthClient`, not here.
+// The apiKey method is the SHARED placements model (`@executor-js/sdk/http-auth`,
+// the same shape the graphql/mcp plugins store): N header/query placements,
+// each rendered from its own credential input. The oauth template is
+// mechanism-intrinsic and comes from core (`OAuthAuthentication`, keyed
+// `kind: "oauth2"` with stored endpoints+scopes); an integration's
+// `Authentication` union composes the two. Client credentials
+// (clientId/secret) live on the core `OAuthClient`, not here.
+//
+// Pre-canonical stored templates (`type: "apiKey"` with `variable()`-templated
+// header/query records) are rewritten by the one-off config migration
+// (`migrate-config.ts`) — runtime code knows only this model.
 // ---------------------------------------------------------------------------
 
-export type AuthenticationVariable = {
-  readonly type: "variable";
-  readonly name: string;
-};
+export { TOKEN_VARIABLE } from "@executor-js/sdk/http-auth";
 
-/** A literal string, or a parts-array mixing literals and variable refs. */
-export type AuthenticationTemplateValue = string | readonly (string | AuthenticationVariable)[];
+export type APIKeyAuthentication = ApiKeyAuthMethod;
 
-export const variable = (name: string): AuthenticationVariable => ({
-  type: "variable",
-  name,
-});
-
-/** The variable name the resolved credential value renders into. */
-export const TOKEN_VARIABLE = "token" as const;
-
-export type APIKeyAuthentication = {
-  readonly slug: AuthTemplateSlug;
-  readonly type: "apiKey";
-  readonly headers?: Record<string, AuthenticationTemplateValue>;
-  readonly queryParams?: Record<string, AuthenticationTemplateValue>;
-};
-
+/** Every method is keyed by `kind` — `kind: "oauth2"` | `kind: "apikey"`. */
 export type Authentication = OAuthAuthentication | APIKeyAuthentication;
+
+/** What auth inputs accept: oauth templates (wire-typed: plain slug) plus the
+ *  request-shaped apikey dialect (`type: "apiKey"`, headers/queryParams
+ *  records) — the ONE apikey authoring shape. Stored configs and the catalog
+ *  read as canonical placements; `apiKeyAuthTemplateFromMethod` serializes
+ *  them back for read-modify-write flows. */
+export type OAuthAuthenticationInput = Omit<OAuthAuthentication, "slug"> & {
+  readonly slug: string;
+};
+export type AuthenticationInput = OAuthAuthenticationInput | ApiKeyAuthTemplate;
+
+/** Expand the request-shaped dialect into canonical placements and brand the
+ *  oauth slugs. A dialect entry without a slug gets a blank one —
+ *  `mergeAuthTemplates` backfills `custom_<id>`. */
+export const normalizeOpenApiAuthInputs = (
+  inputs: readonly AuthenticationInput[],
+): readonly Authentication[] =>
+  inputs.map((input): Authentication => {
+    if (!isApiKeyAuthTemplate(input)) {
+      return { ...input, slug: AuthTemplateSlug.make(input.slug) };
+    }
+    const method = apiKeyMethodFromAuthTemplate(input);
+    return { ...method, slug: method.slug ?? "" };
+  });
 
 // ---------------------------------------------------------------------------
 // Branded IDs

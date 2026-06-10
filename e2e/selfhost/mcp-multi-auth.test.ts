@@ -46,7 +46,10 @@ scenario(
             slug,
             authenticationTemplate: [
               { kind: "oauth2" },
-              { kind: "header", headerName: "Authorization", prefix: "Bearer " },
+              {
+                type: "apiKey",
+                headers: { Authorization: ["Bearer ", { type: "variable", name: "token" }] },
+              },
             ],
           },
         });

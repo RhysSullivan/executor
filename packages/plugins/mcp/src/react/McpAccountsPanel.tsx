@@ -15,7 +15,11 @@ import {
 import { integrationWriteKeys } from "@executor-js/react/api/reactivity-keys";
 
 import { configureMcpAuth, mcpServerAtom } from "./atoms";
-import { authMethodsFromConfig, mcpAuthMethodInputsFromPlacements } from "./auth-method-config";
+import {
+  authMethodsFromConfig,
+  mcpAuthMethodInputsFromPlacements,
+  mcpWireAuthInput,
+} from "./auth-method-config";
 import type { McpAuthMethod } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
@@ -60,7 +64,7 @@ export default function McpAccountsPanel(props: {
       const exit = await doConfigureAuth({
         params: { slug },
         payload: {
-          authenticationTemplate: input.authenticationTemplate,
+          authenticationTemplate: input.authenticationTemplate.map(mcpWireAuthInput),
           ...(input.mode ? { mode: input.mode } : {}),
         },
         reactivityKeys: integrationWriteKeys,

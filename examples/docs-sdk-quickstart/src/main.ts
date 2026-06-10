@@ -99,7 +99,7 @@ const executor = await createExecutor({
 // docs:end create-executor
 
 // docs:start add-integration
-// An integration is the API surface. The apiKey template declares where a
+// An integration is the API surface. The auth template declares where a
 // connection's credential is placed on each request — here, an `X-API-Key`
 // header. `variable("token")` is the slot the resolved credential renders into.
 await executor.openapi.addSpec({

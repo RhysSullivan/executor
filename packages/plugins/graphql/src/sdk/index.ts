@@ -20,17 +20,22 @@ export {
 } from "./errors";
 
 export {
-  ApiKeyAuthTemplate,
-  AuthTemplate,
   decodeGraphqlIntegrationConfig,
   decodeGraphqlIntegrationConfigOption,
   ExtractedField,
   ExtractionResult,
   GraphqlArgument,
+  GraphqlAuthMethod,
+  GraphqlAuthMethodInput,
   GraphqlIntegrationConfig,
+  GraphqlOAuthMethod,
   GraphqlOperationKind,
   InvocationResult,
-  OAuthAuthTemplate,
+  normalizeGraphqlAuthMethods,
   OperationBinding,
-  type ApiKeyAuthTemplate as ApiKeyAuthTemplateType,
 } from "./types";
+
+export { migrateGraphqlAuthConfig } from "./migrate-config";
+
+// Request-shaped authoring: `headers: { Authorization: ["Bearer ", variable("token")] }`.
+export { variable, type ApiKeyAuthTemplate } from "@executor-js/sdk/http-auth";

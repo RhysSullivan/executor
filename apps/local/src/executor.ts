@@ -5,10 +5,12 @@ import { basename, join } from "node:path";
 import { createHash } from "node:crypto";
 
 import { Subject, Tenant, createExecutor, type AnyPlugin, type Executor } from "@executor-js/sdk";
+import { runSqliteAuthConfigMigration } from "@executor-js/sdk/http-auth";
 import { collectTables } from "@executor-js/api/server";
 import { loadPluginsFromJsonc } from "@executor-js/config";
 
 import executorConfig from "../executor.config";
+import { authConfigTransforms } from "./db/auth-config-migration";
 import { createSqliteFumaDb } from "./db/sqlite-fumadb";
 import { migrateLocalV1ToV2IfNeeded } from "./db/v1-v2-migration";
 
@@ -166,6 +168,15 @@ const createLocalExecutorLayer = () => {
         }),
         (db) => Effect.promise(() => db.close()).pipe(Effect.ignore),
       );
+
+      // One-off data migration: rewrite pre-canonical integration auth
+      // configs (incl. v1→v2 outputs) into the shared placements model.
+      // Idempotent — a no-op once every row is canonical.
+      yield* Effect.tryPromise({
+        try: () => runSqliteAuthConfigMigration(sqlite.client, authConfigTransforms),
+        catch: (cause) =>
+          new LocalExecutorCreateError({ message: CREATE_SQLITE_ERROR_MESSAGE, cause }),
+      });
 
       // webBaseUrl is where the executor's web UI listens — same port as the
       // daemon API since the daemon serves both. Mirrors serve.ts's port

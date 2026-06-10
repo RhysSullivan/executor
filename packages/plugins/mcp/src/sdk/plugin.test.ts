@@ -315,10 +315,12 @@ describe("mcpPlugin", () => {
       });
 
       const merged = yield* executor.mcp.configureAuth("oauth_mcp", {
-        authenticationTemplate: [{ kind: "header", headerName: "X-Api-Key" }],
+        authenticationTemplate: [
+          { type: "apiKey", headers: { "X-Api-Key": [{ type: "variable", name: "token" }] } },
+        ],
       });
 
-      expect(merged.map((method) => method.kind)).toEqual(["oauth2", "header"]);
+      expect(merged.map((method) => method.kind)).toEqual(["oauth2", "apikey"]);
       expect(merged[0]?.slug).toBe("oauth2");
       expect(merged[1]?.slug).toMatch(/^custom_/);
 
@@ -341,7 +343,10 @@ describe("mcpPlugin", () => {
       const merged = yield* executor.mcp.configureAuth("open_mcp", {
         authenticationTemplate: [
           { kind: "oauth2" },
-          { kind: "header", headerName: "Authorization", prefix: "Bearer " },
+          {
+            type: "apiKey",
+            headers: { Authorization: ["Bearer ", { type: "variable", name: "token" }] },
+          },
         ],
         mode: "replace",
       });

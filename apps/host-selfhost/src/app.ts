@@ -4,7 +4,10 @@ import { Layer } from "effect";
 
 import { composePluginApi, ExecutorApp, textFailureStrategy } from "@executor-js/api/server";
 
+import { runSqliteAuthConfigMigration } from "@executor-js/sdk/http-auth";
+
 import { resolveAuthProviders } from "./auth";
+import { authConfigTransforms } from "./db/auth-config-migration";
 import { makeSelfHostAdminApiLayer } from "./admin/handlers";
 import { makeSelfHostSystemApiLayer } from "./system/handlers";
 import { selfHostAccountMiddleware } from "./account";
@@ -53,6 +56,11 @@ export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
     namespace: SELF_HOST_NAMESPACE,
     version: SELF_HOST_SCHEMA_VERSION,
   });
+
+  // One-off data migration: rewrite pre-canonical integration auth configs
+  // into the shared placements model. Idempotent — a no-op once every row is
+  // canonical (same defensive-at-boot pattern as the column adds above).
+  await runSqliteAuthConfigMigration(dbHandle.client, authConfigTransforms);
 
   // ---- auth providers ---------------------------------------------------
   // Better Auth: cookie/bearer/api-key identity + /api/auth handler + account

@@ -2,8 +2,6 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor-js/api";
-import { AuthTemplateSlug } from "@executor-js/sdk/shared";
-import type { Authentication } from "../sdk";
 import type { OpenApiPluginExtension } from "../sdk/plugin";
 import { OpenApiGroup } from "./group";
 
@@ -60,12 +58,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
             baseUrl: payload.baseUrl,
             headers: payload.headers ? { ...payload.headers } : undefined,
             queryParams: payload.queryParams ? { ...payload.queryParams } : undefined,
-            authenticationTemplate: payload.authenticationTemplate?.map(
-              (entry): Authentication => ({
-                ...entry,
-                slug: AuthTemplateSlug.make(entry.slug),
-              }),
-            ),
+            authenticationTemplate: payload.authenticationTemplate,
           });
         }),
       ),
@@ -115,12 +108,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
           const authenticationTemplate = yield* ext.configure(params.slug, {
-            authenticationTemplate: payload.authenticationTemplate.map(
-              (entry): Authentication => ({
-                ...entry,
-                slug: AuthTemplateSlug.make(entry.slug),
-              }),
-            ),
+            authenticationTemplate: payload.authenticationTemplate,
             mode: payload.mode ?? "merge",
           });
           return { authenticationTemplate: [...authenticationTemplate] };

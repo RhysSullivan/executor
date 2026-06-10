@@ -31,6 +31,10 @@ export interface Placement {
    *  each get a distinct variable. Two placements sharing a variable share one
    *  value. */
   readonly variable?: string;
+  /** Set when the placement renders this exact value instead of a credential
+   *  (a static header/param the method carries). Carried through edits; the
+   *  editor doesn't create these. */
+  readonly literal?: string;
 }
 
 /** A fresh, empty header placement — the default first row in an editor. */
@@ -42,7 +46,7 @@ export const emptyPlacement = (): Placement => ({ carrier: "header", name: "", p
  *  `source` distinguishes integration-declared ("spec") methods from
  *  user-defined ("custom") ones. `template` is the auth-template slug the
  *  method applies a connection through. */
-export type AuthMethodKind = "oauth" | "apikey" | "custom" | "none";
+export type AuthMethodKind = "oauth" | "apikey" | "none";
 
 /** Provider OAuth endpoints/scopes an `oauth` method declares, used to pre-fill
  *  the client-registration form so the user only pastes their client id/secret.
@@ -167,6 +171,7 @@ function authMethodFromDescriptor(descriptor: AuthMethodDescriptor): AuthMethod 
             name: placement.name,
             prefix: placement.prefix,
             ...(placement.variable ? { variable: placement.variable } : {}),
+            ...(placement.literal !== undefined ? { literal: placement.literal } : {}),
           }),
         )
       : DEFAULT_PLACEMENTS;

@@ -130,7 +130,7 @@ await executor.connections.create({
 //   template: "bearer",
 //   value: "sk_live_...",
 // });
-void variable;
+void variable; // referenced by the commented authoring example above
 
 // ---------------------------------------------------------------------------
 // 4. GraphQL — introspect an endpoint as an integration, then connect.

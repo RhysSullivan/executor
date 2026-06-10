@@ -13,7 +13,6 @@ import {
   ToolName,
   ToolResult,
   type AuthMethodDescriptor,
-  type AuthPlacementDescriptor,
   type IntegrationConfig,
   type IntegrationRecord,
   type PluginCtx,
@@ -21,6 +20,16 @@ import {
   type ToolAnnotations,
   type ToolDef,
 } from "@executor-js/sdk/core";
+
+import {
+  TOKEN_VARIABLE,
+  describeApiKeyAuthMethod,
+  describeNoneAuthMethod,
+  oauthBearerPlacement,
+  renderAuthPlacements,
+  requiredPlacementVariables,
+  type RenderedAuthPlacements,
+} from "@executor-js/sdk/http-auth";
 
 import {
   introspect,
@@ -40,12 +49,15 @@ import { invokeWithLayer } from "./invoke";
 import { graphqlPresets } from "./presets";
 import { makeDefaultGraphqlStore, type GraphqlStore, type StoredOperation } from "./store";
 import {
-  AuthTemplate,
+  GraphqlAuthMethodInput,
   decodeGraphqlIntegrationConfig,
   decodeGraphqlIntegrationConfigOption,
   ExtractedField,
   GraphqlIntegrationConfig,
+  expandGraphqlAuthMethodInputs,
+  normalizeGraphqlAuthMethods,
   OperationBinding,
+  type GraphqlAuthMethod,
   type GraphqlOperationKind,
 } from "./types";
 
@@ -72,8 +84,6 @@ const GRAPHQL_PLUGIN_ID = "graphql";
 // Extension input shapes
 // ---------------------------------------------------------------------------
 
-const AuthTemplateSchema = AuthTemplate;
-
 /** Register a GraphQL integration in the catalog. `endpoint` is the GraphQL URL;
  *  `slug` (defaulted from the endpoint) is the catalog id; `introspectionJson`
  *  supplies the schema when the endpoint disables live introspection; `headers`
@@ -87,7 +97,7 @@ const GraphqlAddIntegrationInputSchema = Schema.Struct({
   introspectionJson: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  authenticationTemplate: Schema.optional(Schema.Array(AuthTemplateSchema)),
+  authenticationTemplate: Schema.optional(Schema.Array(GraphqlAuthMethodInput)),
 });
 export type GraphqlAddIntegrationInput = typeof GraphqlAddIntegrationInputSchema.Type;
 
@@ -96,17 +106,17 @@ const GraphqlConfigureInputSchema = Schema.Struct({
   endpoint: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  authenticationTemplate: Schema.optional(Schema.Array(AuthTemplateSchema)),
+  authenticationTemplate: Schema.optional(Schema.Array(GraphqlAuthMethodInput)),
 });
 export type GraphqlConfigureInput = typeof GraphqlConfigureInputSchema.Type;
 
 /** Input for the custom-method-create flow (HTTP `POST /graphql/integrations/
  *  :slug/config`). Unlike `configure` (which REPLACES the whole config for the
- *  generic repair path), `configureAuth` MERGE-APPENDS these templates onto the
+ *  generic repair path), `configureAuth` MERGE-APPENDS these methods onto the
  *  integration's existing `authenticationTemplate`, mirroring OpenAPI's
  *  `configure`. */
 const GraphqlConfigureAuthInputSchema = Schema.Struct({
-  authenticationTemplate: Schema.Array(AuthTemplateSchema),
+  authenticationTemplate: Schema.Array(GraphqlAuthMethodInput),
   mode: Schema.optional(Schema.Literals(["merge", "replace"])),
 });
 export type GraphqlConfigureAuthInput = typeof GraphqlConfigureAuthInputSchema.Type;
@@ -337,26 +347,21 @@ const annotationsFor = (binding: OperationBinding): ToolAnnotations => {
 };
 
 // ---------------------------------------------------------------------------
-// Auth template rendering (D11) — apply the resolved credential value through
-// the template the connection references, exactly like an apiKey bearer.
+// Auth method rendering (D11) — apply the connection's resolved values through
+// the method the connection references. An oauth2 method is the conventional
+// bearer placement (with the method's optional header/prefix override) over
+// the resolved access token; an apikey method renders its declared placements.
 // ---------------------------------------------------------------------------
 
-interface RenderedAuth {
-  readonly headers: Record<string, string>;
-  readonly queryParams: Record<string, string>;
-}
-
-const renderAuthTemplate = (template: AuthTemplate, value: string): RenderedAuth => {
-  if (template.kind === "oauth2") {
-    const header = template.header ?? "Authorization";
-    const prefix = template.prefix ?? "Bearer ";
-    return { headers: { [header]: `${prefix}${value}` }, queryParams: {} };
+const renderGraphqlAuthMethod = (
+  method: GraphqlAuthMethod,
+  values: Record<string, string | null>,
+): RenderedAuthPlacements => {
+  if (method.kind === "apikey") return renderAuthPlacements(method.placements, values);
+  if (method.kind === "oauth2") {
+    return renderAuthPlacements([oauthBearerPlacement(method.header, method.prefix)], values);
   }
-  const rendered = template.prefix ? `${template.prefix}${value}` : value;
-  if (template.in === "query") {
-    return { headers: {}, queryParams: { [template.name]: rendered } };
-  }
-  return { headers: { [template.name]: rendered }, queryParams: {} };
+  return { headers: {}, queryParams: {} };
 };
 
 // ---------------------------------------------------------------------------
@@ -387,23 +392,23 @@ const toStoredOperations = (
  *  auth-required endpoint introspects successfully here rather than at add-time. */
 const introspectHeadersForConnection = (
   config: GraphqlIntegrationConfig,
-  credentialValue: string | null,
+  values: Record<string, string | null>,
   templateSlug: AuthTemplateSlug | null,
-): RenderedAuth => {
+): RenderedAuthPlacements => {
   const headers: Record<string, string> = { ...(config.headers ?? {}) };
   const queryParams: Record<string, string> = { ...(config.queryParams ?? {}) };
-  if (credentialValue !== null) {
-    // Render the exact template the connection references; with no slug
-    // (connection row not yet persisted) fall back to the first declared.
-    const template =
-      (templateSlug !== null
-        ? config.authenticationTemplate.find((t: AuthTemplate) => t.slug === String(templateSlug))
-        : undefined) ?? config.authenticationTemplate[0];
-    if (template) {
-      const rendered = renderAuthTemplate(template, credentialValue);
-      Object.assign(headers, rendered.headers);
-      Object.assign(queryParams, rendered.queryParams);
-    }
+  // Render the exact method the connection references; with no slug
+  // (connection row not yet persisted) fall back to the first declared.
+  const method =
+    (templateSlug !== null
+      ? config.authenticationTemplate.find(
+          (m: GraphqlAuthMethod) => m.slug === String(templateSlug),
+        )
+      : undefined) ?? config.authenticationTemplate[0];
+  if (method) {
+    const rendered = renderGraphqlAuthMethod(method, values);
+    Object.assign(headers, rendered.headers);
+    Object.assign(queryParams, rendered.queryParams);
   }
   return { headers, queryParams };
 };
@@ -413,14 +418,14 @@ const introspectHeadersForConnection = (
  *  present; otherwise this introspects the endpoint with the rendered credential. */
 const introspectForConnection = (
   config: GraphqlIntegrationConfig,
-  credentialValue: string | null,
+  values: Record<string, string | null>,
   templateSlug: AuthTemplateSlug | null,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
 ): Effect.Effect<IntrospectionResult, GraphqlIntrospectionError> => {
   if (config.introspectionJson) {
     return parseIntrospectionJson(config.introspectionJson);
   }
-  const auth = introspectHeadersForConnection(config, credentialValue, templateSlug);
+  const auth = introspectHeadersForConnection(config, values, templateSlug);
   return introspect(
     config.endpoint,
     Object.keys(auth.headers).length > 0 ? auth.headers : undefined,
@@ -438,22 +443,22 @@ const materializeOperations = (
   config: GraphqlIntegrationConfig,
   credential: {
     readonly template: AuthTemplateSlug;
-    readonly value: string | null;
+    readonly values: Record<string, string | null>;
   },
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
 ): Effect.Effect<readonly StoredOperation[], GraphqlIntrospectionError | StorageFailure> =>
   Effect.gen(function* () {
-    // Render the exact template this connection references (we have its slug
+    // Render the exact method this connection references (we have its slug
     // here, unlike `resolveTools`) so an auth-required endpoint introspects.
-    const template = config.authenticationTemplate.find(
-      (t: AuthTemplate) => t.slug === String(credential.template),
+    const method = config.authenticationTemplate.find(
+      (m: GraphqlAuthMethod) => m.slug === String(credential.template),
     );
     const headers: Record<string, string> = { ...(config.headers ?? {}) };
     const queryParams: Record<string, string> = {
       ...(config.queryParams ?? {}),
     };
-    if (template && credential.value !== null) {
-      const rendered = renderAuthTemplate(template, credential.value);
+    if (method) {
+      const rendered = renderGraphqlAuthMethod(method, credential.values);
       Object.assign(headers, rendered.headers);
       Object.assign(queryParams, rendered.queryParams);
     }
@@ -489,44 +494,29 @@ const materializeOperations = (
 // through the catalog's `authMethods` to the hub / Add-account flows. Exported
 // for tests.
 //
-//   apiKey → one apikey method carrying a single header/query placement (the
-//            `name` from the template, with the template's `prefix` defaulted to
-//            `""`).
+//   none   → a no-auth method carrying no credential inputs
+//   apikey → carried placements (headers / query params) verbatim
 //   oauth2 → one oauth method (no resolved endpoints; graphql renders the
 //            connection value as a bearer at invoke time).
 // ---------------------------------------------------------------------------
-
-const graphqlApiKeyLabel = (placement: AuthPlacementDescriptor): string =>
-  `API key (${placement.name || (placement.carrier === "header" ? "header" : "query")})`;
 
 export const describeGraphqlAuthMethods = (
   record: IntegrationRecord,
 ): readonly AuthMethodDescriptor[] => {
   const config = Option.getOrUndefined(decodeGraphqlIntegrationConfigOption(record.config));
   if (!config) return [];
-  return config.authenticationTemplate.map((template: AuthTemplate): AuthMethodDescriptor => {
-    const slug = template.slug;
-    if (template.kind === "oauth2") {
+  return config.authenticationTemplate.map((method: GraphqlAuthMethod): AuthMethodDescriptor => {
+    if (method.kind === "apikey") return describeApiKeyAuthMethod(method);
+    if (method.kind === "oauth2") {
       return {
-        id: slug,
+        id: method.slug,
         label: "OAuth",
         kind: "oauth",
-        template: slug,
+        template: method.slug,
         oauth: {},
       };
     }
-    const placement: AuthPlacementDescriptor = {
-      carrier: template.in,
-      name: template.name,
-      prefix: template.prefix ?? "",
-    };
-    return {
-      id: slug,
-      label: graphqlApiKeyLabel(placement),
-      kind: "apikey",
-      template: slug,
-      placements: [placement],
-    };
+    return describeNoneAuthMethod(method.slug);
   });
 };
 
@@ -555,7 +545,9 @@ const makeGraphqlExtension = (ctx: PluginCtx<GraphqlStore>) => {
         : {}),
       ...(input.headers !== undefined ? { headers: input.headers } : {}),
       ...(input.queryParams !== undefined ? { queryParams: input.queryParams } : {}),
-      authenticationTemplate: input.authenticationTemplate ?? [],
+      authenticationTemplate: input.authenticationTemplate
+        ? normalizeGraphqlAuthMethods(input.authenticationTemplate)
+        : [],
     });
 
   /** Register the integration in the catalog. Registering a source is a
@@ -663,7 +655,9 @@ const makeGraphqlExtension = (ctx: PluginCtx<GraphqlStore>) => {
         ...((input.queryParams ?? current.queryParams) !== undefined
           ? { queryParams: input.queryParams ?? current.queryParams }
           : {}),
-        authenticationTemplate: input.authenticationTemplate ?? current.authenticationTemplate,
+        authenticationTemplate: input.authenticationTemplate
+          ? normalizeGraphqlAuthMethods(input.authenticationTemplate)
+          : current.authenticationTemplate,
       });
 
       yield* ctx.core.integrations.update(IntegrationSlug.make(slug), {
@@ -691,18 +685,27 @@ const makeGraphqlExtension = (ctx: PluginCtx<GraphqlStore>) => {
   const configureAuthMethods = (
     slug: string,
     input: GraphqlConfigureAuthInput,
-  ): Effect.Effect<readonly AuthTemplate[], StorageFailure> =>
+  ): Effect.Effect<readonly GraphqlAuthMethod[], StorageFailure> =>
     ctx.transaction(
       Effect.gen(function* () {
         const record = yield* ctx.core.integrations.get(IntegrationSlug.make(slug));
-        if (!record) return [] as readonly AuthTemplate[];
+        if (!record) return [] as readonly GraphqlAuthMethod[];
         const current = Option.getOrNull(decodeGraphqlIntegrationConfigOption(record.config));
-        if (!current) return [] as readonly AuthTemplate[];
+        if (!current) return [] as readonly GraphqlAuthMethod[];
 
+        // Replace mode declares the full set — backfill kind-based slugs.
+        // Merge mode appends: `mergeAuthTemplates` replaces on slug match and
+        // assigns fresh `custom_<id>` slugs to slug-less entries, so a custom
+        // method never silently displaces a declared one.
         const merged =
           input.mode === "replace"
-            ? input.authenticationTemplate
-            : mergeAuthTemplates(current.authenticationTemplate, input.authenticationTemplate);
+            ? normalizeGraphqlAuthMethods(input.authenticationTemplate)
+            : mergeAuthTemplates(
+                current.authenticationTemplate,
+                expandGraphqlAuthMethodInputs(
+                  input.authenticationTemplate,
+                ) as readonly GraphqlAuthMethod[],
+              );
 
         const next = GraphqlIntegrationConfig.make({
           ...current,
@@ -849,25 +852,27 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
     resolveTools: ({
       config,
       template,
-      getValue,
+      getValues,
     }: {
       readonly config: IntegrationConfig;
       readonly template: AuthTemplateSlug | null;
-      readonly getValue: () => Effect.Effect<string | null, unknown>;
+      readonly getValues: () => Effect.Effect<Record<string, string | null>, unknown>;
     }) =>
       Effect.gen(function* () {
         const decoded = yield* decodeGraphqlIntegrationConfig(config).pipe(Effect.option);
         if (Option.isNone(decoded)) return { tools: [] };
         const graphqlConfig = decoded.value;
         // Live introspection (no stored snapshot) needs the connection's
-        // credential for auth-required endpoints; resolve it lazily.
-        const credentialValue =
+        // credential inputs for auth-required endpoints; resolve them lazily.
+        const values =
           graphqlConfig.introspectionJson === undefined
-            ? yield* getValue().pipe(Effect.catch(() => Effect.succeed(null)))
-            : null;
+            ? yield* getValues().pipe(
+                Effect.catch(() => Effect.succeed({} as Record<string, string | null>)),
+              )
+            : ({} as Record<string, string | null>);
         const introspection = yield* introspectForConnection(
           graphqlConfig,
-          credentialValue,
+          values,
           template,
           options?.httpClientLayer ?? httpClientLayerFallback,
         ).pipe(Effect.option);
@@ -929,29 +934,35 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
           ...(config.queryParams ?? {}),
         };
 
-        const template = config.authenticationTemplate.find(
-          (t: AuthTemplate) => t.slug === String(credential.template),
+        const method = config.authenticationTemplate.find(
+          (m: GraphqlAuthMethod) => m.slug === String(credential.template),
         );
-        if (template) {
-          if (credential.value === null) {
+        if (method && method.kind !== "none") {
+          // A method with unresolved inputs fails the invocation explicitly
+          // instead of dialing unauthenticated. oauth2 requires the resolved
+          // access token (`token`); apikey requires every placement variable.
+          const missing = (
+            method.kind === "oauth2"
+              ? [TOKEN_VARIABLE]
+              : requiredPlacementVariables(method.placements)
+          ).filter((variable) => credential.values[variable] == null);
+          if (missing.length > 0) {
             return yield* new GraphqlAuthRequiredError({
               code:
-                template.kind === "oauth2"
-                  ? "oauth_connection_missing"
-                  : "connection_value_missing",
+                method.kind === "oauth2" ? "oauth_connection_missing" : "connection_value_missing",
               message:
-                template.kind === "oauth2"
+                method.kind === "oauth2"
                   ? `Missing OAuth connection value for GraphQL integration "${integration}" (connection "${credential.connection}")`
-                  : `Missing credential value for GraphQL integration "${integration}" (connection "${credential.connection}")`,
+                  : `Missing credential value for GraphQL integration "${integration}" (connection "${credential.connection}") for input(s): ${missing.join(", ")}`,
               owner: credential.owner,
               integration,
               connection: String(credential.connection),
-              credentialKind: template.kind === "oauth2" ? "oauth" : "secret",
-              credentialLabel: template.kind === "oauth2" ? "OAuth sign-in" : "API key",
+              credentialKind: method.kind === "oauth2" ? "oauth" : "secret",
+              credentialLabel: method.kind === "oauth2" ? "OAuth sign-in" : "API key",
               template: String(credential.template),
             });
           }
-          const rendered = renderAuthTemplate(template, credential.value);
+          const rendered = renderGraphqlAuthMethod(method, credential.values);
           Object.assign(headers, rendered.headers);
           Object.assign(queryParams, rendered.queryParams);
         }

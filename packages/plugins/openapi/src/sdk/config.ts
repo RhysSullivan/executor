@@ -1,7 +1,12 @@
 import { Option, Schema } from "effect";
+import {
+  ApiKeyAuthMethod,
+  TOKEN_VARIABLE,
+  renderAuthPlacements,
+  requiredPlacementVariables,
+} from "@executor-js/sdk/http-auth";
 
-import type { Authentication, AuthenticationTemplateValue, AuthenticationVariable } from "./types";
-import { TOKEN_VARIABLE } from "./types";
+import type { Authentication } from "./types";
 
 // ---------------------------------------------------------------------------
 // OpenAPI integration config — the opaque blob stored on the catalog
@@ -15,35 +20,15 @@ import { TOKEN_VARIABLE } from "./types";
 //   - the auth templates a connection's value is rendered through.
 // ---------------------------------------------------------------------------
 
-const AuthenticationVariableSchema = Schema.Struct({
-  type: Schema.Literal("variable"),
-  name: Schema.String,
-});
-
-const AuthenticationTemplateValueSchema = Schema.Union([
-  Schema.String,
-  Schema.Array(Schema.Union([Schema.String, AuthenticationVariableSchema])),
-]);
-
-const APIKeyAuthenticationSchema = Schema.Struct({
-  slug: Schema.String,
-  type: Schema.Literal("apiKey"),
-  headers: Schema.optional(Schema.Record(Schema.String, AuthenticationTemplateValueSchema)),
-  queryParams: Schema.optional(Schema.Record(Schema.String, AuthenticationTemplateValueSchema)),
-});
-
 const OAuthAuthenticationSchema = Schema.Struct({
   slug: Schema.String,
-  type: Schema.Literal("oauth"),
+  kind: Schema.Literal("oauth2"),
   authorizationUrl: Schema.String,
   tokenUrl: Schema.String,
   scopes: Schema.Array(Schema.String),
 });
 
-export const AuthenticationSchema = Schema.Union([
-  OAuthAuthenticationSchema,
-  APIKeyAuthenticationSchema,
-]);
+export const AuthenticationSchema = Schema.Union([OAuthAuthenticationSchema, ApiKeyAuthMethod]);
 
 export const OpenApiIntegrationConfigSchema = Schema.Struct({
   /** Inlined OpenAPI document text (resolved + parsed source of truth). */
@@ -80,21 +65,10 @@ export const decodeOpenApiIntegrationConfig = (value: unknown): OpenApiIntegrati
 
 // ---------------------------------------------------------------------------
 // Template rendering — "auth state derived into the auth-template format"
-// (D11). The resolved credential value renders into the template's
-// `variable("token")` slots, identically for apiKey and oauth (the oauth value
-// IS the access token). Returns the headers + query params to apply.
+// (D11). An apiKey method renders through the shared placements renderer; an
+// oauth template (no explicit placement) renders a bearer `authorization`
+// header from the `token` input (the access token).
 // ---------------------------------------------------------------------------
-
-const isVariable = (part: string | AuthenticationVariable): part is AuthenticationVariable =>
-  typeof part !== "string";
-
-const renderTemplateValue = (
-  template: AuthenticationTemplateValue,
-  values: Record<string, string | null>,
-): string => {
-  if (typeof template === "string") return template;
-  return template.map((part) => (isVariable(part) ? (values[part.name] ?? "") : part)).join("");
-};
 
 export interface RenderedAuth {
   readonly headers: Record<string, string>;
@@ -102,44 +76,26 @@ export interface RenderedAuth {
 }
 
 /** Render an auth template against a connection's resolved input `values`
- *  (`variable → value`). For an apiKey template, each `variable("<name>")` is
- *  substituted from its own entry, so a method with two distinct inputs (e.g.
- *  Datadog) fills each header from a different value. For an oauth template (no
- *  explicit placement), render a bearer Authorization header from `token`. */
+ *  (`variable → value`). Each placement substitutes from its own entry, so a
+ *  method with two distinct inputs (e.g. Datadog) fills each header from a
+ *  different value. */
 export const renderAuthTemplate = (
   template: Authentication,
   values: Record<string, string | null>,
 ): RenderedAuth => {
-  if (template.type === "oauth") {
+  if (template.kind === "oauth2") {
     return {
       headers: { authorization: `Bearer ${values[TOKEN_VARIABLE] ?? ""}` },
       queryParams: {},
     };
   }
-  const headers: Record<string, string> = {};
-  const queryParams: Record<string, string> = {};
-  for (const [name, tmpl] of Object.entries(template.headers ?? {})) {
-    headers[name] = renderTemplateValue(tmpl, values);
-  }
-  for (const [name, tmpl] of Object.entries(template.queryParams ?? {})) {
-    queryParams[name] = renderTemplateValue(tmpl, values);
-  }
-  return { headers, queryParams };
+  return renderAuthPlacements(template.placements, values);
 };
 
 /** The distinct input variables a template references — the inputs a connection
- *  must supply. An oauth template needs `token`; an apiKey template needs every
- *  `variable("<name>")` across its placements. */
+ *  must supply. An oauth template needs `token`; an apiKey method needs every
+ *  variable across its placements. */
 export const requiredTemplateVariables = (template: Authentication): readonly string[] => {
-  if (template.type === "oauth") return [TOKEN_VARIABLE];
-  const names = new Set<string>();
-  const collect = (tmpl: AuthenticationTemplateValue): void => {
-    if (typeof tmpl === "string") return;
-    for (const part of tmpl) {
-      if (isVariable(part)) names.add(part.name);
-    }
-  };
-  for (const tmpl of Object.values(template.headers ?? {})) collect(tmpl);
-  for (const tmpl of Object.values(template.queryParams ?? {})) collect(tmpl);
-  return [...names];
+  if (template.kind === "oauth2") return [TOKEN_VARIABLE];
+  return requiredPlacementVariables(template.placements);
 };

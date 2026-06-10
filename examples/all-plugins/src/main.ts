@@ -235,7 +235,7 @@ const program = Effect.gen(function* () {
     baseUrl: "https://example.com/api",
     authenticationTemplate: [
       {
-        slug: AuthTemplateSlug.make("apiKey"),
+        slug: "apiKey",
         type: "apiKey",
         headers: { "X-API-Key": [variable("token")] },
       },

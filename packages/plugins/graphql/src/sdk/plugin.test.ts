@@ -328,7 +328,7 @@ describe("graphqlPlugin real protocol server", () => {
         slug: "live_invoke",
         queryParams: { trace: "on" },
         authenticationTemplate: [
-          { kind: "apiKey", slug: "header", in: "header", name: "x-static" },
+          { slug: "header", kind: "apikey", placements: [{ carrier: "header", name: "x-static" }] },
         ],
       });
       yield* createOrgConnection(executor, {
@@ -768,11 +768,9 @@ describe("graphqlPlugin", () => {
         introspectionJson,
         authenticationTemplate: [
           {
-            kind: "apiKey",
             slug: "header",
-            in: "header",
-            name: "Authorization",
-            prefix: "Bearer ",
+            kind: "apikey",
+            placements: [{ carrier: "header", name: "Authorization", prefix: "Bearer " }],
           },
         ],
       });

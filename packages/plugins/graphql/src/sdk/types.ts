@@ -1,4 +1,12 @@
 import { Schema } from "effect";
+import {
+  ApiKeyAuthTemplate,
+  apiKeyMethodFromAuthTemplate,
+  isApiKeyAuthTemplate,
+  ApiKeyAuthMethod,
+  NoneAuthMethod,
+  normalizeAuthMethodSlugs,
+} from "@executor-js/sdk/http-auth";
 
 // ---------------------------------------------------------------------------
 // GraphQL operation kind
@@ -55,35 +63,27 @@ export const OperationBinding = Schema.Struct({
 export type OperationBinding = typeof OperationBinding.Type;
 
 // ---------------------------------------------------------------------------
-// Authentication template (v2)
+// Auth methods — the shared placements vocabulary (`@executor-js/sdk/http-auth`)
+// plus GraphQL's own oauth variant. The integration's
+// `config.authenticationTemplate` declares zero or more methods, each with a
+// stable `slug` a connection binds against (`connection.template`). There are
+// no secret slots and no credential bindings — a connection IS the credential,
+// and the plugin renders its resolved values onto the request through the
+// bound method (D11).
 //
-// The integration's `config.authenticationTemplate` describes WHERE a
-// connection's resolved value is applied: an apiKey header / query param (with
-// an optional prefix like `Bearer `) or an OAuth bearer header. There are no
-// secret slots and no credential bindings — a connection IS the credential, and
-// the plugin renders `credential.value` onto the request through the template
-// matched by `credential.template` (D11: "auth state derived into the
-// auth-template format" — an OAuth access token renders exactly like an apiKey
-// bearer).
+//   none   — no credential (open endpoint)
+//   apikey — render the connection's values through the method's header/query
+//            placements (one credential input per distinct placement
+//            `variable`; a method may mix carriers — e.g. a bearer header
+//            plus a team-id query param)
+//   oauth2 — the value is an OAuth access token, applied as a bearer header
+//            (optionally overriding the header name / prefix). GraphQL oauth
+//            stores no endpoints — only how the token is rendered.
 // ---------------------------------------------------------------------------
 
-/** An apiKey-style template: place the value in a header or query parameter,
- *  optionally prefixed (e.g. `Bearer `). */
-export const ApiKeyAuthTemplate = Schema.Struct({
-  kind: Schema.Literal("apiKey"),
-  /** The template slug a connection references via `connection.template`. */
-  slug: Schema.String,
-  in: Schema.Literals(["header", "query"]),
-  /** The header / query-parameter name the value is written to. */
-  name: Schema.String,
-  /** Optional prefix prepended to the value (e.g. `Bearer `). */
-  prefix: Schema.optional(Schema.String),
-});
-export type ApiKeyAuthTemplate = typeof ApiKeyAuthTemplate.Type;
-
-/** An OAuth bearer template: write `Authorization: Bearer <access-token>`. The
- *  resolved (and refreshed) access token is `credential.value`. */
-export const OAuthAuthTemplate = Schema.Struct({
+/** An OAuth bearer method: write `<header>: <prefix><access-token>`. The
+ *  resolved (and refreshed) access token is the connection's `token` value. */
+export const GraphqlOAuthMethod = Schema.Struct({
   kind: Schema.Literal("oauth2"),
   slug: Schema.String,
   /** The header to write the bearer token to. Defaults to `Authorization`. */
@@ -91,10 +91,75 @@ export const OAuthAuthTemplate = Schema.Struct({
   /** The token prefix. Defaults to `Bearer `. */
   prefix: Schema.optional(Schema.String),
 });
-export type OAuthAuthTemplate = typeof OAuthAuthTemplate.Type;
+export type GraphqlOAuthMethod = typeof GraphqlOAuthMethod.Type;
 
-export const AuthTemplate = Schema.Union([ApiKeyAuthTemplate, OAuthAuthTemplate]);
-export type AuthTemplate = typeof AuthTemplate.Type;
+export const GraphqlAuthMethod = Schema.Union([
+  NoneAuthMethod,
+  ApiKeyAuthMethod,
+  GraphqlOAuthMethod,
+]);
+export type GraphqlAuthMethod = typeof GraphqlAuthMethod.Type;
+
+/** Input variant of `GraphqlAuthMethod` — callers (UI, agents) may omit the
+ *  slug; `normalizeGraphqlAuthMethods` backfills it. */
+export const GraphqlAuthMethodInput = Schema.Union([
+  Schema.Struct({ slug: Schema.optional(Schema.String), kind: Schema.Literal("none") }),
+  Schema.Struct({
+    slug: Schema.optional(Schema.String),
+    kind: Schema.Literal("oauth2"),
+    header: Schema.optional(Schema.String),
+    prefix: Schema.optional(Schema.String),
+  }),
+  // Credential methods are authored request-shaped — the ONE apikey input
+  // dialect: `{ type: "apiKey", headers: { Authorization: ["Bearer ",
+  // variable("token")] }, queryParams: { … } }`. Stored configs and the
+  // catalog read as canonical placements; `apiKeyAuthTemplateFromMethod`
+  // serializes them back for read-modify-write flows.
+  ApiKeyAuthTemplate,
+]);
+export type GraphqlAuthMethodInput = typeof GraphqlAuthMethodInput.Type;
+
+/** The expansion target: input arms with the dialect resolved to canonical
+ *  placements (slug still optional — backfill is a separate pass). */
+export type GraphqlCanonicalAuthMethodInput =
+  | Exclude<GraphqlAuthMethodInput, ApiKeyAuthTemplate>
+  | (Omit<ApiKeyAuthMethod, "slug"> & { readonly slug?: string });
+
+/** The default slug for a slug-less input method. Carrier-derived for the
+ *  single-placement apikey cases (`header` / `query`) so the UI, agent, and
+ *  migration paths all converge on the same names. */
+const defaultGraphqlAuthSlug = (method: GraphqlCanonicalAuthMethodInput): string => {
+  if (method.kind !== "apikey") return method.kind;
+  if (method.placements.length === 1) {
+    return method.placements[0]!.carrier === "header" ? "header" : "query";
+  }
+  return "apikey";
+};
+
+/** Expand request-shaped dialect entries into canonical placements; canonical
+ *  entries pass through. Slug backfill is the caller's concern
+ *  (`normalizeGraphqlAuthMethods` for declare flows, `mergeAuthTemplates` for
+ *  the custom-method merge). */
+export const expandGraphqlAuthMethodInputs = (
+  methods: readonly GraphqlAuthMethodInput[],
+): readonly GraphqlCanonicalAuthMethodInput[] =>
+  methods.map(
+    (method): GraphqlCanonicalAuthMethodInput =>
+      isApiKeyAuthTemplate(method)
+        ? (apiKeyMethodFromAuthTemplate(method) as GraphqlCanonicalAuthMethodInput)
+        : (method as GraphqlCanonicalAuthMethodInput),
+  );
+
+/** Assign each method a stable slug: a caller-provided one wins, otherwise a
+ *  kind/carrier-derived default, suffixed `_2`, `_3`, … on collision. The
+ *  request-shaped dialect is expanded to canonical placements first. */
+export const normalizeGraphqlAuthMethods = (
+  methods: readonly GraphqlAuthMethodInput[],
+): readonly GraphqlAuthMethod[] =>
+  normalizeAuthMethodSlugs(
+    expandGraphqlAuthMethodInputs(methods),
+    defaultGraphqlAuthSlug,
+  ) as readonly GraphqlAuthMethod[];
 
 // ---------------------------------------------------------------------------
 // Integration config — the opaque-to-core blob the graphql plugin stores on the
@@ -114,11 +179,15 @@ export const GraphqlIntegrationConfig = Schema.Struct({
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   /** Static query parameters applied to every request. */
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  /** Auth methods a connection can be applied through. */
-  authenticationTemplate: Schema.Array(AuthTemplate),
+  /** Declared auth methods — how a connection's values are rendered onto
+   *  requests. A connection's `template` picks one by slug. */
+  authenticationTemplate: Schema.Array(GraphqlAuthMethod),
 });
 export type GraphqlIntegrationConfig = typeof GraphqlIntegrationConfig.Type;
 
+// Decodes ONLY the canonical shape. Pre-canonical stored shapes are rewritten
+// by the one-off config migration (`migrate-config.ts`), not decoded here —
+// runtime code knows only the canonical model.
 export const decodeGraphqlIntegrationConfig = Schema.decodeUnknownEffect(GraphqlIntegrationConfig);
 export const decodeGraphqlIntegrationConfigOption =
   Schema.decodeUnknownOption(GraphqlIntegrationConfig);

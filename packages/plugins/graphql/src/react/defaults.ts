@@ -7,26 +7,6 @@ import { connectionIdentifier } from "@executor-js/react/lib/connection-name";
 // connection IS the credential, applied to the integration's auth template.
 // ---------------------------------------------------------------------------
 
-/** The slug of the apiKey auth template the add flow declares + targets. */
-export const GRAPHQL_APIKEY_TEMPLATE = "apiKey";
-
-/** Build the apiKey auth template the integration stores. The connection's
- *  value is written to `headerName` at invoke time (no prefix — the user pastes
- *  the full header value, e.g. `Bearer ghp_…`). */
-export const graphqlApiKeyAuthTemplate = (
-  headerName: string,
-): {
-  readonly kind: "apiKey";
-  readonly slug: string;
-  readonly in: "header";
-  readonly name: string;
-} => ({
-  kind: "apiKey",
-  slug: GRAPHQL_APIKEY_TEMPLATE,
-  in: "header",
-  name: headerName || "Authorization",
-});
-
 /** Deterministic connection name for a GraphQL integration + owner. Keeps a
  *  single owner-scoped credential per integration so re-adding overwrites
  *  rather than accumulating duplicates. */

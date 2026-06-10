@@ -34,7 +34,11 @@ import {
   useSlugAlreadyExists,
 } from "@executor-js/react/lib/integration-add";
 
-import { authenticationFromEditorValue, editorValueFromAuthentication } from "./auth-method-config";
+import {
+  authenticationFromEditorValue,
+  editorValueFromAuthentication,
+  openApiWireAuthInput,
+} from "./auth-method-config";
 import { addOpenApiSpec, previewOpenApiSpec } from "./atoms";
 import { OpenApiSourceDetailsFields } from "./OpenApiSourceDetailsFields";
 import { GoogleProductPicker } from "./GoogleProductPicker";
@@ -45,13 +49,7 @@ import {
   type GoogleOpenApiPreset,
 } from "../sdk/google-presets";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
-import {
-  type APIKeyAuthentication,
-  type Authentication,
-  type ServerInfo,
-  TOKEN_VARIABLE,
-  variable,
-} from "../sdk/types";
+import { type APIKeyAuthentication, type Authentication, type ServerInfo } from "../sdk/types";
 import { expandServerUrlOptions } from "../sdk/openapi-utils";
 
 const GOOGLE_BUNDLE_BASE_URL = "https://www.googleapis.com/";
@@ -172,14 +170,16 @@ const headerPrefix = (preset: HeaderPreset, headerName: string): string | undefi
 const apiKeyTemplateFromHeaderPreset = (
   preset: HeaderPreset,
   slug: AuthTemplateSlug,
-): APIKeyAuthentication => {
-  const headers: Record<string, (string | ReturnType<typeof variable>)[]> = {};
-  for (const headerName of preset.secretHeaders) {
+): APIKeyAuthentication => ({
+  slug,
+  kind: "apikey",
+  // Every secret header shares the one credential input (the canonical
+  // `token`, stored as an absent placement variable).
+  placements: preset.secretHeaders.map((headerName) => {
     const prefix = headerPrefix(preset, headerName);
-    headers[headerName] = prefix ? [prefix, variable(TOKEN_VARIABLE)] : [variable(TOKEN_VARIABLE)];
-  }
-  return { slug, type: "apiKey", headers };
-};
+    return { carrier: "header" as const, name: headerName, ...(prefix ? { prefix } : {}) };
+  }),
+});
 
 const oauthTemplateFromPreset = (
   preset: OAuth2Preset,
@@ -188,7 +188,7 @@ const oauthTemplateFromPreset = (
   scopes: readonly string[],
 ): OAuthAuthentication => ({
   slug,
-  type: "oauth",
+  kind: "oauth2",
   authorizationUrl: resolveOAuthUrl(
     Option.getOrElse(preset.authorizationUrl, () => ""),
     baseUrl,
@@ -454,10 +454,8 @@ export default function AddOpenApiSource(props: {
         baseUrl: resolvedBaseUrl,
         ...(!isGoogleBundlePreset && editedAuthenticationTemplate.length > 0
           ? {
-              authenticationTemplate: editedAuthenticationTemplate.map((entry) => ({
-                ...entry,
-                slug: String(entry.slug),
-              })),
+              // Serialize to the wire input dialect (apikey → request-shaped).
+              authenticationTemplate: editedAuthenticationTemplate.map(openApiWireAuthInput),
             }
           : {}),
       },

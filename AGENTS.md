@@ -47,7 +47,10 @@ before using it.
 ## Package Roles
 
 - `packages/core/sdk`: executor core contracts, plugin wiring, scopes, sources,
-  secrets, policies, and test fixtures.
+  secrets, policies, and test fixtures. The `@executor-js/sdk/http-auth`
+  subpath carries the shared placements-based auth-method vocabulary the HTTP
+  protocol plugins compose (core itself never imports it — composition, not
+  location, keeps core carrier-agnostic).
 - `packages/core/storage-*`: storage adapters and storage test support.
 - `packages/plugins/*`: protocol and provider plugins. Plugin-specific
   runtime, React, API, and testing helpers should live with the owning plugin.

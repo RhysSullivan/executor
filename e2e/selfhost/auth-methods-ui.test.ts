@@ -154,3 +154,86 @@ scenario(
       }),
     ),
 );
+
+scenario(
+  "Auth methods · the connect modal collects one value per input of a 2-input method",
+  { needs: ["browser", "api"] },
+  (ctx) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        // A method with TWO credential inputs: a bearer header rendered from
+        // `api_token` and a team-id query param rendered from `team_id`. The
+        // server requires both on every request, so the connect-time
+        // discovery dial only succeeds when the modal collected both values.
+        const apiToken = `e2e-two-input-${randomBytes(4).toString("hex")}`;
+        const teamId = `team-${randomBytes(3).toString("hex")}`;
+        const server = yield* serveMcpServer(() => makeGreetingMcpServer(), {
+          auth: {
+            validateAuthorization: (authorization) =>
+              Effect.succeed(authorization === `Bearer ${apiToken}`),
+          },
+        });
+
+        const identity = yield* ctx.target.newIdentity();
+        const client = yield* ctx.api.client(api, identity);
+        const slug = `mcp-two-input-${randomBytes(3).toString("hex")}`;
+
+        yield* client.mcp.addServer({
+          payload: {
+            transport: "remote",
+            name: "Two-input MCP",
+            endpoint: server.endpoint,
+            slug,
+            authenticationTemplate: [
+              {
+                slug: "token_and_team",
+                type: "apiKey",
+                headers: { Authorization: ["Bearer ", { type: "variable", name: "api_token" }] },
+                queryParams: { team_id: [{ type: "variable", name: "team_id" }] },
+              },
+            ],
+          },
+        });
+
+        yield* Effect.gen(function* () {
+          yield* ctx.browser.session(identity, async ({ page, step }) => {
+            await step("Open the integration's connect modal", async () => {
+              await page.goto(`/integrations/${slug}`, { waitUntil: "networkidle" });
+              await page.getByRole("button", { name: "Add connection" }).first().click();
+              await page.getByRole("tab", { name: "API key (Authorization)" }).waitFor();
+            });
+
+            await step("The method renders one field per credential input", async () => {
+              await page.getByPlaceholder("paste Authorization").waitFor();
+              await page.getByPlaceholder("paste team_id").waitFor();
+            });
+
+            await step("Fill both values and connect", async () => {
+              await page.getByPlaceholder("paste Authorization").fill(apiToken);
+              await page.getByPlaceholder("paste team_id").fill(teamId);
+              await page.getByRole("button", { name: "Add connection" }).click();
+              await page.getByText("Connection added").waitFor();
+            });
+          });
+
+          // Wire proof: the discovery dial rendered BOTH inputs — the bearer
+          // header (the server rejects anything else) and the team-id query.
+          const requests = yield* server.requests;
+          expect(
+            requests.some(
+              (request) =>
+                request.authorization === `Bearer ${apiToken}` &&
+                request.url.includes(`team_id=${teamId}`),
+            ),
+            "the server saw the bearer header and the team-id query param together",
+          ).toBe(true);
+        }).pipe(
+          Effect.ensuring(
+            client.mcp
+              .removeServer({ params: { slug: IntegrationSlug.make(slug) } })
+              .pipe(Effect.ignore),
+          ),
+        );
+      }),
+    ),
+);

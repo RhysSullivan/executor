@@ -4,6 +4,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
 
 import { IntegrationSlug } from "@executor-js/sdk/shared";
+import { apiKeyMethodLabel, type AuthPlacement } from "@executor-js/sdk/http-auth";
 import { integrationWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import {
   AuthMethodListEditor,
@@ -24,10 +25,15 @@ import { Badge } from "@executor-js/react/components/badge";
 import { FormErrorAlert } from "@executor-js/react/lib/integration-add";
 
 import { configureMcpAuth, mcpServerAtom } from "./atoms";
-import type { McpAuthMethod, McpAuthMethodInput, McpIntegrationConfig } from "../sdk/types";
+import type {
+  McpAuthMethod,
+  McpCanonicalAuthMethodInput,
+  McpIntegrationConfig,
+} from "../sdk/types";
 import {
   editorValueFromMcpAuthMethod,
   mcpAuthMethodInputFromEditorValue,
+  mcpWireAuthInput,
 } from "./auth-method-config";
 
 type McpServer = {
@@ -43,8 +49,28 @@ type McpRemoteConfig = Extract<McpIntegrationConfig, { transport: "remote" }>;
 
 const methodSeedLabel = (method: McpAuthMethod): string => {
   if (method.kind === "oauth2") return "OAuth";
-  if (method.kind === "header") return `API key (${method.headerName})`;
+  if (method.kind === "apikey") return apiKeyMethodLabel(method);
   return "No authentication";
+};
+
+const samePlacements = (
+  a: readonly AuthPlacement[] | undefined,
+  b: readonly AuthPlacement[] | undefined,
+): boolean => {
+  const left = a ?? [];
+  const right = b ?? [];
+  if (left.length !== right.length) return false;
+  return left.every((placement: AuthPlacement, index: number) => {
+    const other = right[index];
+    return (
+      other !== undefined &&
+      placement.carrier === other.carrier &&
+      placement.name === other.name &&
+      (placement.prefix ?? "") === (other.prefix ?? "") &&
+      (placement.variable ?? "") === (other.variable ?? "") &&
+      (placement.literal ?? null) === (other.literal ?? null)
+    );
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -80,9 +106,9 @@ function RemoteEdit(props: {
   // The edited methods, slugs preserved for seeded rows so existing
   // connections (bound by template slug) stay attached. New rows omit the
   // slug — the backend assigns kind-based ones.
-  const editedMethods = useMemo<readonly McpAuthMethodInput[]>(
+  const editedMethods = useMemo<readonly McpCanonicalAuthMethodInput[]>(
     () =>
-      list.rows.map((row: AuthMethodRow): McpAuthMethodInput => {
+      list.rows.map((row: AuthMethodRow): McpCanonicalAuthMethodInput => {
         const input = mcpAuthMethodInputFromEditorValue(row.value);
         return row.seedSlug !== undefined ? { ...input, slug: row.seedSlug } : input;
       }),
@@ -92,16 +118,13 @@ function RemoteEdit(props: {
   const methodsChanged = useMemo(() => {
     const stored = server.config.authenticationTemplate;
     if (editedMethods.length !== stored.length) return true;
-    return editedMethods.some((method: McpAuthMethodInput, index: number) => {
+    return editedMethods.some((method: McpCanonicalAuthMethodInput, index: number) => {
       const current = stored[index];
       if (!current) return true;
       if ((method.slug ?? "") !== current.slug) return true;
       if (method.kind !== current.kind) return true;
-      if (method.kind === "header" && current.kind === "header") {
-        return (
-          method.headerName !== current.headerName ||
-          (method.prefix ?? "") !== (current.prefix ?? "")
-        );
+      if (method.kind === "apikey" && current.kind === "apikey") {
+        return !samePlacements(method.placements, current.placements);
       }
       return false;
     });
@@ -114,7 +137,9 @@ function RemoteEdit(props: {
       params: { slug: server.slug },
       payload: {
         authenticationTemplate:
-          editedMethods.length > 0 ? editedMethods : [{ kind: "none" as const }],
+          editedMethods.length > 0
+            ? editedMethods.map(mcpWireAuthInput)
+            : [{ kind: "none" as const }],
         mode: "replace",
       },
       reactivityKeys: integrationWriteKeys,
