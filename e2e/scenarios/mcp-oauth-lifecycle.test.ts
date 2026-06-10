@@ -1,4 +1,4 @@
-// Cloud: the MCP OAuth token lifecycle, walked the way real MCP clients walk
+// The MCP OAuth token lifecycle, walked the way real MCP clients walk
 // it — discovery, scope selection, token grant, real access-token expiry
 // (compressed TTL, no fake clocks), and refresh recovery.
 //
@@ -87,12 +87,12 @@ const survivesTokenExpiry = (ctx: ScenarioContext, client: McpClientScopePolicy)
 
 scenario(
   "MCP OAuth lifecycle · a spec-faithful client (OpenCode) survives access-token expiry",
-  { needs: ["mcp-oauth"] },
+  { needs: ["mcp-oauth", "ttl-control"] },
   (ctx) => survivesTokenExpiry(ctx, SPEC_FAITHFUL_CLIENT),
 );
 
 scenario(
   "MCP OAuth lifecycle · a scope-hardcoding client (Claude Code) survives access-token expiry",
-  { needs: ["mcp-oauth"] },
+  { needs: ["mcp-oauth", "ttl-control"] },
   (ctx) => survivesTokenExpiry(ctx, HARDCODED_SCOPES_CLIENT),
 );

@@ -12,7 +12,8 @@ export type Capability =
   | "mcp-oauth" // MCP endpoint with a headless OAuth consent path
   | "cli" // a CLI/TUI entry point exists for this target
   | "billing" // billing limits are enforced (cloud-only)
-  | "opencode"; // the real OpenCode binary is installed on this host
+  | "opencode" // the real OpenCode binary is installed on this host
+  | "ttl-control"; // the authorization server's access-token TTL is test-adjustable
 
 export interface Identity {
   /** Shown in transcripts ("user_ab12cd") */
@@ -41,4 +42,10 @@ export interface Target {
   readonly mcpConsent?: (
     identity: Identity,
   ) => (request: { authorizationUrl: string }) => Promise<{ code: string }>;
+  /**
+   * Compress (or restore, with null) the authorization server's access-token
+   * lifetime, when "ttl-control" is supported — what lets token-expiry
+   * scenarios cross a REAL expiry in seconds instead of an hour.
+   */
+  readonly setAccessTokenTtl?: (seconds: number | null) => Effect.Effect<void>;
 }

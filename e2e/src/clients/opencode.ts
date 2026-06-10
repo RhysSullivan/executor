@@ -8,6 +8,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** Whether the real OpenCode binary is installed — the "opencode" capability. */
+export const hasOpenCode = (): boolean => spawnSync("opencode", ["--version"]).status === 0;
+
 export interface OpenCodeHome {
   /** Working directory holding opencode.json (OpenCode reads config from cwd). */
   readonly projectDir: string;

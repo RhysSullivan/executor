@@ -1,4 +1,4 @@
-// Cloud: the OpenCode daily re-auth, reproduced with the REAL opencode
+// The OpenCode daily re-auth, reproduced with the REAL opencode
 // binary in a REAL terminal. The whole session runs in one recorded PTY —
 // the run's terminal.cast replays exactly what a user at a shell would see:
 // authenticate, connected, wait out the token, suddenly "needs
@@ -8,8 +8,8 @@
 // against our published metadata, its own DCR, its own scope selection, its
 // own token storage. The only theater is the browser hop (an open(1) shim
 // captures the URL and a fetch with login_hint plays the signed-in human)
-// and time (the emulator's seeded default TTL compresses "a day" into
-// seconds). The scenario asserts the experience a user deserves —
+// and time (the target's ttl-control compresses "a day" into seconds). The
+// scenario asserts the experience a user deserves —
 // authenticate once, stay signed in across an access-token expiry. It stays
 // red until the server gives spec-faithful clients a way to refresh.
 import { join } from "node:path";
@@ -19,34 +19,25 @@ import { Effect } from "effect";
 
 import { scenario } from "../src/scenario";
 import { completeOAuthConsent, makeOpenCodeHome, warmUp } from "../src/clients/opencode";
-import { WORKOS_EMULATOR_PORT } from "../targets/cloud";
 
 const SERVER_NAME = "executor";
 const TTL_SECONDS = 15;
 
-/** Compress (or restore) the authorization server's access-token lifetime. */
-const seedAccessTokenTtl = (ttlSeconds: number | null): Effect.Effect<void> =>
-  Effect.promise(async () => {
-    const response = await fetch(`http://127.0.0.1:${WORKOS_EMULATOR_PORT}/_emulate/seed`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ oauth: { default_access_token_ttl_seconds: ttlSeconds } }),
-    });
-    if (!response.ok) throw new Error(`seeding emulator TTL failed (${response.status})`);
-  });
-
 scenario(
   "MCP OAuth lifecycle · the real OpenCode binary stays signed in across token expiry",
-  { needs: ["mcp-oauth", "opencode"], timeout: 180_000 },
+  { needs: ["mcp-oauth", "opencode", "ttl-control"], timeout: 180_000 },
   (ctx) =>
     Effect.gen(function* () {
+      const setTtl = ctx.target.setAccessTokenTtl;
+      if (!setTtl)
+        return yield* Effect.die(new Error("ttl-control target lacks setAccessTokenTtl"));
       const identity = yield* ctx.target.newIdentity();
       const email = identity.credentials?.email ?? identity.label;
       const home = makeOpenCodeHome(SERVER_NAME, ctx.target.mcpUrl);
       // First-run database migration happens off camera.
       yield* Effect.sync(() => warmUp(home));
 
-      yield* seedAccessTokenTtl(TTL_SECONDS);
+      yield* setTtl(TTL_SECONDS);
       yield* ctx.cli
         .session(
           ["bash", "--norc"],
@@ -115,6 +106,6 @@ scenario(
             viewport: { cols: 100, rows: 40 },
           },
         )
-        .pipe(Effect.ensuring(seedAccessTokenTtl(null)));
+        .pipe(Effect.ensuring(setTtl(null)));
     }),
 );
