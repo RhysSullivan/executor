@@ -4,7 +4,7 @@ import { FetchHttpClient } from "effect/unstable/http";
 import { createServer, type Server } from "node:http";
 
 import { invokeWithLayer } from "./invoke";
-import { OperationBinding, OperationParameter } from "./types";
+import { OperationBinding, OperationParameter, ServerInfo } from "./types";
 
 const withServer = <A>(
   f: (input: { readonly baseUrl: string; readonly requests: string[] }) => Promise<A>,
@@ -37,6 +37,7 @@ it.effect("serializes form-exploded query arrays as repeated parameters", () =>
     withServer(async ({ baseUrl, requests }) => {
       const operation = OperationBinding.make({
         method: "get",
+        servers: [],
         pathTemplate: "/messages/{id}",
         requestBody: Option.none(),
         parameters: [
@@ -101,7 +102,9 @@ it.effect("uses operation base URL and preserves reserved path expansion when al
     withServer(async ({ baseUrl, requests }) => {
       const operation = OperationBinding.make({
         method: "get",
-        baseUrl,
+        servers: [
+          ServerInfo.make({ url: baseUrl, description: Option.none(), variables: Option.none() }),
+        ],
         pathTemplate: "/v1/{+name}",
         requestBody: Option.none(),
         parameters: [
@@ -124,7 +127,8 @@ it.effect("uses operation base URL and preserves reserved path expansion when al
           {
             name: "spaces/AAA/messages/BBB",
           },
-          "https://unused.example",
+          // No connection override → the request targets the operation's server.
+          "",
           {},
           {},
           FetchHttpClient.layer,
@@ -133,6 +137,82 @@ it.effect("uses operation base URL and preserves reserved path expansion when al
 
       const url = new URL(requests[0]!, "http://executor.test");
       expect(url.pathname).toBe("/v1/spaces/AAA/messages/BBB");
+    }),
+  ),
+);
+
+it.effect("targets the server chosen by the call's `server.url`", () =>
+  Effect.promise(() =>
+    withServer(async ({ baseUrl, requests }) => {
+      const operation = OperationBinding.make({
+        method: "get",
+        // First server is a dead host; the call must select the live one.
+        servers: [
+          ServerInfo.make({
+            url: "https://unused.example",
+            description: Option.none(),
+            variables: Option.none(),
+          }),
+          ServerInfo.make({ url: baseUrl, description: Option.none(), variables: Option.none() }),
+        ],
+        pathTemplate: "/ping",
+        requestBody: Option.none(),
+        parameters: [],
+      });
+
+      await Effect.runPromise(
+        invokeWithLayer(operation, { server: { url: baseUrl } }, "", {}, {}, FetchHttpClient.layer),
+      );
+
+      const url = new URL(requests[0]!, "http://executor.test");
+      expect(url.pathname).toBe("/ping");
+    }),
+  ),
+);
+
+it.effect("a connection base URL overrides the operation's servers", () =>
+  Effect.promise(() =>
+    withServer(async ({ baseUrl, requests }) => {
+      const operation = OperationBinding.make({
+        method: "get",
+        servers: [
+          ServerInfo.make({
+            url: "https://unused.example",
+            description: Option.none(),
+            variables: Option.none(),
+          }),
+        ],
+        pathTemplate: "/ping",
+        requestBody: Option.none(),
+        parameters: [],
+      });
+
+      // The live server is the connection override; it wins over the spec server.
+      await Effect.runPromise(
+        invokeWithLayer(operation, {}, baseUrl, {}, {}, FetchHttpClient.layer),
+      );
+
+      expect(new URL(requests[0]!, "http://executor.test").pathname).toBe("/ping");
+    }),
+  ),
+);
+
+it.effect("falls back to the base URL for bindings persisted without servers", () =>
+  Effect.promise(() =>
+    withServer(async ({ baseUrl, requests }) => {
+      // Old binding shape: no `servers` field at all.
+      const operation = OperationBinding.make({
+        method: "get",
+        pathTemplate: "/ping",
+        requestBody: Option.none(),
+        parameters: [],
+      });
+
+      await Effect.runPromise(
+        invokeWithLayer(operation, {}, baseUrl, {}, {}, FetchHttpClient.layer),
+      );
+
+      expect(new URL(requests[0]!, "http://executor.test").pathname).toBe("/ping");
     }),
   ),
 );

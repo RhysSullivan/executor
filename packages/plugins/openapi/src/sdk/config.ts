@@ -46,7 +46,7 @@ export const OpenApiIntegrationConfigSchema = Schema.Struct({
   sourceUrl: Schema.optional(Schema.String),
   /** Google Discovery bundle URLs, when the spec came from a Google bundle. */
   googleDiscoveryUrls: Schema.optional(Schema.Array(Schema.String)),
-  /** Base URL override; falls back to the spec's first server. */
+  /** Optional base URL override. */
   baseUrl: Schema.optional(Schema.String),
   /** Static headers applied to every request (no secret material). */
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),

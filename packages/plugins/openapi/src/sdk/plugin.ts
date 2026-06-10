@@ -481,7 +481,7 @@ const normalizeOpenApiRefs = (node: unknown): unknown => {
 const toBinding = (def: ToolDefinition): OperationBinding =>
   OperationBinding.make({
     method: def.operation.method,
-    baseUrl: def.operation.baseUrl,
+    servers: def.operation.servers,
     pathTemplate: def.operation.pathTemplate,
     parameters: [...def.operation.parameters],
     requestBody: def.operation.requestBody,
@@ -717,8 +717,10 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           // Defaults the add page derives from its preview, applied here so
           // headless callers (MCP, API) get the same integration the UI's
           // add flow would produce — see e2e/scenarios/connect-handoff.test.ts:
-          //   - baseUrl: the spec's first server (else tools have no host to
-          //     call and every invocation fails with "HTTP request failed")
+          //   - effectiveBaseUrl: the spec's first server, used to anchor the
+          //     derived auth template's absolute URLs. It is NOT stored as the
+          //     connection baseUrl — the request host is resolved per call from
+          //     the operation's extracted `servers`.
           //   - authenticationTemplate: the spec's declared security schemes
           //     (else the Add-connection modal is a dead "No authentication"
           //     end with nowhere to paste a credential)
@@ -762,7 +764,10 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
             ...(specInputToGoogleBundle(config.spec) !== undefined
               ? { googleDiscoveryUrls: specInputToGoogleBundle(config.spec) }
               : {}),
-            ...(effectiveBaseUrl ? { baseUrl: effectiveBaseUrl } : {}),
+            // baseUrl is an optional override only. The host is otherwise
+            // resolved per call from the operation's `servers` (extracted from
+            // the spec), so we never bake a derived base URL into the config.
+            ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
             ...(config.headers ? { headers: config.headers } : {}),
             ...(config.queryParams ? { queryParams: config.queryParams } : {}),
             // Prefer the caller's explicit template; otherwise adopt the one the

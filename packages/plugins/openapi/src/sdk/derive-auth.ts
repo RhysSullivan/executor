@@ -11,7 +11,7 @@ import { AuthTemplateSlug, type OAuthAuthentication } from "@executor-js/sdk/sha
 
 import type { HeaderPreset, OAuth2Preset, SpecPreview } from "./preview";
 import type { APIKeyAuthentication, Authentication } from "./types";
-import { expandServerUrlOptions } from "./openapi-utils";
+import { resolveServerUrl } from "./openapi-utils";
 
 // ---------------------------------------------------------------------------
 // OpenAPI url helpers — specs sometimes ship relative OAuth endpoints; resolve
@@ -134,7 +134,9 @@ export const detectedAuthenticationTemplates = (
 
 export const firstBaseUrlForPreview = (preview: SpecPreview): string => {
   const firstServer = preview.servers[0];
-  return firstServer ? (expandServerUrlOptions(firstServer)[0] ?? "") : "";
+  return firstServer
+    ? resolveServerUrl(firstServer.url, Option.getOrUndefined(firstServer.variables), {})
+    : "";
 };
 
 /** The fallback `addSpec` uses when no explicit template was passed: every

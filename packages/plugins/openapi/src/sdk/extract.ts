@@ -6,7 +6,6 @@ import {
   declaredContents,
   DocResolver,
   preferredResponseContent,
-  resolveBaseUrl,
   type OperationObject,
   type ParameterObject,
   type PathItemObject,
@@ -169,9 +168,60 @@ const extractOutputSchema = (operation: OperationObject, r: DocResolver): unknow
 // Input schema builder
 // ---------------------------------------------------------------------------
 
+// Optional `server` input — host selection + server-URL variables. Undefined
+// when there's nothing to configure (a single server with no variables).
+const buildServerInputProperty = (
+  servers: readonly ServerInfo[],
+): Record<string, unknown> | undefined => {
+  const variableDefs: Record<string, ServerVariable> = {};
+  for (const server of servers) {
+    for (const [name, v] of Object.entries(Option.getOrUndefined(server.variables) ?? {})) {
+      if (!(name in variableDefs)) variableDefs[name] = v;
+    }
+  }
+  const hasMultiple = servers.length > 1;
+  const variableNames = Object.keys(variableDefs);
+  if (!hasMultiple && variableNames.length === 0) return undefined;
+
+  const properties: Record<string, unknown> = {};
+  if (hasMultiple) {
+    properties.url = {
+      type: "string",
+      enum: servers.map((server) => server.url),
+      default: servers[0]!.url,
+      description: "Which of the spec's servers to send the request to.",
+    };
+  }
+  if (variableNames.length > 0) {
+    properties.variables = {
+      type: "object",
+      additionalProperties: false,
+      properties: Object.fromEntries(
+        Object.entries(variableDefs).map(([name, v]) => [
+          name,
+          {
+            type: "string",
+            default: v.default,
+            ...(Option.isSome(v.enum) ? { enum: v.enum.value } : {}),
+            ...(Option.isSome(v.description) ? { description: v.description.value } : {}),
+          },
+        ]),
+      ),
+      description: "Values for the server URL `{variables}`; spec defaults apply when omitted.",
+    };
+  }
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties,
+    description: "Optional host selection and server-URL variables for this request.",
+  };
+};
+
 const buildInputSchema = (
   parameters: readonly OperationParameter[],
   requestBody: OperationRequestBody | undefined,
+  servers: readonly ServerInfo[],
 ): Record<string, unknown> | undefined => {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
@@ -180,6 +230,10 @@ const buildInputSchema = (
     properties[param.name] = Option.getOrElse(param.schema, () => ({ type: "string" }));
     if (param.required) required.push(param.name);
   }
+
+  // A path/query parameter named `server` takes precedence over the host input.
+  const serverProperty = buildServerInputProperty(servers);
+  if (serverProperty && !("server" in properties)) properties.server = serverProperty;
 
   if (requestBody) {
     properties.body = Option.getOrElse(requestBody.schema, () => ({ type: "object" }));
@@ -283,17 +337,16 @@ const extractServerList = (servers: readonly ServerObject[] | undefined): Server
 
 const extractServers = (doc: ParsedDocument): ServerInfo[] => extractServerList(doc.servers);
 
-const extractOperationBaseUrl = (
+const operationServers = (
   pathItem: PathItemObject,
   operation: OperationObject,
-): string | undefined => {
-  const operationServers = extractServerList(operation.servers);
-  if (operationServers.length > 0) return resolveBaseUrl(operationServers);
-
-  const pathServers = extractServerList(pathItem.servers);
-  if (pathServers.length > 0) return resolveBaseUrl(pathServers);
-
-  return undefined;
+  docServers: readonly ServerInfo[],
+): readonly ServerInfo[] => {
+  const operationLevel = extractServerList(operation.servers);
+  if (operationLevel.length > 0) return operationLevel;
+  const pathLevel = extractServerList(pathItem.servers);
+  if (pathLevel.length > 0) return pathLevel;
+  return docServers;
 };
 
 // ---------------------------------------------------------------------------
@@ -310,6 +363,7 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
   }
 
   const r = new DocResolver(doc);
+  const docServers = extractServers(doc);
   const operations: ExtractedOperation[] = [];
 
   for (const [pathTemplate, pathItem] of Object.entries(paths).sort(([a], [b]) =>
@@ -323,7 +377,8 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
 
       const parameters = extractParameters(pathItem, operation, r);
       const requestBody = extractRequestBody(operation, r);
-      const inputSchema = buildInputSchema(parameters, requestBody);
+      const servers = operationServers(pathItem, operation, docServers);
+      const inputSchema = buildInputSchema(parameters, requestBody, servers);
       const outputSchema = extractOutputSchema(operation, r);
       const tags = (operation.tags ?? []).filter((t) => t.trim().length > 0);
       const operationPathTemplate = explicitPathTemplate(operation) ?? pathTemplate;
@@ -333,7 +388,7 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
           operationId: OperationId.make(deriveOperationId(method, pathTemplate, operation)),
           toolPath: Option.fromNullishOr(explicitToolPath(operation)),
           method,
-          baseUrl: extractOperationBaseUrl(pathItem, operation),
+          servers,
           pathTemplate: operationPathTemplate,
           summary: Option.fromNullishOr(operation.summary),
           description: Option.fromNullishOr(operation.description),
@@ -351,7 +406,7 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
   return ExtractionResult.make({
     title: Option.fromNullishOr(doc.info?.title),
     version: Option.fromNullishOr(doc.info?.version),
-    servers: extractServers(doc),
+    servers: docServers,
     operations,
   });
 });

@@ -135,23 +135,6 @@ export const OperationRequestBody = Schema.Struct({
 });
 export type OperationRequestBody = typeof OperationRequestBody.Type;
 
-export const ExtractedOperation = Schema.Struct({
-  operationId: OperationId,
-  toolPath: Schema.OptionFromOptional(Schema.String),
-  method: HttpMethod,
-  baseUrl: Schema.optional(Schema.String),
-  pathTemplate: Schema.String,
-  summary: Schema.OptionFromOptional(Schema.String),
-  description: Schema.OptionFromOptional(Schema.String),
-  tags: Schema.Array(Schema.String),
-  parameters: Schema.Array(OperationParameter),
-  requestBody: Schema.OptionFromOptional(OperationRequestBody),
-  inputSchema: Schema.OptionFromOptional(Schema.Unknown),
-  outputSchema: Schema.OptionFromOptional(Schema.Unknown),
-  deprecated: Schema.Boolean,
-});
-export type ExtractedOperation = typeof ExtractedOperation.Type;
-
 export const ServerVariable = Schema.Struct({
   default: Schema.String,
   enum: Schema.OptionFromOptional(Schema.Array(Schema.String)),
@@ -165,6 +148,23 @@ export const ServerInfo = Schema.Struct({
   variables: Schema.OptionFromOptional(Schema.Record(Schema.String, ServerVariable)),
 });
 export type ServerInfo = typeof ServerInfo.Type;
+
+export const ExtractedOperation = Schema.Struct({
+  operationId: OperationId,
+  toolPath: Schema.OptionFromOptional(Schema.String),
+  method: HttpMethod,
+  servers: Schema.Array(ServerInfo),
+  pathTemplate: Schema.String,
+  summary: Schema.OptionFromOptional(Schema.String),
+  description: Schema.OptionFromOptional(Schema.String),
+  tags: Schema.Array(Schema.String),
+  parameters: Schema.Array(OperationParameter),
+  requestBody: Schema.OptionFromOptional(OperationRequestBody),
+  inputSchema: Schema.OptionFromOptional(Schema.Unknown),
+  outputSchema: Schema.OptionFromOptional(Schema.Unknown),
+  deprecated: Schema.Boolean,
+});
+export type ExtractedOperation = typeof ExtractedOperation.Type;
 
 export const ExtractionResult = Schema.Struct({
   title: Schema.OptionFromOptional(Schema.String),
@@ -180,7 +180,7 @@ export type ExtractionResult = typeof ExtractionResult.Type;
 
 export const OperationBinding = Schema.Struct({
   method: HttpMethod,
-  baseUrl: Schema.optional(Schema.String),
+  servers: Schema.optional(Schema.Array(ServerInfo)),
   pathTemplate: Schema.String,
   parameters: Schema.Array(OperationParameter),
   requestBody: Schema.OptionFromOptional(OperationRequestBody),

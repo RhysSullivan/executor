@@ -2,12 +2,14 @@ import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import { OpenApiInvocationError } from "./errors";
+import { resolveServerUrl } from "./openapi-utils";
 import {
   type EncodingObject,
   type OperationBinding,
   InvocationResult,
   type MediaBinding,
   type OperationParameter,
+  type ServerInfo,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -572,8 +574,34 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   });
 });
 
+// Connection `baseUrl` wins; otherwise the call's chosen server (`server.url`, or
+// the first) resolved with its `{variables}` (call values, else spec defaults).
+const resolveRequestHost = (
+  servers: readonly ServerInfo[],
+  serverArg: unknown,
+  baseUrl: string,
+): string => {
+  if (baseUrl) return baseUrl;
+  if (servers.length === 0) return "";
+
+  const arg = (
+    typeof serverArg === "object" && serverArg !== null && !Array.isArray(serverArg)
+      ? serverArg
+      : {}
+  ) as { url?: unknown; variables?: unknown };
+  const chosen = servers.find((server) => server.url === arg.url) ?? servers[0]!;
+
+  const overrides: Record<string, string> = {};
+  if (typeof arg.variables === "object" && arg.variables !== null) {
+    for (const [name, value] of Object.entries(arg.variables as Record<string, unknown>)) {
+      if (value != null && value !== "") overrides[name] = String(value);
+    }
+  }
+  return resolveServerUrl(chosen.url, Option.getOrUndefined(chosen.variables), overrides);
+};
+
 // ---------------------------------------------------------------------------
-// Invoke with a provided HttpClient layer + optional baseUrl prefix
+// Invoke with a provided HttpClient layer + per-call host resolution
 // ---------------------------------------------------------------------------
 
 export const invokeWithLayer = (
@@ -584,8 +612,7 @@ export const invokeWithLayer = (
   sourceQueryParams: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient, never, never>,
 ) => {
-  const operationBaseUrl = operation.baseUrl;
-  const effectiveBaseUrl = operationBaseUrl ?? baseUrl;
+  const effectiveBaseUrl = resolveRequestHost(operation.servers ?? [], args.server, baseUrl);
   const clientWithBaseUrl = effectiveBaseUrl
     ? Layer.effect(
         HttpClient.HttpClient,

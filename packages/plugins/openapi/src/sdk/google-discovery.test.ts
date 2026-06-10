@@ -436,9 +436,9 @@ it.effect("bundles Google Discovery documents into one Google OpenAPI source", (
     const extractedChatMessage = extracted.operations.find(
       (candidate) => candidate.operationId === "chat.spaces.messages.get",
     );
-    expect(extractedGmail?.baseUrl).toBe("https://gmail.googleapis.com/");
+    expect(extractedGmail?.servers[0]?.url).toBe("https://gmail.googleapis.com/");
     expect(extractedChatMessage?.pathTemplate).toBe("/v1/{+name}");
-    expect(extractedChatMessage?.baseUrl).toBe("https://chat.googleapis.com/");
+    expect(extractedChatMessage?.servers[0]?.url).toBe("https://chat.googleapis.com/");
     // v2: the bundled oauth scopes are carried on the oauth auth template.
     const oauthTemplate = result.authenticationTemplate?.find((entry) => entry.kind === "oauth2");
     expect(oauthTemplate?.kind === "oauth2" ? oauthTemplate.scopes : undefined).toEqual([

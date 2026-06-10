@@ -559,28 +559,32 @@ describe("OpenAPI Plugin", () => {
     ),
   );
 
-  it.effect("addSpec defaults baseUrl to the spec's first server when omitted", () =>
+  it.effect("addSpec omits baseUrl and resolves the host per call from the spec's servers", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const server = yield* servePluginTestApi();
         const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
 
-        // No baseUrl passed — the spec's own servers entry must fill it, or
-        // every invocation on the integration fails with no host to call.
-        // oxlint-disable-next-line executor/no-json-parse -- boundary: test fixture surgery on the test server's own spec JSON
-        const spec = JSON.parse(server.specJson) as Record<string, unknown>;
-        const specWithServer = JSON.stringify({
-          ...spec,
-          servers: [{ url: server.baseUrl }],
+        // No baseUrl override: the spec declares `servers`, so the host is
+        // resolved per call from the operation's servers rather than baked into
+        // the connection config. `baseUrl: null` suppresses the test helper's
+        // default connection-level override.
+        const conn = yield* addOpenApiTestConnection(executor, server, {
+          slug: "per_call_host",
+          baseUrl: null,
         });
 
-        yield* executor.openapi.addSpec({
-          spec: { kind: "blob", value: specWithServer },
-          slug: "derived_base_api",
-        });
+        // The override is absent…
+        const config = yield* executor.openapi.getConfig("per_call_host");
+        expect(config?.baseUrl).toBeUndefined();
 
-        const config = yield* executor.openapi.getConfig("derived_base_api");
-        expect(config?.baseUrl).toBe(server.baseUrl);
+        // …yet the integration is still invocable: the request reaches the
+        // spec's server host with no baked baseUrl.
+        const result = unwrapInvocation(
+          yield* executor.execute(conn.address("items.listItems"), {}),
+        );
+        expect(result.error).toBeNull();
+        expect(result.data).toEqual(ITEMS);
       }),
     ),
   );

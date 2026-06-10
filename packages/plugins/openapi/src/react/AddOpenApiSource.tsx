@@ -45,11 +45,10 @@ import {
   type GoogleOpenApiPreset,
 } from "../sdk/google-presets";
 import type { SpecPreview } from "../sdk/preview";
-import { type Authentication, type ServerInfo } from "../sdk/types";
-import { expandServerUrlOptions } from "../sdk/openapi-utils";
-import { detectedAuthenticationTemplates, firstBaseUrlForPreview } from "../sdk/derive-auth";
+import { type Authentication } from "../sdk/types";
+import { resolveServerUrl } from "../sdk/openapi-utils";
+import { detectedAuthenticationTemplates } from "../sdk/derive-auth";
 
-const GOOGLE_BUNDLE_BASE_URL = "https://www.googleapis.com/";
 const GOOGLE_BUNDLE_FAVICON = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
 
 // The bundle picker opens with the featured Google APIs pre-checked.
@@ -103,9 +102,6 @@ const specInputForAdd = (input: string) => {
     : { kind: "blob" as const, value };
 };
 
-const expandServerOptions = (server: ServerInfo) =>
-  expandServerUrlOptions(server).map((value) => ({ value, label: value }));
-
 // ---------------------------------------------------------------------------
 // Component — single progressive form. Post-redesign: preview → addSpec
 // (register the integration catalog entry with ALL detected auth methods) →
@@ -136,7 +132,7 @@ export default function AddOpenApiSource(props: {
 
   // After analysis
   const [preview, setPreview] = useState<SpecPreview | null>(null);
-  const [baseUrl, setBaseUrl] = useState(isGoogleBundlePreset ? GOOGLE_BUNDLE_BASE_URL : "");
+  const [baseUrl, setBaseUrl] = useState("");
   const identityFallbackName = isGoogleBundlePreset
     ? "Google"
     : preview
@@ -198,10 +194,20 @@ export default function AddOpenApiSource(props: {
 
   // ---- Derived state ----
 
-  const servers: readonly ServerInfo[] = preview?.servers ?? [];
-  const baseUrlOptions = Array.from(
-    new Map(servers.flatMap(expandServerOptions).map((option) => [option.value, option])).values(),
-  );
+  const previewHasNoServers = preview !== null && preview.servers.length === 0;
+  // Offer the spec's servers (resolved with defaults) as base-URL choices when
+  // there's more than one; a single/no server uses a plain input.
+  const baseUrlOptions =
+    preview && preview.servers.length > 1
+      ? preview.servers.map((server) => {
+          const url = resolveServerUrl(server.url, Option.getOrUndefined(server.variables), {});
+          return { value: url, label: url };
+        })
+      : undefined;
+  const firstServer = preview?.servers[0];
+  const firstServerUrl = firstServer
+    ? resolveServerUrl(firstServer.url, Option.getOrUndefined(firstServer.variables), {})
+    : "";
   const previewPresetIcon =
     openApiPresets.find(
       (preset) => preset.url && normalizePresetUrl(preset.url) === normalizePresetUrl(specUrl),
@@ -275,7 +281,12 @@ export default function AddOpenApiSource(props: {
   const hasPreviewOrBundle = isGoogleBundlePreset
     ? bundleDiscoveryUrls.length > 0
     : preview !== null;
-  const canAdd = hasPreviewOrBundle && resolvedBaseUrl.length > 0 && !slugAlreadyExists;
+  // The base URL is optional when the spec declares servers (resolved per call);
+  // required only when it doesn't.
+  const canAdd =
+    hasPreviewOrBundle &&
+    !slugAlreadyExists &&
+    (!previewHasNoServers || resolvedBaseUrl.length > 0);
 
   // ---- Handlers ----
 
@@ -291,7 +302,7 @@ export default function AddOpenApiSource(props: {
     }
     const result = exit.value;
     setPreview(result);
-    setBaseUrl(firstBaseUrlForPreview(result));
+    setBaseUrl("");
     setAnalyzing(false);
   };
 
@@ -423,9 +434,9 @@ export default function AddOpenApiSource(props: {
           identity={identity}
           baseUrl={resolvedBaseUrl}
           onBaseUrlChange={setBaseUrl}
+          baseUrlLabel="Base URL override (optional)"
           faviconIcon={GOOGLE_BUNDLE_FAVICON}
           faviconUrl={resolvedBaseUrl}
-          baseUrlMissingMessage="A base URL is required to make requests."
         />
       ) : preview ? (
         <OpenApiSourceDetailsFields
@@ -441,6 +452,16 @@ export default function AddOpenApiSource(props: {
           baseUrl={resolvedBaseUrl}
           onBaseUrlChange={setBaseUrl}
           baseUrlOptions={baseUrlOptions}
+          baseUrlLabel={previewHasNoServers ? "Base URL" : "Base URL override (optional)"}
+          baseUrlPlaceholder={firstServerUrl || "https://api.example.com"}
+          baseUrlHint={
+            previewHasNoServers
+              ? undefined
+              : "Overrides the spec's servers; leave empty to choose the server (and variables) per tool call."
+          }
+          baseUrlMissingMessage={
+            previewHasNoServers ? "This spec declares no servers — enter a base URL." : undefined
+          }
           specUrl={specUrl}
           onSpecUrlChange={(value) => {
             setSpecUrl(value);
@@ -448,8 +469,7 @@ export default function AddOpenApiSource(props: {
             setBaseUrl("");
           }}
           faviconIcon={previewPresetIcon}
-          faviconUrl={resolvedBaseUrl}
-          baseUrlMissingMessage="A base URL is required to make requests."
+          faviconUrl={resolvedBaseUrl || firstServerUrl}
         />
       ) : null}
 

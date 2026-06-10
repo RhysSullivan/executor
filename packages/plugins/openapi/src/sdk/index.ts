@@ -40,7 +40,7 @@ export {
 } from "./preview";
 export {
   DocResolver,
-  resolveBaseUrl,
+  resolveServerUrl,
   substituteUrlVariables,
   preferredContent,
 } from "./openapi-utils";
