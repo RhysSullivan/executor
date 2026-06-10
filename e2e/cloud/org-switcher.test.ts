@@ -3,6 +3,7 @@
 // via onboarding and the second via the account-menu → org switcher → "Create
 // organization" modal — then uses the same switcher to return to the first org
 // and confirms the workspace label in the bottom-left account button updates.
+import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { scenario } from "../src/scenario";
@@ -12,9 +13,6 @@ scenario(
   { needs: ["browser"] },
   (ctx) =>
     Effect.gen(function* () {
-      ctx.rec.say(
-        "A fresh user creates two orgs through the web UI, switches to the second, then switches back to the first and verifies the workspace label reflects the first org.",
-      );
       const identity = yield* ctx.target.newIdentity({ org: false });
 
       yield* ctx.browser.session(identity, async ({ page, step }) => {
@@ -64,9 +62,9 @@ scenario(
         const labelAfterOrg2 = await page
           .getByRole("button", { name: new RegExp(ORG_2) })
           .innerText();
-        ctx.rec
-          .expect(labelAfterOrg2, "account button shows the second org after creation")
-          .toContain(ORG_2);
+        expect(labelAfterOrg2, "account button shows the second org after creation").toContain(
+          ORG_2,
+        );
 
         // ── Step 3: switch back to the first org ─────────────────────────
         // The org-switcher sub-menu shows org IDs (not names) because the stub's
@@ -110,9 +108,10 @@ scenario(
         const labelAfterSwitch = await page
           .getByRole("button", { name: new RegExp(ORG_1) })
           .innerText();
-        ctx.rec
-          .expect(labelAfterSwitch, "account button shows the first org after switching back")
-          .toContain(ORG_1);
+        expect(
+          labelAfterSwitch,
+          "account button shows the first org after switching back",
+        ).toContain(ORG_1);
 
         // Cross-check the active org through the session API.
         const cookie = (await page.context().cookies())
@@ -125,17 +124,8 @@ scenario(
           organizations: ReadonlyArray<{ name: string }>;
           activeOrganizationId?: string;
         };
-        ctx.rec.toolCall({
-          surface: "api",
-          name: "auth.organizations",
-          args: {},
-          result: body,
-          ok: response.ok,
-          text: body.organizations.map((o) => o.name).join(", "),
-        });
-        ctx.rec
-          .expect(body.organizations.length, "exactly two organizations exist for this user")
-          .toBe(2);
+        expect(response.ok).toBe(true);
+        expect(body.organizations.length, "exactly two organizations exist for this user").toBe(2);
       });
     }),
 );

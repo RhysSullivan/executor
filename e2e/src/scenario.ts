@@ -1,9 +1,10 @@
 // scenario(): the one way a test is written. Picks the target from E2E_TARGET
 // (set by the vitest project), skips when the target lacks a needed capability,
-// provides a Recorder + the four surface drivers, and — pass or fail — writes
-// the watchable run.json + player.html and rebuilds the matrix index. Evidence
-// is a side effect of using the surfaces, never a per-test chore.
-import { writeFileSync, mkdirSync } from "node:fs";
+// and provides the surface drivers. Correctness lives in the test code and its
+// vitest assertions — there is no recording layer. What survives per run is a
+// small result.json (for the scenario × target matrix) plus whatever artifacts
+// the browser surface produced (video, screenshots, trace.zip).
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,9 +12,7 @@ import { it } from "@effect/vitest";
 import { Cause, Effect } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
 
-import { Recorder } from "./recorder";
 import type { Capability, Target } from "./target";
-import { slugify } from "./schema";
 import { resolveTarget } from "../targets/registry";
 import { makeApiSurface, type ApiSurface } from "./surfaces/api";
 import { makeBrowserSurface, type BrowserSurface } from "./surfaces/browser";
@@ -23,9 +22,17 @@ import { buildManifest } from "./viewer/manifest";
 
 export const RUNS_DIR = fileURLToPath(new URL("../runs/", import.meta.url));
 
+export const slugify = (text: string): string =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
 export interface ScenarioContext {
   readonly target: Target;
-  readonly rec: Recorder;
+  /** Artifact directory for this run (browser video/screenshots/trace land here). */
+  readonly dir: string;
   readonly api: ApiSurface;
   readonly browser: BrowserSurface;
   readonly cli: CliSurface;
@@ -44,8 +51,14 @@ export const scenario = (
 ): void => {
   const target = resolveTarget();
   const missing = (options.needs ?? []).filter((c) => !target.capabilities.has(c));
+  const dir = join(RUNS_DIR, target.name, slugify(name));
+
   if (missing.length > 0) {
-    writeSkipMarker(target, name, missing);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "skipped.json"),
+      JSON.stringify({ scenario: name, target: target.name, missing }, null, 1),
+    );
     it.skip(`${name} [needs ${missing.join(", ")} — not on ${target.name}]`, () => {});
     return;
   }
@@ -54,23 +67,38 @@ export const scenario = (
     name,
     () =>
       Effect.gen(function* () {
-        const rec = new Recorder({
-          scenario: name,
-          target: target.name,
-          runsDir: RUNS_DIR,
-          meta: { baseUrl: target.baseUrl },
-        });
+        // A run's directory is the run — never mix artifacts across attempts.
+        rmSync(dir, { recursive: true, force: true });
+        mkdirSync(dir, { recursive: true });
+        const startedAt = Date.now();
         const ctx: ScenarioContext = {
           target,
-          rec,
-          api: makeApiSurface(rec, target),
-          browser: makeBrowserSurface(rec, target),
-          cli: makeCliSurface(rec),
-          mcp: makeMcpSurface(rec, target),
+          dir,
+          api: makeApiSurface(target),
+          browser: makeBrowserSurface(dir, target),
+          cli: makeCliSurface(),
+          mcp: makeMcpSurface(target),
         };
         const exit = yield* Effect.exit(body(ctx));
-        rec.finish(exit._tag === "Failure" ? failureMessage(exit.cause) : undefined);
-        rec.write();
+        const endedAt = Date.now();
+        const error = exit._tag === "Failure" ? failureMessage(exit.cause) : undefined;
+        writeFileSync(
+          join(dir, "result.json"),
+          JSON.stringify(
+            {
+              scenario: name,
+              target: target.name,
+              ok: exit._tag === "Success",
+              startedAt,
+              endedAt,
+              durationMs: endedAt - startedAt,
+              ...(error ? { error } : {}),
+              artifacts: readdirSync(dir).filter((f) => f !== "result.json"),
+            },
+            null,
+            1,
+          ),
+        );
         buildManifest(RUNS_DIR);
         if (exit._tag === "Failure") {
           return yield* Effect.failCause(exit.cause);
@@ -83,15 +111,4 @@ export const scenario = (
 const failureMessage = (cause: Cause.Cause<unknown>): string => {
   const rendered = String(Cause.squash(cause));
   return rendered.length > 2_000 ? `${rendered.slice(0, 2_000)}…` : rendered;
-};
-
-// Capability-skipped cells still show up in the matrix (as "—"), so the index
-// distinguishes "not applicable here" from "never ran".
-const writeSkipMarker = (target: Target, name: string, missing: ReadonlyArray<string>): void => {
-  const dir = join(RUNS_DIR, target.name, slugify(name));
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(dir, "skipped.json"),
-    JSON.stringify({ scenario: name, target: target.name, missing }, null, 1),
-  );
 };

@@ -1,5 +1,6 @@
-// Cross-target: exercise the policies CRUD surface through the typed HttpApiClient.
-// Creates a policy as a fresh identity and asserts it comes back in the list.
+// Cross-target: policies CRUD through the typed HttpApiClient — a created
+// policy comes back in the list with the shape that was sent.
+import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
 
@@ -12,39 +13,20 @@ scenario(
   { needs: ["api"] },
   (ctx) =>
     Effect.gen(function* () {
-      ctx.rec.say(
-        "Sign in as a fresh identity, create a policy scoped to the org owner, " +
-          "then list policies and confirm the new entry is present with the expected shape.",
-      );
-
       const identity = yield* ctx.target.newIdentity();
       const client = yield* ctx.api.client(coreApi, identity);
 
-      ctx.rec.say('Create a policy that blocks every tool under the "policies-scn." prefix.');
-      const created = yield* ctx.api.call(
-        "policies.create",
-        { owner: "org", pattern: "policies-scn.*", action: "block" },
-        client.policies.create({
-          payload: { owner: "org", pattern: "policies-scn.*", action: "block" },
-        }),
-      );
+      const created = yield* client.policies.create({
+        payload: { owner: "org", pattern: "policies-scn.*", action: "block" },
+      });
+      expect(created.owner).toBe("org");
+      expect(created.pattern).toBe("policies-scn.*");
+      expect(created.action).toBe("block");
 
-      ctx.rec.expect(created.owner, "owner matches what we sent").toBe("org");
-      ctx.rec.expect(created.pattern, "pattern matches what we sent").toBe("policies-scn.*");
-      ctx.rec.expect(created.action, "action matches what we sent").toBe("block");
-
-      ctx.rec.say("List all policies and confirm the newly created policy is included.");
-      const list = yield* ctx.api.call("policies.list", {}, client.policies.list());
-
+      const list = yield* client.policies.list();
       const found = list.find((p) => p.id === created.id);
-      ctx.rec
-        .expect(found?.id ?? "(missing)", "created policy appears in the list")
-        .toBe(created.id);
-      ctx.rec
-        .expect(found?.pattern ?? "(missing)", "listed entry preserves the pattern")
-        .toBe("policies-scn.*");
-      ctx.rec
-        .expect(found?.action ?? "(missing)", "listed entry preserves the action")
-        .toBe("block");
+      expect(found, "created policy appears in the list").toBeDefined();
+      expect(found?.pattern, "listed entry preserves the pattern").toBe("policies-scn.*");
+      expect(found?.action, "listed entry preserves the action").toBe("block");
     }),
 );
