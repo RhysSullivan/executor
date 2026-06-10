@@ -1,14 +1,13 @@
 // API surface: the typed Effect `HttpApiClient` a real consumer codes against,
 // over the wire to the target's dev server. Auth comes from the scenario's
 // Identity — either ready-made headers (cloud's stub session cookie) or a
-// Better Auth email sign-in (selfhost). Calls made through `call()` land in
-// the transcript as tool turns with their result, so the viewer shows the
-// exact request/response a consumer saw.
+// Better Auth email sign-in (selfhost). Assertions and failure output are
+// vitest's job; a failed call surfaces as a typed HttpClientError in the
+// test output.
 import { Effect } from "effect";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import type { Recorder } from "../recorder";
 import type { Identity, Target } from "../target";
 
 type AnyApi = Parameters<typeof HttpApiClient.make>[0];
@@ -19,19 +18,12 @@ export interface ApiSurface {
     apiDef: A,
     identity: Identity,
   ) => Effect.Effect<HttpApiClient.Client<A, never>, unknown, HttpClient.HttpClient>;
-  /** Run an API call and record it (args, result, duration) as a tool turn. */
-  readonly call: <A, E, R>(
-    name: string,
-    args: unknown,
-    effect: Effect.Effect<A, E, R>,
-  ) => Effect.Effect<A, E, R>;
 }
 
-export const makeApiSurface = (rec: Recorder, target: Target): ApiSurface => ({
+export const makeApiSurface = (target: Target): ApiSurface => ({
   client: (apiDef, identity) =>
     Effect.gen(function* () {
       const headers = identity.headers ?? (yield* signInHeaders(target.baseUrl, identity));
-      rec.step("api", `Authenticated as ${identity.label} against ${target.baseUrl}`);
       return yield* HttpApiClient.make(apiDef, {
         baseUrl: new URL("/api", target.baseUrl).toString(),
         transformClient: HttpClient.mapRequest((request) =>
@@ -41,35 +33,6 @@ export const makeApiSurface = (rec: Recorder, target: Target): ApiSurface => ({
           ),
         ),
       });
-    }),
-  call: (name, args, effect) =>
-    Effect.gen(function* () {
-      const started = Date.now();
-      const exit = yield* Effect.exit(effect);
-      const durationMs = Date.now() - started;
-      if (exit._tag === "Success") {
-        rec.toolCall({
-          surface: "api",
-          name,
-          args,
-          result: exit.value,
-          ok: true,
-          text: summarize(exit.value),
-          durationMs,
-        });
-        return exit.value;
-      }
-      const failure = String(exit.cause);
-      rec.toolCall({
-        surface: "api",
-        name,
-        args,
-        result: failure.slice(0, 2_000),
-        ok: false,
-        text: failure.slice(0, 160),
-        durationMs,
-      });
-      return yield* Effect.failCause(exit.cause);
     }),
 });
 
@@ -89,9 +52,3 @@ const signInHeaders = (baseUrl: string, identity: Identity) =>
     if (!cookie) throw new Error(`api: sign-in set no cookie (${response.status})`);
     return { cookie };
   });
-
-const summarize = (value: unknown): string => {
-  const json = JSON.stringify(value);
-  if (json === undefined) return String(value);
-  return json.length > 160 ? `${json.slice(0, 160)}…` : json;
-};

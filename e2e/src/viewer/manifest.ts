@@ -1,6 +1,5 @@
-// Writes runs/manifest.json — the machine-readable inventory the viewer SPA
-// renders (scenario × target matrix + per-run metadata). Rebuilt after every
-// scenario; the SPA itself is built once by vite (see e2e/viewer/).
+// Writes runs/manifest.json — the machine-readable inventory the matrix
+// renders (scenario × target + per-run status). Rebuilt after every scenario.
 import {
   existsSync,
   readFileSync,
@@ -43,21 +42,21 @@ export const buildManifest = (runsDir: string): void => {
     for (const slug of slugs) {
       if (!slug.isDirectory()) continue;
       const dir = join(runsDir, target.name, slug.name);
-      const runPath = join(dir, "run.json");
-      if (existsSync(runPath)) {
+      const resultPath = join(dir, "result.json");
+      if (existsSync(resultPath)) {
         try {
-          const run = JSON.parse(readFileSync(runPath, "utf8"));
+          const result = JSON.parse(readFileSync(resultPath, "utf8"));
           runs.push({
-            scenario: run.scenario,
+            scenario: result.scenario,
             target: target.name,
             slug: slug.name,
-            ok: run.ok,
-            durationMs: run.durationMs,
-            endedAt: run.endedAt,
+            ok: result.ok,
+            durationMs: result.durationMs,
+            endedAt: result.endedAt,
           });
           continue;
         } catch {
-          // unreadable run — fall through to the skip marker
+          // unreadable result — fall through to the skip marker
         }
       }
       const skipPath = join(dir, "skipped.json");

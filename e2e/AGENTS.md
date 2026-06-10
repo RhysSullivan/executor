@@ -7,6 +7,11 @@ API, web UI, MCP, CLI). Never import app internals, never poke the DB, never
 modify product code or stubs — if the product or stub blocks you, STOP and
 report the blocker instead of working around it.
 
+**The test source is the review artifact.** A reviewer judges correctness by
+reading the test; write it so it reads as a spec. Assertions are plain vitest
+`expect` (use the message argument for intent). Browser runs additionally
+produce a Playwright trace, video, and step screenshots for debugging.
+
 ## File placement
 
 - `scenarios/*.test.ts` — runs on every target (cloud + selfhost)
@@ -16,6 +21,7 @@ report the blocker instead of working around it.
 ## Anatomy
 
 ```ts
+import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
 import { scenario } from "../src/scenario";
@@ -24,23 +30,19 @@ const coreApi = composePluginApi([] as const); // tools/integrations/connections
 
 scenario("Tools · a fresh workspace advertises the built-in tools", { needs: ["api"] }, (ctx) =>
   Effect.gen(function* () {
-    ctx.rec.say("What the user is trying to do, in one sentence."); // narration turn
     const identity = yield* ctx.target.newIdentity(); // fresh isolated user+org
     const client = yield* ctx.api.client(coreApi, identity); // typed HttpApiClient
-    const tools = yield* ctx.api.call("tools.list", {}, client.tools.list()); // recorded call
-    ctx.rec.expect(tools.length, "why this matters").toBeGreaterThan(0); // recorded assertion
+    const tools = yield* client.tools.list();
+    expect(tools.length, "at least one tool is exposed").toBeGreaterThan(0);
   }),
 );
 ```
 
-- `ctx.rec.say(...)` — explain intent BEFORE acting; this is what makes the
-  recording reviewable. One say() per logical beat.
-- `ctx.api.call(name, args, effect)` — ALWAYS wrap typed-client calls so they
-  land in the transcript.
-- `ctx.rec.expect(actual, label).toBe/toContain/toMatch/toBeGreaterThan(...)`
-  — recorded assertions with a human label. Use these, not vitest `expect`.
 - Capabilities (`needs`): `api`, `browser` (cloud only today), `mcp-oauth`
   (selfhost only today), `billing` (cloud only).
+- Resources created in a test must be cleaned up with `Effect.ensuring` (a
+  finalizer), not trailing statements — a mid-test failure must not leak state
+  into the shared instance.
 
 ## Browser scenarios (cloud)
 
@@ -56,8 +58,10 @@ yield *
   });
 ```
 
-- Every `step(label, fn)` = screenshot + video slice in the recording. Label
-  steps as user actions ("Open the org switcher"), not selectors.
+- `step(label, fn)` names a Playwright trace group and saves a screenshot —
+  label steps as user actions ("Open the org switcher"), not selectors.
+- The session records video (mp4) + a full Playwright trace into the run's
+  artifact dir; a failure saves `failure.png` automatically.
 - Prefer role-based locators (`getByRole("menuitem", ...)`) — text locators
   often match the look-alike trigger button in the bottom bar.
 - After an action that navigates, wait for the URL/network to settle before
@@ -75,17 +79,18 @@ const r = yield * session.call("execute", { code: "return 1 + 1;" });
 
 ## Running
 
-Servers are ALREADY RUNNING — attach, don't boot:
-
 ```sh
 cd e2e
+bun run test               # boots both dev servers, runs everything
+bun run test:cloud         # one target
+# attach to an already-running server while iterating:
 E2E_CLOUD_URL=http://127.0.0.1:4798 ../node_modules/.bin/vitest run --project cloud <file>
 E2E_SELFHOST_URL=http://localhost:4799 ../node_modules/.bin/vitest run --project selfhost <file>
 ```
 
-A run writes `runs/<target>/<slug>/run.json` + screenshots/video. Iterate until
-green. On failure, read the run.json error and the `*-failure.png` screenshot —
-it shows the screen at the moment of failure.
+Each run writes `runs/<target>/<slug>/result.json` plus any browser artifacts
+(trace.zip / session.mp4 / screenshots). `bun run serve` hosts the scenario ×
+target matrix; a run page links the trace into Playwright's trace viewer.
 
 ## Discovering endpoints
 
@@ -99,17 +104,18 @@ it shows the screen at the moment of failure.
 
 - Cloud: `newIdentity()` is a fresh user+org — you are isolated for free.
 - Selfhost: everyone is the bootstrap admin. PREFIX every resource you create
-  with your scenario slug (e.g. secret name `secrets-roundtrip-token`) so
-  parallel scenarios don't collide, and don't assert on global counts
-  (assert "contains mine", not "length is 1").
+  with your scenario slug (e.g. policy pattern `policies-scn.*`) so parallel
+  scenarios don't collide, and don't assert on global counts (assert "contains
+  mine", not "length is 1").
 
 ## Quality bar
 
 - The scenario name reads like a product guarantee ("Billing · the free plan
   stops organization creation after 3"), not a test id.
-- A reviewer must be able to open the run in the viewer and judge correctness
-  WITHOUT reading the source: intent (say) → action (step/call) → evidence →
-  assertion, in that order.
+- The test reads as a spec top-to-bottom; a reviewer should understand the
+  journey and the guarantee without running it.
 - Assert outcomes the user cares about, not implementation details. No
-  tautologies (don't assert what the setup already guarantees).
+  tautologies (don't assert what the setup already guarantees). Assert on
+  values, not booleans — `expect(list).toContain(x)`, never
+  `expect(list.includes(x)).toBe(true)` — so failures show the data.
 - Keep it deterministic: no sleeps; wait on conditions.

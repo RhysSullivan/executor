@@ -8,6 +8,7 @@
 // actually invoking the tool against a live server is the follow-up scenario.
 import { randomBytes, randomUUID } from "node:crypto";
 
+import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
@@ -44,10 +45,6 @@ scenario(
   { needs: ["api"] },
   (ctx) =>
     Effect.gen(function* () {
-      ctx.rec.say(
-        "Register an inline OpenAPI 3 spec, connect it, and confirm its operation appears in the tool catalog.",
-      );
-
       const identity = yield* ctx.target.newIdentity();
       const client = yield* ctx.api.client(api, identity);
 
@@ -56,57 +53,42 @@ scenario(
       const slug = `openapi-scn-greet-${randomBytes(4).toString("hex")}`;
       const specBaseUrl = "http://127.0.0.1:59999"; // never contacted during registration
 
-      const added = yield* ctx.api.call(
-        "openapi.addSpec",
-        { slug, spec: "inline blob (GET /greet → getGreeting)" },
-        client.openapi.addSpec({
-          payload: {
-            spec: { kind: "blob", value: greetSpec(specBaseUrl) },
-            slug,
-            baseUrl: specBaseUrl,
-            authenticationTemplate: [
-              {
-                slug: "apiKey",
-                type: "apiKey",
-                headers: { "x-api-key": [{ type: "variable", name: "token" }] },
-              },
-            ],
-          },
-        }),
-      );
-      ctx.rec
-        .expect(added.toolCount, "the spec's operations were extracted as tools")
-        .toBeGreaterThan(0);
-      ctx.rec.expect(added.slug, "the integration keeps the requested slug").toBe(slug);
+      const added = yield* client.openapi.addSpec({
+        payload: {
+          spec: { kind: "blob", value: greetSpec(specBaseUrl) },
+          slug,
+          baseUrl: specBaseUrl,
+          authenticationTemplate: [
+            {
+              slug: "apiKey",
+              type: "apiKey",
+              headers: { "x-api-key": [{ type: "variable", name: "token" }] },
+            },
+          ],
+        },
+      });
+      expect(added.toolCount, "the spec's operations were extracted as tools").toBeGreaterThan(0);
+      expect(added.slug, "the integration keeps the requested slug").toBe(slug);
 
-      ctx.rec.say(
-        "Connect the integration via a provider reference — the catalog stamps tools once a connection exists.",
-      );
-      const providers = yield* ctx.api.call("providers.list", {}, client.providers.list());
-      ctx.rec
-        .expect(providers.length, "a credential provider is available to connect with")
-        .toBeGreaterThan(0);
+      // The catalog stamps tools once a connection exists; a `from` provider
+      // reference avoids any vault round-trip.
+      const providers = yield* client.providers.list();
+      expect(providers.length, "a credential provider is available").toBeGreaterThan(0);
 
-      yield* ctx.api.call(
-        "connections.create",
-        { owner: "org", integration: slug, name: "main", template: "apiKey" },
-        client.connections.create({
-          payload: {
-            owner: "org",
-            name: ConnectionName.make("main"),
-            integration: IntegrationSlug.make(slug),
-            template: AuthTemplateSlug.make("apiKey"),
-            from: { provider: providers[0]!, id: ProviderItemId.make(randomUUID()) },
-          },
-        }),
-      );
+      yield* client.connections.create({
+        payload: {
+          owner: "org",
+          name: ConnectionName.make("main"),
+          integration: IntegrationSlug.make(slug),
+          template: AuthTemplateSlug.make("apiKey"),
+          from: { provider: providers[0]!, id: ProviderItemId.make(randomUUID()) },
+        },
+      });
 
-      const tools = yield* ctx.api.call("tools.list", {}, client.tools.list());
-      const mine = tools
-        .filter((tool) => String(tool.integration) === slug)
-        .map((tool) => tool.name);
-      ctx.rec
-        .expect(mine.join(", ") || "(none)", "the spec's operation is in the tool catalog")
-        .toContain("getGreeting");
+      const tools = yield* client.tools.list();
+      const mine = tools.filter((tool) => String(tool.integration) === slug).map((t) => t.name);
+      expect(mine.join(", "), "the spec's operation is in the tool catalog").toContain(
+        "getGreeting",
+      );
     }),
 );

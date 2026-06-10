@@ -1,8 +1,7 @@
 // MCP surface: the vendored mcporter fork as a programmatic MCP client, with
-// headless OAuth via the target's consent strategy. The connect → authorize →
-// code → connected lifecycle and every tool call are recorded as chat turns,
-// because the MCP surface IS a chat — that's its natural transcript shape.
-// Session methods are Effects; mcporter itself is promise-native underneath.
+// headless OAuth via the target's consent strategy. Session methods are
+// Effects; mcporter itself is promise-native underneath. Assertions are
+// vitest's job.
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +10,6 @@ import { Effect } from "effect";
 
 import { createRuntime, type Runtime } from "../../../vendor/mcporter/dist/index.js";
 
-import type { Recorder } from "../recorder";
 import type { Identity, Target } from "../target";
 
 export interface McpCallResult {
@@ -45,29 +43,16 @@ const textOf = (result: unknown): string => {
   return typeof result === "string" ? result : JSON.stringify(result);
 };
 
-export const makeMcpSurface = (rec: Recorder, target: Target): McpSurface => ({
+export const makeMcpSurface = (target: Target): McpSurface => ({
   session: (identity) => {
     const serverName = target.name;
     let runtimePromise: Promise<Runtime> | undefined;
-    let toolNames: ReadonlyArray<string> | undefined;
+    let connected = false;
 
     const consent = target.mcpConsent?.(identity);
     const callOptions = {
       autoAuthorize: true,
-      oauthSessionOptions: consent
-        ? {
-            consentStrategy: async (request: { authorizationUrl: string }) => {
-              rec.auth("authorize", "OAuth required → client registered (DCR), authorizing", {
-                detail: { authorizationUrl: request.authorizationUrl },
-              });
-              const out = await consent(request);
-              rec.auth("code", "Signed in & consented → authorization code received", {
-                ok: true,
-              });
-              return out;
-            },
-          }
-        : {},
+      oauthSessionOptions: consent ? { consentStrategy: consent } : {},
     };
 
     const runtime = () => {
@@ -82,48 +67,26 @@ export const makeMcpSurface = (rec: Recorder, target: Target): McpSurface => ({
       return runtimePromise;
     };
 
-    const connect = async () => {
-      if (toolNames) return toolNames;
-      rec.auth("connect", `Connecting to ${target.mcpUrl}`);
-      const defs = await (await runtime()).listTools(serverName, callOptions);
-      rec.auth("connected", "Connected — access token acquired & cached for reuse", { ok: true });
-      toolNames = defs.map((tool: { name: string }) => tool.name);
-      return toolNames;
-    };
+    const listTools = () =>
+      Effect.promise(async () => {
+        const defs = await (await runtime()).listTools(serverName, callOptions);
+        connected = true;
+        return defs.map((tool: { name: string }) => tool.name);
+      });
 
     const call = (name: string, args: Record<string, unknown> = {}) =>
       Effect.promise(async (): Promise<McpCallResult> => {
-        await connect();
-        const started = Date.now();
+        if (!connected) {
+          await (await runtime()).listTools(serverName, callOptions);
+          connected = true;
+        }
         const raw = await (await runtime()).callTool(serverName, name, { args, ...callOptions });
         const isError = Boolean((raw as { isError?: boolean })?.isError);
-        const text = textOf(raw);
-        rec.toolCall({
-          surface: "mcp",
-          name,
-          args,
-          result: (raw as { content?: unknown })?.content ?? raw,
-          ok: !isError,
-          text,
-          durationMs: Date.now() - started,
-        });
-        return { raw, text, ok: !isError };
+        return { raw, text: textOf(raw), ok: !isError };
       });
 
     return {
-      listTools: () =>
-        Effect.promise(async () => {
-          const names = await connect();
-          rec.toolCall({
-            surface: "mcp",
-            name: "tools/list",
-            args: {},
-            result: names,
-            ok: true,
-            text: names.join(", "),
-          });
-          return names;
-        }),
+      listTools,
       call,
       approvePaused: (text, content = {}) =>
         Effect.suspend(() => {

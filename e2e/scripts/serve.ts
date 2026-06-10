@@ -18,6 +18,7 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".webm": "video/webm",
   ".mp4": "video/mp4",
+  ".zip": "application/zip",
 };
 
 createServer((req, res) => {
@@ -36,6 +37,8 @@ createServer((req, res) => {
   }
   const size = statSync(file).size;
   const type = MIME[extname(file)] ?? "application/octet-stream";
+  // trace.playwright.dev fetches trace.zip from the user's browser — allow it.
+  res.setHeader("access-control-allow-origin", "*");
   const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? "");
   if (range) {
     const start = Number(range[1]);
