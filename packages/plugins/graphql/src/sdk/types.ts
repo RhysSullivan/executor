@@ -1,9 +1,5 @@
 import { Schema } from "effect";
-import {
-  ApiKeyAuthMethod,
-  NoneAuthMethod,
-  normalizeAuthMethodSlugs,
-} from "@executor-js/http-auth";
+import { ApiKeyAuthMethod, NoneAuthMethod, normalizeAuthMethodSlugs } from "@executor-js/http-auth";
 
 // ---------------------------------------------------------------------------
 // GraphQL operation kind

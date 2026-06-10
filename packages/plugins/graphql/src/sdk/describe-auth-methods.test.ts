@@ -22,13 +22,17 @@ const recordWith = (config: IntegrationConfig): IntegrationRecord => ({
 });
 
 describe("describeGraphqlAuthMethods", () => {
-  it("projects a header apiKey template to one apikey method carrying the header placement", () => {
+  it("projects a header apikey method carrying the header placement", () => {
     const methods = describeGraphqlAuthMethods(
       recordWith({
         endpoint: "https://x.example/graphql",
         name: "x",
         authenticationTemplate: [
-          { kind: "apiKey", slug: "api_key", in: "header", name: "X-Api-Key", prefix: "Bearer " },
+          {
+            slug: "api_key",
+            kind: "apikey",
+            placements: [{ carrier: "header", name: "X-Api-Key", prefix: "Bearer " }],
+          },
         ],
       }),
     );
@@ -44,12 +48,14 @@ describe("describeGraphqlAuthMethods", () => {
     ]);
   });
 
-  it("projects a query apiKey template to one apikey method carrying the query placement", () => {
+  it("projects a query apikey method carrying the query placement", () => {
     const methods = describeGraphqlAuthMethods(
       recordWith({
         endpoint: "https://x.example/graphql",
         name: "x",
-        authenticationTemplate: [{ kind: "apiKey", slug: "qp", in: "query", name: "api_key" }],
+        authenticationTemplate: [
+          { slug: "qp", kind: "apikey", placements: [{ carrier: "query", name: "api_key" }] },
+        ],
       }),
     );
 
@@ -64,13 +70,42 @@ describe("describeGraphqlAuthMethods", () => {
     ]);
   });
 
+  it("carries multi-placement methods (and their variables) through verbatim", () => {
+    const methods = describeGraphqlAuthMethods(
+      recordWith({
+        endpoint: "https://x.example/graphql",
+        name: "x",
+        authenticationTemplate: [
+          {
+            slug: "mixed",
+            kind: "apikey",
+            placements: [
+              {
+                carrier: "header",
+                name: "Authorization",
+                prefix: "Bearer ",
+                variable: "api_token",
+              },
+              { carrier: "query", name: "team_id", variable: "team_id" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(methods[0]?.placements).toEqual([
+      { carrier: "header", name: "Authorization", prefix: "Bearer ", variable: "api_token" },
+      { carrier: "query", name: "team_id", prefix: "", variable: "team_id" },
+    ]);
+  });
+
   it("defaults the placement prefix to an empty string when unset", () => {
     const methods = describeGraphqlAuthMethods(
       recordWith({
         endpoint: "https://x.example/graphql",
         name: "x",
         authenticationTemplate: [
-          { kind: "apiKey", slug: "h", in: "header", name: "Authorization" },
+          { slug: "h", kind: "apikey", placements: [{ carrier: "header", name: "Authorization" }] },
         ],
       }),
     );
@@ -80,7 +115,7 @@ describe("describeGraphqlAuthMethods", () => {
     ]);
   });
 
-  it("projects an oauth2 template to one oauth method", () => {
+  it("projects an oauth2 method to one oauth descriptor", () => {
     const methods = describeGraphqlAuthMethods(
       recordWith({
         endpoint: "https://x.example/graphql",
@@ -100,14 +135,28 @@ describe("describeGraphqlAuthMethods", () => {
     ]);
   });
 
+  it("projects a none method to a no-auth descriptor", () => {
+    const methods = describeGraphqlAuthMethods(
+      recordWith({
+        endpoint: "https://x.example/graphql",
+        name: "x",
+        authenticationTemplate: [{ slug: "none", kind: "none" }],
+      }),
+    );
+
+    expect(methods).toEqual([
+      { id: "none", label: "No authentication", kind: "none", template: "none" },
+    ]);
+  });
+
   it("projects every declared method (multi-method specs)", () => {
     const methods = describeGraphqlAuthMethods(
       recordWith({
         endpoint: "https://x.example/graphql",
         name: "x",
         authenticationTemplate: [
-          { kind: "apiKey", slug: "a", in: "header", name: "X-Api-Key" },
-          { kind: "apiKey", slug: "b", in: "query", name: "token" },
+          { slug: "a", kind: "apikey", placements: [{ carrier: "header", name: "X-Api-Key" }] },
+          { slug: "b", kind: "apikey", placements: [{ carrier: "query", name: "token" }] },
         ],
       }),
     );

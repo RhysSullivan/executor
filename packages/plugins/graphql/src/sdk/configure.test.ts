@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------------
 // GraphQL plugin — `configureAuth` (custom auth method merge-append) coverage.
 //
-// `configureAuth` merge-appends apiKey/oauth2 templates onto an existing
+// `configureAuth` merge-appends apikey/oauth2 methods onto an existing
 // integration's opaque `authenticationTemplate`. These tests exercise the
 // extension method directly (the same path the HTTP `configure` handler calls):
-//   - round-trip: add a custom apiKey method → `getConfig` shows it,
+//   - round-trip: add a custom apikey method → `getConfig` shows it,
 //   - append: a configured method does not drop the integration's existing
 //     declared methods,
 //   - slug generation: a method with a blank slug is assigned `custom_<id>`,
@@ -20,7 +20,7 @@ import { createExecutor } from "@executor-js/sdk";
 import { makeTestConfig, memoryCredentialsPlugin } from "@executor-js/sdk/testing";
 
 import { graphqlPlugin } from "./plugin";
-import type { AuthTemplate } from "./types";
+import type { GraphqlAuthMethod } from "./types";
 
 const makeExecutor = () =>
   createExecutor(
@@ -29,11 +29,10 @@ const makeExecutor = () =>
     }),
   );
 
-const customApiKey: AuthTemplate = {
-  kind: "apiKey",
+const customApiKey: GraphqlAuthMethod = {
   slug: "my_custom",
-  in: "header",
-  name: "X-Api-Key",
+  kind: "apikey",
+  placements: [{ carrier: "header", name: "X-Api-Key" }],
 };
 
 describe("GraphQL Plugin — configureAuth (custom auth method)", () => {
@@ -56,7 +55,11 @@ describe("GraphQL Plugin — configureAuth (custom auth method)", () => {
       const config = yield* executor.graphql.getConfig("cfg_api");
       const template = config?.authenticationTemplate ?? [];
       expect(template).toEqual([
-        { kind: "apiKey", slug: "my_custom", in: "header", name: "X-Api-Key" },
+        {
+          slug: "my_custom",
+          kind: "apikey",
+          placements: [{ carrier: "header", name: "X-Api-Key" }],
+        },
       ]);
     }),
   );
@@ -68,14 +71,16 @@ describe("GraphQL Plugin — configureAuth (custom auth method)", () => {
       yield* executor.graphql.addIntegration({
         endpoint: "https://x.example/graphql",
         slug: "cfg_append",
-        authenticationTemplate: [{ kind: "apiKey", slug: "seed", in: "header", name: "X-Seed" }],
+        authenticationTemplate: [
+          { slug: "seed", kind: "apikey", placements: [{ carrier: "header", name: "X-Seed" }] },
+        ],
       });
 
       const merged = yield* executor.graphql.configureAuth("cfg_append", {
         authenticationTemplate: [customApiKey],
       });
 
-      expect(merged.map((m: AuthTemplate) => m.slug)).toEqual(["seed", "my_custom"]);
+      expect(merged.map((m: GraphqlAuthMethod) => m.slug)).toEqual(["seed", "my_custom"]);
     }),
   );
 
@@ -89,7 +94,9 @@ describe("GraphQL Plugin — configureAuth (custom auth method)", () => {
       });
 
       const merged = yield* executor.graphql.configureAuth("cfg_genslug", {
-        authenticationTemplate: [{ kind: "apiKey", slug: "", in: "header", name: "X-Api-Key" }],
+        authenticationTemplate: [
+          { slug: "", kind: "apikey", placements: [{ carrier: "header", name: "X-Api-Key" }] },
+        ],
       });
 
       expect(merged).toHaveLength(1);
@@ -111,29 +118,27 @@ describe("GraphQL Plugin — configureAuth (custom auth method)", () => {
         authenticationTemplate: [
           // Re-submit the same slug with a different placement → replace in place.
           {
-            kind: "apiKey",
             slug: "my_custom",
-            in: "header",
-            name: "X-Other",
+            kind: "apikey",
+            placements: [{ carrier: "header", name: "X-Other" }],
           },
-          { kind: "apiKey", slug: "", in: "query", name: "api_key" },
-          { kind: "apiKey", slug: "", in: "query", name: "token" },
+          { slug: "", kind: "apikey", placements: [{ carrier: "query", name: "api_key" }] },
+          { slug: "", kind: "apikey", placements: [{ carrier: "query", name: "token" }] },
         ],
       });
 
-      const slugs = merged.map((m: AuthTemplate) => m.slug);
+      const slugs = merged.map((m: GraphqlAuthMethod) => m.slug);
       expect(slugs.filter((s: string) => s === "my_custom")).toHaveLength(1);
       expect(merged).toHaveLength(3);
       const generated = slugs.filter((s: string) => s.startsWith("custom_"));
       expect(generated).toHaveLength(2);
       expect(new Set(generated).size).toBe(2);
 
-      const replaced = merged.find((m: AuthTemplate) => m.slug === "my_custom")!;
+      const replaced = merged.find((m: GraphqlAuthMethod) => m.slug === "my_custom")!;
       expect(replaced).toEqual({
-        kind: "apiKey",
         slug: "my_custom",
-        in: "header",
-        name: "X-Other",
+        kind: "apikey",
+        placements: [{ carrier: "header", name: "X-Other" }],
       });
     }),
   );
@@ -146,17 +151,19 @@ describe("GraphQL Plugin — configureAuth (custom auth method)", () => {
         endpoint: "https://x.example/graphql",
         slug: "cfg_replace",
         authenticationTemplate: [
-          { kind: "apiKey", slug: "seed", in: "header", name: "X-Seed" },
+          { slug: "seed", kind: "apikey", placements: [{ carrier: "header", name: "X-Seed" }] },
           customApiKey,
         ],
       });
 
       const merged = yield* executor.graphql.configureAuth("cfg_replace", {
-        authenticationTemplate: [{ kind: "apiKey", slug: "seed", in: "header", name: "X-Seed" }],
+        authenticationTemplate: [
+          { slug: "seed", kind: "apikey", placements: [{ carrier: "header", name: "X-Seed" }] },
+        ],
         mode: "replace",
       });
 
-      expect(merged.map((m: AuthTemplate) => m.slug)).toEqual(["seed"]);
+      expect(merged.map((m: GraphqlAuthMethod) => m.slug)).toEqual(["seed"]);
     }),
   );
 

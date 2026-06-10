@@ -18,7 +18,11 @@ import { addGroup, observabilityMiddleware } from "@executor-js/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor-js/api/server";
 
 import type { GraphqlPluginExtension } from "../sdk/plugin";
-import type { AuthTemplate, GraphqlIntegrationConfig } from "../sdk/types";
+import type {
+  GraphqlAuthMethod,
+  GraphqlAuthMethodInput,
+  GraphqlIntegrationConfig,
+} from "../sdk/types";
 import { GraphqlExtensionService, GraphqlHandlers } from "./handlers";
 import { GraphqlGroup } from "./group";
 
@@ -31,22 +35,22 @@ const makeStubExtension = (
 ): GraphqlPluginExtension => {
   let counter = 0;
   const merge = (
-    existing: readonly AuthTemplate[],
-    incoming: readonly AuthTemplate[],
-  ): readonly AuthTemplate[] => {
-    const result: AuthTemplate[] = existing.map((entry: AuthTemplate) => entry);
-    const taken = new Set<string>(result.map((entry: AuthTemplate) => entry.slug));
+    existing: readonly GraphqlAuthMethod[],
+    incoming: readonly GraphqlAuthMethodInput[],
+  ): readonly GraphqlAuthMethod[] => {
+    const result: GraphqlAuthMethod[] = existing.map((entry: GraphqlAuthMethod) => entry);
+    const taken = new Set<string>(result.map((entry: GraphqlAuthMethod) => entry.slug));
     for (const entry of incoming) {
-      const requested = entry.slug.trim();
-      const index = result.findIndex((current: AuthTemplate) => current.slug === requested);
+      const requested = entry.slug?.trim() ?? "";
+      const index = result.findIndex((current: GraphqlAuthMethod) => current.slug === requested);
       if (requested.length > 0 && index >= 0) {
-        result[index] = entry;
+        result[index] = entry as GraphqlAuthMethod;
         continue;
       }
       const slug =
         requested.length > 0 && !taken.has(requested) ? requested : `custom_${counter++}`;
       taken.add(slug);
-      result.push({ ...entry, slug } as AuthTemplate);
+      result.push({ ...entry, slug } as GraphqlAuthMethod);
     }
     return result;
   };
@@ -59,9 +63,9 @@ const makeStubExtension = (
     getConfig: (slug: string) => Effect.sync(() => store.get(slug) ?? null),
     configureAuth: (
       slug: string,
-      input: { readonly authenticationTemplate: readonly AuthTemplate[] },
+      input: { readonly authenticationTemplate: readonly GraphqlAuthMethodInput[] },
     ) =>
-      Effect.sync((): readonly AuthTemplate[] => {
+      Effect.sync((): readonly GraphqlAuthMethod[] => {
         const current = store.get(slug);
         if (!current) return [];
         const merged = merge(current.authenticationTemplate, input.authenticationTemplate);
@@ -102,7 +106,9 @@ const seededStore = (): Map<string, GraphqlIntegrationConfig> => {
   store.set("gql", {
     endpoint: "https://x.example/graphql",
     name: "GraphQL",
-    authenticationTemplate: [{ kind: "apiKey", slug: "seed", in: "header", name: "X-Seed" }],
+    authenticationTemplate: [
+      { slug: "seed", kind: "apikey", placements: [{ carrier: "header", name: "X-Seed" }] },
+    ],
   });
   return store;
 };
@@ -134,7 +140,9 @@ describe("GraphqlHandlers — config surface", () => {
       };
 
       const configureRes = yield* post(web, "http://localhost/graphql/integrations/gql/config", {
-        authenticationTemplate: [{ kind: "apiKey", slug: "custom", in: "query", name: "key" }],
+        authenticationTemplate: [
+          { slug: "custom", kind: "apikey", placements: [{ carrier: "query", name: "key" }] },
+        ],
       });
       expect(configureRes.status).toBe(200);
       const configureBody = (yield* Effect.promise(() => configureRes.json())) as {
@@ -159,15 +167,20 @@ describe("GraphqlHandlers — config surface", () => {
       };
 
       const res = yield* post(web, "http://localhost/graphql/integrations/gql/config", {
-        authenticationTemplate: [{ kind: "apiKey", slug: "seed", in: "header", name: "X-New" }],
+        authenticationTemplate: [
+          { slug: "seed", kind: "apikey", placements: [{ carrier: "header", name: "X-New" }] },
+        ],
       });
       expect(res.status).toBe(200);
       const body = (yield* Effect.promise(() => res.json())) as {
-        authenticationTemplate: { slug: string; name: string }[];
+        authenticationTemplate: {
+          slug: string;
+          placements: { name: string }[];
+        }[];
       };
       expect(body.authenticationTemplate).toHaveLength(1);
       expect(body.authenticationTemplate[0]!.slug).toBe("seed");
-      expect(body.authenticationTemplate[0]!.name).toBe("X-New");
+      expect(body.authenticationTemplate[0]!.placements[0]!.name).toBe("X-New");
     }),
   );
 
@@ -179,7 +192,9 @@ describe("GraphqlHandlers — config surface", () => {
       };
 
       const res = yield* post(web, "http://localhost/graphql/integrations/nope/config", {
-        authenticationTemplate: [{ kind: "apiKey", slug: "custom", in: "query", name: "key" }],
+        authenticationTemplate: [
+          { slug: "custom", kind: "apikey", placements: [{ carrier: "query", name: "key" }] },
+        ],
       });
       expect(res.status).toBe(200);
       const body = (yield* Effect.promise(() => res.json())) as {

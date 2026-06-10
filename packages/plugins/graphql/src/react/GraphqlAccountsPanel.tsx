@@ -15,8 +15,8 @@ import {
 } from "@executor-js/react/lib/custom-auth-methods";
 
 import { graphqlConfigAtom, graphqlConfigure } from "./atoms";
-import { authMethodsFromConfig, graphqlTemplatesFromPlacements } from "./auth-method-config";
-import type { AuthTemplate } from "../sdk/types";
+import { authMethodsFromConfig, graphqlAuthMethodInputsFromPlacements } from "./auth-method-config";
+import type { GraphqlAuthMethod } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // GraphQL Accounts hub — fills the generic detail page's `accounts` slot.
@@ -24,11 +24,11 @@ import type { AuthTemplate } from "../sdk/types";
 // Reads the integration's real `authenticationTemplate` (via `getConfig`),
 // converts it to generic `AuthMethod[]`, and composes the generic
 // `AccountsSection` — whose Add-account offers those methods plus a "+ Custom
-// method" row (apiKey-only). The custom-method create is INJECTED here
-// (`createCustomMethod`): generic placements → graphql `apiKey` templates
-// (`graphqlTemplatesFromPlacements`, slug omitted → backend `custom_<id>`)
-// merge-appended via `configure`. Stays plugin-side because it touches the
-// graphql sdk `AuthTemplate` types.
+// method" row (apikey-only). The custom-method create is INJECTED here
+// (`createCustomMethod`): generic placements → ONE apikey method
+// (`graphqlAuthMethodInputsFromPlacements`, slug omitted → backend
+// `custom_<id>`) merge-appended via `configure`. Stays plugin-side because it
+// touches the graphql sdk method types.
 // ---------------------------------------------------------------------------
 
 export default function GraphqlAccountsPanel(props: {
@@ -41,7 +41,7 @@ export default function GraphqlAccountsPanel(props: {
   const configResult = useAtomValue(graphqlConfigAtom(slug));
   const doConfigure = useAtomSet(graphqlConfigure, { mode: "promiseExit" });
 
-  const existingTemplate = useMemo<readonly AuthTemplate[]>(() => {
+  const existingTemplate = useMemo<readonly GraphqlAuthMethod[]>(() => {
     if (!AsyncResult.isSuccess(configResult) || configResult.value == null) return [];
     return configResult.value.authenticationTemplate ?? [];
   }, [configResult]);
@@ -53,8 +53,8 @@ export default function GraphqlAccountsPanel(props: {
 
   // Custom-method create/remove: the shared skeleton (merge-append → diff out
   // the created method; filter → replace) parameterized by the GraphQL codec.
-  // Stays plugin-side only where it touches the graphql `AuthTemplate` types.
-  const configure = useCallback<ConfigureAuthMethods<AuthTemplate>>(
+  // Stays plugin-side only where it touches the graphql method types.
+  const configure = useCallback<ConfigureAuthMethods<GraphqlAuthMethod>>(
     async (input) => {
       const exit = await doConfigure({
         params: { slug: String(slug) },
@@ -69,13 +69,13 @@ export default function GraphqlAccountsPanel(props: {
     [doConfigure, slug],
   );
 
-  const codec = useMemo<AuthMethodsCodec<AuthTemplate>>(
+  const codec = useMemo<AuthMethodsCodec<GraphqlAuthMethod>>(
     () => ({
       toAuthMethods: authMethodsFromConfig,
-      // Slug blank → backend backfills `custom_<id>` per emitted template.
+      // Inputs omit slugs — the backend merge backfills `custom_<id>`.
       templatesFromPlacements: (placements: readonly Placement[]) =>
-        graphqlTemplatesFromPlacements(placements, ""),
-      slugOf: (template: AuthTemplate) => template.slug,
+        graphqlAuthMethodInputsFromPlacements(placements) as readonly GraphqlAuthMethod[],
+      slugOf: (template: GraphqlAuthMethod) => template.slug,
     }),
     [],
   );

@@ -26,9 +26,8 @@ import {
 
 import { addGraphqlIntegrationOptimistic } from "./atoms";
 import { GraphqlSourceFields } from "./GraphqlSourceFields";
-import { graphqlTemplatesFromPlacements } from "./auth-method-config";
-import { GRAPHQL_APIKEY_TEMPLATE } from "./defaults";
-import type { AuthTemplate } from "../sdk/types";
+import { graphqlAuthMethodInputsFromPlacements } from "./auth-method-config";
+import type { GraphqlAuthMethodInput } from "../sdk/types";
 
 // v2 GraphQL add flow: register the integration with its declared auth-method
 // LIST (the shared `AuthMethodListEditor` — GraphQL stays header/query apiKey;
@@ -57,25 +56,19 @@ export default function AddGraphqlSource(props: {
     mode: "promiseExit",
   });
 
-  // The templates to register: each apikey row emits one template per named
-  // placement (GraphQL templates carry one header/query slot each). The first
-  // keeps the primary `apikey` slug (matching the prior single-method flow);
-  // the rest get deterministic `apikey-<n>` slugs. `none` rows register
-  // nothing.
-  const authenticationTemplate = useMemo<readonly AuthTemplate[]>(() => {
-    const templates: AuthTemplate[] = [];
-    for (const row of authMethodList.rows) {
-      if (row.value.kind !== "apikey") continue;
-      for (const template of graphqlTemplatesFromPlacements(row.value.placements, "")) {
-        const index = templates.length;
-        templates.push({
-          ...template,
-          slug: index === 0 ? GRAPHQL_APIKEY_TEMPLATE : `apikey-${index + 1}`,
-        });
-      }
-    }
-    return templates;
-  }, [authMethodList.rows]);
+  // The methods to register: each apikey row declares ONE method carrying
+  // every named placement (header + query mix in a single method). Inputs
+  // omit slugs — the backend assigns carrier-derived ones. `none` rows
+  // register nothing.
+  const authenticationTemplate = useMemo<readonly GraphqlAuthMethodInput[]>(
+    () =>
+      authMethodList.rows.flatMap((row: AuthMethodRow) =>
+        row.value.kind === "apikey"
+          ? graphqlAuthMethodInputsFromPlacements(row.value.placements)
+          : [],
+      ),
+    [authMethodList.rows],
+  );
 
   // Every apikey row needs at least one named placement; `none` rows are
   // always valid.

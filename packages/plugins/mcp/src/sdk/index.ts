@@ -25,6 +25,8 @@ export {
   parseMcpIntegrationConfig,
 } from "./types";
 
+export { migrateMcpAuthConfig } from "./migrate-config";
+
 export {
   McpConnectionError,
   McpToolDiscoveryError,

@@ -73,3 +73,5 @@ export {
   type Authentication,
   type APIKeyAuthentication,
 } from "./types";
+
+export { migrateOpenApiAuthConfig } from "./migrate-config";

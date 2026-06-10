@@ -1,84 +1,74 @@
 // ---------------------------------------------------------------------------
-// GraphQL ↔ generic auth-method converters.
-//
-// The generic Accounts hub + add-time auth editor speak in plugin-agnostic
-// `AuthMethod` / `Placement` values (`@executor-js/react/lib/auth-placements`).
-// The GraphQL plugin stores auth as its own `AuthTemplate` wire shape
-// (`{ kind:"apiKey", slug, in, name, prefix? }` / `{ kind:"oauth2", slug, … }`).
-// These converters bridge that wire shape to/from the generic placement model,
-// so they live with the GraphQL plugin — they touch the graphql sdk
-// `AuthTemplate` types and would pull transport specifics into core.
+// GraphQL ↔ generic auth-method converters — a thin oauth adapter over the
+// shared codec (`@executor-js/react/lib/shared-auth-method-codec`). The
+// apikey/none paths (multi-placement, multi-variable) live in the shared
+// codec; GraphQL only contributes its oauth flavor: endpoint-less methods that
+// render the connection's access token as a bearer header at invoke time
+// (optionally overriding the header name / prefix).
 // ---------------------------------------------------------------------------
 
 import { AuthTemplateSlug } from "@executor-js/sdk/shared";
+import type { AuthTemplateEditorValue } from "@executor-js/react/components/auth-template-editor";
 import type { AuthMethod, Placement } from "@executor-js/react/lib/auth-placements";
+import {
+  authMethodFromSharedTemplate,
+  editorValueFromSharedMethod,
+  sharedMethodInputFromEditorValue,
+  wirePlacementsFromEditor,
+} from "@executor-js/react/lib/shared-auth-method-codec";
 
-import { GRAPHQL_APIKEY_TEMPLATE } from "./defaults";
-import type { AuthTemplate } from "../sdk/types";
+import type { GraphqlAuthMethod, GraphqlAuthMethodInput } from "../sdk/types";
 
-// ---------------------------------------------------------------------------
-// Templates → generic methods.
-// ---------------------------------------------------------------------------
+const oauthAuthMethod = (slug: string): AuthMethod => ({
+  id: slug,
+  label: "OAuth",
+  kind: "oauth",
+  source: slug.startsWith("custom_") ? "custom" : "spec",
+  template: AuthTemplateSlug.make(slug),
+  placements: [],
+  oauth: {},
+});
 
-const labelForApiKey = (slug: string, name: string): string => `API key (${name || slug})`;
+/** Convert a generic editor value into one GraphQL auth-method input (no slug
+ *  — the backend assigns carrier-derived slugs). An apikey value keeps every
+ *  named placement (headers and query params mix freely); one with no usable
+ *  placement falls back to `none`. */
+export function graphqlAuthMethodInputFromEditorValue(
+  value: AuthTemplateEditorValue,
+): GraphqlAuthMethodInput {
+  if (value.kind === "oauth") return { kind: "oauth2" };
+  return (sharedMethodInputFromEditorValue(value) ?? { kind: "none" }) as GraphqlAuthMethodInput;
+}
 
-/** Map each stored GraphQL auth template to a generic `AuthMethod`. A `custom_`
- *  slug marks a user-defined method; everything else is spec-declared. */
-export function authMethodsFromConfig(templates: readonly AuthTemplate[]): AuthMethod[] {
-  return templates.map((template: AuthTemplate): AuthMethod => {
-    const slug = String(template.slug);
-    const source: "spec" | "custom" = slug.startsWith("custom_") ? "custom" : "spec";
-    if (template.kind === "oauth2") {
-      return {
-        id: slug,
-        label: "OAuth2",
-        kind: "oauth",
-        source,
-        template: AuthTemplateSlug.make(slug),
-        placements: [],
-        oauth: {},
-      };
-    }
-    const placement: Placement = {
-      carrier: template.in,
-      name: template.name,
-      prefix: template.prefix ?? "",
-    };
-    return {
-      id: slug,
-      label: labelForApiKey(slug, template.name),
-      kind: "apikey",
-      source,
-      template: AuthTemplateSlug.make(slug),
-      placements: [placement],
-    };
+/** Convert one stored GraphQL method into the generic editor value. */
+export function editorValueFromGraphqlAuthMethod(
+  method: GraphqlAuthMethod,
+): AuthTemplateEditorValue {
+  if (method.kind === "oauth2") {
+    // GraphQL oauth methods store no endpoints — only the bearer rendering.
+    return { kind: "oauth", authorizationUrl: "", tokenUrl: "", scopes: [] };
+  }
+  return editorValueFromSharedMethod(method);
+}
+
+/** Project the stored methods into the generic `AuthMethod[]` the hub renders.
+ *  Mirrors the server's `describeGraphqlAuthMethods`; `custom_` slugs mark
+ *  user-created methods (removable from the hub). */
+export function authMethodsFromConfig(methods: readonly GraphqlAuthMethod[]): AuthMethod[] {
+  return methods.map((method: GraphqlAuthMethod): AuthMethod => {
+    if (method.kind === "oauth2") return oauthAuthMethod(method.slug);
+    return authMethodFromSharedTemplate(method);
   });
 }
 
-// ---------------------------------------------------------------------------
-// Generic placements → graphql apiKey templates (inverse).
-//
-// GraphQL's `AuthTemplate` carries ONE header/query slot per template, so a
-// multi-placement method emits one template per named placement. When `slug` is
-// omitted the backend backfills `custom_<id>`; the first template keeps the
-// integration's primary `apiKey` slug so the add flow stays stable.
-// ---------------------------------------------------------------------------
-
-/** Build GraphQL `apiKey` templates from generic placements. The optional
- *  `slug` names the FIRST emitted template (subsequent placements get an empty
- *  slug so the backend assigns a `custom_<id>` each). */
-export function graphqlTemplatesFromPlacements(
+/** Build the GraphQL method input for a custom method from generic placements
+ *  — ONE method carrying every named placement (header + query mix in a single
+ *  method; each placement renders from its own input variable, or shares one).
+ *  Empty when no placement is usable. */
+export function graphqlAuthMethodInputsFromPlacements(
   placements: readonly Placement[],
-  slug?: string,
-): AuthTemplate[] {
-  const named = placements.filter((placement: Placement) => placement.name.trim().length > 0);
-  return named.map(
-    (placement: Placement, index: number): AuthTemplate => ({
-      kind: "apiKey",
-      slug: index === 0 ? (slug ?? GRAPHQL_APIKEY_TEMPLATE) : "",
-      in: placement.carrier,
-      name: placement.name,
-      ...(placement.prefix ? { prefix: placement.prefix } : {}),
-    }),
-  );
+): GraphqlAuthMethodInput[] {
+  const wire = wirePlacementsFromEditor(placements);
+  if (wire.length === 0) return [];
+  return [{ kind: "apikey", placements: wire }];
 }
