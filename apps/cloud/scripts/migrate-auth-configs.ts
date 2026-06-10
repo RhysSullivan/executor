@@ -13,15 +13,31 @@
 // ---------------------------------------------------------------------------
 
 import postgres from "postgres";
+import { Option } from "effect";
 import { planAuthConfigMigration, type AuthConfigMigrationRow } from "@executor-js/sdk/http-auth";
-import { migrateGraphqlAuthConfig } from "@executor-js/plugin-graphql";
-import { migrateMcpAuthConfig } from "@executor-js/plugin-mcp";
-import { migrateOpenApiAuthConfig } from "@executor-js/plugin-openapi";
+import {
+  decodeGraphqlIntegrationConfigOption,
+  migrateGraphqlAuthConfig,
+} from "@executor-js/plugin-graphql";
+import { migrateMcpAuthConfig, parseMcpIntegrationConfig } from "@executor-js/plugin-mcp";
+import {
+  decodeOpenApiIntegrationConfig,
+  migrateOpenApiAuthConfig,
+} from "@executor-js/plugin-openapi";
 
 const transforms = {
   mcp: migrateMcpAuthConfig,
   graphql: migrateGraphqlAuthConfig,
   openapi: migrateOpenApiAuthConfig,
+};
+
+// Whether a config decodes under the NEW runtime (the canonical shapes).
+// Used by the post-migration audit: every row the new code will read must
+// decode, whether the migration rewrote it or left it untouched.
+const decodesCanonically: Record<string, (config: unknown) => boolean> = {
+  mcp: (config) => parseMcpIntegrationConfig(config) !== null,
+  graphql: (config) => Option.isSome(decodeGraphqlIntegrationConfigOption(config)),
+  openapi: (config) => decodeOpenApiIntegrationConfig(config) !== null,
 };
 
 const connectionString = process.env.DATABASE_URL;
@@ -31,7 +47,8 @@ if (!connectionString) {
 }
 const dryRun = process.argv.includes("--dry-run");
 
-const sql = postgres(connectionString, { max: 1, prepare: false });
+// Direct (non-Hyperdrive) connection — PlanetScale requires TLS.
+const sql = postgres(connectionString, { max: 1, prepare: false, ssl: "require" });
 
 try {
   const rows = await sql<{ row_id: string; plugin_id: string; config: unknown }[]>`
@@ -47,6 +64,23 @@ try {
 
   const updates = planAuthConfigMigration(inputs, transforms);
   console.log(`${rows.length} integration row(s), ${updates.length} to rewrite`);
+
+  // Post-migration audit: simulate the final state of every row this plugin
+  // set owns and check it decodes under the new runtime. A row that neither
+  // rewrites nor decodes would read as "no usable config" after deploy —
+  // surface those BEFORE writing anything.
+  const planned = new Map(updates.map((update) => [update.rowId, update.config]));
+  const undecodable = inputs.filter((row) => {
+    const decodes = decodesCanonically[row.pluginId];
+    if (!decodes) return false; // not a protocol-plugin row (no auth config)
+    return !decodes(planned.get(row.rowId) ?? row.config);
+  });
+  if (undecodable.length > 0) {
+    console.error(`${undecodable.length} row(s) would NOT decode after migration:`);
+    for (const row of undecodable) console.error(`  ${row.pluginId} ${row.rowId}`);
+    process.exit(1);
+  }
+  console.log("audit: every row decodes canonically after migration");
 
   if (dryRun) {
     for (const update of updates) console.log(`  would rewrite ${update.rowId}`);
