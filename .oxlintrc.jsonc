@@ -152,7 +152,6 @@
     "dist/",
     "vendor/",
     "emulators/",
-    "testkit/",
     "e2e/runs/",
     "integrationsdotsh/",
     "node_modules/",

@@ -6,7 +6,6 @@
     ".turbo",
     "dist",
     "vendor",
-    "testkit",
     "e2e/runs",
     "integrationsdotsh",
     "node_modules",

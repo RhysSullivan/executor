@@ -1,7 +1,7 @@
-// MCP surface: the vendored mcporter fork as a programmatic MCP client, with
-// headless OAuth via the target's consent strategy. Session methods are
-// Effects; mcporter itself is promise-native underneath. Assertions are
-// vitest's job.
+// MCP surface: our mcporter fork (@executor-js/mcporter on npm; develop it in
+// the vendor/mcporter submodule) as a programmatic MCP client, with headless
+// OAuth via the target's consent strategy. Session methods are Effects;
+// mcporter itself is promise-native underneath. Assertions are vitest's job.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

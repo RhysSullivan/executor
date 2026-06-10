@@ -126,6 +126,17 @@ bun dev
 
 The dev server starts at `http://127.0.0.1:4788`.
 
+### Tests
+
+```bash
+bun run test       # unit + integration suites
+bun run test:e2e   # full-stack e2e: boots the cloud and self-host apps and drives them
+```
+
+The browser e2e scenarios need Playwright's Chromium once per machine:
+`bunx playwright install chromium`. The git submodules under `vendor/` are
+optional — see [vendor/README.md](vendor/README.md).
+
 ## Community
 
 Join the Discord: [https://discord.gg/eF29HBHwM6](https://discord.gg/eF29HBHwM6)
