@@ -1,9 +1,14 @@
-// Cross-target (browser): the multi-method auth UX, end to end through the
-// real web UI. A live no-auth MCP test server (in this process — the target's
-// dev server probes it over loopback) seeds the add flow's method list with
-// the detected method; the user declares an API key method alongside it via
-// "+ Add method"; after adding, the integration's connect modal offers BOTH
-// methods. The session video + per-step screenshots are the artifact.
+// Cross-target (browser): the multi-method auth add flow, end to end through
+// the real web UI against a live loopback MCP test server (the target's dev
+// server probes it). A no-auth server gets an API key declared at add time —
+// the case where the server advertises nothing but the user knows better.
+// The session video + per-step screenshots are the artifact.
+//
+// The OAuth-detected and connect-modal variants are selfhost-only (see
+// selfhost/auth-methods-ui.test.ts): the cloud dev harness (workerd) cannot
+// shape-probe loopback servers and its vault stub takes no pasted credentials.
+import { randomBytes } from "node:crypto";
+
 import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { makeGreetingMcpServer, serveMcpServer } from "@executor-js/plugin-mcp/testing";
@@ -17,9 +22,12 @@ scenario(
     Effect.scoped(
       Effect.gen(function* () {
         // An OPEN server: the probe connects without auth, so the method list
-        // seeds with the detected "no authentication" row — the case where
-        // the server declares nothing but the user knows better.
-        const server = yield* serveMcpServer(() => makeGreetingMcpServer());
+        // seeds with the detected "no authentication" row. The server name is
+        // unique per run — the derived integration namespace must not collide
+        // on targets whose identities share one tenant (selfhost admin).
+        const server = yield* serveMcpServer(() =>
+          makeGreetingMcpServer({ name: `open-mcp-${randomBytes(3).toString("hex")}` }),
+        );
         const identity = yield* ctx.target.newIdentity();
 
         yield* ctx.browser.session(identity, async ({ page, step }) => {

@@ -21,14 +21,37 @@ export const selfhostTarget = (): Target => ({
   name: "selfhost",
   baseUrl: SELFHOST_BASE_URL,
   mcpUrl: `${SELFHOST_BASE_URL}/mcp`,
-  // No "billing" (no limits) and no "browser" yet (cookie injection for the
-  // Better Auth session isn't wired). Identity is the bootstrap admin for now —
+  // No "billing" (no limits). Identity is the bootstrap admin for now —
   // single-tenant; per-test invite-signup isolation is the next step here.
-  capabilities: new Set(["api", "mcp-oauth"]),
+  capabilities: new Set(["api", "browser", "mcp-oauth"]),
+  // Sign in via Better Auth and carry the session BOTH ways: `credentials`
+  // for surfaces that sign in themselves (api, mcp consent) and the session
+  // `cookies` for the browser surface to inject into its context.
   newIdentity: () =>
-    Effect.succeed<Identity>({
-      label: SELFHOST_ADMIN.email,
-      credentials: SELFHOST_ADMIN,
+    Effect.promise(async (): Promise<Identity> => {
+      const response = await fetch(new URL("/api/auth/sign-in/email", SELFHOST_BASE_URL), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: new URL(SELFHOST_BASE_URL).origin,
+        },
+        body: JSON.stringify(SELFHOST_ADMIN),
+        redirect: "manual",
+      });
+      const cookies = (response.headers.getSetCookie?.() ?? []).flatMap((cookie) => {
+        const pair = cookie.split(";")[0] ?? "";
+        const eq = pair.indexOf("=");
+        if (eq <= 0) return [];
+        return [{ name: pair.slice(0, eq), value: pair.slice(eq + 1) }];
+      });
+      if (cookies.length === 0) {
+        throw new Error(`selfhost newIdentity: sign-in set no cookie (${response.status})`);
+      }
+      return {
+        label: SELFHOST_ADMIN.email,
+        credentials: SELFHOST_ADMIN,
+        cookies,
+      };
     }),
   mcpConsent: (identity: Identity) =>
     cookieConsentStrategy({
