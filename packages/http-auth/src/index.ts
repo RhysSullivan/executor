@@ -21,3 +21,11 @@ export {
   apiKeyMethodFromLegacyTemplate,
   decodeLegacyApiKeyTemplate,
 } from "./legacy";
+export {
+  planAuthConfigMigration,
+  runSqliteAuthConfigMigration,
+  type AuthConfigMigrationRow,
+  type AuthConfigMigrationUpdate,
+  type AuthConfigTransform,
+  type SqliteAuthConfigClient,
+} from "./migrate";

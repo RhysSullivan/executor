@@ -46,7 +46,7 @@ export const emptyPlacement = (): Placement => ({ carrier: "header", name: "", p
  *  `source` distinguishes integration-declared ("spec") methods from
  *  user-defined ("custom") ones. `template` is the auth-template slug the
  *  method applies a connection through. */
-export type AuthMethodKind = "oauth" | "apikey" | "custom" | "none";
+export type AuthMethodKind = "oauth" | "apikey" | "none";
 
 /** Provider OAuth endpoints/scopes an `oauth` method declares, used to pre-fill
  *  the client-registration form so the user only pastes their client id/secret.
