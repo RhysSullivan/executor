@@ -208,7 +208,16 @@ const RunView = ({ target, slug }: { target: string; slug: string }) => {
       )}
       {video && tab === "video" && (
         <>
-          <video className="hero-video" controls preload="metadata" src={`${base}/${video}`} />
+          {/* muted is required for browsers to honor autoplay */}
+          <video
+            className="hero-video"
+            controls
+            autoPlay
+            muted
+            playsInline
+            preload="auto"
+            src={`${base}/${video}`}
+          />
           {screenshots.length > 0 && (
             <div className="shots">
               {screenshots.map((shot) => (
