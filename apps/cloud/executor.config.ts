@@ -31,6 +31,8 @@ interface CloudPluginDeps {
   readonly workosCredentials?: {
     readonly apiKey: string;
     readonly clientId: string;
+    /** Optional WorkOS API base-URL override (WorkOS emulator in tests/dev). */
+    readonly apiUrl?: string;
   };
   /** Pluggable WorkOS Vault HTTP client — set by the test harness to
    *  bypass the real WorkOS API. Production leaves this undefined and
