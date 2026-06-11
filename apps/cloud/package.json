@@ -17,6 +17,8 @@
     "db:migrate-auth:dev": "op run --env-file=.env.op -- bun run scripts/migrate-auth-configs.ts",
     "db:repartition-vault:prod": "op run --env-file=.env.production -- bun run scripts/repartition-vault-metadata.ts",
     "db:repartition-vault:dev": "op run --env-file=.env.op -- bun run scripts/repartition-vault-metadata.ts",
+    "db:migrate-specs:prod": "op run --env-file=.env.production -- bun run scripts/migrate-specs-to-blobs.ts",
+    "db:migrate-specs:dev": "op run --env-file=.env.op -- bun run scripts/migrate-specs-to-blobs.ts",
     "db:migrate:dev": "op run --env-file=.env.op -- bun --bun ../../node_modules/.bun/node_modules/drizzle-kit/bin.cjs migrate",
     "build": "node scripts/build.mjs",
     "preview": "vite preview",
