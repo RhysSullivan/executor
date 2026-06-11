@@ -3,11 +3,13 @@
 // vitest.config.ts + a globalsetup that boots (or attaches to) the instance.
 import type { Target } from "../src/target";
 import { cloudTarget } from "./cloud";
+import { desktopTarget } from "./desktop";
 import { selfhostTarget } from "./selfhost";
 
 const factories: Record<string, () => Target> = {
   cloud: cloudTarget,
   selfhost: selfhostTarget,
+  desktop: desktopTarget,
 };
 
 let current: Target | undefined;

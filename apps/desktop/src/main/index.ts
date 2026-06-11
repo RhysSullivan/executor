@@ -20,16 +20,19 @@ type UpdateInfo = { readonly version: string };
 import {
   startSidecar,
   stopSidecar,
+  onUnexpectedSidecarExit,
   SidecarPortInUseError,
   type SidecarConnection,
 } from "./sidecar";
 import {
+  errorReportingEnabled,
   exportDiagnostics,
   exportDiagnosticsInteractive,
   getCrashReportingConfig,
   initErrorReporting,
   reportAProblem,
 } from "./diagnostics";
+import { sidecarCrashHtml } from "./crash-screen";
 import {
   getServerProfiles,
   getServerSettings,
@@ -524,6 +527,15 @@ const boot = async () => {
   installApplicationMenu();
   setupAutoUpdater();
   registerIpcHandlers();
+  // A sidecar that dies under a live window would leave the web UI failing
+  // every request with no explanation. Swap in the crash screen — its
+  // buttons drive the regular preload bridge (restart / export diagnostics).
+  onUnexpectedSidecarExit(() => {
+    const window = liveMainWindow();
+    if (!window) return;
+    const html = sidecarCrashHtml({ reported: errorReportingEnabled });
+    void window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  });
   connection = await startWithCurrentSettings();
   if (!connection) {
     // Port conflicts already showed their dialog inside

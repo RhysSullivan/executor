@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "viewer:build": "bun scripts/rebuild-viewer.ts",
     "serve": "bun scripts/rebuild-viewer.ts && bun scripts/serve.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:desktop": "vitest run --project desktop"
   },
   "dependencies": {
     "@executor-js/api": "workspace:*",

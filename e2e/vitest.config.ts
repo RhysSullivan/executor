@@ -26,6 +26,16 @@ export default defineConfig({
       // selfhost identities are the shared bootstrap admin for now — run files
       // serially until per-test invite-signup isolation lands.
       project("selfhost", { fileParallelism: false }),
+      // The Electron desktop app. Only desktop/** scenarios — the desktop
+      // target provides none of the standard surfaces (each scenario
+      // launches its own app via Playwright's electron driver), so running
+      // the cross-target suite here would just emit a page of skips. Needs
+      // a display; not part of the default `npm run test` chain.
+      project("desktop", {
+        include: ["desktop/**/*.test.ts"],
+        fileParallelism: false,
+        testTimeout: 300_000,
+      }),
     ],
   },
 });

@@ -40,6 +40,14 @@ const STDERR_TAIL_LIMIT = 8 * 1024;
 // their exits are expected and must not be reported as crashes.
 const expectedExits = new WeakSet<ChildProcess>();
 
+// Main/index.ts subscribes to swap the dead web UI for the in-window crash
+// screen. A callback (not an import) keeps this module free of window
+// concerns.
+let unexpectedExitListener: (() => void) | null = null;
+export const onUnexpectedSidecarExit = (listener: () => void) => {
+  unexpectedExitListener = listener;
+};
+
 /** Buffer chunked output into whole lines before handing them to `write`. */
 const makeLineSplitter = (write: (line: string) => void) => {
   let buffer = "";
@@ -368,6 +376,7 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
         const message = `Sidecar exited unexpectedly (code=${code} signal=${signal})`;
         sidecarLog.error(message);
         reportSidecarCrash(message, stderrBuffer);
+        unexpectedExitListener?.();
         return;
       }
       if (rejected) return;

@@ -27,7 +27,13 @@ import { getServerSettings } from "./settings";
 
 const sentryDsn = __EXECUTOR_SENTRY_DSN__;
 
-export const errorReportingEnabled = sentryDsn.length > 0;
+// The informal cross-tool opt-out (consoledonottrack.com). Checked before
+// any SDK initializes, and it covers all three processes because the
+// renderer and sidecar both receive their config from this module.
+const doNotTrack =
+  process.env.DO_NOT_TRACK === "1" || process.env.DO_NOT_TRACK?.toLowerCase() === "true";
+
+export const errorReportingEnabled = sentryDsn.length > 0 && !doNotTrack;
 
 /**
  * One id per app launch, shared by every process (main, renderer, sidecar)
