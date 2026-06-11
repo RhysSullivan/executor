@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./blob-store": {
+      "types": "./src/blob-store.ts",
+      "default": "./src/blob-store.ts"
+    },
     "./mcp/worker-transport": {
       "types": "./src/mcp/worker-transport.ts",
       "default": "./src/mcp/worker-transport.ts"
@@ -38,6 +42,7 @@
     "@executor-js/api": "workspace:*",
     "@executor-js/execution": "workspace:*",
     "@executor-js/host-mcp": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "agents": "^0.10.0",
     "effect": "catalog:"

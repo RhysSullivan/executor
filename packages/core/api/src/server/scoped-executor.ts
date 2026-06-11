@@ -178,7 +178,7 @@ export const makeScopedExecutor = <
   _organizationName: string,
 ): Effect.Effect<Executor<TPlugins>, StorageFailure, DbProvider | PluginsProvider | HostConfig> =>
   Effect.gen(function* () {
-    const { db } = yield* DbProvider;
+    const { db, blobs } = yield* DbProvider;
     const { plugins: pluginsFactory } = yield* PluginsProvider;
     const config = yield* HostConfig;
     // Explicit config wins; otherwise fall back to the request origin if a host
@@ -219,6 +219,7 @@ export const makeScopedExecutor = <
       tenant: Tenant.make(organizationId),
       subject: Subject.make(accountId),
       db,
+      blobs,
       plugins,
       httpClientLayer,
       onElicitation: "accept-all",

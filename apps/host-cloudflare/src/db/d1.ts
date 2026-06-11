@@ -12,6 +12,7 @@ import {
   createExecutorFumaDb,
   type ExecutorDbHandle,
 } from "@executor-js/api/server";
+import { makeR2BlobStore } from "@executor-js/cloudflare/blob-store";
 
 import { CLOUDFLARE_NAMESPACE, CLOUDFLARE_SCHEMA_VERSION } from "../config";
 
@@ -69,5 +70,9 @@ export const createD1ExecutorDb = async (
     fuma,
     // The D1 binding owns its own lifecycle; nothing to release.
     close: async () => {},
+    // Blob-seam writes go straight to R2 — they never enter D1, so they never
+    // need the offload wrap above (which remains only for legacy oversized
+    // values already inlined in D1 rows).
+    blobs: blobs ? makeR2BlobStore(blobs) : undefined,
   };
 };

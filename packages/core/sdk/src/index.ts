@@ -166,8 +166,10 @@ export {
   type InvokeOptions,
 } from "./elicitation";
 
-// Blob store — the plugin-facing CONTRACT only. The concrete makers
-// (`makeFumaBlobStore`/`makeInMemoryBlobStore`) are SDK-internal.
+// Blob store — the plugin-facing contract (`BlobStore`/`PluginBlobStore`)
+// plus the platform-neutral backends (`makeFumaBlobStore` default,
+// `makeInMemoryBlobStore` for tests). Platform-specific backends live with
+// their host (R2: `@executor-js/cloudflare/blob-store`).
 export {
   pluginBlobStore,
   makeInMemoryBlobStore,

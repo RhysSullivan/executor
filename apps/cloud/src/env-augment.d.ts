@@ -20,6 +20,14 @@ declare global {
       DATABASE_URL?: string;
       EXECUTOR_DIRECT_DATABASE_URL?: string;
 
+      // Plugin blob seam backend (wrangler.jsonc `r2_buckets`). Declared here
+      // (optional) rather than regenerating worker-configuration.d.ts: test
+      // workers and older local setups run without the binding, and the db
+      // layer falls back to the Postgres `blob` table when absent. Typed via
+      // @cloudflare/workers-types (not the wrangler-generated global) to match
+      // what `@executor-js/cloudflare/blob-store` accepts.
+      BLOBS?: import("@cloudflare/workers-types").R2Bucket;
+
       // SSRF / private-network egress guard. Unset in production -> the guard is
       // ON; the test workers set "true" so fixtures can reach localhost.
       ALLOW_LOCAL_NETWORK?: string;

@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { Effect, Layer } from "effect";
 import { type FumaDB } from "@executor-js/fumadb";
 import { type DrizzleConfig } from "@executor-js/fumadb/adapters/drizzle";
@@ -9,6 +10,7 @@ import {
   type ExecutorDbHandle,
   type ExecutorDbProvider,
 } from "@executor-js/api/server";
+import { makeR2BlobStore } from "@executor-js/cloudflare/blob-store";
 import type { FumaDb, FumaTables } from "@executor-js/sdk";
 
 import { DbService } from "./db";
@@ -66,6 +68,10 @@ export const cloudDbProviderLayer = (
         db: fuma.db,
         fuma: fuma.fuma,
         close: async () => {},
+        // Plugin blobs (multi-MB resolved specs) live in R2, not Postgres.
+        // Guarded because test workers / local dev may run without the
+        // binding — the executor then falls back to the FumaDB `blob` table.
+        blobs: env.BLOBS ? makeR2BlobStore(env.BLOBS) : undefined,
       };
     }),
   );

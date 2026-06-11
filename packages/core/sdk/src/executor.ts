@@ -16,7 +16,7 @@ import {
   type FumaTables,
   type StorageFailure,
 } from "./fuma-runtime";
-import { makeFumaBlobStore, pluginBlobStore, type OwnerPartitions } from "./blob";
+import { makeFumaBlobStore, pluginBlobStore, type BlobStore, type OwnerPartitions } from "./blob";
 import { coreToolsPlugin } from "./core-tools";
 import type {
   Connection,
@@ -328,6 +328,13 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
   /** The acting member, or omit for a pure-org executor (no `owner:"user"`). */
   readonly subject?: Subject;
   readonly db?: ExecutorDbInput | ExecutorDbFactory;
+  /**
+   * Backend for the plugin blob seam (`StorageDeps.blobs`). Defaults to the
+   * FumaDB `blob` table over `db`. Hosts with an object store hand one in
+   * (e.g. the R2 store in `@executor-js/cloudflare/blob-store`) so multi-MB
+   * values stay out of the relational tier.
+   */
+  readonly blobs?: BlobStore;
   readonly plugins?: TPlugins;
   /** Config-level credential providers, merged with every
    *  `plugin.credentialProviders`. Config providers register first, so the
@@ -1217,7 +1224,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const rootDb = withQueryContext(rootDbUntyped, ownerContext);
     const fuma = makeFumaClient(rootDb);
     const core = makeCoreDb(fuma);
-    const blobs = makeFumaBlobStore(fuma);
+    const blobs = config.blobs ?? makeFumaBlobStore(fuma);
     const transaction = <A, E>(effect: Effect.Effect<A, E>) => fuma.transaction(effect);
 
     // Populated once, never mutated after startup.

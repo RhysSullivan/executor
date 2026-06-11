@@ -23,6 +23,7 @@ import { type DrizzleRuntimeProvider } from "@executor-js/fumadb/adapters/drizzl
 import { drizzleAdapter } from "@executor-js/fumadb/adapters/drizzle";
 import { schema as fumaSchema, type RelationsMap } from "@executor-js/fumadb/schema";
 
+import type { BlobStore } from "./blob";
 import type { FumaDb, FumaTables } from "./fuma-runtime";
 
 // The FumaDB provider both the runtime-schema generator and the drizzle adapter
@@ -106,4 +107,11 @@ export interface ExecutorDbHandle<
   TTables extends FumaTables = FumaTables,
 > extends ExecutorFumaDb<TTables> {
   readonly close: () => Promise<void>;
+  /**
+   * Optional blob backend assembled alongside the driver (an R2 bucket on the
+   * Cloudflare hosts). `makeScopedExecutor` threads it into
+   * `createExecutor({ blobs })`; absent, the executor defaults to the FumaDB
+   * `blob` table over `db`.
+   */
+  readonly blobs?: BlobStore;
 }

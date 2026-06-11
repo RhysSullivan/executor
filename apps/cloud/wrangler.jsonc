@@ -43,6 +43,14 @@
       "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5433/postgres",
     },
   ],
+  // Plugin blob seam backend (multi-MB resolved specs). Bucket must exist
+  // before deploy: `wrangler r2 bucket create executor-cloud-blobs`.
+  "r2_buckets": [
+    {
+      "binding": "BLOBS",
+      "bucket_name": "executor-cloud-blobs",
+    },
+  ],
   "placement": {
     "region": "aws:us-east-1",
   },
