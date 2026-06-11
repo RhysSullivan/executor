@@ -29,7 +29,7 @@
     "@executor-js/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "effect": "catalog:",
-    "zod": "^4.3.0"
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
