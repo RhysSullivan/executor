@@ -19,17 +19,23 @@ import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import { ExecutionToolError } from "./errors";
 
 const OPAQUE_DEFECT_MESSAGE = "Internal tool error";
+const TOOL_DESCRIBE_SUGGESTION_LIMIT = 5;
 const TOOL_ERROR_TYPESCRIPT =
   "{ code: string; message: string; status?: number; details?: unknown; retryable?: boolean }";
+// Present on HTTP-backed tools (OpenAPI): transport facts beside the payload
+// so callers can read pagination/rate-limit headers without the payload
+// being wrapped in an envelope.
+const TOOL_HTTP_META_TYPESCRIPT = "{ status: number; headers: { [k: string]: string; } }";
 
 const wrapOutputTypeScript = (outputTypeScript?: string): string =>
-  `{ ok: true; data: ${outputTypeScript ?? "unknown"} } | { ok: false; error: ToolError }`;
+  `{ ok: true; data: ${outputTypeScript ?? "unknown"}; http?: ToolHttpMeta } | { ok: false; error: ToolError }`;
 
 const withToolResultDefinitions = (
   definitions?: Record<string, string>,
 ): Record<string, string> => ({
   ...(definitions ?? {}),
   ToolError: TOOL_ERROR_TYPESCRIPT,
+  ToolHttpMeta: TOOL_HTTP_META_TYPESCRIPT,
 });
 
 const ADDRESS_PREFIX = "tools.";
@@ -66,6 +72,12 @@ type DescribedTool = {
   readonly inputTypeScript?: string;
   readonly outputTypeScript?: string;
   readonly typeScriptDefinitions?: Record<string, string>;
+  /** Set when the path resolves to no tool — mirrors invoke's tool_not_found. */
+  readonly error?: {
+    readonly code: "tool_not_found";
+    readonly message: string;
+    readonly suggestions?: readonly string[];
+  };
 };
 
 const BUILTIN_TOOL_DESCRIPTIONS: ReadonlyMap<string, DescribedTool> = new Map<
@@ -112,7 +124,7 @@ const BUILTIN_TOOL_DESCRIPTIONS: ReadonlyMap<string, DescribedTool> = new Map<
       outputTypeScript: "DescribedTool",
       typeScriptDefinitions: {
         DescribedTool:
-          "{ path: string; name: string; description?: string; inputTypeScript?: string; outputTypeScript?: string; typeScriptDefinitions?: { [k: string]: string; }; }",
+          '{ path: string; name: string; description?: string; inputTypeScript?: string; outputTypeScript?: string; typeScriptDefinitions?: { [k: string]: string; }; error?: { code: "tool_not_found"; message: string; suggestions?: string[]; }; }',
       },
     },
   ],
@@ -700,15 +712,36 @@ export const describeTool = Effect.fn("executor.tools.describe")(function* (
   // internally. No need to also call tools.list() just for name/description.
   const schema: ToolSchemaView | null = yield* executor.tools.schema(address);
 
-  // tools.schema() returns null if the tool doesn't exist. Fall back to
-  // a minimal stub so callers can still render something.
+  // tools.schema() returns null if the tool doesn't exist. Mirror the
+  // invoke path's tool_not_found shape (error + suggestions) instead of a
+  // bare stub — a silent `{ path, name }` reads as "tool exists, schema
+  // unavailable" and sends callers down the wrong debugging path.
   if (schema === null) {
-    return { path, name: path };
+    const lastDot = path.lastIndexOf(".");
+    const leaf = lastDot === -1 ? path : path.slice(lastDot + 1);
+    const scoped = yield* searchTools(executor, leaf, TOOL_DESCRIBE_SUGGESTION_LIMIT, {
+      namespace: extractNamespace(path),
+    });
+    const matches =
+      scoped.items.length > 0
+        ? scoped.items
+        : (yield* searchTools(executor, leaf, TOOL_DESCRIBE_SUGGESTION_LIMIT)).items;
+    const suggestions = matches.map((item) => item.path);
+    const notFound: DescribedTool = {
+      path,
+      name: path,
+      error: {
+        code: "tool_not_found",
+        message: `Tool not found: ${path}`,
+        ...(suggestions.length > 0 ? { suggestions } : {}),
+      },
+    };
+    return notFound;
   }
 
   // The schema's address is the tool address; name/description come from the
   // tool row which tools.schema() already loaded.
-  return {
+  const described: DescribedTool = {
     path,
     name: schema.name ?? path,
     description: schema.description,
@@ -716,4 +749,5 @@ export const describeTool = Effect.fn("executor.tools.describe")(function* (
     outputTypeScript: wrapOutputTypeScript(schema.outputTypeScript),
     typeScriptDefinitions: withToolResultDefinitions(schema.typeScriptDefinitions),
   };
+  return described;
 });

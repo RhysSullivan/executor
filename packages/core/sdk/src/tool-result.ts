@@ -17,17 +17,38 @@ export const ToolErrorSchema = Schema.Struct({
 
 export type ToolError = typeof ToolErrorSchema.Type;
 
+export const ToolHttpMetaSchema = Schema.Struct({
+  status: Schema.Number,
+  headers: Schema.Record(Schema.String, Schema.String),
+});
+
+/**
+ * Transport metadata for HTTP-backed tools (OpenAPI). Kept beside `data`
+ * rather than wrapped around it: `data` stays the upstream payload, while
+ * cross-cutting transport facts (pagination Link headers, rate-limit
+ * headers) remain reachable for callers that need them.
+ */
+export type ToolHttpMeta = typeof ToolHttpMetaSchema.Type;
+
 export type ToolResult<T> =
-  | { readonly ok: true; readonly data: T }
+  | { readonly ok: true; readonly data: T; readonly http?: ToolHttpMeta }
   | { readonly ok: false; readonly error: ToolError };
 
 export const ToolResult = {
-  ok: <T>(data: T): ToolResult<T> => ({ ok: true, data }),
+  ok: <T>(data: T, meta?: { readonly http?: ToolHttpMeta }): ToolResult<T> => ({
+    ok: true,
+    data,
+    ...(meta?.http ? { http: meta.http } : {}),
+  }),
   fail: <T = never>(error: ToolError): ToolResult<T> => ({ ok: false, error }),
 } as const;
 
 const ToolResultSchema = Schema.Union([
-  Schema.Struct({ ok: Schema.Literal(true), data: Schema.Unknown }),
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    data: Schema.Unknown,
+    http: Schema.optional(ToolHttpMetaSchema),
+  }),
   Schema.Struct({ ok: Schema.Literal(false), error: ToolErrorSchema }),
 ]);
 

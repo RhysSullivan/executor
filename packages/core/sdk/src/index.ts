@@ -323,7 +323,7 @@ export { buildToolTypeScriptPreview } from "./schema-types";
 export { InternalError } from "./api-errors";
 
 // ToolResult — typed value-based discriminated union for tool outcomes.
-export { ToolResult, isToolResult, type ToolError } from "./tool-result";
+export { ToolResult, isToolResult, type ToolError, type ToolHttpMeta } from "./tool-result";
 export {
   authToolFailure,
   type AuthToolFailureCode,

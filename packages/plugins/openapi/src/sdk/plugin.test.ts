@@ -352,7 +352,7 @@ describe("OpenAPI Plugin", () => {
     ),
   );
 
-  it.effect("describes OpenAPI invocation results with the transport envelope", () =>
+  it.effect("describes OpenAPI invocation results payload-first with http meta beside data", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const server = yield* servePluginTestApi();
@@ -360,15 +360,16 @@ describe("OpenAPI Plugin", () => {
 
         const conn = yield* addOpenApiTestConnection(executor, server, { slug: "test" });
 
+        // The persisted output schema is the upstream response body only —
+        // no {status, headers, data} transport envelope around it.
         const schema = yield* executor.tools.schema(conn.address("items.listItems"));
-        expect(schema?.outputTypeScript).toContain("status: number");
-        expect(schema?.outputTypeScript).toContain("headers:");
-        expect(schema?.outputTypeScript).toContain("data:");
+        expect(schema?.outputTypeScript).not.toContain("headers:");
+        expect(schema?.outputTypeScript).toContain("name");
 
         const result = yield* executor.execute(conn.address("items.listItems"), {});
         const diagnostics = typeCheckOutputTypeScript(
           {
-            outputTypeScript: `{ ok: true; data: ${schema?.outputTypeScript ?? "unknown"} } | { ok: false; error: ToolError }`,
+            outputTypeScript: `{ ok: true; data: ${schema?.outputTypeScript ?? "unknown"}; http?: { status: number; headers: { [k: string]: string; } } } | { ok: false; error: ToolError }`,
             typeScriptDefinitions: {
               ...(schema?.typeScriptDefinitions ?? {}),
               ToolError: TOOL_ERROR_TYPESCRIPT,
@@ -378,9 +379,10 @@ describe("OpenAPI Plugin", () => {
           {
             consumerSource: [
               "if (invokedOutput.ok) {",
-              "  const status: number = invokedOutput.data.status;",
-              "  const items = invokedOutput.data.data;",
+              "  const items = invokedOutput.data;",
               "  items.map((item) => item.name);",
+              "  const status: number | undefined = invokedOutput.http?.status;",
+              "  const link: string | undefined = invokedOutput.http?.headers['link'];",
               "}",
             ].join("\n"),
           },

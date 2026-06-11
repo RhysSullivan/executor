@@ -493,20 +493,6 @@ const descriptionFor = (def: ToolDefinition): string => {
   );
 };
 
-const openApiTransportOutputSchema = (dataSchema: unknown): Record<string, unknown> => ({
-  type: "object",
-  additionalProperties: false,
-  required: ["status", "headers", "data"],
-  properties: {
-    status: { type: "integer" },
-    headers: {
-      type: "object",
-      additionalProperties: { type: "string" },
-    },
-    data: dataSchema ?? {},
-  },
-});
-
 const specInputToSourceUrl = (spec: OpenApiSpecInput): string | undefined =>
   spec.kind === "url" || spec.kind === "googleDiscovery" ? spec.url : undefined;
 
@@ -612,9 +598,10 @@ const toolDefsFromCompiled = (compiled: CompiledSpec): readonly ToolDef[] =>
       name: ToolName.make(def.toolPath),
       description: descriptionFor(def),
       inputSchema: normalizeOpenApiRefs(Option.getOrUndefined(def.operation.inputSchema)),
-      outputSchema: openApiTransportOutputSchema(
-        normalizeOpenApiRefs(Option.getOrUndefined(def.operation.outputSchema)),
-      ),
+      // The output schema is the upstream response body only — transport
+      // status/headers live in the ToolResult `http` side channel, not the
+      // payload (see the invoke handler).
+      outputSchema: normalizeOpenApiRefs(Option.getOrUndefined(def.operation.outputSchema)),
       annotations: annotationsForOperation(def.operation.method, def.operation.pathTemplate),
     }),
   );
@@ -1095,10 +1082,11 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
             details: result.error,
           });
         }
-        return ToolResult.ok({
-          status: result.status,
-          headers: result.headers,
-          data: result.data,
+        // Payload-first: `data` is the upstream response body (matching the
+        // graphql/mcp plugins); transport facts ride in the `http` side
+        // channel so pagination/rate-limit headers stay reachable.
+        return ToolResult.ok(result.data, {
+          http: { status: result.status, headers: result.headers },
         });
       }),
 

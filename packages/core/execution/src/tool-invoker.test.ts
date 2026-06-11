@@ -705,11 +705,12 @@ describe("tool discovery", () => {
       expect(described.description).toBe("List issues for a repository");
       expect(described.inputTypeScript).toBe("{ owner: string; repo: string; }");
       expect(described.outputTypeScript).toBe(
-        "{ ok: true; data: unknown } | { ok: false; error: ToolError }",
+        "{ ok: true; data: unknown; http?: ToolHttpMeta } | { ok: false; error: ToolError }",
       );
       expect(described.typeScriptDefinitions).toEqual({
         ToolError:
           "{ code: string; message: string; status?: number; details?: unknown; retryable?: boolean }",
+        ToolHttpMeta: "{ status: number; headers: { [k: string]: string; } }",
       });
     }),
   );
@@ -793,12 +794,34 @@ describe("tool discovery", () => {
       const described = yield* describeTool(executor, "github.org.main.getRepositoryDetails");
 
       expect(described.outputTypeScript).toBe(
-        "{ ok: true; data: { defaultBranch: string; } } | { ok: false; error: ToolError }",
+        "{ ok: true; data: { defaultBranch: string; }; http?: ToolHttpMeta } | { ok: false; error: ToolError }",
       );
       expect(described.typeScriptDefinitions).toEqual({
         ToolError:
           "{ code: string; message: string; status?: number; details?: unknown; retryable?: boolean }",
+        ToolHttpMeta: "{ status: number; headers: { [k: string]: string; } }",
       });
+    }),
+  );
+
+  it.effect("describe on an unknown path returns tool_not_found with suggestions", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeSearchExecutor();
+
+      // Wrong leaf under a real connection — the namespace-scoped search
+      // should surface the actual tool as a suggestion.
+      const described = yield* describeTool(executor, "github.org.main.getRepoDetails");
+      expect(described.path).toBe("github.org.main.getRepoDetails");
+      expect(described.name).toBe("github.org.main.getRepoDetails");
+      expect(described.inputTypeScript).toBeUndefined();
+      expect(described.error?.code).toBe("tool_not_found");
+      expect(described.error?.message).toBe("Tool not found: github.org.main.getRepoDetails");
+      expect(described.error?.suggestions).toContain("github.org.main.getRepositoryDetails");
+
+      // Unknown namespace — falls back to a global search for the leaf.
+      const elsewhere = yield* describeTool(executor, "nosuch.org.main.getRepositoryDetails");
+      expect(elsewhere.error?.code).toBe("tool_not_found");
+      expect(elsewhere.error?.suggestions).toContain("github.org.main.getRepositoryDetails");
     }),
   );
 

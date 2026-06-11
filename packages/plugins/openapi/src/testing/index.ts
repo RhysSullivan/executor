@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Layer, Option, Predicate, Ref, Schema, Scope } from "effect";
+import { Context, Data, Effect, Layer, Predicate, Ref, Schema, Scope } from "effect";
 import {
   HttpClient,
   HttpRouter,
@@ -706,14 +706,6 @@ export const TestLayers = {
   echoWithOAuth: OpenApiEchoTestServer.layerWithOAuth,
 };
 
-const OpenApiTransportEnvelope = Schema.Struct({
-  status: Schema.Number,
-  headers: Schema.Record(Schema.String, Schema.String),
-  data: Schema.Unknown,
-});
-
-const decodeOpenApiTransportEnvelope = Schema.decodeUnknownOption(OpenApiTransportEnvelope);
-
 export interface OpenApiInvocationResult<TData = Record<string, unknown> | unknown[] | null> {
   readonly status: number | null;
   readonly headers: Record<string, string> | null;
@@ -733,20 +725,12 @@ export const unwrapInvocation = <TData = Record<string, unknown> | null>(
     };
   }
   if (raw.ok) {
-    const inner = raw.data;
-    const wrapped = Option.getOrUndefined(decodeOpenApiTransportEnvelope(inner));
-    if (wrapped !== undefined) {
-      return {
-        status: wrapped.status,
-        headers: wrapped.headers,
-        data: wrapped.data as TData,
-        error: null,
-      };
-    }
+    // Payload-first: `data` is the upstream body; transport status/headers
+    // ride in the `http` side channel.
     return {
-      status: null,
-      headers: null,
-      data: inner as TData,
+      status: raw.http?.status ?? null,
+      headers: raw.http?.headers ?? null,
+      data: raw.data as TData,
       error: null,
     };
   }
