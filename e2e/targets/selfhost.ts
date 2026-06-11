@@ -4,7 +4,7 @@
 // in setup/selfhost.globalsetup.ts.
 import { Effect } from "effect";
 
-import { cookieConsentStrategy } from "../../vendor/mcporter/dist/index.js";
+import { cookieConsentStrategy } from "@executor-js/mcporter";
 
 import type { Identity, Target } from "../src/target";
 
@@ -48,7 +48,9 @@ export const selfhostTarget = (): Target => ({
   name: "selfhost",
   baseUrl: SELFHOST_BASE_URL,
   mcpUrl: `${SELFHOST_BASE_URL}/mcp`,
-  // No "billing" (no limits). Identity is the bootstrap admin for now —
+  // No "billing" (no limits) and no setAccessTokenTtl yet (Better Auth is the
+  // authorization server; its token TTL isn't test-adjustable, so token-expiry
+  // scenarios skip here). Identity is the bootstrap admin for now —
   // single-tenant; per-test invite-signup isolation is the next step here, so
   // browser scenarios must prefix the resources they create.
   capabilities: new Set(["api", "browser", "mcp-oauth"]),

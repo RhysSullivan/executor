@@ -4,20 +4,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --project cloud && vitest run --project selfhost",
     "test:cloud": "vitest run --project cloud",
     "test:selfhost": "vitest run --project selfhost",
     "test:watch": "vitest",
     "viewer:build": "bun scripts/rebuild-viewer.ts",
-    "serve": "bun scripts/rebuild-viewer.ts && bun scripts/serve.ts"
+    "serve": "bun scripts/rebuild-viewer.ts && bun scripts/serve.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@executor-js/api": "workspace:*",
+    "@executor-js/emulate": "^0.6.0",
+    "@executor-js/mcporter": "^0.11.4",
     "@executor-js/plugin-graphql": "workspace:*",
     "@executor-js/plugin-mcp": "workspace:*",
     "@executor-js/plugin-openapi": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "@kitlangton/terminal-control": "^0.3.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "asciinema-player": "^3.15.1",
     "effect": "catalog:",
     "monaco-editor": "^0.55.1",
     "playwright": "^1.60.0",
@@ -26,9 +31,11 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@types/node": "^25.9.2",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   }
