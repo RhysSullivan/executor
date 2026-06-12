@@ -1,5 +1,13 @@
 # @executor-js/execution
 
+## 1.5.7
+
+### Patch Changes
+
+- Updated dependencies [[`7cee242`](https://github.com/RhysSullivan/executor/commit/7cee242f07687b0d8711201c620d8c61594adc15), [`7cee242`](https://github.com/RhysSullivan/executor/commit/7cee242f07687b0d8711201c620d8c61594adc15)]:
+  - @executor-js/sdk@1.5.7
+  - @executor-js/codemode-core@1.5.7
+
 ## 1.5.4
 
 ### Patch Changes
