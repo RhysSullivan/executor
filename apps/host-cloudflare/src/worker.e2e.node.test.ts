@@ -10,8 +10,8 @@ import { unstable_dev, type Unstable_DevWorker } from "wrangler";
 // End-to-end test for the Cloudflare host: boots the REAL worker on workerd via
 // Miniflare (wrangler `unstable_dev`) with a local D1 + R2, dev-auth on. This is
 // the only test that exercises the CF-specific stack together — D1 schema
-// bring-up, the R2 large-value offload, QuickJS-WASM execution, and the MCP
-// envelope — through the actual HTTP surface.
+// bring-up, the R2-backed blob seam (multi-MB spec storage), QuickJS-WASM
+// execution, and the MCP envelope — through the actual HTTP surface.
 // ---------------------------------------------------------------------------
 
 const dir = fileURLToPath(new URL(".", import.meta.url));
@@ -77,11 +77,10 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
     expect(body.text).toBe("42");
   }, 60_000);
 
-  it("adds a LARGE OpenAPI source — exercises R2 offload (>800KB blob) + createMany batching (>100 tools)", async () => {
-    // Synthesize a spec big enough to (a) push the stored config blob past the
-    // ~800KB R2-offload threshold and (b) derive >100 tools (past D1's 100
-    // bound-param createMany limit) — the real-worker regression for two of the
-    // three D1 fixes.
+  it("adds a LARGE OpenAPI source — exercises the R2 blob seam (~1MB spec) + createMany batching (>100 tools)", async () => {
+    // Synthesize a spec big enough to (a) far exceed D1's per-value cap if it
+    // were inlined — proving the spec text really lands in the R2 blob seam —
+    // and (b) derive >100 tools (past D1's 100 bound-param createMany limit).
     const paths: Record<string, unknown> = {};
     for (let i = 0; i < 250; i++) {
       paths[`/op${i}`] = {
@@ -116,7 +115,7 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
     const added = (await add.json()) as { toolCount: number };
     expect(added.toolCount).toBe(250);
 
-    // Reads back through the R2 rehydration path (the >800KB blob lives in R2).
+    // Reads back the catalog row whose config points at the R2 spec blob.
     const got = await worker.fetch(`/api/openapi/integrations/${slug}`);
     expect(got.status).toBe(200);
     const integration = (await got.json()) as { slug: string } | null;

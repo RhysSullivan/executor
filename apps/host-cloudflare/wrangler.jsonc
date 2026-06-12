@@ -24,10 +24,9 @@
       "database_id": "ae748ca1-032c-4427-a1a0-fe39db77d1a9",
     },
   ],
-  // R2 holds oversized values that exceed D1's per-value cap (~1-2MB). The D1
-  // handle offloads large bound params to this bucket and stores a pointer in
-  // the row (apps/host-cloudflare/src/db/r2-blob-offload.ts). `wrangler r2
-  // bucket create executor-blobs` provisions it.
+  // Plugin blob seam backend: multi-MB values (resolved OpenAPI specs,
+  // introspection snapshots) live here, not in D1 (which caps a value at
+  // ~1-2MB). `wrangler r2 bucket create executor-blobs` provisions it.
   "r2_buckets": [
     {
       "binding": "BLOBS",

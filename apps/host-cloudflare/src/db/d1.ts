@@ -5,8 +5,6 @@ import {
 } from "@executor-js/fumadb/adapters/drizzle";
 import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
 
-import { wrapD1WithR2Offload } from "./r2-blob-offload";
-
 import {
   collectTables,
   createExecutorFumaDb,
@@ -38,12 +36,8 @@ export const createD1ExecutorDb = async (
     provider: "sqlite" as const,
   };
 
-  // Offload oversized values to R2 (D1 caps a value at ~1-2MB). No-op for
-  // ordinary small rows; only multi-MB values (e.g. a large OpenAPI spec) leave
-  // D1. Without a bucket bound, fall back to plain D1 (small values only).
-  const connection = blobs ? wrapD1WithR2Offload(db, blobs) : db;
   const schema = createDrizzleRuntimeSchemaFromTables(options);
-  const drizzleDb = drizzle(connection, { schema });
+  const drizzleDb = drizzle(db, { schema });
 
   // D1 rejects SQL `BEGIN TRANSACTION` / `SAVEPOINT` (it requires the JS batch
   // API), and the shared ensure wraps its DDL in a transaction when the handle
@@ -70,9 +64,10 @@ export const createD1ExecutorDb = async (
     fuma,
     // The D1 binding owns its own lifecycle; nothing to release.
     close: async () => {},
-    // Blob-seam writes go straight to R2 — they never enter D1, so they never
-    // need the offload wrap above (which remains only for legacy oversized
-    // values already inlined in D1 rows).
+    // Multi-MB values (resolved OpenAPI specs, introspection snapshots) go
+    // through the blob seam straight to R2 — they never enter D1, which caps
+    // a value at ~1-2MB. Without a bucket bound, the executor falls back to
+    // the FumaDB blob table (small values only).
     blobs: blobs ? makeR2BlobStore(blobs) : undefined,
   };
 };
