@@ -1,6 +1,11 @@
 // Print this checkout's derived e2e ports (see src/ports.ts) so an agent or
 // human can curl the booted servers or attach with E2E_<TARGET>_URL.
-import { AUTUMN_EMULATOR_PORT, CLOUD_DB_PORT, CLOUD_PORT, WORKOS_EMULATOR_PORT } from "../targets/cloud";
+import {
+  AUTUMN_EMULATOR_PORT,
+  CLOUD_DB_PORT,
+  CLOUD_PORT,
+  WORKOS_EMULATOR_PORT,
+} from "../targets/cloud";
 import { SELFHOST_PORT } from "../targets/selfhost";
 import { repoRoot } from "../src/ports";
 

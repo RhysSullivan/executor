@@ -9,6 +9,7 @@
     "test:selfhost": "vitest run --project selfhost",
     "test:watch": "vitest",
     "ports": "bun scripts/ports.ts",
+    "summary": "bun scripts/summary.ts",
     "viewer:build": "bun scripts/rebuild-viewer.ts",
     "serve": "bun scripts/rebuild-viewer.ts && bun scripts/serve.ts",
     "typecheck": "tsc --noEmit",

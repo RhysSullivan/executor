@@ -61,5 +61,7 @@ for (const c of candidates) {
 }
 
 if (!killAll && candidates.some((c) => !c.orphan)) {
-  console.log("\nLive-checkout servers were kept (another session may own them); --all kills those too.");
+  console.log(
+    "\nLive-checkout servers were kept (another session may own them); --all kills those too.",
+  );
 }
