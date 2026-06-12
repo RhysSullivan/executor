@@ -95,6 +95,42 @@ export interface McpCallResult {
   readonly ok: boolean;
 }
 
+/** How a connection surfaces a paused (approval-gated) execution. `browser` is
+ *  what the browser-approval scenarios drive: the pause yields an `approvalUrl`
+ *  for a human to open instead of letting the model resume inline. */
+export type McpElicitationMode = "browser" | "model" | "native";
+
+/** The paused-execution handle a `browser`-mode call returns: the id to resume
+ *  and the console URL a human opens to approve or decline it. */
+export interface McpBrowserApproval {
+  readonly executionId: string;
+  readonly approvalUrl: string;
+}
+
+/**
+ * Pull the `{ executionId, approvalUrl }` out of a `browser`-mode paused result.
+ * Throws if the call did not pause for approval (so a missing gate fails loudly
+ * rather than silently skipping the browser leg).
+ */
+export const parseBrowserApproval = (result: McpCallResult): McpBrowserApproval => {
+  const structured = (result.raw as { structuredContent?: unknown })?.structuredContent;
+  const record = (structured ?? {}) as {
+    status?: unknown;
+    executionId?: unknown;
+    approvalUrl?: unknown;
+  };
+  if (
+    record.status !== "user_approval_required" ||
+    typeof record.executionId !== "string" ||
+    typeof record.approvalUrl !== "string"
+  ) {
+    throw new Error(
+      `expected a browser approval-required result, got: ${JSON.stringify(structured)}`,
+    );
+  }
+  return { executionId: record.executionId, approvalUrl: record.approvalUrl };
+};
+
 export interface McpSession {
   readonly listTools: () => Effect.Effect<ReadonlyArray<string>>;
   readonly call: (name: string, args?: Record<string, unknown>) => Effect.Effect<McpCallResult>;
@@ -103,12 +139,21 @@ export interface McpSession {
     text: string,
     content?: Record<string, unknown>,
   ) => Effect.Effect<McpCallResult>;
+  /**
+   * Call `resume` with only an executionId — the browser-mode contract, where
+   * `resume` long-polls until a human records a decision through the console.
+   * Run this concurrently with the browser leg that approves/declines.
+   */
+  readonly awaitResume: (executionId: string) => Effect.Effect<McpCallResult>;
 }
 
 export interface McpSurface {
   /** The target's MCP endpoint — yield this surface to depend on it existing. */
   readonly url: string;
-  readonly session: (identity: Identity) => McpSession;
+  readonly session: (
+    identity: Identity,
+    options?: { readonly elicitationMode?: McpElicitationMode },
+  ) => McpSession;
   /**
    * Mint a real MCP bearer headlessly: protected-resource discovery →
    * authorization-server discovery → dynamic client registration → authorize
@@ -207,9 +252,20 @@ const mintBearerFlow = async (target: Target, email: string): Promise<string> =>
 export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => ({
   url: target.mcpUrl,
   mintBearer: (email) => Effect.promise(() => mintBearerFlow(target, email)),
-  session: (identity) => {
+  session: (identity, options) => {
     if (runDir) installTraceparentFetch(target.mcpUrl, runDir);
-    const serverName = target.name;
+    // mcporter caches OAuth tokens (and the DCR client) per server NAME, so a
+    // constant name would let a later session reuse an earlier identity's token
+    // — landing in the wrong org. A unique name per session keeps each
+    // identity's OAuth isolated. The traceparent ledger keys off the URL, not
+    // this name, so it is unaffected.
+    const serverName = `${target.name}-${randomUUID().slice(0, 8)}`;
+    // `browser` mode is selected per the ecosystem convention — an
+    // `?elicitation_mode=` query on the MCP endpoint — so a paused execution
+    // yields an approvalUrl instead of letting the model resume inline.
+    const sessionUrl = options?.elicitationMode
+      ? `${target.mcpUrl}?elicitation_mode=${options.elicitationMode}`
+      : target.mcpUrl;
     let runtimePromise: Promise<Runtime> | undefined;
     let connected = false;
 
@@ -225,7 +281,7 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
         writeFileSync(
           join(dir, "mcporter.json"),
           JSON.stringify({
-            mcpServers: { [serverName]: { url: target.mcpUrl } },
+            mcpServers: { [serverName]: { url: sessionUrl } },
           }),
         );
         runtimePromise = createRuntime({
@@ -266,6 +322,9 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
             content: JSON.stringify(content),
           });
         }),
+      // No action argument: in browser mode `resume` blocks until the human's
+      // decision arrives via the console, then returns the resumed result.
+      awaitResume: (executionId) => call("resume", { executionId }),
     };
   },
 });
