@@ -496,6 +496,38 @@ const logs = (targetName: string) => {
   console.log(readFileSync(state.logFile, "utf8"));
 };
 
+// Real inference through the pi agent harness (Zen subscription). Plain
+// question→answer by default; --tools gives the model pi's coding tools in a
+// scratch dir; --json dumps the full distilled result for grading.
+const infer = async (args: ReadonlyArray<string>, flags: ReadonlySet<string>) => {
+  const { runAgent, DEFAULT_MODEL, hasInferenceCredential } = await import("../src/clients/agent");
+  if (!hasInferenceCredential()) {
+    throw new Error(
+      "infer: no inference credential — run `opencode auth login` once on this machine",
+    );
+  }
+  let model = DEFAULT_MODEL;
+  const prompt: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === "-m") model = args[++index] ?? model;
+    else prompt.push(args[index]!);
+  }
+  if (prompt.length === 0) throw new Error('usage: infer [-m model] [--tools] [--json] "prompt"');
+  const result = await runAgent({
+    prompt: prompt.join(" "),
+    model,
+    tools: flags.has("--tools"),
+  });
+  if (flags.has("--json")) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    if (result.exitCode !== 0 && !result.answerText) {
+      throw new Error(`infer: pi exited ${result.exitCode}\n${result.stderr.slice(0, 800)}`);
+    }
+    console.log(result.answerText);
+  }
+};
+
 // --- main ------------------------------------------------------------------
 
 const HELP = `e2e dev CLI — the scenario primitives, interactive (see e2e/AGENTS.md)
@@ -508,6 +540,9 @@ const HELP = `e2e dev CLI — the scenario primitives, interactive (see e2e/AGEN
   api <target> <group.endpoint> [json]   typed API call as a fresh identity
   mcp <target> tools | call <tool> [json]   MCP session call
   ledger <target> [workos|autumn]   the emulator's request ledger (cloud)
+  infer [-m model] [--tools] [--json] "prompt"   real inference via the pi
+                             agent harness (Zen subscription; --tools gives
+                             the model coding tools in a scratch dir)
   logs <target>              dump the instance's dev-server log
   down <target>              tear down (kills servers, removes tailscale serves)
 
@@ -534,6 +569,8 @@ const main = async () => {
       return mcpCall(args[0] ?? "", args[1], args.slice(2));
     case "ledger":
       return ledger(args[0] ?? "", args[1]);
+    case "infer":
+      return infer(args, flags);
     case "logs":
       return logs(args[0] ?? "");
     case "down":

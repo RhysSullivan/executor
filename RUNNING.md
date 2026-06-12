@@ -76,6 +76,7 @@ bun run cli identity selfhost     # fresh identity (headers / cookies / creds)
 bun run cli api selfhost tools.list
 bun run cli mcp selfhost call execute '{"code":"return 1+1;"}'
 bun run cli ledger cloud workos   # what hit the emulator
+bun run cli infer "..."           # real model inference (see below)
 bun run cli down selfhost         # tear down (also removes tailscale serves)
 ```
 
@@ -93,6 +94,23 @@ login state"). Both the app AND the WorkOS emulator get fronted with
 sides (its `baseUrl` and the app's `WORKOS_API_URL` — the browser-facing
 authorize URL derives from the latter), and Vite must allow the public
 hostname (`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`).
+
+## Real inference for development
+
+`bun run cli infer [-m model] [--tools] [--json] "prompt"` runs a real model
+through the **pi agent harness** (`@earendil-works/pi-coding-agent`,
+headless `--mode json`), reached via the machine's OpenCode Zen subscription
+(key auto-discovered from `~/.local/share/opencode/auth.json`; run
+`opencode auth login` once if missing). Every run is hermetic: throwaway pi
+config dir, no session persisted, and `--tools` confines the model's
+read/bash/edit/write to a fresh scratch dir. Default model is cheap+fast
+(deepseek-v4-flash); `-m glm-5.1` etc. selects others on the subscription.
+`--json` prints the distilled result (answer, thinking, tool calls, usage,
+full event stream) for programmatic use; the same primitive is importable as
+`runAgent()` from `e2e/src/clients/agent.ts` for eval-style harnesses.
+OpenCode (`e2e/src/clients/opencode.ts`) remains the MCP-native real-client
+actor for scenarios that test OAuth/tool-discovery behavior; pi is the
+inference workhorse.
 
 ## Environment gotchas (learned the hard way)
 
