@@ -83,3 +83,5 @@ export {
   runSqliteOpenApiOutputSchemaMigration,
   unwrapOpenApiTransportEnvelope,
 } from "./output-schema-migration";
+
+export { openApiSpecBlobDataMigration } from "./spec-blob-migration";
