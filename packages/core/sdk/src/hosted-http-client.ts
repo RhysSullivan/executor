@@ -15,9 +15,7 @@ export interface HostedHttpClientOptions {
   readonly fetch?: typeof globalThis.fetch;
 }
 
-const parseIpv4 = (
-  hostname: string,
-): readonly [number, number, number, number] | null => {
+const parseIpv4 = (hostname: string): readonly [number, number, number, number] | null => {
   const parts = hostname.split(".");
   if (parts.length !== 4) return null;
   const parsed: number[] = [];
@@ -60,12 +58,7 @@ const parseIpv4MappedIpv6 = (
   return [high >> 8, high & 0xff, low >> 8, low & 0xff];
 };
 
-const isPrivateIpv4 = ([a, b]: readonly [
-  number,
-  number,
-  number,
-  number,
-]): boolean =>
+const isPrivateIpv4 = ([a, b]: readonly [number, number, number, number]): boolean =>
   a === 0 ||
   a === 10 ||
   a === 127 ||
@@ -85,8 +78,7 @@ const isBlockedMetadataHostname = (hostname: string): boolean => {
 
 const isLocalOrPrivateHostname = (hostname: string): boolean => {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (normalized === "localhost" || normalized.endsWith(".localhost"))
-    return true;
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) return true;
   const ipv4 = parseIpv4(normalized);
   if (ipv4) return isPrivateIpv4(ipv4);
   const mappedIpv4 = parseIpv4MappedIpv6(normalized);
@@ -135,11 +127,7 @@ export const validateHostedOutboundUrl = (
     }
   });
 
-const CREDENTIAL_HEADERS = [
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-] as const;
+const CREDENTIAL_HEADERS = ["authorization", "proxy-authorization", "cookie"] as const;
 
 const stripCredentialHeaders = (init: RequestInit | undefined): RequestInit => {
   const headers = new Headers(init?.headers);
@@ -189,9 +177,7 @@ export const makeHostedHttpClientLayer = (
   FetchHttpClient.layer.pipe(
     Layer.provide(
       options.fetch
-        ? Layer.succeed(FetchHttpClient.Fetch)(
-            guardFetch(options.fetch, options),
-          )
+        ? Layer.succeed(FetchHttpClient.Fetch)(guardFetch(options.fetch, options))
         : Layer.effect(
             FetchHttpClient.Fetch,
             Effect.map(Effect.service(FetchHttpClient.Fetch), (underlying) =>
