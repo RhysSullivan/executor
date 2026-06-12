@@ -18,6 +18,7 @@ import { randomBytes } from "node:crypto";
 import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
+import { connectEmulator } from "@executor-js/emulate";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 
 import { scenario } from "../src/scenario";
@@ -96,21 +97,16 @@ const executeJson = (session: McpSession, code: string) =>
     return JSON.parse(result.text) as Record<string, unknown>;
   });
 
-const mintEmulatorApiKey = Effect.promise(async () => {
-  const response = await fetch(`${EMULATOR_BASE}/_emulate/credentials`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ type: "api-key" }),
-  });
-  const body = (await response.json()) as { credential?: { token?: string } };
-  const token = body.credential?.token;
-  if (!token) throw new Error(`emulator credential mint failed: ${JSON.stringify(body)}`);
-  return token;
-});
+// The typed control-plane client — minting and ledger reads with real shapes
+// instead of hand-rolled fetch + casts.
+const emulator = Effect.promise(() => connectEmulator({ baseUrl: EMULATOR_BASE }));
 
-const fetchLedgerText = Effect.promise(async () => {
-  const response = await fetch(`${EMULATOR_BASE}/_emulate/ledger`);
-  return response.text();
+const mintEmulatorApiKey = Effect.gen(function* () {
+  const client = yield* emulator;
+  const credential = yield* Effect.promise(() => client.credentials.mint({ type: "api-key" }));
+  const token = credential.token;
+  if (!token) throw new Error(`emulator credential mint failed: ${JSON.stringify(credential)}`);
+  return token;
 });
 
 scenario(
@@ -210,9 +206,13 @@ const runScenario = (input: {
     const sent = yield* executeJson(session, sendEmailCode(integration, emailSubject));
     expect(sent.ok, `email sent through the pasted connection: ${JSON.stringify(sent)}`).toBe(true);
 
-    const ledger = yield* fetchLedgerText;
+    const emulatorClient = yield* emulator;
+    const entries = yield* Effect.promise(() => emulatorClient.ledger.list());
+    const recorded = entries.find((entry) =>
+      JSON.stringify(entry.request.body ?? "").includes(emailSubject),
+    );
     expect(
-      ledger.includes(emailSubject),
+      recorded?.summary,
       "the emulator's request ledger recorded the call made through Executor",
-    ).toBe(true);
+    ).toBeDefined();
   });

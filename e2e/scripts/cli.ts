@@ -437,8 +437,10 @@ const ledger = async (targetName: string, service = "workos") => {
   const state = readState(targetName);
   const url = state?.urls?.[service];
   if (!url) throw new Error(`no ${service} emulator url recorded for ${targetName}`);
-  const response = await fetch(new URL("/_emulate/ledger", url));
-  console.log(await response.text());
+  const { connectEmulator } = await import("@executor-js/emulate");
+  const client = await connectEmulator({ baseUrl: url });
+  const entries = await client.ledger.list();
+  console.log(JSON.stringify(entries, null, 2));
 };
 
 // --- lifecycle commands ----------------------------------------------------

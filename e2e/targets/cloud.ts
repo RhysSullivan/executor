@@ -8,6 +8,8 @@ import { randomUUID } from "node:crypto";
 
 import { Effect } from "effect";
 
+import { connectEmulator } from "@executor-js/emulate";
+
 import { e2ePort } from "../src/ports";
 import type { Identity, Target } from "../src/target";
 
@@ -60,12 +62,10 @@ export const cloudTarget = (): Target => ({
   // scenarios can compress the lifecycle (the TtlControl service).
   setAccessTokenTtl: (seconds) =>
     Effect.promise(async () => {
-      const response = await fetch(`http://127.0.0.1:${WORKOS_EMULATOR_PORT}/_emulate/seed`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ oauth: { default_access_token_ttl_seconds: seconds } }),
+      const workos = await connectEmulator({
+        baseUrl: `http://127.0.0.1:${WORKOS_EMULATOR_PORT}`,
       });
-      if (!response.ok) throw new Error(`seeding emulator TTL failed (${response.status})`);
+      await workos.seed({ oauth: { default_access_token_ttl_seconds: seconds } });
     }),
   newIdentity: ({ org = true } = {}) =>
     Effect.promise(async (): Promise<Identity> => {
