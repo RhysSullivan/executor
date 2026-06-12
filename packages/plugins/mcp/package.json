@@ -66,7 +66,7 @@
     "@executor-js/config": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^4.3.6"
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@effect/atom-react": "catalog:",

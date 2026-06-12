@@ -3,12 +3,10 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Data, Effect, Option, Schema } from "effect";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  ResumeApprovalPage,
-  ResumeApprovalPageView,
-} from "@executor-js/react/pages/resume-approval";
-import { pausedExecutionAtom } from "@executor-js/react/api/atoms";
-import type { ElicitationAction } from "@executor-js/react/components/elicitation-approval";
+
+import { ResumeApprovalPage, ResumeApprovalPageView } from "../pages/resume-approval";
+import { pausedExecutionAtom } from "../api/atoms";
+import type { ElicitationAction } from "../components/elicitation-approval";
 
 const SearchParams = Schema.toStandardSchemaV1(
   Schema.Struct({

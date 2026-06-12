@@ -37,10 +37,19 @@
       "error",
       {
         "forbid": [
-          { "element": "button", "message": "Use <Button> from @executor/react" },
+          {
+            "element": "button",
+            "message": "Use <Button> from @executor/react",
+          },
           { "element": "input", "message": "Use <Input> from @executor/react" },
-          { "element": "textarea", "message": "Use <Textarea> from @executor/react" },
-          { "element": "select", "message": "Use <Select> or <NativeSelect> from @executor/react" },
+          {
+            "element": "textarea",
+            "message": "Use <Textarea> from @executor/react",
+          },
+          {
+            "element": "select",
+            "message": "Use <Select> or <NativeSelect> from @executor/react",
+          },
           { "element": "table", "message": "Use <Table> from @executor/react" },
           { "element": "label", "message": "Use <Label> from @executor/react" },
         ],
@@ -53,6 +62,7 @@
         "apps/cli/src/**/*.{ts,tsx}",
         "apps/desktop/src/main.ts",
         "scripts/**/*.{ts,js}",
+        "apps/*/scripts/**/*.{ts,js}",
         "packages/kernel/runtime-*/src/**/*.{ts,tsx,js,mjs}",
       ],
       "rules": {
