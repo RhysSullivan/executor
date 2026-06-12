@@ -334,6 +334,12 @@ export {
   type SqliteDataMigration,
   type SqliteDataMigrationClient,
 } from "./sqlite-data-migrations";
+// Shared inline-config-field → blob-table migration body; the protocol
+// plugins bind their field names and export the ledger entries.
+export {
+  runSqliteConfigBlobMigration,
+  type SqliteConfigBlobMigrationOptions,
+} from "./sqlite-config-blob-migration";
 export {
   authToolFailure,
   type AuthToolFailureCode,

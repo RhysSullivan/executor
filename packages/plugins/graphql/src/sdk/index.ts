@@ -37,5 +37,7 @@ export {
 
 export { migrateGraphqlAuthConfig } from "./migrate-config";
 
+export { graphqlIntrospectionBlobDataMigration } from "./introspection-blob-migration";
+
 // Request-shaped authoring: `headers: { Authorization: ["Bearer ", variable("token")] }`.
 export { variable, type ApiKeyAuthTemplate } from "@executor-js/sdk/http-auth";

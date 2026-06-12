@@ -7,7 +7,11 @@
 
 import { sqliteDataMigration, type SqliteDataMigration } from "@executor-js/sdk";
 import { runSqliteAuthConfigMigration } from "@executor-js/sdk/http-auth";
-import { openApiOutputSchemaDataMigration } from "@executor-js/plugin-openapi";
+import {
+  openApiOutputSchemaDataMigration,
+  openApiSpecBlobDataMigration,
+} from "@executor-js/plugin-openapi";
+import { graphqlIntrospectionBlobDataMigration } from "@executor-js/plugin-graphql";
 
 import { authConfigTransforms } from "./auth-config-migration";
 
@@ -20,4 +24,9 @@ export const localDataMigrations: readonly SqliteDataMigration[] = [
   // Unwrap the retired {status, headers, data} transport envelope from
   // persisted openapi tool output schemas (mirrors cloud's drizzle 0002).
   openApiOutputSchemaDataMigration,
+  // Move inline spec / introspection text out of integration.config into the
+  // blob table (config keeps the content hash). Mirrors cloud's
+  // migrate-specs-to-blobs script.
+  openApiSpecBlobDataMigration,
+  graphqlIntrospectionBlobDataMigration,
 ];
