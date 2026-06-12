@@ -1,5 +1,26 @@
 # executor
 
+## 1.5.8
+
+### Patch Changes
+
+- [#983](https://github.com/RhysSullivan/executor/pull/983) [`bcfdeb2`](https://github.com/RhysSullivan/executor/commit/bcfdeb23316b3266f00a9aae6b67d525a67ce8dc) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - **Hardened the local v1→v2 database upgrade**
+
+  Upgrading a local database created by an older (v1) release is now resilient to
+  interrupted or partially-written upgrade state:
+  - The one-time upgrade is recorded in the migration ledger, so it is never
+    re-attempted on later boots. Databases that have already upgraded are detected
+    from the ledger and skip the upgrade path entirely.
+  - Replaying the legacy schema now tolerates a missing or truncated migration
+    journal instead of failing to start, so a database left in a half-written
+    state from a previous crash boots cleanly.
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.8
+  - @executor-js/runtime-quickjs@1.5.8
+  - @executor-js/local@1.4.4
+  - @executor-js/api@1.4.28
+
 ## 1.5.7
 
 ### Patch Changes
