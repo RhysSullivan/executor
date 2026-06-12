@@ -213,6 +213,74 @@ const result = await tools.executor.coreTools.policies.list({});
 return JSON.stringify(result);
 `;
 
+const executionIdOf = (text: string): string | undefined =>
+  /\bexecutionId:\s*(\S+)/.exec(text)?.[1];
+
+// The session DO tears its runtime down after 5 minutes without a request
+// (SESSION_TIMEOUT_MS in McpSessionDOBase) and rebuilds it from storage on
+// the next one — the same engine-state wipe a workerd eviction or a deploy
+// causes. A user who takes a few minutes to answer an approval crosses this
+// gap on every paused execution.
+const IDLE_TEARDOWN_GAP = "6 minutes";
+
+scenario(
+  "MCP sessions · a paused approval survives the session runtime idle teardown and resumes",
+  { timeout: 480_000 },
+  Effect.gen(function* () {
+    const target = yield* Target;
+    const { client } = yield* Api;
+    const mcp = yield* Mcp;
+    const identity = yield* target.newIdentity();
+    const api = yield* client(coreApi, identity);
+    const bearer = yield* mcp.mintBearer(emailOf(identity));
+
+    const policy = yield* api.policies.create({
+      payload: { owner: "org", pattern: APPROVAL_TARGET_TOOL, action: "require_approval" },
+    });
+
+    yield* Effect.gen(function* () {
+      const first = yield* Effect.promise(() => connectClient(target.mcpUrl, bearer));
+      const sessionId = first.transport.sessionId;
+      const paused = yield* Effect.promise(() =>
+        first.client.callTool({ name: "execute", arguments: { code: GATED_CODE } }),
+      ).pipe(Effect.ensuring(closeQuietly(first)));
+      const pausedText = textOf(paused);
+      expect(pausedText, "the gated call pauses instead of completing").toContain(
+        "Execution paused",
+      );
+      const executionId = executionIdOf(pausedText);
+      expect(executionId, "the paused result carries the executionId").toEqual(expect.any(String));
+
+      // The user thinks the approval over. No client is connected and no
+      // request is in flight, so the session DO instance gets evicted and the
+      // next request cold-restores it from storage.
+      yield* Effect.sleep(IDLE_TEARDOWN_GAP);
+
+      const second = yield* Effect.promise(() => connectClient(target.mcpUrl, bearer, sessionId));
+      const resumed = yield* Effect.promise(() =>
+        second.client.callTool({
+          name: "resume",
+          arguments: { executionId: executionId ?? "", action: "accept", content: "{}" },
+        }),
+      ).pipe(Effect.ensuring(closeQuietly(second)));
+      expect(
+        textOf(resumed),
+        "the paused execution is still resumable after the eviction gap",
+      ).not.toContain("No paused execution");
+      expect(resumed.isError, "the resumed execution completes").not.toBe(true);
+      expect(textOf(resumed), "the gated tool's result comes back after approval").toContain(
+        "connections",
+      );
+    }).pipe(
+      Effect.ensuring(
+        api.policies
+          .remove({ params: { policyId: policy.id }, payload: { owner: "org" } })
+          .pipe(Effect.ignore),
+      ),
+    );
+  }),
+);
+
 scenario(
   "MCP sessions · a paused approval survives the client reconnecting and resumes",
   {},
