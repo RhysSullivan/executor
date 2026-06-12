@@ -104,20 +104,10 @@ export const SessionPlayer = ({
       }
       return { window: entry.window, from: toSession(entry.at), to };
     });
-  }, [
-    timeline,
-    sessionStart,
-    terminalAnchor,
-    browserAnchor,
-    castDuration,
-    videoDuration,
-  ]);
+  }, [timeline, sessionStart, terminalAnchor, browserAnchor, castDuration, videoDuration]);
 
   const duration = acts.at(-1)?.to ?? 0;
-  const ready =
-    castDuration !== null &&
-    videoDuration !== null &&
-    Number.isFinite(duration);
+  const ready = castDuration !== null && videoDuration !== null && Number.isFinite(duration);
 
   const actAt = (time: number): number => {
     for (let i = acts.length - 1; i >= 0; i -= 1) {
@@ -133,9 +123,7 @@ export const SessionPlayer = ({
   const mediaTime = (window: Act["window"], time: number): number =>
     Math.max(
       0,
-      (sessionStart +
-        time * 1000 -
-        (window === "terminal" ? terminalAnchor : browserAnchor)) /
+      (sessionStart + time * 1000 - (window === "terminal" ? terminalAnchor : browserAnchor)) /
         1000,
     );
 
@@ -178,22 +166,15 @@ export const SessionPlayer = ({
     if (act.window === "browser") {
       cast?.pause();
       if (video) {
-        const target = Math.min(
-          mediaTime("browser", time),
-          (videoDuration ?? Infinity) - 0.05,
-        );
-        if (Math.abs(video.currentTime - target) > 0.25)
-          video.currentTime = target;
+        const target = Math.min(mediaTime("browser", time), (videoDuration ?? Infinity) - 0.05);
+        if (Math.abs(video.currentTime - target) > 0.25) video.currentTime = target;
         if (play) await video.play().catch(() => {});
         else video.pause();
       }
     } else {
       videoRef.current?.pause();
       if (cast) {
-        const target = Math.min(
-          mediaTime("terminal", time),
-          (castDuration ?? Infinity) - 0.05,
-        );
+        const target = Math.min(mediaTime("terminal", time), (castDuration ?? Infinity) - 0.05);
         const current = cast.getCurrentTime();
         const now = typeof current === "number" ? current : await current;
         if (Math.abs(now - target) > 0.25) await cast.seek(target);
@@ -220,9 +201,7 @@ export const SessionPlayer = ({
         const current = castPlayer.current?.getCurrentTime() ?? 0;
         media = typeof current === "number" ? current : await current;
       }
-      const wall =
-        (act.window === "terminal" ? terminalAnchor : browserAnchor) +
-        media * 1000;
+      const wall = (act.window === "terminal" ? terminalAnchor : browserAnchor) + media * 1000;
       let next = Math.max(tRef.current, (wall - sessionStart) / 1000);
       if (next >= act.to - 0.05) {
         if (index === acts.length - 1) {
@@ -263,9 +242,7 @@ export const SessionPlayer = ({
   // Live URL: the last main-frame navigation at-or-before "now" (wall).
   const wallNow = sessionStart + t * 1000;
   const currentUrl =
-    [...(timeline.nav ?? [])]
-      .reverse()
-      .find((entry) => entry.at <= wallNow + 250)?.url ?? "";
+    [...(timeline.nav ?? [])].reverse().find((entry) => entry.at <= wallNow + 250)?.url ?? "";
 
   // Trace markers in session time (only the ones inside the session).
   const traceMarks = useMemo(
@@ -346,9 +323,7 @@ export const SessionPlayer = ({
                 muted
                 playsInline
                 preload="auto"
-                onLoadedMetadata={(event) =>
-                  setVideoDuration(event.currentTarget.duration)
-                }
+                onLoadedMetadata={(event) => setVideoDuration(event.currentTarget.duration)}
               />
             </div>
           </div>
@@ -361,9 +336,7 @@ export const SessionPlayer = ({
               className="scrub"
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
-                void seekTo(
-                  ((event.clientX - rect.left) / rect.width) * duration,
-                );
+                void seekTo(((event.clientX - rect.left) / rect.width) * duration);
               }}
             >
               {ready &&
@@ -387,12 +360,7 @@ export const SessionPlayer = ({
                     title={`${mark.url.replace(/^https?:\/\/[^/]+/, "")} → trace ${mark.id.slice(0, 8)}`}
                   />
                 ))}
-              {ready && (
-                <span
-                  className="head"
-                  style={{ left: `${(t / duration) * 100}%` }}
-                />
-              )}
+              {ready && <span className="head" style={{ left: `${(t / duration) * 100}%` }} />}
             </div>
             <span className="clock">
               {fmt(t)} / {ready ? fmt(duration) : "…"}
@@ -432,9 +400,7 @@ export const SessionPlayer = ({
                     </span>
                     <span
                       className={`trace-ms${slow ? " slow" : ""}${
-                        mark.status !== undefined && mark.status >= 400
-                          ? " err"
-                          : ""
+                        mark.status !== undefined && mark.status >= 400 ? " err" : ""
                       }`}
                     >
                       {mark.ms !== undefined ? `${mark.ms}ms` : "·"}

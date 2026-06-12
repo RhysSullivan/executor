@@ -32,10 +32,7 @@ const write = (runDir: string, timeline: Timeline) =>
   writeFileSync(fileFor(runDir), JSON.stringify(timeline, null, 1));
 
 /** Record that `window`'s recording clock starts now. */
-export const markRecordingStart = (
-  runDir: string,
-  window: TimelineWindow,
-): void => {
+export const markRecordingStart = (runDir: string, window: TimelineWindow): void => {
   const timeline = read(runDir);
   write(runDir, {
     ...timeline,
