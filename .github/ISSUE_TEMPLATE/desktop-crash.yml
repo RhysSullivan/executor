@@ -52,7 +52,7 @@ body:
     attributes:
       label: Diagnostics / logs
       description: |
-        If the app opens far enough to show a menu, use **Help → Export Diagnostics…**
+        If the app opens far enough to show a menu, open the **Executor** menu → **Export Diagnostics…**
         (or **Report a Problem…**) and attach the zip — it has everything we need and no secrets.
 
         Otherwise, attach the log file directly:
