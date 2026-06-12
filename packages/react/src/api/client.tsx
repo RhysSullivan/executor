@@ -42,6 +42,11 @@ export const reportApiClientInfrastructureCause = (cause: Cause.Cause<unknown>) 
 // `import.meta.env.VITE_PUBLIC_OTLP_TRACES_URL`; optional chaining would
 // dodge the replacement and always read undefined.
 const otlpTracesUrl = import.meta.env.VITE_PUBLIC_OTLP_TRACES_URL as string | undefined;
+// Per-SESSION sampling for production: a page either traces everything it
+// does or nothing (per-span sampling would shred the waterfalls). Unset = 1.
+const otlpSampleRatio = Number(
+  (import.meta.env.VITE_PUBLIC_OTLP_SAMPLE_RATIO as string | undefined) ?? "1",
+);
 
 // The tracer must reach the runtime context the atom effects EXECUTE in.
 // Merging it into the `httpClient` option doesn't: AtomHttpApi builds the
@@ -58,11 +63,15 @@ const otlpTracesUrl = import.meta.env.VITE_PUBLIC_OTLP_TRACES_URL as string | un
 // error. URL-scoped, the leak is the desired behavior: any client posting
 // to the OTLP endpoint (the exporter) goes untraced, everything else is
 // traced.
-if (otlpTracesUrl) {
+// Browser-only (this module is also evaluated during SSR, where the worker
+// has its own tracer and a relative exporter URL would be meaningless).
+if (otlpTracesUrl && typeof document !== "undefined" && Math.random() < otlpSampleRatio) {
   Atom.runtime.addGlobalLayer(
     Layer.mergeAll(
       OtlpTracer.layer({
-        url: otlpTracesUrl,
+        // Relative paths (the prod shape: "/v1/traces" → the worker's
+        // forwarding route) resolve against the page's own origin.
+        url: new URL(otlpTracesUrl, window.location.origin).toString(),
         resource: { serviceName: "executor-web" },
         // Browser sessions are short; the 5s default loses the tail spans
         // when the tab closes.

@@ -48,6 +48,8 @@ declare global {
 
       // Shared with frontend
       VITE_PUBLIC_SITE_URL?: string;
+      VITE_PUBLIC_OTLP_TRACES_URL?: string;
+      VITE_PUBLIC_OTLP_SAMPLE_RATIO?: string;
     }
   }
 }

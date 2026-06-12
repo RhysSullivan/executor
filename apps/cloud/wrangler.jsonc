@@ -62,5 +62,12 @@
   "vars": {
     "VITE_PUBLIC_SITE_URL": "https://executor.sh",
     "VITE_PUBLIC_POSTHOG_KEY": "phc_nNLrNMALpRsfrEkZovUkfMxYbcJvHnsJHeoSPavprgLL",
+    // Browser OTLP spans → same-origin, forwarded to Axiom by the worker
+    // (src/observability/browser-traces.ts). Relative on purpose: the
+    // client resolves it against the page origin, so previews work too.
+    "VITE_PUBLIC_OTLP_TRACES_URL": "/v1/traces",
+    // Per-session sampling: 1 = every signed-in session exports. Dial down
+    // (e.g. "0.1") if Axiom volume becomes a cost concern.
+    "VITE_PUBLIC_OTLP_SAMPLE_RATIO": "1",
   },
 }

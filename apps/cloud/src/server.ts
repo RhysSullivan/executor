@@ -10,6 +10,7 @@ import * as Sentry from "@sentry/cloudflare";
 import handler from "@tanstack/react-start/server-entry";
 
 import { McpSessionDO as McpSessionDOBase } from "./mcp/session-durable-object";
+import { browserTracesResponse } from "./observability/browser-traces";
 import { flushTracerProvider, installTracerProvider } from "./observability/telemetry";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,11 @@ const tracer = trace.getTracer("executor-cloud-worker");
 
 const cloudflareHandler: ExportedHandler<Env> = {
   fetch: async (request, env, ctx) => {
+    // Browser OTLP ingress — before the server span opens: exporter traffic
+    // must never trace itself (the browser already excludes /v1/traces from
+    // its own tracing for the same reason).
+    const browserTraces = browserTracesResponse(request, env);
+    if (browserTraces) return browserTraces;
     if (!installTracerProvider()) {
       return fetchHandler(request, env, ctx);
     }
