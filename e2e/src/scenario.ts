@@ -9,7 +9,8 @@
 // recording layer. What survives per run is a small result.json (for the
 // scenario × target matrix) plus whatever artifacts the surfaces produced
 // (browser video/trace/screenshots, terminal casts).
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -136,6 +137,29 @@ export const scenario = (
             1,
           ),
         );
+        // A run with both recordings is ONE developer session — splice them
+        // into film.mp4 (scripts/film.ts cuts on the focus timeline) so the
+        // viewer plays a single recording, not parts. Best-effort: missing
+        // agg/ffmpeg or a film failure never fails the run; the parts stay
+        // and the viewer falls back to cast + video in story order.
+        if (
+          exit._tag === "Success" &&
+          existsSync(join(dir, "terminal.cast")) &&
+          existsSync(join(dir, "session.mp4"))
+        ) {
+          yield* Effect.sync(() => {
+            // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: optional post-processing over external tooling (agg, ffmpeg)
+            try {
+              execFileSync(
+                "bun",
+                [fileURLToPath(new URL("../scripts/film.ts", import.meta.url)), dir],
+                { stdio: "pipe", timeout: 120_000 },
+              );
+            } catch {
+              // parts remain the artifacts
+            }
+          });
+        }
         buildManifest(RUNS_DIR);
         if (exit._tag === "Failure") {
           return yield* Effect.failCause(exit.cause);
