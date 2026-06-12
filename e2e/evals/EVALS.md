@@ -113,3 +113,16 @@ description tweaks made because of it):
   provider-item refs, so the model was smuggling the raw key INTO a ref
   field: `from: { provider: "encrypted", id: "Bearer re_…" }`). Description
   text can't fix a model that's determined to use what's in context.
+- **2026-06-12 · DECISION: not fixing credential-hygiene for now.** Rationale:
+  capable models already route to the handoff correctly (connect-handoff
+  passes), the descriptions already steer the right way, and the residual
+  harm is narrow — the smuggled key still lands ENCRYPTED in the vault; the
+  real leak is plaintext in our logs/traces + the provider's logs, which the
+  user's paste already incurred. Approaches surveyed but deliberately NOT
+  taken (so they don't get re-litigated): fail-helpfully redirect (reject raw
+  secret → return the handoff URL in the error), field-agnostic secret-shape
+  redaction in tool middleware, output/log scrubbing, ref-resolution
+  validation, removing the tool from the agent surface. If this resurfaces,
+  output/log scrubbing is the pure-upside piece and the cred-hygiene task can
+  A/B any candidate (it already separates "secret in tool call" vs "secret in
+  answer"). Tracking this as a known gap, not a bug to fix now.
