@@ -5,12 +5,17 @@ import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createEmulator } from "@executor-js/emulate";
+
 import { bootProcesses, waitForHttp, type BootedProcesses } from "./boot";
 
 export const selfhostDir = fileURLToPath(new URL("../../apps/host-selfhost/", import.meta.url));
 
 export interface SelfhostBootOptions {
   readonly port: number;
+  /** This suite's Resend emulator — a real upstream for connect scenarios
+   *  (the hosted shared instance hits DO storage limits). */
+  readonly resendPort: number;
   /** The URL the app advertises (cookies, redirects). */
   readonly webBaseUrl: string;
   readonly admin: { readonly email: string; readonly password: string };
@@ -26,6 +31,8 @@ export interface SelfhostBootOptions {
 export const bootSelfhost = async (options: SelfhostBootOptions): Promise<BootedProcesses> => {
   const dataDir = options.dataDir ?? resolve(selfhostDir, ".e2e-data");
   if (options.fresh ?? true) rmSync(dataDir, { recursive: true, force: true });
+
+  const resend = await createEmulator({ service: "resend", port: options.resendPort });
 
   const procs = bootProcesses(
     [
@@ -58,14 +65,19 @@ export const bootSelfhost = async (options: SelfhostBootOptions): Promise<Booted
     { label: "selfhost" },
   );
 
+  const teardown = async () => {
+    await procs.teardown();
+    await resend.close();
+  };
+
   try {
     // Probe via `localhost`, not 127.0.0.1 — without --host, vite binds the
     // resolver's first answer for localhost (::1 on macOS), so the IPv4
     // loopback literal never answers.
     await waitForHttp(`http://localhost:${options.port}`);
   } catch (error) {
-    await procs.teardown();
+    await teardown();
     throw error;
   }
-  return procs;
+  return { ...procs, teardown };
 };

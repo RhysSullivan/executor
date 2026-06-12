@@ -194,6 +194,11 @@ const run = async (target: "selfhost" | "cloud", flags: ReadonlySet<string>) => 
       const { bootSelfhost } = await import("../setup/selfhost.boot");
       const claim = await claimPorts([
         { envVar: "E2E_SELFHOST_PORT", offset: 4, label: "selfhost vite dev (cli)" },
+        {
+          envVar: "E2E_SELFHOST_RESEND_EMULATOR_PORT",
+          offset: 6,
+          label: "Resend emulator (selfhost cli)",
+        },
       ]);
       const port = claim.ports.E2E_SELFHOST_PORT!;
       const ip = share ? tailnetIp() : undefined;
@@ -201,6 +206,7 @@ const run = async (target: "selfhost" | "cloud", flags: ReadonlySet<string>) => 
       const admin = { email: "admin@e2e.test", password: "e2e-admin-password-123" };
       const booted = await bootSelfhost({
         port,
+        resendPort: claim.ports.E2E_SELFHOST_RESEND_EMULATOR_PORT!,
         webBaseUrl: baseUrl,
         admin,
         host: share ? "0.0.0.0" : undefined,
@@ -231,11 +237,13 @@ const run = async (target: "selfhost" | "cloud", flags: ReadonlySet<string>) => 
         { envVar: "E2E_CLOUD_DB_PORT", offset: 1, label: "cloud dev-db (cli)" },
         { envVar: "E2E_WORKOS_EMULATOR_PORT", offset: 2, label: "WorkOS emulator (cli)" },
         { envVar: "E2E_AUTUMN_EMULATOR_PORT", offset: 3, label: "Autumn emulator (cli)" },
+        { envVar: "E2E_RESEND_EMULATOR_PORT", offset: 5, label: "Resend emulator (cli)" },
       ]);
       const cloudPort = claim.ports.E2E_CLOUD_PORT!;
       const dbPort = claim.ports.E2E_CLOUD_DB_PORT!;
       const workosPort = claim.ports.E2E_WORKOS_EMULATOR_PORT!;
       const autumnPort = claim.ports.E2E_AUTUMN_EMULATOR_PORT!;
+      const resendPort = claim.ports.E2E_RESEND_EMULATOR_PORT!;
       const clientId = "client_e2e_emulate";
       const cookiePassword = "e2e_cookie_password_0123456789abcdef0123456789abcdef";
 
@@ -278,6 +286,7 @@ const run = async (target: "selfhost" | "cloud", flags: ReadonlySet<string>) => 
         dbPort,
         workosPort,
         autumnPort,
+        resendPort,
         workosClientId: clientId,
         cookiePassword,
         publicUrl,

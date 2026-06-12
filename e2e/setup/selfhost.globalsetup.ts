@@ -19,6 +19,7 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
   // them for ports/URLs here.
   const { ports, release } = await claimPorts([
     { envVar: "E2E_SELFHOST_PORT", offset: 4, label: "selfhost vite dev" },
+    { envVar: "E2E_SELFHOST_RESEND_EMULATOR_PORT", offset: 6, label: "Resend emulator (selfhost)" },
   ]);
   const port = ports.E2E_SELFHOST_PORT!;
 
@@ -28,6 +29,7 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
   try {
     procs = await bootSelfhost({
       port,
+      resendPort: ports.E2E_SELFHOST_RESEND_EMULATOR_PORT!,
       webBaseUrl: `http://localhost:${port}`,
       admin: SELFHOST_ADMIN,
     });

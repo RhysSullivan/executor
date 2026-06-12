@@ -19,6 +19,9 @@ export interface CloudBootOptions {
   readonly dbPort: number;
   readonly workosPort: number;
   readonly autumnPort: number;
+  /** A local Resend emulator — the world's always-on invocable upstream
+   *  (the hosted shared instance accumulates state and hits DO limits). */
+  readonly resendPort: number;
   readonly workosClientId: string;
   readonly cookiePassword: string;
   /** The URL the app advertises (VITE_PUBLIC_SITE_URL, MCP resource origin). */
@@ -61,6 +64,7 @@ export const bootCloud = async (options: CloudBootOptions): Promise<CloudBooted>
     ...(options.workosPublicUrl ? { baseUrl: options.workosPublicUrl } : {}),
   });
   const autumn = await createEmulator({ service: "autumn", port: options.autumnPort });
+  const resend = await createEmulator({ service: "resend", port: options.resendPort });
 
   const workosUrl = options.workosPublicUrl ?? workos.url;
   const env = {
@@ -121,6 +125,7 @@ export const bootCloud = async (options: CloudBootOptions): Promise<CloudBooted>
     await procs.teardown();
     await workos.close();
     await autumn.close();
+    await resend.close();
   };
 
   try {

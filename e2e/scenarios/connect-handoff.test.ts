@@ -21,6 +21,7 @@ import { composePluginApi } from "@executor-js/api/server";
 import { connectEmulator } from "@executor-js/emulate";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 
+import { resendEmulatorUrl } from "../src/emulators";
 import { scenario } from "../src/scenario";
 import { Api, Browser, Mcp, Target } from "../src/services";
 import type { Identity, Target as TargetShape } from "../src/target";
@@ -31,7 +32,10 @@ const api = composePluginApi([openApiHttpPlugin()] as const);
 
 const unique = (prefix: string) => `${prefix}_${randomBytes(4).toString("hex")}`;
 
-const EMULATOR_BASE = "https://resend.emulators.dev";
+// The suite's own Resend emulator (booted per target in setup/*.boot.ts) —
+// the hosted shared instance accumulates state until Durable Object limits
+// break credential minting.
+const EMULATOR_BASE = resendEmulatorUrl(process.env.E2E_TARGET ?? "cloud");
 
 // The emulator serves its own OpenAPI document (bearer auth, same shape as
 // real Resend — and as the Sentry spec that failed in prod). Adding it by URL

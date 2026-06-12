@@ -23,6 +23,7 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
     { envVar: "E2E_CLOUD_DB_PORT", offset: 1, label: "cloud dev-db (PGlite)" },
     { envVar: "E2E_WORKOS_EMULATOR_PORT", offset: 2, label: "WorkOS emulator" },
     { envVar: "E2E_AUTUMN_EMULATOR_PORT", offset: 3, label: "Autumn emulator" },
+    { envVar: "E2E_RESEND_EMULATOR_PORT", offset: 5, label: "Resend emulator" },
   ]);
 
   let booted;
@@ -32,6 +33,7 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
       dbPort: ports.E2E_CLOUD_DB_PORT!,
       workosPort: ports.E2E_WORKOS_EMULATOR_PORT!,
       autumnPort: ports.E2E_AUTUMN_EMULATOR_PORT!,
+      resendPort: ports.E2E_RESEND_EMULATOR_PORT!,
       workosClientId: E2E_WORKOS_CLIENT_ID,
       cookiePassword: E2E_COOKIE_PASSWORD,
       publicUrl: `http://127.0.0.1:${ports.E2E_CLOUD_PORT!}`,

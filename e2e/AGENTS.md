@@ -130,6 +130,35 @@ const teammate = yield * joinOrg(target, admin, yield * target.newIdentity({ org
 The free plan seats 3 members (admin + 2 invites). See
 `cloud/org-lifecycle.test.ts` for the full team journey.
 
+## The production-shaped world (cloud)
+
+`src/world.ts` builds a persistent six-company snapshot mined from the real
+production database: an 800-operation integration, the "workspace" connection
+name reused across integrations (including under BOTH owners and by two
+members of one org), never-connected integrations, repeated slugs across
+tenants, org/user credential splits, and org approve policies. It is built
+ONCE per running instance, memoized to `.dev/world-<target>.json`, probed and
+REUSED on later runs — state accumulates across suite runs, deliberately
+unlike the clean-slate `newIdentity()` model.
+
+```ts
+const world = yield * ensureProductionWorld(target, apiSurface);
+const acme = world.orgs.find((org) => org.company === "Acme Capital")!;
+const founder = toIdentity(acme.members[0]!);
+```
+
+Rules for scenarios over the world (`cloud/production-world.test.ts`):
+
+- Treat it as shared and persistent: never delete world resources, and give
+  back anything you add (seats, integrations) with a finalizer — the next
+  run inherits your leftovers.
+- The emulator-backed integrations (`resend_*`) point at the suite's own
+  Resend emulator (booted in `setup/cloud.boot.ts`) — really invocable, with
+  a request ledger; ledger `identity.user.login` names which credential made
+  each call (raw auth headers are redacted).
+- The non-emulator integrations are catalog mass (dead baseUrl) — list/
+  describe them, don't invoke them.
+
 ## Isolation rules
 
 - Cloud: `newIdentity()` is a fresh user+org — you are isolated for free.
