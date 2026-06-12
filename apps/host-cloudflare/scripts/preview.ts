@@ -16,6 +16,16 @@
 //   bun scripts/preview.ts deploy --pr 123 [--skip-build]
 //   bun scripts/preview.ts destroy --pr 123
 //   bun scripts/preview.ts list            # JSON [{pr, name}] of live previews
+//   bun scripts/preview.ts sweep-e2e       # clean e2e leftovers (see below)
+//
+// sweep-e2e cleans up after the e2e harness, which shares this account:
+// suite runs that crash before their teardown leak an `executor-e2e-<hex>`
+// worker + D1 + Access app trio, and every real Access OTP login by a
+// synthetic ci-…@executor-dev.xyz identity permanently occupies a Zero Trust
+// seat (50 on the free plan). Stacks older than a day are deleted; seats held
+// by the synthetic domain are revoked. Persistent e2e infrastructure
+// (executor-e2e-otp, executor-e2e-emulators, alchemy-state-store) is never
+// touched.
 //
 // Env: CLOUDFLARE_API_TOKEN (Workers/D1/R2/Access edit) + CLOUDFLARE_ACCOUNT_ID
 // always; deploy additionally needs PREVIEW_ACCESS_TEAM_DOMAIN (Zero Trust team)
@@ -301,6 +311,67 @@ const list = async (): Promise<void> => {
   process.stdout.write(`${JSON.stringify(previews)}\n`);
 };
 
+// E2e stacks are worker `executor-e2e-<8 hex>` + D1 `…-db` + Access app of the
+// same name; the fixed-name workers are this account's persistent e2e infra.
+const E2E_STACK_PATTERN = /^executor-e2e-[0-9a-f]{8}$/;
+const E2E_SEAT_DOMAIN = "@executor-dev.xyz";
+const E2E_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+const sweepE2e = async (): Promise<void> => {
+  const now = Date.now();
+  const scripts = await cfList(`/accounts/${ACCOUNT}/workers/scripts`);
+  const stale = scripts.filter((script: any) => {
+    if (!E2E_STACK_PATTERN.test(String(script.id))) return false;
+    const created = Date.parse(script.created_on ?? "");
+    // Skip stacks younger than a day — they may belong to a live suite run.
+    return Number.isFinite(created) && now - created > E2E_MIN_AGE_MS;
+  });
+
+  const databases = stale.length > 0 ? await cfList(`/accounts/${ACCOUNT}/d1/database`) : [];
+  const apps = stale.length > 0 ? await cfList(`/accounts/${ACCOUNT}/access/apps`) : [];
+  for (const script of stale) {
+    const name = String(script.id);
+    await cfOk("DELETE", `/accounts/${ACCOUNT}/workers/scripts/${name}?force=true`);
+    process.stderr.write(`deleted e2e worker ${name}\n`);
+    const database = databases.find((d: any) => d.name === `${name}-db`);
+    if (database) {
+      await cfOk("DELETE", `/accounts/${ACCOUNT}/d1/database/${database.uuid}`);
+      process.stderr.write(`deleted e2e D1 ${name}-db\n`);
+    }
+    const app = apps.find((a: any) => a.name === name);
+    if (app) {
+      await cfOk("DELETE", `/accounts/${ACCOUNT}/access/apps/${app.id}`);
+      process.stderr.write(`deleted e2e Access app ${name}\n`);
+    }
+  }
+
+  // Seat revocation only — the user records stay (harmless), but they stop
+  // counting against the Zero Trust seat quota.
+  const users = await cfList(`/accounts/${ACCOUNT}/access/users`);
+  const seated = users.filter(
+    (user: any) =>
+      String(user.email ?? "").endsWith(E2E_SEAT_DOMAIN) &&
+      (user.access_seat === true || user.gateway_seat === true) &&
+      typeof user.seat_uid === "string",
+  );
+  if (seated.length > 0) {
+    await cfOk(
+      "PATCH",
+      `/accounts/${ACCOUNT}/access/seats`,
+      seated.map((user: any) => ({
+        seat_uid: user.seat_uid,
+        access_seat: false,
+        gateway_seat: false,
+      })),
+    );
+    for (const user of seated) process.stderr.write(`revoked seat for ${user.email}\n`);
+  }
+
+  process.stdout.write(
+    `${JSON.stringify({ deletedStacks: stale.map((s: any) => s.id), revokedSeats: seated.length })}\n`,
+  );
+};
+
 // --- main --------------------------------------------------------------------
 
 if (TOKEN.length === 0) fail("CLOUDFLARE_API_TOKEN is required");
@@ -310,4 +381,5 @@ const command = process.argv[2];
 if (command === "deploy") await deploy();
 else if (command === "destroy") await destroy();
 else if (command === "list") await list();
-else fail("usage: preview.ts <deploy|destroy|list> [--pr <number>] [--skip-build]");
+else if (command === "sweep-e2e") await sweepE2e();
+else fail("usage: preview.ts <deploy|destroy|list|sweep-e2e> [--pr <number>] [--skip-build]");
