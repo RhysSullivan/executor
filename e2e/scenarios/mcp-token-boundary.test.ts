@@ -10,9 +10,16 @@
 // user through the front door succeeds, so a refusal can never be explained
 // by a wrong path or a malformed request — only by the credential. Refusals
 // are pinned to "never 2xx" rather than one exact status: the guarantee under
-// test is "does not authenticate", and the refusal rendering differs per
-// plane today (cloud's api-key validator surfaces a JWT-shaped bearer as 503,
-// selfhost's account plane renders some unauthenticated rejections as 500).
+// test is "does not authenticate", and the refusal rendering differs per plane
+// in the e2e harness today. Real WorkOS answers /api_keys/validations for a
+// non-key value with 200 { api_key: null }, which the cloud gate renders as a
+// clean 401 invalid_api_key (confirmed against api.workos.com dev). The e2e
+// WorkOS emulator instead 404s that lookup, which the SDK throws and the gate
+// renders as 503 api_key_validation_unavailable — a harness infidelity, fixed
+// in vendor/emulate (200 { api_key: null }) and pending an @executor-js/emulate
+// republish + dep bump, after which this can tighten to assert 401. Selfhost's
+// account plane separately renders some unauthenticated rejections as 500. In
+// every case the bearer authenticates nothing — which is the actual guarantee.
 import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 
