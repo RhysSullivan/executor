@@ -110,23 +110,25 @@ scenario(
         { title: "executor agent — connect Resend", record: join(runDir, "terminal.cast") },
         (chat) =>
           Effect.gen(function* () {
-            // Real MCP OAuth + tool discovery happens behind this spinner.
-            yield* chat.tool("mcp · authorize and list tools", session.listTools());
+            // Real MCP OAuth + tool discovery happens behind this call.
+            yield* chat.tool(
+              { name: "executor (mcp)", result: (tools) => `${tools.length} tools available` },
+              session.listTools(),
+            );
 
             yield* chat.user(
               "Add the Resend API to my executor and give me a link to connect my account",
             );
             yield* chat.assistant("I'll register the Resend API in your Executor now.");
             const added = yield* chat.tool(
-              "executor.execute · openapi.addSpec(resend)",
+              { name: "execute", input: addSpecCode(integration) },
               executeJson(session, addSpecCode(integration)),
-              (result) => `${String(result.toolCount)} tools`,
             );
             expect(added.ok, `addSpec succeeded: ${JSON.stringify(added)}`).toBe(true);
 
             yield* chat.assistant("Registered. Creating your connect link…");
             const handoff = yield* chat.tool(
-              "executor.execute · connections.createHandoff",
+              { name: "execute", input: createHandoffCode(integration) },
               executeJson(session, createHandoffCode(integration)),
             );
             expect(handoff.ok, `createHandoff succeeded: ${JSON.stringify(handoff)}`).toBe(true);
@@ -163,9 +165,8 @@ scenario(
             yield* chat.user("Connected, now send a test email to prove it works");
             yield* chat.assistant("Sending a test email through your new connection…");
             const sent = yield* chat.tool(
-              "resend.emails.sendEmail · via the pasted connection",
+              { name: "execute", input: sendEmailCode(integration, emailSubject) },
               executeJson(session, sendEmailCode(integration, emailSubject)),
-              (result) => `path ${String(result.path)}`,
             );
             expect(sent.ok, `email sent through the connection: ${JSON.stringify(sent)}`).toBe(
               true,

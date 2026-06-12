@@ -17,8 +17,19 @@ import { createInterface } from "node:readline";
 type TheaterEvent =
   | { readonly type: "user"; readonly text: string }
   | { readonly type: "assistant"; readonly text: string }
-  | { readonly type: "tool-start"; readonly label: string }
-  | { readonly type: "tool-end"; readonly ok: boolean; readonly note?: string }
+  | {
+      readonly type: "tool-start";
+      readonly name: string;
+      /** The call's real input, pre-rendered as preview lines. */
+      readonly input?: readonly string[];
+    }
+  | {
+      readonly type: "tool-end";
+      readonly ok: boolean;
+      /** First line of the call's real result. */
+      readonly result?: string;
+      readonly seconds?: number;
+    }
   | { readonly type: "status"; readonly text: string }
   | { readonly type: "done" };
 
@@ -46,23 +57,36 @@ out(`${BOLD}${MAGENTA}●${RESET} ${BOLD}${title}${RESET}\n`);
 out(`${DIM}${"─".repeat(Math.min(96, title.length + 24))}${RESET}\n`);
 
 let spinnerTimer: ReturnType<typeof setInterval> | undefined;
-let spinnerLabel = "";
+let spinnerName = "";
 
-const startSpinner = (label: string) => {
-  spinnerLabel = label;
+// A tool call renders the way agent TUIs render them: the tool's name, the
+// call's real input as an indented block, a spinner while the real call
+// runs, then the real result's first line with the real duration.
+//
+//   ⚙ execute
+//   │ const added = await tools.executor.openapi.addSpec({
+//   │   spec: { kind: "url", url: "https://…/openapi.json" },
+//   ⠼ running…
+//   ✓ 2.3s  {"ok":true,"slug":"resend","toolCount":9}
+const startTool = (name: string, input?: readonly string[]) => {
+  spinnerName = name;
+  out(`\n  ${MAGENTA}⚙${RESET} ${BOLD}${name}${RESET}\n`);
+  for (const line of input ?? []) {
+    out(`  ${DIM}│ ${line.slice(0, 92)}${RESET}\n`);
+  }
   let frame = 0;
-  out("\n");
   spinnerTimer = setInterval(() => {
-    out(`${CLEAR_LINE}  ${CYAN}${SPINNER[frame % SPINNER.length]}${RESET} ${DIM}${label}${RESET}`);
+    out(`${CLEAR_LINE}  ${CYAN}${SPINNER[frame % SPINNER.length]}${RESET} ${DIM}running…${RESET}`);
     frame += 1;
   }, 80);
 };
 
-const stopSpinner = (ok: boolean, note?: string) => {
+const endTool = (ok: boolean, result?: string, seconds?: number) => {
   if (spinnerTimer) clearInterval(spinnerTimer);
   spinnerTimer = undefined;
-  const mark = ok ? `${GREEN}✓${RESET}` : `${RED}✗${RESET}`;
-  out(`${CLEAR_LINE}  ${mark} ${DIM}${spinnerLabel}${note ? ` — ${note}` : ""}${RESET}\n`);
+  const mark = ok ? `${GREEN}✓${RESET}` : `${RED}✗ ${spinnerName}${RESET}`;
+  const took = seconds !== undefined ? `${DIM}${seconds.toFixed(1)}s${RESET}  ` : "";
+  out(`${CLEAR_LINE}  ${mark} ${took}${DIM}${(result ?? "").slice(0, 88)}${RESET}\n`);
 };
 
 const handle = async (event: TheaterEvent): Promise<boolean> => {
@@ -86,11 +110,11 @@ const handle = async (event: TheaterEvent): Promise<boolean> => {
       return true;
     }
     case "tool-start": {
-      startSpinner(event.label);
+      startTool(event.name, event.input);
       return true;
     }
     case "tool-end": {
-      stopSpinner(event.ok, event.note);
+      endTool(event.ok, event.result, event.seconds);
       return true;
     }
     case "status": {
