@@ -47,3 +47,10 @@ export class TtlControl extends Context.Service<
   TtlControl,
   (seconds: number | null) => Effect.Effect<void>
 >()("e2e/ttl-control") {}
+
+/**
+ * Restart the instance, keeping its data. What lets durability scenarios
+ * assert that writes survive a process restart — the property a dev server
+ * with a fresh data dir can never test by accident.
+ */
+export class Restart extends Context.Service<Restart, () => Effect.Effect<void>>()("e2e/restart") {}

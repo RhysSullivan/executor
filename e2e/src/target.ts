@@ -48,4 +48,10 @@ export interface Target {
    * scenarios cross a REAL expiry in seconds instead of an hour.
    */
   readonly setAccessTokenTtl?: (seconds: number | null) => Effect.Effect<void>;
+  /**
+   * Restart the instance, keeping its data — resolves when it answers HTTP
+   * again. What lets durability scenarios assert that writes survive a
+   * process restart (→ the Restart service).
+   */
+  readonly restart?: () => Effect.Effect<void>;
 }

@@ -25,7 +25,18 @@ import { makeBrowserSurface } from "./surfaces/browser";
 import { makeCliSurface } from "./surfaces/cli";
 import { makeMcpSurface } from "./surfaces/mcp";
 import { completeOAuthConsent, hasOpenCode, makeOpenCodeHome, warmUp } from "./clients/opencode";
-import { Api, Billing, Browser, Cli, Mcp, OpenCode, RunDir, Target, TtlControl } from "./services";
+import {
+  Api,
+  Billing,
+  Browser,
+  Cli,
+  Mcp,
+  OpenCode,
+  Restart,
+  RunDir,
+  Target,
+  TtlControl,
+} from "./services";
 import { buildManifest } from "./viewer/manifest";
 
 export const RUNS_DIR = fileURLToPath(new URL("../runs/", import.meta.url));
@@ -41,7 +52,17 @@ export interface ScenarioOptions {
   readonly timeout?: number;
 }
 
-type AllServices = Target | RunDir | Cli | Api | Browser | Mcp | Billing | OpenCode | TtlControl;
+type AllServices =
+  | Target
+  | RunDir
+  | Cli
+  | Api
+  | Browser
+  | Mcp
+  | Billing
+  | OpenCode
+  | TtlControl
+  | Restart;
 
 /**
  * What this target on this host can provide. Services beyond the base are
@@ -69,6 +90,9 @@ const contextFor = (target: TargetShape, dir: string): Context.Context<AllServic
   }
   if (target.setAccessTokenTtl) {
     context = Context.add(context, TtlControl, target.setAccessTokenTtl);
+  }
+  if (target.restart) {
+    context = Context.add(context, Restart, target.restart);
   }
   return context;
 };

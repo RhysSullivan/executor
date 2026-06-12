@@ -23,7 +23,7 @@ export const SELFHOST_ADMIN = {
 // and the {name,value} list Playwright injects into a browser context. The
 // `origin` header is required — Better Auth rejects state-changing requests
 // without it.
-const signInSession = async (
+export const signInSession = async (
   baseUrl: string,
   credentials: { readonly email: string; readonly password: string },
 ): Promise<{

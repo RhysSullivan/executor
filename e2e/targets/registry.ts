@@ -5,10 +5,12 @@ import type { Target } from "../src/target";
 import { cloudTarget } from "./cloud";
 import { desktopTarget } from "./desktop";
 import { selfhostTarget } from "./selfhost";
+import { selfhostDockerTarget } from "./selfhost-docker";
 
 const factories: Record<string, () => Target> = {
   cloud: cloudTarget,
   selfhost: selfhostTarget,
+  "selfhost-docker": selfhostDockerTarget,
   desktop: desktopTarget,
 };
 
