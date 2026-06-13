@@ -549,6 +549,7 @@ export function IntegrationDetailPage(props: { namespace: string }) {
                       <ToolDetail
                         address={selectedAddress}
                         toolName={selectedTool.name}
+                        staticTool={selection?.static}
                         policy={selectedTool.policy}
                         onSetPolicy={(pattern, action) => void policyActions.set(pattern, action)}
                         onClearPolicy={(pattern) => void policyActions.clear(pattern)}
