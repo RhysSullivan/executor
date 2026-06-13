@@ -1,5 +1,17 @@
 # executor
 
+## 1.5.10
+
+### Patch Changes
+
+- [#995](https://github.com/RhysSullivan/executor/pull/995) [`0717067`](https://github.com/RhysSullivan/executor/commit/0717067da5f2a272d9786f66248ce045b46f17ed) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Self-hosted deployments now persist their data correctly across restarts.
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.10
+  - @executor-js/runtime-quickjs@1.5.10
+  - @executor-js/local@1.4.4
+  - @executor-js/api@1.4.30
+
 ## 1.5.9
 
 ### Patch Changes
