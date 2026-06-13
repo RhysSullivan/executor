@@ -523,6 +523,7 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
+        "@libsql/client": "catalog:",
         "@types/better-sqlite3": "^7.6.13",
         "@types/node": "catalog:",
         "@types/pg": "^8.20.0",
