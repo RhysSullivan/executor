@@ -11,7 +11,12 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { reportHandledFrontendError } from "./error-reporting";
-import { getExecutorApiBaseUrl, getExecutorServerAuthorizationHeader } from "./server-connection";
+import {
+  EXECUTOR_ORG_HEADER,
+  getActiveOrgSlug,
+  getExecutorApiBaseUrl,
+  getExecutorServerAuthorizationHeader,
+} from "./server-connection";
 
 const isApiClientInfrastructureCause = (cause: Cause.Cause<unknown>): boolean =>
   Option.match(Cause.findErrorOption(cause), {
@@ -94,6 +99,11 @@ const ExecutorApiClient = AtomHttpApi.Service<"ExecutorApiClient">()("ExecutorAp
     const authorization = getExecutorServerAuthorizationHeader();
     if (authorization) {
       next = HttpClientRequest.setHeader(next, "authorization", authorization);
+    }
+    // Scope the request to the org the console URL is on (see server-connection).
+    const orgSlug = getActiveOrgSlug();
+    if (orgSlug) {
+      next = HttpClientRequest.setHeader(next, EXECUTOR_ORG_HEADER, orgSlug);
     }
     return next;
   }),

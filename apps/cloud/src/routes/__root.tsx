@@ -7,6 +7,7 @@ import {
   createRootRoute,
   useLocation,
   useNavigate,
+  useParams,
 } from "@tanstack/react-router";
 import { AutumnProvider } from "autumn-js/react";
 import posthog from "posthog-js";
@@ -23,7 +24,6 @@ import type { AuthHint } from "@executor-js/react/multiplayer/auth-hint";
 import { AuthProvider, useAuth } from "../web/auth";
 import { loginPath } from "../auth/return-to";
 import { ONBOARDING_PATHS, PUBLIC_PATHS } from "../auth/route-paths";
-import { ForeignOrgSlug } from "../web/components/foreign-org-slug";
 import { SupportOptions } from "../web/components/support-options";
 import { Shell } from "../web/shell";
 import appCss from "@executor-js/react/globals.css?url";
@@ -209,13 +209,20 @@ function AuthGate({ ssrOrigin }: { ssrOrigin: string | null }) {
   const navigate = useNavigate();
   const isOnboardingRoute = ONBOARDING_PATHS.has(location.pathname);
   const isPublicRoute = PUBLIC_PATHS.has(location.pathname);
+  // The org the URL names (the `{-$orgSlug}` segment), if any. `/account/me`
+  // is scoped to it, so `auth.organization` IS this org when the caller is a
+  // member — and `null` when the URL names an org they can't access.
+  const urlOrgSlug = (useParams({ strict: false }) as { orgSlug?: string }).orgSlug;
 
   // The SSR gate already bounced fresh org-less document requests to
   // /create-org; this catches the MID-SESSION transitions (org deleted,
-  // membership revoked → /account/me now reports no org).
+  // membership revoked → /account/me now reports no org). Only for BARE paths:
+  // an org-less result on a slugged URL is a wrong address (404 below), not a
+  // reason to send the user to onboarding.
   const needsOrgRedirect =
     auth.status === "authenticated" &&
     auth.organization == null &&
+    !urlOrgSlug &&
     !isOnboardingRoute &&
     !isPublicRoute;
 
@@ -254,7 +261,11 @@ function AuthGate({ ssrOrigin }: { ssrOrigin: string | null }) {
   }
 
   if (auth.organization == null) {
-    return <BlankScreen />;
+    // A URL naming an org this session can't access (`/account/me` returned no
+    // org for its slug) is a wrong address → the route 404, framed by nothing
+    // (the user isn't "in" any org here). A bare path with no org is a new
+    // user — the redirect effect above is taking them to onboarding.
+    return urlOrgSlug ? <NotFoundPage /> : <BlankScreen />;
   }
 
   // Seed the server connection from the SSR origin so origin-derived UI (the
@@ -275,18 +286,11 @@ function AuthGate({ ssrOrigin }: { ssrOrigin: string | null }) {
                 organizationId={auth.organization.id}
                 organizationSlug={activeSlug}
               >
-                <OrgSlugGate
-                  activeSlug={activeSlug}
-                  // Framed by the real shell: a foreign slug resolves (or
-                  // 404s) inside the app chrome, exactly like the route-level
-                  // not-found — never a bare full-page state.
-                  foreignSlug={(slug) => (
-                    <>
-                      <Shell content={<ForeignOrgSlug slug={slug} />} />
-                      <Toaster />
-                    </>
-                  )}
-                >
+                {/* The org header scopes every request to the URL's org, so
+                    reaching here means the caller is a member of `activeSlug`
+                    (a foreign slug already 404'd above). The gate only keeps
+                    the URL canonical — bare → /<slug>. */}
+                <OrgSlugGate activeSlug={activeSlug}>
                   <Shell />
                   <Toaster />
                 </OrgSlugGate>

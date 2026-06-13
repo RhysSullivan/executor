@@ -62,8 +62,8 @@ function AuthenticatedApp() {
   const auth = useAuth();
   const organization = auth.status === "authenticated" ? (auth.organization ?? null) : null;
 
-  // Single-org instance: any URL slug other than the instance org's (or none)
-  // canonicalizes — no foreignSlug handler, there's nothing to switch to.
+  // Single-org instance: a bare URL canonicalizes onto the instance org's
+  // slug. There's only ever one org, so no other slug is reachable.
   const gated = (
     <>
       <Shell onSignOut={signOut} navItems={defaultShellNavItems} apiKeysTo={null} />

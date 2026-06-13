@@ -1,4 +1,5 @@
 import * as React from "react";
+import { isValidOrgSlug } from "@executor-js/api";
 import {
   DEFAULT_EXECUTOR_SERVER_ORIGIN,
   DEFAULT_EXECUTOR_SERVER_USERNAME,
@@ -83,6 +84,32 @@ const resolveInitialExecutorServerConnection = (): ExecutorServerConnection => {
 };
 
 let activeConnection = resolveInitialExecutorServerConnection();
+
+// ---------------------------------------------------------------------------
+// Active org selector — the org the console URL is scoped to.
+// ---------------------------------------------------------------------------
+//
+// Org-scoped hosts (cloud) send this on every API request so the server scopes
+// to the URL's org, not the session's stored one — which is what lets two
+// browser tabs sit in two different orgs at once (each tab's window.location is
+// its own).
+//
+// Read straight from `window.location` at REQUEST time, not from a
+// React-synced mirror: the API clients' `transformClient` runs only in the
+// browser, so this never touches SSR/hydration, and it's always exactly the
+// current URL with no effect-timing to get wrong. The org is the first path
+// segment when it's a valid slug; reserved console roots (`/policies`,
+// `/login`, …) are NOT valid slugs, so a bare path sends no header and the
+// server falls back to the session org. Hosts without slugs (self-host,
+// cloudflare) never produce one either.
+export const EXECUTOR_ORG_HEADER = "x-executor-organization";
+
+export const getActiveOrgSlug = (): string | null => {
+  const pathname = globalThis.window?.location?.pathname;
+  if (!pathname) return null;
+  const first = pathname.split("/")[1];
+  return first && isValidOrgSlug(first) ? first : null;
+};
 
 export const getExecutorServerConnection = (): ExecutorServerConnection => activeConnection;
 

@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Exit from "effect/Exit";
-import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { trackEvent } from "@executor-js/react/api/analytics";
 import { Button } from "@executor-js/react/components/button";
 import {
@@ -23,7 +21,7 @@ import {
   DropdownMenuSubTrigger,
 } from "@executor-js/react/components/dropdown-menu";
 import { useAuth } from "../auth";
-import { organizationsAtom, switchOrganization } from "../auth";
+import { organizationsAtom } from "../auth";
 import { CreateOrganizationFields, useCreateOrganizationForm } from "./create-organization-form";
 
 // ---------------------------------------------------------------------------
@@ -52,18 +50,15 @@ function CheckIcon() {
 
 function OrganizationSwitcherItems(props: { activeOrganizationId: string | null }) {
   const organizations = useAtomValue(organizationsAtom);
-  const doSwitchOrganization = useAtomSet(switchOrganization, { mode: "promiseExit" });
 
-  const handleSwitch = async (organization: { id: string; slug: string }) => {
+  // Switching orgs is now a pure URL navigation: the session authenticates the
+  // user to ALL their orgs, and the slug in the path scopes every request (the
+  // `x-executor-organization` header). No cookie to rewrite, no server switch
+  // call — just land on the other org's URL root and the whole app re-scopes.
+  const handleSwitch = (organization: { id: string; slug: string }) => {
     if (organization.id === props.activeOrganizationId) return;
-    const exit = await doSwitchOrganization({
-      payload: { organizationId: organization.id },
-      reactivityKeys: authWriteKeys,
-    });
-    trackEvent("org_switched", { success: Exit.isSuccess(exit) });
-    // Land on the new org's URL root — a plain reload would keep the OLD
-    // org's slug in the path and the slug gate would switch right back.
-    if (Exit.isSuccess(exit)) window.location.href = `/${organization.slug}`;
+    trackEvent("org_switched", { success: true });
+    window.location.href = `/${organization.slug}`;
   };
 
   return AsyncResult.match(organizations, {
@@ -80,7 +75,9 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
               <DropdownMenuItem
                 key={organization.id}
                 disabled={isActive}
-                onClick={() => handleSwitch(organization)}
+                onClick={() => {
+                  handleSwitch(organization);
+                }}
                 className="text-xs"
               >
                 <span className="min-w-0 flex-1 truncate">{organization.name}</span>

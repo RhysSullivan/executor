@@ -301,20 +301,6 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           };
         }),
       )
-      .handle("switchOrganization", ({ payload }) =>
-        Effect.gen(function* () {
-          const workos = yield* WorkOSClient;
-          const session = yield* SessionContext;
-
-          const refreshed = yield* workos.refreshSession(
-            session.sealedSession,
-            payload.organizationId,
-          );
-          if (refreshed) {
-            (yield* SessionCookies).set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
-          }
-        }),
-      )
       .handle("createOrganization", ({ payload }) =>
         Effect.gen(function* () {
           const workos = yield* WorkOSClient;
