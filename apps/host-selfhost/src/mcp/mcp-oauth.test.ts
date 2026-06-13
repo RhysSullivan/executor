@@ -96,7 +96,11 @@ test("MCP OAuth opaque-bearer flow authenticates /mcp end-to-end", async () => {
   expect([200, 201]).toContain(reg.status);
   const clientId = String((await json(reg)).client_id);
 
-  // 2. PKCE authorize with the signed-in session cookie -> 302 to redirect_uri?code=…
+  // 2. PKCE authorize with the signed-in session cookie. Self-host forces an
+  // approval screen (prompt=consent injected by the serving layer), so authorize
+  // does NOT redirect straight to the client callback — it redirects to the
+  // relative /mcp-consent page carrying a consent_code. A real client's browser
+  // lands there and the user clicks Allow; we drive that POST directly.
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
   const challengeBytes = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
@@ -114,9 +118,25 @@ test("MCP OAuth opaque-bearer flow authenticates /mcp end-to-end", async () => {
   const authorize = await handler(
     new Request(authorizeUrl, { headers: { cookie }, redirect: "manual" }),
   );
-  expect([302, 200]).toContain(authorize.status);
-  const location = authorize.headers.get("location") ?? "";
-  const code = new URL(location).searchParams.get("code") ?? "";
+  expect(authorize.status).toBe(302);
+  // Resolve against BASE — the consent redirect is a relative app path.
+  const consentRedirect = new URL(authorize.headers.get("location") ?? "", BASE);
+  expect(consentRedirect.pathname).toBe("/mcp-consent");
+  const consentCode = consentRedirect.searchParams.get("consent_code") ?? "";
+  expect(consentCode).not.toBe("");
+
+  // 2b. Approve on the consent screen — the same POST the /mcp-consent page makes.
+  // It returns { redirectURI } back to the client's callback carrying the code.
+  const consent = await handler(
+    new Request(`${BASE}/api/auth/oauth2/consent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ accept: true, consent_code: consentCode }),
+    }),
+  );
+  expect(consent.status).toBe(200);
+  const redirectURI = String((await json(consent)).redirectURI ?? "");
+  const code = new URL(redirectURI).searchParams.get("code") ?? "";
   expect(code).not.toBe("");
 
   // 3. Token exchange.
