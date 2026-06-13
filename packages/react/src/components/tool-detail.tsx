@@ -161,6 +161,9 @@ export function ToolDetail(props: {
   address: ToolAddress;
   /** Policy id `<integration>.<tool>` — the tree path and display value. */
   toolName: string;
+  /** True for plugin-contributed static tools (policy-matched on their
+   *  address verbatim, not the connection-wildcarded pattern). */
+  staticTool?: boolean;
   /** Resolved effective policy — user-authored or plugin-default,
    *  unified into one shape. Surfaces in the header. */
   policy?: EffectivePolicy;
@@ -226,6 +229,7 @@ export function ToolDetail(props: {
             <CopyButton value={String(props.address)} label="Copy tool ID" />
             <PolicyBadgeMenu
               toolName={props.toolName}
+              staticTool={props.staticTool}
               policy={props.policy}
               onSetPolicy={props.onSetPolicy}
               onClearPolicy={props.onClearPolicy}
@@ -379,16 +383,22 @@ function ToolTypeScriptPanel(props: {
 
 function PolicyBadgeMenu(props: {
   toolName: string;
+  /** Static (plugin-contributed) tools are policy-matched on their full
+   *  address verbatim; dynamic tools on the connection-wildcarded form. */
+  staticTool?: boolean;
   policy?: EffectivePolicy;
   onSetPolicy?: (pattern: string, action: ToolPolicyAction) => void;
   onClearPolicy?: (pattern: string) => void;
 }) {
   const interactive = !!props.onSetPolicy;
+  // The same pattern bridge the tree rows apply — the pattern WRITTEN and the
+  // pattern LOOKED UP must be the same string, or the menu authors rules that
+  // never match and can't see its own rule afterward.
+  const pattern = props.staticTool ? props.toolName : toPolicyPattern(props.toolName);
   // The "Clear" affordance only makes sense when there's a user rule
   // pinned to this exact tool id — clearing a wildcard rule from a
   // single tool's detail header would silently affect siblings.
-  const hasExactUserRule =
-    props.policy?.source === "user" && props.policy.pattern === toPolicyPattern(props.toolName);
+  const hasExactUserRule = props.policy?.source === "user" && props.policy.pattern === pattern;
   const currentAction = hasExactUserRule ? props.policy?.action : undefined;
 
   if (!interactive) {
@@ -433,13 +443,10 @@ function PolicyBadgeMenu(props: {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        <DropdownMenuLabel className="font-mono text-xs">{props.toolName}</DropdownMenuLabel>
+        <DropdownMenuLabel className="font-mono text-xs">{pattern}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {POLICY_ACTIONS_IN_ORDER.map((action) => (
-          <DropdownMenuItem
-            key={action}
-            onSelect={() => props.onSetPolicy?.(props.toolName, action)}
-          >
+          <DropdownMenuItem key={action} onSelect={() => props.onSetPolicy?.(pattern, action)}>
             <span className="flex-1">{POLICY_ACTION_LABEL[action]}</span>
             {currentAction === action && (
               <span aria-hidden className="text-muted-foreground">
@@ -452,7 +459,7 @@ function PolicyBadgeMenu(props: {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onSelect={() => props.onClearPolicy?.(props.toolName)}
+              onSelect={() => props.onClearPolicy?.(pattern)}
               className="text-muted-foreground"
             >
               Clear

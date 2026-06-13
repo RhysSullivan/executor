@@ -51,14 +51,15 @@ export function ToolsPage() {
     [policyList],
   );
 
-  // Address → the full per-connection tool address, so the detail view can fetch
-  // the right schema for the selected `<integration>.<tool>` id.
-  const addressById = useMemo(() => {
-    const map = new Map<string, ToolAddress>();
+  // Address + static flag per selection id, so the detail view can fetch the
+  // right schema for the selected `<integration>.<tool>` id and its policy
+  // badge can write the matching pattern form.
+  const selectionById = useMemo(() => {
+    const map = new Map<string, { readonly address: ToolAddress; readonly static: boolean }>();
     if (!AsyncResult.isSuccess(tools)) return map;
     for (const t of tools.value as readonly ToolRow[]) {
       const id = policyId(t);
-      if (!map.has(id)) map.set(id, t.address);
+      if (!map.has(id)) map.set(id, { address: t.address, static: t.static === true });
     }
     return map;
   }, [tools]);
@@ -89,7 +90,8 @@ export function ToolsPage() {
     () => summaries.find((t) => t.id === selectedToolId) ?? null,
     [summaries, selectedToolId],
   );
-  const selectedAddress = selectedToolId ? (addressById.get(selectedToolId) ?? null) : null;
+  const selection = selectedToolId ? (selectionById.get(selectedToolId) ?? null) : null;
+  const selectedAddress = selection?.address ?? null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -140,6 +142,7 @@ export function ToolsPage() {
                   <ToolDetail
                     address={selectedAddress}
                     toolName={selectedTool.name}
+                    staticTool={selection?.static}
                     policy={selectedTool.policy}
                     onSetPolicy={(pattern, action) => void policyActions.set(pattern, action)}
                     onClearPolicy={(pattern) => void policyActions.clear(pattern)}

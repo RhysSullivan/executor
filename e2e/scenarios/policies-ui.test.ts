@@ -12,7 +12,10 @@
 //   3. Rules are connection-agnostic: set from one account's section, they
 //      govern the other account's rows too, and the menu there shows the
 //      active rule with a Clear option.
-//   4. The rules materialize as manageable rows on /policies and persist
+//   4. The tool detail header's policy badge is the same authoring surface:
+//      it writes the same stored pattern, recognizes its own rule afterward
+//      (the Clear affordance), and Clear really removes the rule.
+//   5. The rules materialize as manageable rows on /policies and persist
 //      server-side with exactly the owner/pattern/action the UI promised.
 import { randomBytes } from "node:crypto";
 
@@ -83,6 +86,7 @@ scenario(
     // stored connection-wildcarded so it spans every account.
     const leafPattern = `${integration}.*.*.records.create`;
     const categoryPattern = `${integration}.*.*.records.*`;
+    const listLeafPattern = `${integration}.*.*.records.list`;
 
     // Selfhost scenarios share one workspace — remove everything this one
     // made (policies, connections, the integration) even on failure.
@@ -209,6 +213,29 @@ scenario(
           await policyMenuFor(beta, `${integration}.records.create`).click();
           await page.getByRole("menuitem", { name: "Clear" }).waitFor();
           await page.keyboard.press("Escape");
+        });
+
+        await step("Open the tool detail for records.list", async () => {
+          await sectionFor(beta).getByRole("button").filter({ hasText: "list" }).click();
+          // The header badge reflects the inherited category rule.
+          await page.getByRole("button", { name: `Matched policy: ${categoryPattern}` }).waitFor();
+        });
+
+        await step("The detail badge authors an Always run rule for the exact tool", async () => {
+          await page.getByRole("button", { name: `Matched policy: ${categoryPattern}` }).click();
+          // The badge menu is headed by the exact pattern it will store.
+          await page.getByText(listLeafPattern, { exact: true }).waitFor();
+          await page.getByRole("menuitem", { name: "Always run" }).click();
+          // The written rule must actually match this tool: the badge flips
+          // to the new, more specific rule.
+          await page.getByRole("button", { name: `Matched policy: ${listLeafPattern}` }).waitFor();
+        });
+
+        await step("The badge recognizes its own rule and Clear removes it", async () => {
+          await page.getByRole("button", { name: `Matched policy: ${listLeafPattern}` }).click();
+          await page.getByRole("menuitem", { name: "Clear" }).click();
+          // Back to inheriting the category rule.
+          await page.getByRole("button", { name: `Matched policy: ${categoryPattern}` }).waitFor();
         });
 
         await step("Both rules are manageable rows on the Policies page", async () => {
