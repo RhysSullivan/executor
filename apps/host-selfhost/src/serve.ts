@@ -15,14 +15,38 @@
 
 import { fileURLToPath } from "node:url";
 
-import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
+import {
+  HttpMiddleware,
+  HttpRouter,
+  HttpServerRequest,
+  HttpStaticServer,
+} from "effect/unstable/http";
 import { BunFileSystem, BunHttpServer, BunPath, BunRuntime } from "@effect/platform-bun";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 
 import { makeSelfHostApp } from "./app";
 import { loadConfig } from "./config";
+import { stripMcpOrgSegment } from "./mcp/org-path";
 
 const distDir = fileURLToPath(new URL("../dist/", import.meta.url));
+
+// Rewrite `/<org>/mcp` (and its OAuth discovery path) to the bare path before
+// routing, so the "Connect an agent" card's org-pinned URL reaches the real
+// `/mcp` route — see ./mcp/org-path. A no-op for every other request.
+const mcpOrgPathRewrite = HttpMiddleware.make((httpApp) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = new URL(request.url, "http://host.internal");
+    const rewritten = stripMcpOrgSegment(url.pathname);
+    if (rewritten === null) return yield* httpApp;
+    return yield* httpApp.pipe(
+      Effect.provideService(
+        HttpServerRequest.HttpServerRequest,
+        request.modify({ url: `${rewritten}${url.search}` }),
+      ),
+    );
+  }),
+);
 
 export const startServer = async (): Promise<void> => {
   const config = loadConfig();
@@ -35,7 +59,9 @@ export const startServer = async (): Promise<void> => {
     Layer.provide(BunPath.layer),
   );
 
-  const ServerLive = HttpRouter.serve(Layer.mergeAll(AppLayer, StaticLive)).pipe(
+  const ServerLive = HttpRouter.serve(Layer.mergeAll(AppLayer, StaticLive), {
+    middleware: mcpOrgPathRewrite,
+  }).pipe(
     Layer.provide(
       BunHttpServer.layer({ hostname: config.host, port: config.port, idleTimeout: 0 }),
     ),

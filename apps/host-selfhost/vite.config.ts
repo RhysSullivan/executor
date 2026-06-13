@@ -8,6 +8,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import executorVitePlugin from "@executor-js/vite-plugin";
 
 import { routes } from "./tsr.routes";
+import { stripMcpOrgSegment } from "./src/mcp/org-path";
 
 // Self-host web SPA. Mirrors @executor-js/app's vite plugin bundle, but points
 // the TanStack router codegen at THIS app's routes (web/routes) so we get the
@@ -53,7 +54,17 @@ function executorApiPlugin(): Plugin {
         if (path.includes("/src/") || path.endsWith("/executor.config.ts")) handlerPromise = null;
       });
       server.middlewares.use(async (req, res, next) => {
-        const rawUrl = req.url ?? "/";
+        let rawUrl = req.url ?? "/";
+        // The "Connect an agent" card prints `/<organizationId>/mcp`; self-host
+        // serves the bare `/mcp`, so rewrite it here (prod does the same in
+        // serve.ts) — otherwise this org-pinned path isn't recognized as an MCP
+        // path and falls through to the SPA as a 404. Mirrors ./src/mcp/org-path.
+        const devOrigin = `http://${req.headers.host ?? `localhost:${DEV_PORT}`}`;
+        const rewrittenPath = stripMcpOrgSegment(new URL(rawUrl, devOrigin).pathname);
+        if (rewrittenPath !== null) {
+          const original = new URL(rawUrl, devOrigin);
+          rawUrl = `${rewrittenPath}${original.search}`;
+        }
         const handled =
           rawUrl === "/api" ||
           rawUrl.startsWith("/api/") ||
