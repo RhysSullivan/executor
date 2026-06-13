@@ -63,15 +63,72 @@ if (sentryDsn) {
   });
 }
 
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import {
+  normalizeExecutorServerConnection,
+  parseExecutorLocalServerManifest,
+  serializeExecutorLocalServerManifest,
+} from "@executor-js/sdk/shared";
 import { startServer } from "@executor-js/local";
 
 const requestedPort = parseInt(process.env.EXECUTOR_PORT ?? "0", 10);
 const hostname = process.env.EXECUTOR_HOST ?? "127.0.0.1";
-// The main process mints/loads the bearer token and threads it in so it can
-// inject the same token into the webview. Falls back to the auth.json token
-// when absent (e.g. the sidecar booted standalone).
+// The main process mints/loads the bearer token and threads it in via env so it
+// can inject the same token into the webview. When absent (e.g. supervised boot
+// under launchd, or a standalone sidecar), startServer mints/loads auth.json.
 const authToken = process.env.EXECUTOR_AUTH_TOKEN;
 const clientDir = process.env.EXECUTOR_CLIENT_DIR;
+
+// Supervised mode: launchd/systemd runs this binary directly (no Electron
+// parent). Two things the parent normally does, this process must do itself:
+// (1) get the bearer token (EXECUTOR_AUTH_TOKEN, else startServer mints/loads
+// auth.json — the unit never carries the secret), and (2) write server.json so
+// clients can discover us.
+const supervised = process.env.EXECUTOR_SUPERVISED === "1";
+const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
+const serverControlDir = join(dataDir, "server-control");
+const manifestPath = join(serverControlDir, "server.json");
+
+const writeSupervisedManifest = (port: number, token: string) => {
+  const connection = normalizeExecutorServerConnection({
+    origin: `http://${hostname}:${port}`,
+    displayName: "Supervised daemon",
+    auth: { kind: "bearer" as const, token },
+  });
+  mkdirSync(serverControlDir, { recursive: true });
+  writeFileSync(
+    manifestPath,
+    serializeExecutorLocalServerManifest({
+      version: 1,
+      // "cli-daemon" marks an OS-supervised gateway that thin views (the
+      // desktop app, CLI) attach to rather than spawn — see the desktop's
+      // attachToSupervisedDaemon.
+      kind: "cli-daemon",
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      dataDir,
+      scopeDir: process.env.EXECUTOR_SCOPE_DIR ?? dataDir,
+      connection,
+      owner: {
+        client: "desktop",
+        version: process.env.EXECUTOR_SERVICE_VERSION ?? null,
+        executablePath: process.execPath || null,
+      },
+    }),
+  );
+};
+
+const removeOwnManifest = () => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: best-effort cleanup on shutdown
+  try {
+    if (!existsSync(manifestPath)) return;
+    const parsed = parseExecutorLocalServerManifest(readFileSync(manifestPath, "utf8"));
+    if (parsed?.pid === process.pid) rmSync(manifestPath, { force: true });
+  } catch {
+    // ignore
+  }
+};
 
 const server = await startServer({
   port: requestedPort,
@@ -80,13 +137,17 @@ const server = await startServer({
   clientDir,
 });
 
-// Sentinel parsed by the main process to learn the bound port.
+if (supervised) writeSupervisedManifest(server.port, server.authToken);
+
+// Sentinel parsed by the main process to learn the bound port (harmless under
+// launchd, where stdout goes to the daemon log).
 console.log(`EXECUTOR_READY:${server.port}`);
 
 const stop = async (code: number) => {
   // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: shutdown path must terminate even when stop() throws
   try {
     await server.stop();
+    if (supervised) removeOwnManifest();
   } finally {
     process.exit(code);
   }

@@ -68,7 +68,17 @@ export interface SidecarConnection {
   readonly port: number;
   readonly username: string;
   readonly authToken: string;
-  readonly child: ChildProcess;
+  /**
+   * The child process we spawned and own, or `null` when we attached to an
+   * OS-supervised daemon that outlives this app (see `supervisedDaemon`).
+   */
+  readonly child: ChildProcess | null;
+  /**
+   * True when this connection points at an OS-supervised daemon (launchd/etc.)
+   * that we did NOT spawn and must NOT stop on quit — quitting the app should
+   * leave MCP serving.
+   */
+  readonly supervisedDaemon: boolean;
 }
 
 export class SidecarPortInUseError extends Error {
@@ -353,6 +363,7 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
           username: SERVER_SETTINGS_USERNAME,
           authToken,
           child,
+          supervisedDaemon: false,
         });
       }
     };
@@ -395,6 +406,65 @@ export async function startSidecar(options: StartOptions = {}): Promise<SidecarC
     child.stderr?.on("data", onStderr);
     child.once("exit", onExit);
   });
+}
+
+/**
+ * Probe whether an HTTP server is listening at `origin`. Any HTTP response —
+ * even 401/404 — means a server is up; only a network error or timeout counts
+ * as unreachable. Auth is attached so a 401 still confirms liveness cleanly.
+ */
+const isDaemonReachable = async (origin: string, authToken: string): Promise<boolean> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1500);
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fetch rejects on a down server; that's the "not reachable" signal
+  try {
+    const headers: Record<string, string> = {};
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    await fetch(origin, { signal: controller.signal, headers, redirect: "manual" });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
+ * Attach to an already-running OS-supervised daemon instead of spawning our own
+ * sidecar. Reads `server.json`, confirms the recorded process is alive and the
+ * endpoint answers, and returns a child-less `SidecarConnection` flagged
+ * `supervisedDaemon: true`. Returns null when no usable supervised daemon is
+ * present (the caller then falls back to managed-spawn).
+ *
+ * Only a `cli-daemon` manifest is treated as supervised — a `desktop-sidecar`
+ * manifest belongs to a managed sidecar (ours or another desktop instance) and
+ * is handled by the existing single-instance / ownership logic.
+ */
+export async function attachToSupervisedDaemon(): Promise<SidecarConnection | null> {
+  const dataDir = join(homedir(), ".executor");
+  const manifest = readManifest(dataDir);
+  if (!manifest || manifest.kind !== "cli-daemon") return null;
+  if (!isPidAlive(manifest.pid)) {
+    removeManifestIfOwnedBy(dataDir, manifest.pid);
+    return null;
+  }
+
+  const origin = manifest.connection.origin;
+  const auth = manifest.connection.auth;
+  const authToken = auth && auth.kind === "bearer" ? auth.token : "";
+  if (!(await isDaemonReachable(origin, authToken))) return null;
+
+  const url = new URL(origin);
+  sidecarLog.info(`attaching to supervised daemon at ${origin} (pid ${manifest.pid})`);
+  return {
+    baseUrl: origin,
+    hostname: url.hostname,
+    port: Number.parseInt(url.port, 10) || (url.protocol === "https:" ? 443 : 80),
+    username: SERVER_SETTINGS_USERNAME,
+    authToken,
+    child: null,
+    supervisedDaemon: true,
+  };
 }
 
 export async function stopSidecar(child: ChildProcess): Promise<void> {
