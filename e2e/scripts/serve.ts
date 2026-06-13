@@ -78,4 +78,6 @@ createServer((req, res) => {
   }
   res.writeHead(200, { "content-type": type, "content-length": size, "accept-ranges": "bytes" });
   createReadStream(file).pipe(res);
-}).listen(PORT, () => console.log(`e2e viewer → http://localhost:${PORT}/`));
+}).listen(PORT, process.env.HOST || undefined, () =>
+  console.log(`e2e viewer → http://${process.env.HOST ?? "localhost"}:${PORT}/`),
+);
