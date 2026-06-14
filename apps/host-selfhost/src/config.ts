@@ -103,6 +103,61 @@ export const resolveAuthSecret = (): string => {
   return generated;
 };
 
+// Public origin a PaaS injects for this service, e.g. Railway's
+// `RAILWAY_PUBLIC_DOMAIN`. Mirrors the ordering of @t3-oss/env-core's
+// `getPlatformOrigin` preset (MIT) — these are platform-set (not client-set)
+// values, so building absolute URLs from them is safe (unlike the request
+// `Host`). Returns an origin (`https://host`) or undefined. We deliberately omit
+// the generic `PUBLIC_URL`/`APP_URL` from that preset: `PUBLIC_URL` is a *path*
+// in some toolchains (CRA), not an origin, and would mislead here.
+const getPlatformOrigin = (env = process.env): string | undefined => {
+  const host =
+    env.RAILWAY_PUBLIC_DOMAIN ??
+    env.RENDER_EXTERNAL_HOSTNAME ??
+    env.VERCEL_PROJECT_PRODUCTION_URL ??
+    env.VERCEL_URL ??
+    env.HEROKU_APP_DEFAULT_DOMAIN_NAME ??
+    env.WEBSITE_HOSTNAME ?? // Azure App Service
+    env.WEBSITE_DEFAULT_HOSTNAME ??
+    (env.FLY_APP_NAME ? `${env.FLY_APP_NAME}.fly.dev` : undefined) ??
+    (env.SITE_NAME ? `${env.SITE_NAME}.netlify.app` : undefined);
+  const url =
+    env.RENDER_EXTERNAL_URL ??
+    env.DEPLOY_PRIME_URL ?? // Netlify (deploy/branch previews)
+    env.URL ?? // Netlify (primary site URL)
+    env.CF_PAGES_URL ??
+    (host ? `https://${host}` : undefined);
+  return url?.replace(/\/+$/, "");
+};
+
+let warnedNoPublicUrl = false;
+
+// The public origin used to build absolute links (OAuth redirects, MCP OAuth
+// metadata, the connect-card URL). Priority: an explicit EXECUTOR_WEB_BASE_URL,
+// then a platform-injected origin (zero-config on Railway/Render/Fly/…), then a
+// localhost fallback for local dev. NEVER derived from the request `Host` —
+// that's spoofable and would let host-header injection poison those links (the
+// request origin is only trusted for the CSRF/`trustedOrigins` check, which is
+// same-origin-safe; see better-auth.ts).
+const resolveWebBaseUrl = (port: number): string => {
+  const explicit = process.env.EXECUTOR_WEB_BASE_URL?.trim();
+  if (explicit) return explicit;
+  const platform = getPlatformOrigin();
+  if (platform) return platform;
+  const fallback = `http://localhost:${port}`;
+  // A deployed instance with no detectable origin will mint localhost OAuth
+  // redirects / email links — warn once so the operator sets the variable
+  // (signup itself still works; trustedOrigins takes the origin from the
+  // request). Quiet in dev, where localhost is correct.
+  if (!warnedNoPublicUrl && process.env.NODE_ENV === "production") {
+    warnedNoPublicUrl = true;
+    console.warn(
+      `[executor] EXECUTOR_WEB_BASE_URL is not set and no platform origin was detected; falling back to ${fallback}. Sign-in works, but OAuth redirects, MCP metadata, and connect links will use this URL. Set EXECUTOR_WEB_BASE_URL to your public origin (e.g. https://your-instance.example.com).`,
+    );
+  }
+  return fallback;
+};
+
 export const loadConfig = (): SelfHostConfig => {
   const port = Number.parseInt(process.env.PORT ?? "4788", 10);
   const dataDir = resolveDataDir();
@@ -110,7 +165,7 @@ export const loadConfig = (): SelfHostConfig => {
     host: process.env.EXECUTOR_HOST ?? "127.0.0.1",
     port,
     dbPath: process.env.EXECUTOR_DB_PATH ?? join(dataDir, "data.db"),
-    webBaseUrl: process.env.EXECUTOR_WEB_BASE_URL ?? `http://localhost:${port}`,
+    webBaseUrl: resolveWebBaseUrl(port),
     allowLocalNetwork: process.env.EXECUTOR_ALLOW_LOCAL_NETWORK === "true",
     authSecret: resolveAuthSecret(),
     bootstrapAdminEmail: process.env.EXECUTOR_BOOTSTRAP_ADMIN_EMAIL,
