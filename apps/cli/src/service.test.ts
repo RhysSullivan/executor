@@ -50,7 +50,7 @@ describe("service unit generation", () => {
 
   it("never leaks the auth password into the unit", () => {
     const plist = generateLaunchdPlist(launchdInput);
-    // The secret lives in the 0600 service.key, never in the plist env.
+    // No secret in the unit — the daemon reads the bearer from auth.json at boot.
     expect(plist).not.toContain("EXECUTOR_AUTH_PASSWORD");
   });
 
@@ -95,7 +95,7 @@ describe("service unit generation", () => {
       '"C:\\Program Files\\Executor\\executor.exe" daemon run --foreground --port 4789',
     );
     expect(wrapper).toContain('1>> "C:\\Users\\x\\.executor\\logs\\daemon.log"');
-    // The secret is never baked into the wrapper — the daemon reads service.key.
+    // No secret in the wrapper — the daemon reads the bearer from auth.json at boot.
     expect(wrapper).not.toContain("EXECUTOR_AUTH_PASSWORD");
   });
 

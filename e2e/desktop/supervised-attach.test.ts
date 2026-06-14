@@ -106,7 +106,7 @@ const run = async (runDir: string) => {
       EXECUTOR_DATA_DIR: dataDir,
       EXECUTOR_PORT: String(port),
       EXECUTOR_HOST: "127.0.0.1",
-      EXECUTOR_AUTH_PASSWORD: "supervised-attach-film",
+      EXECUTOR_AUTH_TOKEN: "supervised-attach-film",
       EXECUTOR_CLIENT_DIR: clientDir,
     });
     daemon = started.child;
