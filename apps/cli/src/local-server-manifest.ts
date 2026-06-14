@@ -76,6 +76,25 @@ export const removeLocalServerManifestIfOwnedBy = (input: {
     yield* fs.remove(manifestPath, { force: true });
   });
 
+/**
+ * Remove the server manifest unconditionally. Used by an OS-supervised daemon
+ * to reclaim a stale `server.json` left by a previous boot: across a reboot the
+ * recorded pid is meaningless (pids recycle, so it may now belong to an
+ * unrelated process), and launchd/systemd already guarantee a single supervised
+ * instance — so any pre-existing manifest is stale and the supervised daemon
+ * owns it.
+ */
+export const removeLocalServerManifest = (): Effect.Effect<
+  void,
+  PlatformError,
+  FileSystem.FileSystem | Path.Path
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    yield* fs.remove(localServerManifestPath(path), { force: true });
+  });
+
 const StartupLockPayload = Schema.Struct({
   pid: Schema.Number,
 });

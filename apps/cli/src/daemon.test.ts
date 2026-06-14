@@ -3,7 +3,38 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import * as Effect from "effect/Effect";
 
-import { canAutoStartLocalDaemonForHost, isExecutorServerReachable } from "./daemon";
+import {
+  canAutoStartLocalDaemonForHost,
+  isDevCliEntrypoint,
+  isExecutorServerReachable,
+} from "./daemon";
+
+describe("isDevCliEntrypoint", () => {
+  it("treats source entrypoints as dev", () => {
+    expect(isDevCliEntrypoint("/Users/x/src/executor/apps/cli/src/main.ts")).toBe(true);
+    expect(isDevCliEntrypoint("/Users/x/dist/main.js")).toBe(true);
+  });
+
+  it("treats compiled single-file binaries as NOT dev (both Unix and Windows)", () => {
+    // Bun's embedded filesystem: `/$bunfs/...` on Unix, `B:\~BUN\...` on Windows.
+    // Missing the Windows form made a real `executor.exe` look like a dev
+    // checkout, so `service install` wrongly refused on Windows.
+    expect(isDevCliEntrypoint("/$bunfs/root/main.js")).toBe(false);
+    expect(isDevCliEntrypoint("B:/~BUN/root/main.js")).toBe(false);
+    expect(isDevCliEntrypoint("B:\\~BUN\\root\\main.js")).toBe(false);
+  });
+
+  it("only treats a DRIVE-ROOTED ~BUN as compiled (a ~BUN dir mid-tree stays dev)", () => {
+    // The Windows bunfs root is `<drive>:\~BUN\...`; a dev checkout that merely
+    // contains a `~BUN` directory must not be misread as a compiled binary.
+    expect(isDevCliEntrypoint("/home/user/~BUN/project/src/main.ts")).toBe(true);
+    expect(isDevCliEntrypoint("C:/Users/dev/~BUN/src/main.ts")).toBe(true);
+  });
+
+  it("is false when no entrypoint is known", () => {
+    expect(isDevCliEntrypoint(undefined)).toBe(false);
+  });
+});
 
 describe("canAutoStartLocalDaemonForHost", () => {
   it("allows loopback hosts", () => {

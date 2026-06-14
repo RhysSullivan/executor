@@ -53,15 +53,32 @@ export const parseDaemonBaseUrl = (baseUrl: string, defaultPort: number): Parsed
 // ---------------------------------------------------------------------------
 
 const LOCAL_DAEMON_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-const BUN_EMBEDDED_ENTRYPOINT_PREFIX = "/$bunfs/";
 
 export const canAutoStartLocalDaemonForHost = (hostname: string): boolean =>
   LOCAL_DAEMON_HOSTNAMES.has(hostname.toLowerCase());
 
+/**
+ * Bun's compiled-binary embedded filesystem root, drive-rooted on Windows
+ * (`B:\~BUN\root\...`, argv normalized to `B:/~BUN/root/...`). Anchored to a
+ * drive prefix so a dev checkout that merely *contains* a `~BUN` directory
+ * isn't misread as a compiled binary.
+ */
+const WINDOWS_BUNFS_ENTRYPOINT = /^[a-z]:\/~BUN\//i;
+
+/**
+ * Whether the process is running from the dev source (`bun run src/main.ts`)
+ * rather than a compiled single-file binary. A compiled binary runs from Bun's
+ * embedded filesystem, whose entrypoint is `/$bunfs/root/main.js` on Unix but
+ * `B:\~BUN\root\main.js` (argv like `B:/~BUN/root/main.js`) on Windows — match
+ * BOTH. Missing the Windows form made a real `executor.exe` look like a dev
+ * checkout, so `service install` refused on Windows. (Found by a real EC2
+ * Windows test.)
+ */
 export const isDevCliEntrypoint = (scriptPath: string | undefined): boolean => {
   if (!scriptPath) return false;
-  if (scriptPath.startsWith(BUN_EMBEDDED_ENTRYPOINT_PREFIX)) return false;
-  return scriptPath.endsWith(".ts") || scriptPath.endsWith(".js");
+  const normalized = scriptPath.replaceAll("\\", "/");
+  if (normalized.startsWith("/$bunfs/") || WINDOWS_BUNFS_ENTRYPOINT.test(normalized)) return false;
+  return normalized.endsWith(".ts") || normalized.endsWith(".js");
 };
 
 export const isExecutorServerReachable = (

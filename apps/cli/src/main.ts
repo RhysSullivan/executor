@@ -100,10 +100,12 @@ import {
   acquireLocalServerStartLock,
   readLocalServerManifest,
   releaseLocalServerStartLock,
+  removeLocalServerManifest,
   removeLocalServerManifestIfOwnedBy,
   resolveExecutorDataDir,
   writeLocalServerManifest,
 } from "./local-server-manifest";
+import { DEFAULT_SERVICE_PORT, getServiceBackend, SERVICE_LABEL } from "./service";
 import {
   defaultCliServerConnectionProfile,
   findCliServerConnectionProfile,
@@ -115,7 +117,6 @@ import {
 } from "./server-profile";
 import {
   buildResumeContentTemplate,
-  buildToolPath,
   buildDescribeToolCode,
   filterToolPathChildren,
   buildInvokeToolCode,
@@ -127,6 +128,7 @@ import {
   inspectToolPath,
   normalizeCliErrorText,
   parseJsonObjectInput,
+  resolveToolInvocation,
   sanitizeCliOutputText,
   shellQuoteArg,
 } from "./tooling";
@@ -886,7 +888,19 @@ const runDaemonSession = (input: {
       let token: string | null = null;
 
       try {
-        yield* assertNoOtherActiveLocalServer();
+        // A supervised daemon (launchd/systemd) is the OS-guaranteed singleton
+        // — kickstart -k kills the old instance before starting the new — so any
+        // server.json from a previous boot is stale. Reclaim it rather than
+        // refusing: across a reboot the recorded pid may have been recycled by
+        // an unrelated process, which would otherwise make the "is one already
+        // running?" check treat it as alive-but-unreachable, refuse to start,
+        // and crash-loop under KeepAlive. (Found by a real reboot test with
+        // integration data in the DB.)
+        if (process.env.EXECUTOR_SUPERVISED) {
+          yield* removeLocalServerManifest().pipe(Effect.ignore);
+        } else {
+          yield* assertNoOtherActiveLocalServer();
+        }
 
         const existing = yield* readDaemonPointer({ hostname: daemonHost, scopeId });
 
@@ -1572,38 +1586,6 @@ const runCallHelp = (
     });
   }).pipe(Effect.mapError(toError));
 
-const resolveToolInvocation = (input: {
-  rawPathParts: ReadonlyArray<string>;
-}): Effect.Effect<{ path: string; args: Record<string, unknown> }, Error> =>
-  Effect.gen(function* () {
-    if (!Array.isArray(input.rawPathParts)) {
-      return yield* Effect.fail(
-        new Error("Invalid tool invocation: path parts were not parsed as an array"),
-      );
-    }
-
-    const maybeJsonArg = input.rawPathParts.at(-1)?.trim();
-    const hasInlineJsonArg = maybeJsonArg !== undefined && maybeJsonArg.startsWith("{");
-    const pathParts = hasInlineJsonArg ? input.rawPathParts.slice(0, -1) : input.rawPathParts;
-    const args = hasInlineJsonArg ? yield* parseJsonObjectInput(maybeJsonArg) : {};
-
-    if (pathParts.some((part) => part.trim().startsWith("-"))) {
-      return yield* Effect.fail(
-        new Error(
-          "Tool invocation no longer accepts flags. Use: executor call <path...> '{...json...}'",
-        ),
-      );
-    }
-
-    const path = yield* Effect.try({
-      try: () => buildToolPath(pathParts),
-      catch: (cause) =>
-        cause instanceof Error ? cause : new Error(`Invalid tool path: ${String(cause)}`),
-    });
-
-    return { path, args };
-  });
-
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -2000,6 +1982,10 @@ const daemonRunCommand = Command.make(
     Effect.gen(function* () {
       applyScope(scope);
       if (foreground) {
+        // The foreground daemon is the form OS service managers run. Its bearer
+        // comes from --auth-token, else the stable token in auth.json (loaded by
+        // startServer from EXECUTOR_DATA_DIR) — the supervised unit carries no
+        // secret, so the daemon and its clients share the one auth.json token.
         yield* runDaemonSession({
           port,
           hostname,
@@ -2117,6 +2103,144 @@ const mcpCommand = Command.make(
 ).pipe(Command.withDescription("Start an MCP server over stdio"));
 
 // ---------------------------------------------------------------------------
+// Service — register the daemon with the OS so it survives app-quit + restart
+// ---------------------------------------------------------------------------
+
+const supervisedServiceOrigin = (port: number): string => `http://127.0.0.1:${port}`;
+
+const serviceInstallCommand = Command.make(
+  "install",
+  {
+    port: Options.integer("port")
+      .pipe(Options.withDefault(DEFAULT_SERVICE_PORT))
+      .pipe(Options.withDescription("Port the supervised daemon binds (loopback only).")),
+  },
+  ({ port }) =>
+    Effect.gen(function* () {
+      if (isDevMode) {
+        return yield* Effect.fail(
+          new Error(
+            [
+              "`service install` requires the compiled `executor` binary so the OS can run it directly.",
+              `In a dev checkout, run \`${cliPrefix} daemon run --foreground\` instead.`,
+            ].join("\n"),
+          ),
+        );
+      }
+
+      const backend = getServiceBackend();
+      if (!backend.automated) {
+        // Unsupported platforms surface their manual steps via the install error.
+        yield* backend.install({ executablePath: process.execPath, port, version: CLI_VERSION });
+        return;
+      }
+
+      // Don't fight an already-running local server against the same data dir
+      // (a desktop sidecar, a foreground `executor web`, or an existing daemon).
+      const active = yield* readActiveLocalServerManifest();
+      if (active) {
+        const status = yield* backend.status();
+        if (status.registered && status.running && active.kind === "cli-daemon") {
+          console.log(
+            `Executor service already running at ${active.connection.origin} (pid ${active.pid}).`,
+          );
+          return;
+        }
+        return yield* Effect.fail(
+          new Error(
+            [
+              `A local Executor ${active.kind} is already running at ${active.connection.origin} (pid ${active.pid}).`,
+              `Stop it first (quit the desktop app, or \`${cliPrefix} daemon stop\`), then re-run install.`,
+            ].join("\n"),
+          ),
+        );
+      }
+
+      // The unit carries no secret: the supervised daemon mints/loads its bearer
+      // from auth.json (under EXECUTOR_DATA_DIR) on first boot, and clients read
+      // the same file — so reachability is the credential-free /api/health probe.
+      yield* backend.install({ executablePath: process.execPath, port, version: CLI_VERSION });
+
+      const origin = supervisedServiceOrigin(port);
+      const reachable = yield* waitForReachable({
+        check: isServerReachable(origin),
+        timeoutMs: DAEMON_BOOT_TIMEOUT_MS,
+        intervalMs: DAEMON_BOOT_POLL_MS,
+      });
+      if (!reachable) {
+        return yield* Effect.fail(
+          new Error(
+            [
+              `Installed ${SERVICE_LABEL} but it did not become reachable at ${origin} within ${DAEMON_BOOT_TIMEOUT_MS / 1000}s.`,
+              `Check ~/.executor/logs/daemon.error.log and \`${cliPrefix} service status\`.`,
+            ].join("\n"),
+          ),
+        );
+      }
+
+      console.log(`Executor is now running as a background service at ${origin}.`);
+      console.log("It keeps serving after you quit the app and restarts on login.");
+      console.log(`Open it in your browser, already signed in, with:  ${cliPrefix} open`);
+    }),
+).pipe(
+  Command.withDescription("Install and start Executor as an OS-supervised background service"),
+);
+
+const serviceUninstallCommand = Command.make("uninstall", {}, () =>
+  Effect.gen(function* () {
+    const backend = getServiceBackend();
+    yield* backend.uninstall();
+    console.log("Executor background service uninstalled.");
+  }),
+).pipe(Command.withDescription("Stop and remove the OS-supervised background service"));
+
+const serviceStatusCommand = Command.make("status", {}, () =>
+  Effect.gen(function* () {
+    const backend = getServiceBackend();
+    const status = yield* backend.status();
+    // Tolerate a registered-but-unreachable manifest here — status shouldn't throw.
+    const active = yield* readActiveLocalServerManifest().pipe(
+      Effect.catchCause(() => Effect.succeed(null)),
+    );
+    console.log(`Platform:   ${status.platform}`);
+    console.log(`Registered: ${status.registered ? "yes" : "no"}`);
+    console.log(
+      `Running:    ${status.running ? "yes" : "no"}${status.pid ? ` (pid ${status.pid})` : ""}`,
+    );
+    if (active) {
+      console.log(`Serving:    ${active.connection.origin} (${active.kind}, pid ${active.pid})`);
+      // Version drift: the running daemon was launched by the binary the unit
+      // points at. If that differs from this CLI, an upgrade left the unit
+      // pointing at an older binary — reinstall to repoint + restart.
+      if (active.owner.version && active.owner.version !== CLI_VERSION) {
+        console.log(
+          `Drift:      running ${active.owner.version}, current ${CLI_VERSION} — run \`${cliPrefix} service install\` to upgrade.`,
+        );
+      }
+    }
+    for (const line of status.detail) console.log(line);
+  }),
+).pipe(Command.withDescription("Show the OS-supervised service status"));
+
+const serviceRestartCommand = Command.make("restart", {}, () =>
+  Effect.gen(function* () {
+    const backend = getServiceBackend();
+    yield* backend.restart();
+    console.log("Executor background service restarted.");
+  }),
+).pipe(Command.withDescription("Restart the OS-supervised background service"));
+
+const serviceCommand = Command.make("service").pipe(
+  Command.withSubcommands([
+    serviceInstallCommand,
+    serviceUninstallCommand,
+    serviceStatusCommand,
+    serviceRestartCommand,
+  ] as const),
+  Command.withDescription("Manage the OS-supervised background service"),
+);
+
+// ---------------------------------------------------------------------------
 // Root command
 // ---------------------------------------------------------------------------
 
@@ -2170,6 +2294,7 @@ const root = Command.make("executor").pipe(
     serverCommand,
     webCommand,
     daemonCommand,
+    serviceCommand,
     mcpCommand,
     openCommand,
   ] as const),
