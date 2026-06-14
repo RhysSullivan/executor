@@ -77,7 +77,11 @@ scenario(
       });
       const output = `${stdout}\n${stderr}`;
       expect(output, "stale endpoint should be rejected before printing the token URL").toContain(
-        "No local Executor server is running.",
+        "Executor is not running.",
+      );
+      expect(output, "the recovery path should point users at durable setup").toContain("install");
+      expect(output, "the old foreground behavior should remain discoverable").toContain(
+        "web --foreground",
       );
       expect(output, "the stale bearer must not be printed").not.toContain(token);
       expect(output, "the stale URL must not be opened").not.toContain(`127.0.0.1:${port}`);
