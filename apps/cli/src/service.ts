@@ -270,8 +270,12 @@ const makeLaunchdBackend = (): ServiceBackend => {
         yield* fs.writeFileString(plistFile, plist, { mode: 0o600 });
 
         // Re-bootstrap cleanly: a stale registration from a prior install would
-        // make `bootstrap` fail with "service already loaded".
+        // make `bootstrap` fail with "service already loaded". `service
+        // uninstall` also records the label as disabled in launchd's override
+        // database; clear that before bootstrapping or a reinstall can fail with
+        // launchctl's generic "Bootstrap failed: 5" error.
         yield* runCommand("launchctl", ["bootout", serviceTarget(uid)]).pipe(Effect.ignore);
+        yield* runCommand("launchctl", ["enable", serviceTarget(uid)]).pipe(Effect.ignore);
         const bootstrap = yield* runCommand("launchctl", ["bootstrap", `gui/${uid}`, plistFile]);
         if (bootstrap.code !== 0) {
           return yield* Effect.fail(
@@ -280,7 +284,6 @@ const makeLaunchdBackend = (): ServiceBackend => {
             ),
           );
         }
-        yield* runCommand("launchctl", ["enable", serviceTarget(uid)]).pipe(Effect.ignore);
       }),
     uninstall: () =>
       Effect.gen(function* () {

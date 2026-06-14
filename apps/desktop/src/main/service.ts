@@ -205,7 +205,11 @@ export const installSupervisedService = async (opts: InstallOptions): Promise<vo
   writeFileSync(plistPath(), plist, { mode: 0o600 });
 
   // Re-bootstrap cleanly so a stale registration doesn't make bootstrap fail.
+  // `uninstallSupervisedService` also records the label as disabled in
+  // launchd's override database; clear that before bootstrapping or reinstall
+  // can fail with launchctl's generic "Bootstrap failed: 5" error.
   await runCommand("launchctl", ["bootout", serviceTarget(uid)]);
+  await runCommand("launchctl", ["enable", serviceTarget(uid)]);
   const bootstrap = await runCommand("launchctl", ["bootstrap", `gui/${uid}`, plistPath()]);
   if (bootstrap.code !== 0) {
     // oxlint-disable-next-line executor/no-error-constructor, executor/no-try-catch-or-throw -- boundary: surfaces to the boot flow
@@ -213,7 +217,6 @@ export const installSupervisedService = async (opts: InstallOptions): Promise<vo
       `launchctl bootstrap failed (exit ${bootstrap.code}): ${bootstrap.stderr.trim() || bootstrap.stdout.trim()}`,
     );
   }
-  await runCommand("launchctl", ["enable", serviceTarget(uid)]);
   serviceLog.info(`installed supervised service on port ${opts.port}`);
 };
 
