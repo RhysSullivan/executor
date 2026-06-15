@@ -94,5 +94,6 @@ export const withMcpResponseHeaders = (response: Response): Response => {
 // import site (`./do-headers`) is unchanged.
 export {
   readElicitationMode,
+  readToolkitSelector,
   type McpElicitationMode,
 } from "@executor-js/host-mcp/browser-approval";

@@ -14,6 +14,9 @@ export interface McpSessionInit {
   /** Public origin of the create request (`https://host`), so the DO derives a
    *  web base URL zero-config when the host configures no static one. */
   readonly webOrigin?: string;
+  /** Toolkit selector (slug or id) pinned for this session — narrows the engine
+   *  to that toolkit's slice. Read from the create request, like elicitationMode. */
+  readonly toolkitId?: string;
 }
 
 /**

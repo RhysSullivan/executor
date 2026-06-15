@@ -30,6 +30,7 @@ import {
 import {
   currentPropagationHeaders,
   readElicitationMode,
+  readToolkitSelector,
   withMcpResponseHeaders,
   withPropagationHeaders,
   withVerifiedIdentityHeaders,
@@ -97,6 +98,7 @@ const createSession = (
           organizationId: token.organizationId,
           userId: token.accountId,
           elicitationMode: readElicitationMode(request),
+          toolkitId: readToolkitSelector(request),
           // The public origin the client reached us at — lets the DO derive a web
           // base URL with no static config (we read the real URL, not a spoofable
           // forwarded host).

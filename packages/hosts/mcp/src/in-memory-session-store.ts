@@ -9,6 +9,7 @@ import {
   decodeResumeResponse,
   formatResumeAcknowledgement,
   readElicitationMode,
+  readToolkitSelector,
 } from "./browser-approval";
 import {
   makeInProcessBrowserApprovalStore,
@@ -70,15 +71,6 @@ export interface McpBuildServerOptions {
    *  to that toolkit's slice. Read once at session create from the request. */
   readonly toolkitId?: string;
 }
-
-/** Read the toolkit selector from the request: `x-executor-mcp-toolkit` header
- *  (set by a host's pretty-URL rewrite) or `?toolkit=` query. */
-export const readToolkitSelector = (request: Request): string | undefined => {
-  const header = request.headers.get("x-executor-mcp-toolkit");
-  if (header && header.length > 0) return header;
-  const query = new URL(request.url).searchParams.get("toolkit");
-  return query && query.length > 0 ? query : undefined;
-};
 
 /** Build the per-session `McpServer` + engine for a principal (the host's engine + tools). */
 export type McpBuildServer = (

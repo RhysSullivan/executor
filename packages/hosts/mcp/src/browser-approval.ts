@@ -51,6 +51,17 @@ export const readElicitationMode = (request: Request): McpElicitationMode => {
   return "model";
 };
 
+/** Read the toolkit selector (slug or id) from a request: the
+ *  `x-executor-mcp-toolkit` header (set by a host's pretty-URL rewrite) or the
+ *  `?toolkit=` query. Shared by every host that serves the toolkit-narrowed MCP
+ *  endpoint (in-memory store + the cross-isolate Durable Object). */
+export const readToolkitSelector = (request: Request): string | undefined => {
+  const header = request.headers.get("x-executor-mcp-toolkit");
+  if (header && header.length > 0) return header;
+  const query = new URL(request.url).searchParams.get("toolkit");
+  return query && query.length > 0 ? query : undefined;
+};
+
 /**
  * Build the console approval URL for a paused execution:
  * `<origin>/resume/<executionId>?mcp_session_id=<sessionId>`. The

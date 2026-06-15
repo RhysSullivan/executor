@@ -172,6 +172,7 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
         organizationName: org.name,
         userId: token.userId,
         elicitationMode: token.elicitationMode,
+        toolkitId: token.toolkitId,
       } satisfies SessionMeta;
     }).pipe(
       Effect.withSpan("McpSessionDO.resolveSessionMeta"),
@@ -192,6 +193,7 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
         sessionMeta.userId,
         sessionMeta.organizationId,
         sessionMeta.organizationName,
+        sessionMeta.toolkitId,
       ).pipe(
         Effect.provide(CloudExecutionStackLayer),
         Effect.withSpan("McpSessionDO.makeExecutionStack"),

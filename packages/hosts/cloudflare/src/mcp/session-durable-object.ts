@@ -127,6 +127,9 @@ export interface SessionMeta {
   /** Public origin captured at session create — used to derive the runtime's
    *  web base URL when the host configures no static one. */
   readonly webOrigin?: string;
+  /** Toolkit selector pinned for this session — narrows the engine to that
+   *  toolkit's slice. Persisted so a cold isolate rebuilds the same narrowing. */
+  readonly toolkitId?: string;
 }
 
 /** What a host's `buildMcpServer` seam returns: the connected MCP server plus
