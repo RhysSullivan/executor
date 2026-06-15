@@ -4,7 +4,12 @@ import { cloudApiHandler } from "./app";
 import { isAppOwnedPath } from "./app-paths";
 import { authGateMiddleware } from "./auth/ssr-gate";
 import { prepareMcpOrgScope } from "./mcp/mount";
-import { marketingMiddleware, posthogProxyMiddleware, sentryTunnelMiddleware } from "./edge";
+import {
+  docsProxyMiddleware,
+  marketingMiddleware,
+  posthogProxyMiddleware,
+  sentryTunnelMiddleware,
+} from "./edge";
 
 // ---------------------------------------------------------------------------
 // The unified app web handler — `ExecutorApp.make`'s `toWebHandler` (app.ts).
@@ -42,15 +47,20 @@ const appRequestMiddleware = createMiddleware({ type: "request" }).server(
   },
 );
 
-// The edge concerns (marketing proxy, sentry tunnel, posthog proxy) live in
-// `./edge`; they run before the app's own dispatch. Ordering is load-bearing:
-// marketing first (production landing/page proxy), then the analytics tunnels,
-// then the unified app plane (api + mcp), and last the SSR auth gate — it only
-// sees document requests nothing above claimed, so signed-out visitors are
-// redirected to /login before the SPA (and its app-shell skeleton) is served.
+// The edge concerns (marketing proxy, docs proxy, sentry tunnel, posthog proxy)
+// live in `./edge`; they run before the app's own dispatch. Ordering is
+// load-bearing: marketing first (production landing/page proxy), then the docs
+// proxy and analytics tunnels, then the unified app plane (api + mcp), and last
+// the SSR auth gate — it only sees document requests nothing above claimed, so
+// signed-out visitors are redirected to /login before the SPA (and its
+// app-shell skeleton) is served. The docs proxy sits among the edges (not after
+// the auth gate) because `/docs` is public and must skip the sign-in redirect;
+// its path is disjoint from every other matcher, so its slot is not otherwise
+// load-bearing.
 export const startInstance = createStart(() => ({
   requestMiddleware: [
     marketingMiddleware,
+    docsProxyMiddleware,
     sentryTunnelMiddleware,
     posthogProxyMiddleware,
     appRequestMiddleware,
