@@ -27,12 +27,10 @@ import { Context, Effect, Layer } from "effect";
 import type * as Cause from "effect/Cause";
 
 import {
-  applyToolkitScope,
-  EMPTY_TOOLKIT_SCOPE,
   type AnyPlugin,
   type Executor,
+  type ExecutorWrapper,
   type StorageFailure,
-  type ToolkitResolver,
 } from "@executor-js/sdk";
 import {
   createExecutionEngine,
@@ -41,7 +39,11 @@ import {
 } from "@executor-js/execution";
 
 import { DbProvider } from "./executor-fuma-db";
-import { HostConfig, PluginsProvider, makeScopedExecutor } from "./scoped-executor";
+import {
+  HostConfig,
+  PluginsProvider,
+  makeScopedExecutor,
+} from "./scoped-executor";
 
 // ---------------------------------------------------------------------------
 // CodeExecutorProvider seam — the host's code-execution substrate. Typed to the
@@ -50,11 +52,13 @@ import { HostConfig, PluginsProvider, makeScopedExecutor } from "./scoped-execut
 // assigns structurally.
 // ---------------------------------------------------------------------------
 
-export type CodeExecutor = ExecutionEngineConfig<Cause.YieldableError>["codeExecutor"];
+export type CodeExecutor =
+  ExecutionEngineConfig<Cause.YieldableError>["codeExecutor"];
 
-export class CodeExecutorProvider extends Context.Service<CodeExecutorProvider, CodeExecutor>()(
-  "@executor-js/api/CodeExecutorProvider",
-) {}
+export class CodeExecutorProvider extends Context.Service<
+  CodeExecutorProvider,
+  CodeExecutor
+>()("@executor-js/api/CodeExecutorProvider") {}
 
 // ---------------------------------------------------------------------------
 // EngineDecorator seam — wrap the freshly built engine (e.g. with usage
@@ -78,12 +82,15 @@ export interface EngineDecoratorShape {
   ) => ExecutionEngine<E>;
 }
 
-export class EngineDecorator extends Context.Service<EngineDecorator, EngineDecoratorShape>()(
-  "@executor-js/api/EngineDecorator",
-) {}
+export class EngineDecorator extends Context.Service<
+  EngineDecorator,
+  EngineDecoratorShape
+>()("@executor-js/api/EngineDecorator") {}
 
 /** No-op decorator: the engine passes through unchanged. */
-export const EngineDecoratorNoop: Layer.Layer<EngineDecorator> = Layer.succeed(EngineDecorator)({
+export const EngineDecoratorNoop: Layer.Layer<EngineDecorator> = Layer.succeed(
+  EngineDecorator,
+)({
   decorate: (engine) => engine,
 });
 
@@ -102,20 +109,34 @@ export const makeExecutionStack = <
   accountId: string,
   organizationId: string,
   organizationName: string,
-  /** Optional toolkit selector (slug or id). When set, the executor is narrowed
-   *  to that toolkit's slice before the engine is built — so listing, search,
-   *  description, core-tools, AND execute all see only the slice. Resolves via
-   *  the `toolkits` plugin extension; an unknown/unauthorized selector applies
-   *  an EMPTY slice (fail-closed — never the full account). */
-  toolkitId?: string,
+  /** Optional per-request narrowing selector (e.g. an MCP `?toolkit=` value).
+   *  When set, the executor is run through every plugin-contributed
+   *  `ExecutorWrapper` before the engine is built — so listing, search,
+   *  description, core-tools, AND execute all see only the narrowed view. Core
+   *  is agnostic about what a wrapper narrows to; a plugin (e.g. toolkits) owns
+   *  that, including fail-closed behavior for an unknown selector. */
+  selector?: string,
 ): Effect.Effect<
-  { readonly executor: Executor<TPlugins>; readonly engine: ExecutionEngine<Cause.YieldableError> },
+  {
+    readonly executor: Executor<TPlugins>;
+    readonly engine: ExecutionEngine<Cause.YieldableError>;
+  },
   StorageFailure,
-  DbProvider | PluginsProvider | HostConfig | CodeExecutorProvider | EngineDecorator
+  | DbProvider
+  | PluginsProvider
+  | HostConfig
+  | CodeExecutorProvider
+  | EngineDecorator
 > =>
   Effect.gen(function* () {
-    const base = yield* makeScopedExecutor<TPlugins>(accountId, organizationId, organizationName);
-    const executor = toolkitId ? yield* narrowToToolkit(base, toolkitId) : base;
+    const base = yield* makeScopedExecutor<TPlugins>(
+      accountId,
+      organizationId,
+      organizationName,
+    );
+    const executor = selector
+      ? yield* applyExecutorWrappers(base, selector)
+      : base;
     const codeExecutor = yield* CodeExecutorProvider;
     const { decorate } = yield* EngineDecorator;
     const engine = decorate(createExecutionEngine({ executor, codeExecutor }), {
@@ -126,16 +147,20 @@ export const makeExecutionStack = <
     return { executor, engine };
   });
 
-// Resolve the toolkit slice via the `toolkits` plugin extension (stamped on the
-// executor) and wrap the executor. Fail-closed: no extension or no match -> an
-// empty slice, so a bad/cross-tenant selector exposes only static tools, never
-// the full account.
-const narrowToToolkit = <TPlugins extends readonly AnyPlugin[]>(
+// Run every plugin-contributed executor wrapper (collected on the executor at
+// assembly) with the request selector. Core does not know what any wrapper
+// narrows to — the toolkits plugin's wrapper, for instance, fails closed to an
+// empty slice for an unknown/cross-tenant selector. With no wrapper registered,
+// the executor passes through unchanged.
+const applyExecutorWrappers = <TPlugins extends readonly AnyPlugin[]>(
   base: Executor<TPlugins>,
-  toolkitId: string,
+  selector: string,
 ): Effect.Effect<Executor<TPlugins>, StorageFailure> =>
   Effect.gen(function* () {
-    const resolver = (base as { toolkits?: ToolkitResolver }).toolkits;
-    const scope = resolver?.resolveScope ? yield* resolver.resolveScope(toolkitId) : null;
-    return yield* applyToolkitScope(base, scope ?? EMPTY_TOOLKIT_SCOPE);
+    const wrappers = (base as { executorWrappers?: readonly ExecutorWrapper[] })
+      .executorWrappers;
+    let executor = base;
+    for (const wrap of wrappers ?? [])
+      executor = yield* wrap(executor, selector);
+    return executor;
   });

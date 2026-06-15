@@ -2,7 +2,10 @@ import { Cause, Data, Effect, Layer } from "effect";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
-import { formatPausedExecution, type ExecutionEngine } from "@executor-js/execution";
+import {
+  formatPausedExecution,
+  type ExecutionEngine,
+} from "@executor-js/execution";
 
 import {
   buildResumeApprovalUrl,
@@ -50,7 +53,9 @@ import type { BrowserApprovalStore } from "./tool-server";
 // ---------------------------------------------------------------------------
 
 /** Engine construction failed for a principal. The store surfaces it as a 500. */
-export class McpEngineBuildError extends Data.TaggedError("McpEngineBuildError")<{
+export class McpEngineBuildError extends Data.TaggedError(
+  "McpEngineBuildError",
+)<{
   readonly cause: unknown;
 }> {}
 
@@ -63,13 +68,17 @@ export interface BuiltMcpServer {
 /** The browser-mode wiring the store hands a build call when a session opts in. */
 export interface McpBuildServerOptions {
   readonly elicitationMode?:
-    | { readonly mode: "browser"; readonly approvalUrl: (executionId: string) => string }
+    | {
+        readonly mode: "browser";
+        readonly approvalUrl: (executionId: string) => string;
+      }
     | { readonly mode: "model" }
     | { readonly mode: "native" };
   readonly browserApprovalStore?: BrowserApprovalStore;
-  /** Toolkit selector (slug or id) pinned for this session — narrows the engine
-   *  to that toolkit's slice. Read once at session create from the request. */
-  readonly toolkitId?: string;
+  /** Per-request narrowing selector (the MCP `?toolkit=` value) pinned for this
+   *  session. Core forwards it to plugin executor wrappers; an unset selector
+   *  leaves the executor unnarrowed. Read once at session create. */
+  readonly selector?: string;
 }
 
 /** Build the per-session `McpServer` + engine for a principal (the host's engine + tools). */
@@ -103,9 +112,15 @@ export interface InMemoryMcpSessionStore {
   readonly close: () => Promise<void>;
 }
 
-const ignoreClose = (close: (() => Promise<void>) | undefined): Promise<void> =>
+const ignoreClose = (
+  close: (() => Promise<void>) | undefined,
+): Promise<void> =>
   close
-    ? Effect.runPromise(Effect.ignore(Effect.tryPromise({ try: close, catch: () => undefined })))
+    ? Effect.runPromise(
+        Effect.ignore(
+          Effect.tryPromise({ try: close, catch: () => undefined }),
+        ),
+      )
     : Promise.resolve();
 
 const formatBoundaryError = (error: unknown): unknown =>
@@ -115,14 +130,21 @@ const formatBoundaryError = (error: unknown): unknown =>
 // The store's error bodies are INNER responses (no CORS): the serving envelope
 // re-wraps the store `Response` with CORS before it leaves the origin, so the
 // canonical renderer is called with `cors: false` (content-type only).
-const jsonRpcError = (status: number, code: number, message: string): Response =>
-  jsonRpcErrorBody(status, code, message, { cors: false });
+const jsonRpcError = (
+  status: number,
+  code: number,
+  message: string,
+): Response => jsonRpcErrorBody(status, code, message, { cors: false });
 
 const json = (value: unknown, status = 200): Response =>
-  new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+  new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 const PAUSED_PATH = /^\/api\/mcp-sessions\/([^/?#]+)\/executions\/([^/?#]+)$/;
-const RESUME_PATH = /^\/api\/mcp-sessions\/([^/?#]+)\/executions\/([^/?#]+)\/resume$/;
+const RESUME_PATH =
+  /^\/api\/mcp-sessions\/([^/?#]+)\/executions\/([^/?#]+)\/resume$/;
 
 /**
  * Build the in-process session store plus an explicit `close()` that disposes
@@ -139,21 +161,30 @@ export const makeInMemoryMcpSessionStore = (
   // loopback hosts (local/desktop), where the request URL is already correct.
   options: { readonly webBaseUrl?: string } = {},
 ): InMemoryMcpSessionStore => {
-  const transports = new Map<string, WebStandardStreamableHTTPServerTransport>();
+  const transports = new Map<
+    string,
+    WebStandardStreamableHTTPServerTransport
+  >();
   const servers = new Map<string, McpServer>();
   const owners = new Map<string, Principal>();
   const engines = new Map<string, ExecutionEngine<Cause.YieldableError>>();
-  const approvals: InProcessBrowserApprovalStore = makeInProcessBrowserApprovalStore();
+  const approvals: InProcessBrowserApprovalStore =
+    makeInProcessBrowserApprovalStore();
 
-  const dispose = async (id: string, opts: { transport?: boolean; server?: boolean } = {}) => {
+  const dispose = async (
+    id: string,
+    opts: { transport?: boolean; server?: boolean } = {},
+  ) => {
     const transport = transports.get(id);
     const server = servers.get(id);
     transports.delete(id);
     servers.delete(id);
     owners.delete(id);
     engines.delete(id);
-    if (opts.transport) await ignoreClose(transport ? () => transport.close() : undefined);
-    if (opts.server) await ignoreClose(server ? () => server.close() : undefined);
+    if (opts.transport)
+      await ignoreClose(transport ? () => transport.close() : undefined);
+    if (opts.server)
+      await ignoreClose(server ? () => server.close() : undefined);
   };
 
   /**
@@ -173,7 +204,10 @@ export const makeInMemoryMcpSessionStore = (
       Effect.tap(() => Effect.sync(finish)),
       Effect.catchCause((cause) =>
         Effect.sync(() => {
-          console.error("[mcp] handleRequest error:", formatBoundaryError(cause));
+          console.error(
+            "[mcp] handleRequest error:",
+            formatBoundaryError(cause),
+          );
           finish();
           return jsonRpcError(500, -32603, "Internal server error");
         }),
@@ -204,7 +238,8 @@ export const makeInMemoryMcpSessionStore = (
     request: Request,
     sessionId: () => string | null,
   ): McpBuildServerOptions => {
-    if (readElicitationMode(request) !== "browser") return { elicitationMode: { mode: "model" } };
+    if (readElicitationMode(request) !== "browser")
+      return { elicitationMode: { mode: "model" } };
     return {
       elicitationMode: {
         mode: "browser",
@@ -222,11 +257,17 @@ export const makeInMemoryMcpSessionStore = (
   };
 
   /** Open a new session: build the server, connect a transport, drive the request. */
-  const create = (principal: Principal, request: Request): Effect.Effect<McpDispatchResult> => {
+  const create = (
+    principal: Principal,
+    request: Request,
+  ): Effect.Effect<McpDispatchResult> => {
     let createdSessionId: string | null = null;
     const baseOptions = buildOptionsFor(request, () => createdSessionId);
-    const toolkitId = readToolkitSelector(request);
-    return buildServer(principal, toolkitId ? { ...baseOptions, toolkitId } : baseOptions).pipe(
+    const selector = readToolkitSelector(request);
+    return buildServer(
+      principal,
+      selector ? { ...baseOptions, selector } : baseOptions,
+    ).pipe(
       Effect.flatMap(({ mcpServer, engine }) =>
         Effect.gen(function* () {
           const transport = new WebStandardStreamableHTTPServerTransport({
@@ -263,9 +304,13 @@ export const makeInMemoryMcpSessionStore = (
 
   const store: McpSessionStore["Service"] = {
     dispatch: ({ request, principal, sessionId }: McpDispatchInput) =>
-      sessionId ? forward(sessionId, principal, request) : create(principal, request),
+      sessionId
+        ? forward(sessionId, principal, request)
+        : create(principal, request),
     dispose: (sessionId) =>
-      Effect.promise(() => dispose(sessionId, { transport: true, server: true })),
+      Effect.promise(() =>
+        dispose(sessionId, { transport: true, server: true }),
+      ),
   };
 
   const ownerAccess = (
@@ -299,12 +344,17 @@ export const makeInMemoryMcpSessionStore = (
   ): Promise<Response | null> => {
     const match = PAUSED_PATH.exec(new URL(request.url).pathname);
     if (!match) return null;
-    if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+    if (request.method !== "GET")
+      return json({ error: "Method not allowed" }, 405);
     const sessionId = decodeURIComponent(match[1]!);
     const access = ownerAccess(sessionId, principal);
     if (access === "forbidden") return json({ error: "Forbidden" }, 403);
-    if (access === "not-found") return json({ error: "Paused execution not found" }, 404);
-    const paused = await pausedFromSession(sessionId, decodeURIComponent(match[2]!));
+    if (access === "not-found")
+      return json({ error: "Paused execution not found" }, 404);
+    const paused = await pausedFromSession(
+      sessionId,
+      decodeURIComponent(match[2]!),
+    );
     if (!paused) return json({ error: "Paused execution not found" }, 404);
     return json({ text: paused.text, structured: paused.structured });
   };
@@ -315,13 +365,15 @@ export const makeInMemoryMcpSessionStore = (
   ): Promise<Response | null> => {
     const match = RESUME_PATH.exec(new URL(request.url).pathname);
     if (!match) return null;
-    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    if (request.method !== "POST")
+      return json({ error: "Method not allowed" }, 405);
 
     const sessionId = decodeURIComponent(match[1]!);
     const executionId = decodeURIComponent(match[2]!);
     const access = ownerAccess(sessionId, principal);
     if (access === "forbidden") return json({ error: "Forbidden" }, 403);
-    if (access === "not-found") return json({ error: "Paused execution not found" }, 404);
+    if (access === "not-found")
+      return json({ error: "Paused execution not found" }, 404);
     // The session must still hold the paused execution — guards stale ids and
     // confirms the execution belongs to this session before recording.
     const paused = await pausedFromSession(sessionId, executionId);
@@ -349,7 +401,9 @@ export const makeInMemoryMcpSessionStore = (
     handleApprovalRequest,
     close: async () => {
       const ids = new Set([...transports.keys(), ...servers.keys()]);
-      await Promise.all([...ids].map((id) => dispose(id, { transport: true, server: true })));
+      await Promise.all(
+        [...ids].map((id) => dispose(id, { transport: true, server: true })),
+      );
     },
   };
 };

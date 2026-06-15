@@ -2,8 +2,15 @@ import { Effect, Inspectable, Layer, Option, Predicate, Schema } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
 import { fumadb } from "@executor-js/fumadb";
 import { memoryAdapter } from "@executor-js/fumadb/adapters/memory";
-import { withQueryContext, type Condition, type ConditionBuilder } from "@executor-js/fumadb/query";
-import { schema as fumaSchema, type RelationsMap } from "@executor-js/fumadb/schema";
+import {
+  withQueryContext,
+  type Condition,
+  type ConditionBuilder,
+} from "@executor-js/fumadb/query";
+import {
+  schema as fumaSchema,
+  type RelationsMap,
+} from "@executor-js/fumadb/schema";
 import type { AnyColumn } from "@executor-js/fumadb/schema";
 import { generateKeyBetween } from "fractional-indexing";
 
@@ -16,7 +23,12 @@ import {
   type FumaTables,
   type StorageFailure,
 } from "./fuma-runtime";
-import { makeFumaBlobStore, pluginBlobStore, type BlobStore, type OwnerPartitions } from "./blob";
+import {
+  makeFumaBlobStore,
+  pluginBlobStore,
+  type BlobStore,
+  type OwnerPartitions,
+} from "./blob";
 import { coreToolsPlugin } from "./core-tools";
 import type {
   Connection,
@@ -85,7 +97,10 @@ import type {
   IntegrationConfig,
   RegisterIntegrationInput,
 } from "./integration";
-import { makeOAuthService, type MintOAuthConnectionInput } from "./oauth-service";
+import {
+  makeOAuthService,
+  type MintOAuthConnectionInput,
+} from "./oauth-service";
 import type { OAuthService } from "./oauth-client";
 import {
   comparePolicyRow,
@@ -130,7 +145,12 @@ import {
   type ExecutorOwnerPolicyContext,
 } from "./owner-policy";
 import { ToolSchemaView, type IntegrationDetectionResult } from "./types";
-import { type Tool, type ToolAnnotations, type ToolDef, type ToolListFilter } from "./tool";
+import {
+  type Tool,
+  type ToolAnnotations,
+  type ToolDef,
+  type ToolListFilter,
+} from "./tool";
 import { buildToolTypeScriptPreview } from "./schema-types";
 import { collectReferencedDefinitions } from "./schema-refs";
 import {
@@ -155,7 +175,9 @@ const MAX_APPROVAL_ARGUMENT_PREVIEW_CHARS = 4_000;
 const acceptAllHandler: ElicitationHandler = () =>
   Effect.succeed(ElicitationResponse.make({ action: "accept" }));
 
-const resolveElicitationHandler = (onElicitation: OnElicitation): ElicitationHandler =>
+const resolveElicitationHandler = (
+  onElicitation: OnElicitation,
+): ElicitationHandler =>
   onElicitation === "accept-all" ? acceptAllHandler : onElicitation;
 
 // ---------------------------------------------------------------------------
@@ -171,7 +193,8 @@ export interface ParsedToolAddress {
   readonly tool: ToolName;
 }
 
-const isOwner = (value: string): value is Owner => value === "org" || value === "user";
+const isOwner = (value: string): value is Owner =>
+  value === "org" || value === "user";
 
 /** Parse a callable address; null when it's not a well-formed
  *  `tools.<integration>.<owner>.<connection>.<tool>`.
@@ -190,16 +213,17 @@ export const parseToolAddress = (address: string): ParsedToolAddress | null => {
     cut = address.indexOf(".", cut + 1);
     if (cut === -1) return null;
   }
-  const [prefix, integration, owner, connection] = address.slice(0, cut).split(".") as [
-    string,
-    string,
-    string,
-    string,
-  ];
+  const [prefix, integration, owner, connection] = address
+    .slice(0, cut)
+    .split(".") as [string, string, string, string];
   const tool = address.slice(cut + 1);
   if (prefix !== ADDRESS_PREFIX) return null;
   if (!isOwner(owner)) return null;
-  if (integration.length === 0 || connection.length === 0 || tool.length === 0) {
+  if (
+    integration.length === 0 ||
+    connection.length === 0 ||
+    tool.length === 0
+  ) {
     return null;
   }
   return {
@@ -215,7 +239,9 @@ export const connectionAddress = (
   integration: IntegrationSlug,
   connection: ConnectionName,
 ): ConnectionAddress =>
-  ConnectionAddress.make(`${ADDRESS_PREFIX}.${integration}.${owner}.${connection}`);
+  ConnectionAddress.make(
+    `${ADDRESS_PREFIX}.${integration}.${owner}.${connection}`,
+  );
 
 export const toolAddress = (
   owner: Owner,
@@ -223,7 +249,9 @@ export const toolAddress = (
   connection: ConnectionName,
   tool: ToolName,
 ): ToolAddress =>
-  ToolAddress.make(`${ADDRESS_PREFIX}.${integration}.${owner}.${connection}.${tool}`);
+  ToolAddress.make(
+    `${ADDRESS_PREFIX}.${integration}.${owner}.${connection}.${tool}`,
+  );
 
 // ---------------------------------------------------------------------------
 // Owner key helpers — every owned-row write stamps `tenant`, `owner`,
@@ -241,17 +269,34 @@ interface OwnedKeys {
 // core-table query unioned with the in-memory static pool.
 // ---------------------------------------------------------------------------
 
+// ExecutorWrapper — a plugin-contributed executor middleware. Given the
+// assembled executor and the per-request selector string (e.g. an MCP
+// `?toolkit=` value), it returns a possibly-narrowed executor. A plugin
+// contributes one by exposing a `wrapExecutor` method on its extension; the
+// assembler collects them and the execution stack runs each before the engine
+// is built. Core knows nothing about what a wrapper narrows to — that domain
+// (toolkits, etc.) lives entirely in the contributing plugin.
+export type ExecutorWrapper = <TPlugins extends readonly AnyPlugin[]>(
+  base: Executor<TPlugins>,
+  selector: string,
+) => Effect.Effect<Executor<TPlugins>, StorageFailure>;
+
 export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
   readonly integrations: {
     readonly list: () => Effect.Effect<readonly Integration[], StorageFailure>;
-    readonly get: (slug: IntegrationSlug) => Effect.Effect<Integration | null, StorageFailure>;
+    readonly get: (
+      slug: IntegrationSlug,
+    ) => Effect.Effect<Integration | null, StorageFailure>;
     readonly update: (
       slug: IntegrationSlug,
       patch: { readonly name?: string; readonly description?: string },
     ) => Effect.Effect<void, IntegrationNotFoundError | StorageFailure>;
     readonly remove: (
       slug: IntegrationSlug,
-    ) => Effect.Effect<void, IntegrationRemovalNotAllowedError | StorageFailure>;
+    ) => Effect.Effect<
+      void,
+      IntegrationRemovalNotAllowedError | StorageFailure
+    >;
     readonly detect: (
       url: string,
     ) => Effect.Effect<readonly IntegrationDetectionResult[], StorageFailure>;
@@ -271,7 +316,9 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
       readonly integration?: IntegrationSlug;
       readonly owner?: Owner;
     }) => Effect.Effect<readonly Connection[], StorageFailure>;
-    readonly get: (ref: ConnectionRef) => Effect.Effect<Connection | null, StorageFailure>;
+    readonly get: (
+      ref: ConnectionRef,
+    ) => Effect.Effect<Connection | null, StorageFailure>;
     /** Edit user-curated metadata (description, identityLabel). Credentials and
      *  OAuth lifecycle fields are not editable here. */
     readonly update: (
@@ -294,21 +341,35 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
   readonly oauth: OAuthService;
 
   readonly tools: {
-    readonly list: (filter?: ToolListFilter) => Effect.Effect<readonly Tool[], StorageFailure>;
-    readonly schema: (address: ToolAddress) => Effect.Effect<ToolSchemaView | null, StorageFailure>;
+    readonly list: (
+      filter?: ToolListFilter,
+    ) => Effect.Effect<readonly Tool[], StorageFailure>;
+    readonly schema: (
+      address: ToolAddress,
+    ) => Effect.Effect<ToolSchemaView | null, StorageFailure>;
   };
 
   readonly providers: {
     readonly list: () => Effect.Effect<readonly ProviderKey[]>;
-    readonly items: (key: ProviderKey) => Effect.Effect<readonly ProviderEntry[], StorageFailure>;
+    readonly items: (
+      key: ProviderKey,
+    ) => Effect.Effect<readonly ProviderEntry[], StorageFailure>;
   };
 
   readonly policies: {
     readonly list: () => Effect.Effect<readonly ToolPolicy[], StorageFailure>;
-    readonly create: (input: CreateToolPolicyInput) => Effect.Effect<ToolPolicy, StorageFailure>;
-    readonly update: (input: UpdateToolPolicyInput) => Effect.Effect<ToolPolicy, StorageFailure>;
-    readonly remove: (input: RemoveToolPolicyInput) => Effect.Effect<void, StorageFailure>;
-    readonly resolve: (address: ToolAddress) => Effect.Effect<EffectivePolicy, StorageFailure>;
+    readonly create: (
+      input: CreateToolPolicyInput,
+    ) => Effect.Effect<ToolPolicy, StorageFailure>;
+    readonly update: (
+      input: UpdateToolPolicyInput,
+    ) => Effect.Effect<ToolPolicy, StorageFailure>;
+    readonly remove: (
+      input: RemoveToolPolicyInput,
+    ) => Effect.Effect<void, StorageFailure>;
+    readonly resolve: (
+      address: ToolAddress,
+    ) => Effect.Effect<EffectivePolicy, StorageFailure>;
   };
 
   readonly execute: (
@@ -322,7 +383,10 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
 
 export interface ExecutorDb {
   readonly db: FumaDb<any>;
-  readonly close?: () => Effect.Effect<void, StorageFailure> | Promise<void> | void;
+  readonly close?: () =>
+    | Effect.Effect<void, StorageFailure>
+    | Promise<void>
+    | void;
 }
 
 export type ExecutorDbInput = FumaDb<any> | ExecutorDb;
@@ -331,7 +395,9 @@ export type ExecutorDbFactory = (config: {
   readonly tables: FumaTables;
 }) => ExecutorDbInput | Effect.Effect<ExecutorDbInput, StorageFailure>;
 
-export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly []> {
+export interface ExecutorConfig<
+  TPlugins extends readonly AnyPlugin[] = readonly [],
+> {
   /** The org / workspace this executor is bound to. `owner: "org"` rows file
    *  here. */
   readonly tenant: Tenant;
@@ -392,7 +458,10 @@ const validateExecutorOwnerPolicyTables = (tables: FumaTables): void => {
   }
 };
 
-const validateExecutorDbTables = (required: FumaTables, actual: FumaTables): void => {
+const validateExecutorDbTables = (
+  required: FumaTables,
+  actual: FumaTables,
+): void => {
   const missing = Object.keys(required)
     .filter((tableName) => !actual[tableName])
     .sort();
@@ -408,18 +477,27 @@ const validateExecutorDbTables = (required: FumaTables, actual: FumaTables): voi
   });
 };
 
-const storageFailureFromUnknown = (message: string, cause: unknown): StorageFailure =>
+const storageFailureFromUnknown = (
+  message: string,
+  cause: unknown,
+): StorageFailure =>
   isStorageFailure(cause) ? cause : new StorageError({ message, cause });
 
-const pluginStorageFailure = (pluginId: string, hook: string, cause: unknown): StorageFailure =>
+const pluginStorageFailure = (
+  pluginId: string,
+  hook: string,
+  cause: unknown,
+): StorageFailure =>
   storageFailureFromUnknown(`${hook} failed for plugin ${pluginId}`, cause);
 
 const createDefaultMemoryDb = (tables: FumaTables): ExecutorDb => {
   const version = "1.0.0";
-  const latestSchema = fumaSchema<string, FumaTables, RelationsMap<FumaTables>>({
-    version,
-    tables,
-  });
+  const latestSchema = fumaSchema<string, FumaTables, RelationsMap<FumaTables>>(
+    {
+      version,
+      tables,
+    },
+  );
   const factory = fumadb({
     namespace: "executor_memory",
     schemas: [latestSchema],
@@ -434,7 +512,9 @@ const createDefaultMemoryDb = (tables: FumaTables): ExecutorDb => {
 // JSON helpers + row → public projection conversions
 // ---------------------------------------------------------------------------
 
-const decodeJsonFromString = Schema.decodeUnknownOption(Schema.UnknownFromJsonString);
+const decodeJsonFromString = Schema.decodeUnknownOption(
+  Schema.UnknownFromJsonString,
+);
 
 const decodeJsonColumn = (value: unknown): unknown => {
   if (value === null || value === undefined) return undefined;
@@ -482,9 +562,14 @@ const rowToConnection = (row: ConnectionRow): Connection => {
     identityLabel: row.identity_label ?? null,
     description: row.description ?? null,
     expiresAt: row.expires_at == null ? null : Number(row.expires_at),
-    oauthClient: row.oauth_client == null ? null : OAuthClientSlug.make(String(row.oauth_client)),
+    oauthClient:
+      row.oauth_client == null
+        ? null
+        : OAuthClientSlug.make(String(row.oauth_client)),
     oauthClientOwner:
-      row.oauth_client_owner == null ? null : (String(row.oauth_client_owner) as Owner),
+      row.oauth_client_owner == null
+        ? null
+        : (String(row.oauth_client_owner) as Owner),
     oauthScope: row.oauth_scope == null ? null : String(row.oauth_scope),
   };
 };
@@ -505,7 +590,10 @@ const normalizeConnectionInputs = (
   input: ConnectionValueInput,
 ): readonly NormalizedConnectionInput[] => {
   if ("inputs" in input) {
-    return Object.entries(input.inputs).map(([variable, origin]) => ({ variable, origin }));
+    return Object.entries(input.inputs).map(([variable, origin]) => ({
+      variable,
+      origin,
+    }));
   }
   if ("values" in input) {
     return Object.entries(input.values).map(([variable, value]) => ({
@@ -532,7 +620,8 @@ const connectionItemIds = (row: ConnectionRow): Record<string, string> => {
 // schema columns); `Tool.inputSchema`/`outputSchema` are optional and stay
 // absent for those callers — `tools.schema` is the schema-bearing surface.
 const rowToTool = (
-  row: ToolInvocationRow & Partial<Pick<ToolRow, "input_schema" | "output_schema">>,
+  row: ToolInvocationRow &
+    Partial<Pick<ToolRow, "input_schema" | "output_schema">>,
   annotations?: ToolAnnotations,
 ): Tool => {
   const owner = row.owner as Owner;
@@ -549,7 +638,9 @@ const rowToTool = (
     description: row.description,
     inputSchema: decodeJsonColumn(row.input_schema),
     outputSchema: decodeJsonColumn(row.output_schema),
-    annotations: annotations ?? (decodeJsonColumn(row.annotations) as ToolAnnotations | undefined),
+    annotations:
+      annotations ??
+      (decodeJsonColumn(row.annotations) as ToolAnnotations | undefined),
   };
 };
 
@@ -580,7 +671,10 @@ type CoreFindFirstOptions<TName extends CoreTableName = CoreTableName> = Omit<
 >;
 /** The narrowed row a projected query returns: the selected columns keep
  *  their types, everything else is absent. */
-type CoreProjectedRow<TName extends CoreTableName, TSelect> = TSelect extends readonly (infer K)[]
+type CoreProjectedRow<
+  TName extends CoreTableName,
+  TSelect,
+> = TSelect extends readonly (infer K)[]
   ? Pick<CoreRow<TName>, Extract<K, keyof CoreRow<TName>>>
   : CoreRow<TName>;
 
@@ -613,7 +707,9 @@ const makeCoreDb = (fuma: ReturnType<typeof makeFumaClient>) => ({
     tableName: TName,
     options?: { readonly where?: CoreWhere },
   ): Effect.Effect<number, StorageFailure> =>
-    fuma.use(`${tableName}.count`, (db) => asLooseStorageDb(db).count(tableName, options)),
+    fuma.use(`${tableName}.count`, (db) =>
+      asLooseStorageDb(db).count(tableName, options),
+    ),
   create: <TName extends CoreTableName>(
     tableName: TName,
     row: Record<string, unknown>,
@@ -628,7 +724,9 @@ const makeCoreDb = (fuma: ReturnType<typeof makeFumaClient>) => ({
     rows.length === 0
       ? Effect.void
       : fuma
-          .use(`${tableName}.createMany`, (db) => asLooseStorageDb(db).createMany(tableName, rows))
+          .use(`${tableName}.createMany`, (db) =>
+            asLooseStorageDb(db).createMany(tableName, rows),
+          )
           .pipe(Effect.asVoid),
   deleteMany: <TName extends CoreTableName>(
     tableName: TName,
@@ -637,20 +735,38 @@ const makeCoreDb = (fuma: ReturnType<typeof makeFumaClient>) => ({
     fuma.use(`${tableName}.deleteMany`, (db) =>
       asLooseStorageDb(db).deleteMany(tableName, options),
     ),
-  findFirst: <TName extends CoreTableName, const TOptions extends CoreFindFirstOptions<TName>>(
+  findFirst: <
+    TName extends CoreTableName,
+    const TOptions extends CoreFindFirstOptions<TName>,
+  >(
     tableName: TName,
     options: TOptions,
-  ): Effect.Effect<CoreProjectedRow<TName, TOptions["select"]> | null, StorageFailure> =>
+  ): Effect.Effect<
+    CoreProjectedRow<TName, TOptions["select"]> | null,
+    StorageFailure
+  > =>
     fuma.use(`${tableName}.findFirst`, (db) =>
       asLooseStorageDb(db).findFirst(tableName, options),
-    ) as Effect.Effect<CoreProjectedRow<TName, TOptions["select"]> | null, StorageFailure>,
-  findMany: <TName extends CoreTableName, const TOptions extends CoreFindManyOptions<TName>>(
+    ) as Effect.Effect<
+      CoreProjectedRow<TName, TOptions["select"]> | null,
+      StorageFailure
+    >,
+  findMany: <
+    TName extends CoreTableName,
+    const TOptions extends CoreFindManyOptions<TName>,
+  >(
     tableName: TName,
     options: TOptions = {} as TOptions,
-  ): Effect.Effect<readonly CoreProjectedRow<TName, TOptions["select"]>[], StorageFailure> =>
+  ): Effect.Effect<
+    readonly CoreProjectedRow<TName, TOptions["select"]>[],
+    StorageFailure
+  > =>
     fuma.use(`${tableName}.findMany`, (db) =>
       asLooseStorageDb(db).findMany(tableName, options),
-    ) as Effect.Effect<readonly CoreProjectedRow<TName, TOptions["select"]>[], StorageFailure>,
+    ) as Effect.Effect<
+      readonly CoreProjectedRow<TName, TOptions["select"]>[],
+      StorageFailure
+    >,
   updateMany: <TName extends CoreTableName>(
     tableName: TName,
     options: {
@@ -670,7 +786,9 @@ type CoreDb = ReturnType<typeof makeCoreDb>;
 // [user, org]; writes/deletes name an explicit owner.
 // ---------------------------------------------------------------------------
 
-const pluginStorageEntryFromRow = <T>(row: CoreRow<"plugin_storage">): PluginStorageEntry<T> => ({
+const pluginStorageEntryFromRow = <T>(
+  row: CoreRow<"plugin_storage">,
+): PluginStorageEntry<T> => ({
   id: pluginStorageId({
     pluginId: row.plugin_id,
     collection: row.collection,
@@ -681,21 +799,28 @@ const pluginStorageEntryFromRow = <T>(row: CoreRow<"plugin_storage">): PluginSto
   collection: row.collection,
   key: row.key,
   data: row.data as T,
-  createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
-  updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+  createdAt:
+    row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+  updatedAt:
+    row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
 });
 
-const pluginStorageIndexSpecFields = (spec: PluginStorageRuntimeIndexSpec): readonly string[] =>
-  typeof spec === "string" ? [spec] : spec;
+const pluginStorageIndexSpecFields = (
+  spec: PluginStorageRuntimeIndexSpec,
+): readonly string[] => (typeof spec === "string" ? [spec] : spec);
 
 const pluginStorageCollectionIndexedFields = (
   definition: PluginStorageRuntimeCollectionDefinition,
 ): ReadonlySet<string> =>
-  new Set(definition.indexes.flatMap((spec) => pluginStorageIndexSpecFields(spec)));
+  new Set(
+    definition.indexes.flatMap((spec) => pluginStorageIndexSpecFields(spec)),
+  );
 
 const pluginStorageQueryValidationError = (
   definition: PluginStorageRuntimeCollectionDefinition,
-  query: PluginStorageCollectionQueryInput<PluginStorageCollectionDefinition> | undefined,
+  query:
+    | PluginStorageCollectionQueryInput<PluginStorageCollectionDefinition>
+    | undefined,
 ): StorageError | null => {
   if (!query) return null;
   const indexedFields = pluginStorageCollectionIndexedFields(definition);
@@ -711,13 +836,19 @@ const pluginStorageQueryValidationError = (
       });
     }
   }
-  if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 0)) {
+  if (
+    query.limit !== undefined &&
+    (!Number.isInteger(query.limit) || query.limit < 0)
+  ) {
     return new StorageError({
       message: `Plugin storage collection "${definition.name}" received an invalid query limit`,
       cause: undefined,
     });
   }
-  if (query.offset !== undefined && (!Number.isInteger(query.offset) || query.offset < 0)) {
+  if (
+    query.offset !== undefined &&
+    (!Number.isInteger(query.offset) || query.offset < 0)
+  ) {
     return new StorageError({
       message: `Plugin storage collection "${definition.name}" received an invalid query offset`,
       cause: undefined,
@@ -726,17 +857,35 @@ const pluginStorageQueryValidationError = (
   return null;
 };
 
-const isPluginStorageRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+const isPluginStorageRecord = (
+  value: unknown,
+): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-const pluginStorageWhereOperators = ["eq", "in", "gt", "gte", "lt", "lte"] as const;
+const pluginStorageWhereOperators = [
+  "eq",
+  "in",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+] as const;
 
-const isPluginStorageWhereFilter = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  isPluginStorageRecord(value) && pluginStorageWhereOperators.some((operator) => operator in value);
+const isPluginStorageWhereFilter = (
+  value: unknown,
+): value is Readonly<Record<string, unknown>> =>
+  isPluginStorageRecord(value) &&
+  pluginStorageWhereOperators.some((operator) => operator in value);
 
-const pluginStorageComparableValue = (value: unknown): string | number | boolean | null => {
+const pluginStorageComparableValue = (
+  value: unknown,
+): string | number | boolean | null => {
   if (value instanceof Date) return value.getTime();
-  if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
+  if (
+    typeof value === "number" ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
   if (value == null) return null;
@@ -755,8 +904,13 @@ const comparePluginStorageValues = (left: unknown, right: unknown): number => {
 const pluginStorageDataField = (data: unknown, field: string): unknown =>
   isPluginStorageRecord(data) ? data[field] : undefined;
 
-const matchesWhereOperator = (operator: string, value: unknown, operand: unknown): boolean => {
-  if (operator === "eq") return comparePluginStorageValues(value, operand) === 0;
+const matchesWhereOperator = (
+  operator: string,
+  value: unknown,
+  operand: unknown,
+): boolean => {
+  if (operator === "eq")
+    return comparePluginStorageValues(value, operand) === 0;
   if (operator === "in") {
     return (
       Array.isArray(operand) &&
@@ -764,9 +918,11 @@ const matchesWhereOperator = (operator: string, value: unknown, operand: unknown
     );
   }
   if (operator === "gt") return comparePluginStorageValues(value, operand) > 0;
-  if (operator === "gte") return comparePluginStorageValues(value, operand) >= 0;
+  if (operator === "gte")
+    return comparePluginStorageValues(value, operand) >= 0;
   if (operator === "lt") return comparePluginStorageValues(value, operand) < 0;
-  if (operator === "lte") return comparePluginStorageValues(value, operand) <= 0;
+  if (operator === "lte")
+    return comparePluginStorageValues(value, operand) <= 0;
   return false;
 };
 
@@ -802,9 +958,12 @@ const makePluginStorageFacade = (input: {
   readonly owner: OwnerBinding;
 }): PluginStorageFacade => {
   // Owner partitions: org always, plus this subject's user partition.
-  const readOwners: readonly Owner[] = input.owner.subject == null ? ["org"] : ["user", "org"];
+  const readOwners: readonly Owner[] =
+    input.owner.subject == null ? ["org"] : ["user", "org"];
 
-  const ownerSubject = (owner: Owner): { owner: Owner; subject: string } | null => {
+  const ownerSubject = (
+    owner: Owner,
+  ): { owner: Owner; subject: string } | null => {
     if (owner === "org") return { owner: "org", subject: ORG_SUBJECT };
     if (input.owner.subject == null) return null;
     return { owner: "user", subject: String(input.owner.subject) };
@@ -821,7 +980,11 @@ const makePluginStorageFacade = (input: {
         key === undefined ? true : b("key", "=", key),
       );
 
-  const whereOwner = (owner: Owner, collection: string, key: string): CoreWhere => {
+  const whereOwner = (
+    owner: Owner,
+    collection: string,
+    key: string,
+  ): CoreWhere => {
     const os = ownerSubject(owner);
     return (b: AnyCb) =>
       b.and(
@@ -843,19 +1006,28 @@ const makePluginStorageFacade = (input: {
     });
 
   const getVisible = <T>(collection: string, key: string) =>
-    input.core.findMany("plugin_storage", { where: whereFor(collection, key) }).pipe(
-      Effect.map((rows) => sortByOwnerPrecedence(rows)[0] ?? null),
-      Effect.map((row) => (row ? pluginStorageEntryFromRow<T>(row) : null)),
-    );
+    input.core
+      .findMany("plugin_storage", { where: whereFor(collection, key) })
+      .pipe(
+        Effect.map((rows) => sortByOwnerPrecedence(rows)[0] ?? null),
+        Effect.map((row) => (row ? pluginStorageEntryFromRow<T>(row) : null)),
+      );
 
   const getForOwnerImpl = <T>(owner: Owner, collection: string, key: string) =>
     input.core
       .findFirst("plugin_storage", {
         where: whereOwner(owner, collection, key),
       })
-      .pipe(Effect.map((row) => (row ? pluginStorageEntryFromRow<T>(row) : null)));
+      .pipe(
+        Effect.map((row) => (row ? pluginStorageEntryFromRow<T>(row) : null)),
+      );
 
-  const putImpl = <T>(owner: Owner, collection: string, key: string, data: unknown) =>
+  const putImpl = <T>(
+    owner: Owner,
+    collection: string,
+    key: string,
+    data: unknown,
+  ) =>
     Effect.gen(function* () {
       const os = ownerSubject(owner);
       if (!os) {
@@ -935,7 +1107,10 @@ const makePluginStorageFacade = (input: {
           offset < uniqueKeys.length;
           offset += PLUGIN_STORAGE_DELETE_KEY_BATCH_SIZE
         ) {
-          const batchKeys = uniqueKeys.slice(offset, offset + PLUGIN_STORAGE_DELETE_KEY_BATCH_SIZE);
+          const batchKeys = uniqueKeys.slice(
+            offset,
+            offset + PLUGIN_STORAGE_DELETE_KEY_BATCH_SIZE,
+          );
           yield* input.core.deleteMany("plugin_storage", {
             where: (b) =>
               b.and(
@@ -1013,7 +1188,9 @@ const makePluginStorageFacade = (input: {
       yield* deleteManyImpl(owner, os.subject, entries);
     });
 
-  const queryCollection = <TDefinition extends PluginStorageCollectionDefinition>(
+  const queryCollection = <
+    TDefinition extends PluginStorageCollectionDefinition,
+  >(
     definition: TDefinition,
     queryInput?: PluginStorageCollectionQueryInput<TDefinition>,
   ) =>
@@ -1031,7 +1208,9 @@ const makePluginStorageFacade = (input: {
       });
       const filtered = sortByOwnerPrecedence(rows)
         .filter((row) =>
-          queryInput?.keyPrefix === undefined ? true : row.key.startsWith(queryInput.keyPrefix),
+          queryInput?.keyPrefix === undefined
+            ? true
+            : row.key.startsWith(queryInput.keyPrefix),
         )
         .filter((row) =>
           rowMatchesPluginStorageWhere(
@@ -1053,7 +1232,8 @@ const makePluginStorageFacade = (input: {
                 if (compared !== 0) return compared;
               }
               return (
-                ownerRank(left.owner as Owner) - ownerRank(right.owner as Owner) ||
+                ownerRank(left.owner as Owner) -
+                  ownerRank(right.owner as Owner) ||
                 left.key.localeCompare(right.key)
               );
             })
@@ -1065,7 +1245,9 @@ const makePluginStorageFacade = (input: {
           ? sorted.slice(offset)
           : sorted.slice(offset, offset + queryInput.limit);
       return limited.map((row) =>
-        pluginStorageEntryFromRow<PluginStorageCollectionData<TDefinition>>(row),
+        pluginStorageEntryFromRow<PluginStorageCollectionData<TDefinition>>(
+          row,
+        ),
       );
     });
 
@@ -1073,15 +1255,24 @@ const makePluginStorageFacade = (input: {
     collection: (definition) => ({
       get: (storageInput) =>
         getVisible(definition.name, storageInput.key) as Effect.Effect<
-          PluginStorageEntry<PluginStorageCollectionData<typeof definition>> | null,
+          PluginStorageEntry<
+            PluginStorageCollectionData<typeof definition>
+          > | null,
           StorageFailure
         >,
       getForOwner: (storageInput) =>
-        getForOwnerImpl(storageInput.owner, definition.name, storageInput.key) as Effect.Effect<
-          PluginStorageEntry<PluginStorageCollectionData<typeof definition>> | null,
+        getForOwnerImpl(
+          storageInput.owner,
+          definition.name,
+          storageInput.key,
+        ) as Effect.Effect<
+          PluginStorageEntry<
+            PluginStorageCollectionData<typeof definition>
+          > | null,
           StorageFailure
         >,
-      list: (storageInput) => queryCollection(definition, { keyPrefix: storageInput?.keyPrefix }),
+      list: (storageInput) =>
+        queryCollection(definition, { keyPrefix: storageInput?.keyPrefix }),
       put: (storageInput) =>
         putImpl(
           storageInput.owner,
@@ -1094,12 +1285,20 @@ const makePluginStorageFacade = (input: {
         >,
       query: (storageInput) => queryCollection(definition, storageInput),
       count: (storageInput) =>
-        queryCollection(definition, storageInput).pipe(Effect.map((rows) => rows.length)),
-      remove: (storageInput) => removeImpl(storageInput.owner, definition.name, storageInput.key),
+        queryCollection(definition, storageInput).pipe(
+          Effect.map((rows) => rows.length),
+        ),
+      remove: (storageInput) =>
+        removeImpl(storageInput.owner, definition.name, storageInput.key),
     }),
-    get: (storageInput) => getVisible(storageInput.collection, storageInput.key),
+    get: (storageInput) =>
+      getVisible(storageInput.collection, storageInput.key),
     getForOwner: (storageInput) =>
-      getForOwnerImpl(storageInput.owner, storageInput.collection, storageInput.key),
+      getForOwnerImpl(
+        storageInput.owner,
+        storageInput.collection,
+        storageInput.key,
+      ),
     list: (storageInput) =>
       Effect.gen(function* () {
         const rows = yield* input.core.findMany("plugin_storage", {
@@ -1114,11 +1313,18 @@ const makePluginStorageFacade = (input: {
           .map((row) => pluginStorageEntryFromRow(row));
       }),
     put: (storageInput) =>
-      putImpl(storageInput.owner, storageInput.collection, storageInput.key, storageInput.data),
-    putMany: (storageInput) => putManyImpl(storageInput.owner, storageInput.entries),
+      putImpl(
+        storageInput.owner,
+        storageInput.collection,
+        storageInput.key,
+        storageInput.data,
+      ),
+    putMany: (storageInput) =>
+      putManyImpl(storageInput.owner, storageInput.entries),
     remove: (storageInput) =>
       removeImpl(storageInput.owner, storageInput.collection, storageInput.key),
-    removeMany: (storageInput) => removeManyImpl(storageInput.owner, storageInput.entries),
+    removeMany: (storageInput) =>
+      removeManyImpl(storageInput.owner, storageInput.entries),
   };
 };
 
@@ -1161,7 +1367,9 @@ const EXECUTOR_SOURCE: StaticSourceDecl = {
   tools: [],
 };
 
-const isReadonlyRecord = (value: unknown): value is Readonly<Record<PropertyKey, unknown>> =>
+const isReadonlyRecord = (
+  value: unknown,
+): value is Readonly<Record<PropertyKey, unknown>> =>
   typeof value === "object" && value !== null;
 
 type StandardJsonSchemaSide = "input" | "output";
@@ -1180,10 +1388,14 @@ const staticToolSchemaRoot = (
   const jsonSchema = standard["jsonSchema"];
   if (!isReadonlyRecord(jsonSchema)) return schema;
   const materialize = (jsonSchema as StandardJsonSchemaFns)[side];
-  return typeof materialize === "function" ? materialize({ target: "draft-07" }) : jsonSchema;
+  return typeof materialize === "function"
+    ? materialize({ target: "draft-07" })
+    : jsonSchema;
 };
 
-export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = readonly []>(
+export const createExecutor = <
+  const TPlugins extends readonly AnyPlugin[] = readonly [],
+>(
   config: ExecutorConfig<TPlugins>,
 ): Effect.Effect<Executor<TPlugins>, StorageFailure> =>
   Effect.gen(function* () {
@@ -1213,7 +1425,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       return { tenant, owner, subject };
     };
 
-    const requireUserSubject = (owner: Owner): Effect.Effect<void, StorageFailure> =>
+    const requireUserSubject = (
+      owner: Owner,
+    ): Effect.Effect<void, StorageFailure> =>
       owner === "user" && subject == null
         ? Effect.fail(
             new StorageError({
@@ -1236,7 +1450,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
 
     const tables = yield* Effect.try({
       try: () => collectTables(),
-      catch: (cause) => storageFailureFromUnknown("Failed to collect executor tables", cause),
+      catch: (cause) =>
+        storageFailureFromUnknown("Failed to collect executor tables", cause),
     });
     const dbInput = yield* Effect.suspend(() => {
       if (!config.db) return Effect.succeed(createDefaultMemoryDb(tables));
@@ -1251,7 +1466,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         validateExecutorDbTables(tables, rootDbUntyped.internal.tables);
         validateExecutorOwnerPolicyTables(rootDbUntyped.internal.tables);
       },
-      catch: (cause) => storageFailureFromUnknown("Failed to validate executor tables", cause),
+      catch: (cause) =>
+        storageFailureFromUnknown("Failed to validate executor tables", cause),
     });
 
     const ownerContext: ExecutorOwnerPolicyContext = { tenant, subject };
@@ -1259,7 +1475,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const fuma = makeFumaClient(rootDb);
     const core = makeCoreDb(fuma);
     const blobs = config.blobs ?? makeFumaBlobStore(fuma);
-    const transaction = <A, E>(effect: Effect.Effect<A, E>) => fuma.transaction(effect);
+    const transaction = <A, E>(effect: Effect.Effect<A, E>) =>
+      fuma.transaction(effect);
 
     // Populated once, never mutated after startup.
     const staticTools = new Map<string, StaticTools>();
@@ -1270,7 +1487,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
 
     const staticToolOwner = (): Owner => (subject == null ? "org" : "user");
     const staticToolConnection = (source: StaticSourceDecl): ConnectionName =>
-      ConnectionName.make(source.id === EXECUTOR_SOURCE_ID ? "coreTools" : "static");
+      ConnectionName.make(
+        source.id === EXECUTOR_SOURCE_ID ? "coreTools" : "static",
+      );
 
     const staticSources = (): readonly StaticSourceDecl[] => {
       const byId = new Map<string, StaticSourceDecl>();
@@ -1280,7 +1499,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       return [...byId.values()];
     };
 
-    const staticSourceToIntegration = (source: StaticSourceDecl): Integration => ({
+    const staticSourceToIntegration = (
+      source: StaticSourceDecl,
+    ): Integration => ({
       slug: IntegrationSlug.make(source.id),
       name: source.name,
       description: source.name,
@@ -1336,6 +1557,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     };
 
     const extensions: Record<string, object> = {};
+    // Generic executor-wrapper hook: a plugin may expose `wrapExecutor` on its
+    // extension to narrow the executor per request (the toolkits plugin does).
+    // Collected here, run by the execution stack — core stays domain-agnostic.
+    const executorWrappers: ExecutorWrapper[] = [];
 
     // ------------------------------------------------------------------
     // Owner condition builders. The owner policy already restricts reads to
@@ -1389,7 +1614,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const performTokenRefresh = (
       row: ConnectionRow,
       provider: CredentialProvider,
-    ): Effect.Effect<string | null, StorageFailure | CredentialResolutionError> =>
+    ): Effect.Effect<
+      string | null,
+      StorageFailure | CredentialResolutionError
+    > =>
       Effect.gen(function* () {
         const owner = row.owner as Owner;
         const reauth = (message: string): CredentialResolutionError =>
@@ -1404,15 +1632,21 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         // Load the backing app by the owner STORED on the connection (a Personal
         // connection may be backed by a shared Workspace app) — no derivation.
         const clientOwner = (row.oauth_client_owner ?? row.owner) as Owner;
-        const clientRow = yield* loadOAuthClientRow(clientOwner, String(row.oauth_client));
+        const clientRow = yield* loadOAuthClientRow(
+          clientOwner,
+          String(row.oauth_client),
+        );
         if (!clientRow) {
-          return yield* reauth(`OAuth client "${row.oauth_client}" is no longer registered.`);
+          return yield* reauth(
+            `OAuth client "${row.oauth_client}" is no longer registered.`,
+          );
         }
 
         // The secret is stored in the provider (a vault item id), not inline.
         const clientSecret = clientRow.client_secret_item_id
-          ? ((yield* provider.get(ProviderItemId.make(String(clientRow.client_secret_item_id)))) ??
-            "")
+          ? ((yield* provider.get(
+              ProviderItemId.make(String(clientRow.client_secret_item_id)),
+            )) ?? "")
           : "";
         // Re-request the scopes this connection was GRANTED (RFC 6749 §6: a
         // refresh must not exceed the originally-granted scope). Empty → omit
@@ -1433,7 +1667,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                 clientId: String(clientRow.client_id),
                 clientSecret,
                 scopes: grantedScopes,
-                resource: clientRow.resource ? String(clientRow.resource) : undefined,
+                resource: clientRow.resource
+                  ? String(clientRow.resource)
+                  : undefined,
                 endpointUrlPolicy: config.oauthEndpointUrlPolicy,
               }).pipe(
                 // A client_credentials failure is never a rotated-refresh-token
@@ -1451,11 +1687,17 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               )
             : yield* Effect.gen(function* () {
                 if (!row.refresh_item_id) {
-                  return yield* reauth("No refresh token is stored for this connection.");
+                  return yield* reauth(
+                    "No refresh token is stored for this connection.",
+                  );
                 }
-                const refreshToken = yield* provider.get(ProviderItemId.make(row.refresh_item_id));
+                const refreshToken = yield* provider.get(
+                  ProviderItemId.make(row.refresh_item_id),
+                );
                 if (!refreshToken) {
-                  return yield* reauth("Stored refresh token could not be resolved.");
+                  return yield* reauth(
+                    "Stored refresh token could not be resolved.",
+                  );
                 }
                 return yield* refreshAccessToken({
                   tokenUrl: String(clientRow.token_url),
@@ -1465,7 +1707,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                   scopes: grantedScopes,
                   // RFC 8707: keep the re-minted token bound to the same resource
                   // (MCP servers require this on refresh).
-                  resource: clientRow.resource ? String(clientRow.resource) : undefined,
+                  resource: clientRow.resource
+                    ? String(clientRow.resource)
+                    : undefined,
                   endpointUrlPolicy: config.oauthEndpointUrlPolicy,
                 }).pipe(
                   Effect.mapError((cause) =>
@@ -1489,14 +1733,22 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           const tokenItemId =
             connectionItemIds(row)[PRIMARY_INPUT_VARIABLE] ??
             `connection:${row.owner}:${row.integration}:${row.name}:${PRIMARY_INPUT_VARIABLE}`;
-          yield* provider.set(ProviderItemId.make(tokenItemId), token.access_token);
+          yield* provider.set(
+            ProviderItemId.make(tokenItemId),
+            token.access_token,
+          );
           if (token.refresh_token && row.refresh_item_id) {
-            yield* provider.set(ProviderItemId.make(row.refresh_item_id), token.refresh_token);
+            yield* provider.set(
+              ProviderItemId.make(row.refresh_item_id),
+              token.refresh_token,
+            );
           }
         }
 
         const nextExpiresAt =
-          typeof token.expires_in === "number" ? Date.now() + token.expires_in * 1000 : null;
+          typeof token.expires_in === "number"
+            ? Date.now() + token.expires_in * 1000
+            : null;
         const set: Record<string, unknown> = {
           expires_at: nextExpiresAt,
           updated_at: new Date(),
@@ -1518,7 +1770,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const refreshConnectionToken = (
       row: ConnectionRow,
       provider: CredentialProvider,
-    ): Effect.Effect<string | null, StorageFailure | CredentialResolutionError> =>
+    ): Effect.Effect<
+      string | null,
+      StorageFailure | CredentialResolutionError
+    > =>
       // Share a single refresh per connection so concurrent resolves of the same
       // connection all await one refresh-token grant (the AS rotates the refresh
       // token; parallel grants would race on a consumed token — v1's refresh
@@ -1530,7 +1785,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         if (existing) return yield* existing;
         // `Effect.cached` memoizes the grant onto a deferred: it runs once and
         // replays to every awaiter sharing this entry.
-        const memoized = yield* Effect.cached(performTokenRefresh(row, provider));
+        const memoized = yield* Effect.cached(
+          performTokenRefresh(row, provider),
+        );
         const gated = memoized.pipe(
           Effect.ensuring(Effect.sync(() => refreshInFlight.delete(key))),
         );
@@ -1547,7 +1804,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     // first (always single-input → `{ token: <access> }`).
     const resolveConnectionValues = (
       row: ConnectionRow,
-    ): Effect.Effect<Record<string, string | null>, StorageFailure | CredentialResolutionError> =>
+    ): Effect.Effect<
+      Record<string, string | null>,
+      StorageFailure | CredentialResolutionError
+    > =>
       Effect.gen(function* () {
         const provider = credentialProviders.get(row.provider);
         if (!provider) {
@@ -1557,13 +1817,16 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         }
         // OAuth connections refresh their access token before resolving when
         // it has expired (or is within the skew window).
-        const expiresAt = row.expires_at == null ? null : Number(row.expires_at);
+        const expiresAt =
+          row.expires_at == null ? null : Number(row.expires_at);
         if (row.oauth_client != null && shouldRefreshToken({ expiresAt })) {
           const access = yield* refreshConnectionToken(row, provider);
           return { [PRIMARY_INPUT_VARIABLE]: access };
         }
         const out: Record<string, string | null> = {};
-        for (const [variable, itemId] of Object.entries(connectionItemIds(row))) {
+        for (const [variable, itemId] of Object.entries(
+          connectionItemIds(row),
+        )) {
           out[variable] = yield* provider.get(ProviderItemId.make(itemId));
         }
         return out;
@@ -1584,7 +1847,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
      *  callers that only ever need one value. */
     const resolveConnectionValue = (
       row: ConnectionRow,
-    ): Effect.Effect<string | null, StorageFailure | CredentialResolutionError> =>
+    ): Effect.Effect<
+      string | null,
+      StorageFailure | CredentialResolutionError
+    > =>
       resolveConnectionValues(row).pipe(
         Effect.map((values) => values[PRIMARY_INPUT_VARIABLE] ?? null),
       );
@@ -1644,7 +1910,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     // plugin's `describeAuthMethods` hook. The hook is plugin-authored, so a
     // throw (malformed config it didn't guard) degrades to `[]` rather than
     // failing the catalog read.
-    const describeAuthMethodsForRow = (row: IntegrationRow): readonly AuthMethodDescriptor[] => {
+    const describeAuthMethodsForRow = (
+      row: IntegrationRow,
+    ): readonly AuthMethodDescriptor[] => {
       const runtime = runtimes.get(row.plugin_id);
       const describe = runtime?.plugin.describeAuthMethods;
       if (!describe) return [];
@@ -1657,7 +1925,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       }
     };
 
-    const describeDisplayUrlForRow = (row: IntegrationRow): string | undefined => {
+    const describeDisplayUrlForRow = (
+      row: IntegrationRow,
+    ): string | undefined => {
       const runtime = runtimes.get(row.plugin_id);
       const describe = runtime?.plugin.describeIntegrationDisplay;
       if (!describe) return undefined;
@@ -1671,14 +1941,21 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       }
     };
 
-    const integrationsList = (): Effect.Effect<readonly Integration[], StorageFailure> =>
+    const integrationsList = (): Effect.Effect<
+      readonly Integration[],
+      StorageFailure
+    > =>
       core
         .findMany("integration", {})
         .pipe(
           Effect.map((rows) => [
             ...staticSources().map(staticSourceToIntegration),
             ...rows.map((row) =>
-              rowToIntegration(row, describeAuthMethodsForRow(row), describeDisplayUrlForRow(row)),
+              rowToIntegration(
+                row,
+                describeAuthMethodsForRow(row),
+                describeDisplayUrlForRow(row),
+              ),
             ),
           ]),
         );
@@ -1687,11 +1964,17 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       slug: IntegrationSlug,
     ): Effect.Effect<Integration | null, StorageFailure> =>
       Effect.gen(function* () {
-        const staticSource = staticSources().find((source) => source.id === String(slug));
+        const staticSource = staticSources().find(
+          (source) => source.id === String(slug),
+        );
         if (staticSource) return staticSourceToIntegration(staticSource);
         const row = yield* findIntegrationRow(slug);
         return row
-          ? rowToIntegration(row, describeAuthMethodsForRow(row), describeDisplayUrlForRow(row))
+          ? rowToIntegration(
+              row,
+              describeAuthMethodsForRow(row),
+              describeDisplayUrlForRow(row),
+            )
           : null;
       });
 
@@ -1700,7 +1983,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     ): Effect.Effect<IntegrationRecord | null, StorageFailure> =>
       findIntegrationRow(slug).pipe(
         Effect.map((row) =>
-          row ? rowToIntegrationRecord(row, describeAuthMethodsForRow(row)) : null,
+          row
+            ? rowToIntegrationRecord(row, describeAuthMethodsForRow(row))
+            : null,
         ),
       );
 
@@ -1755,7 +2040,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         const now = new Date();
         const set: Record<string, unknown> = { updated_at: now };
         if (patch.name !== undefined) set.name = patch.name;
-        if (patch.description !== undefined) set.description = patch.description;
+        if (patch.description !== undefined)
+          set.description = patch.description;
         if (patch.config !== undefined) {
           set.config = patch.config;
           // A config change can change the derived tools. The writer can only
@@ -1782,7 +2068,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
 
     const integrationsRemove = (
       slug: IntegrationSlug,
-    ): Effect.Effect<void, IntegrationRemovalNotAllowedError | StorageFailure> =>
+    ): Effect.Effect<
+      void,
+      IntegrationRemovalNotAllowedError | StorageFailure
+    > =>
       transaction(
         Effect.gen(function* () {
           const existing = yield* findIntegrationRow(slug);
@@ -1811,7 +2100,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           const result = yield* runtime.plugin
             .detect({ ctx: runtime.ctx, url })
             .pipe(
-              Effect.mapError((cause) => pluginStorageFailure(runtime.plugin.id, "detect", cause)),
+              Effect.mapError((cause) =>
+                pluginStorageFailure(runtime.plugin.id, "detect", cause),
+              ),
             );
           if (result) results.push(result);
         }
@@ -1825,7 +2116,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const produceConnectionTools = (
       integrationRow: IntegrationRow,
       ref: ConnectionRef,
-    ): Effect.Effect<readonly Tool[], IntegrationNotFoundError | StorageFailure> =>
+    ): Effect.Effect<
+      readonly Tool[],
+      IntegrationNotFoundError | StorageFailure
+    > =>
       Effect.gen(function* () {
         const runtime = runtimes.get(integrationRow.plugin_id);
         const keys = yield* Effect.try({
@@ -1894,14 +2188,20 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             integration: rowToIntegration(integrationRow),
             config: decodeJsonColumn(integrationRow.config),
             connection: ref,
-            template: existingRow ? AuthTemplateSlug.make(existingRow.template) : null,
+            template: existingRow
+              ? AuthTemplateSlug.make(existingRow.template)
+              : null,
             storage: runtime.storage,
             getValue: () => resolveConnectionValueByRef(ref),
             getValues: () => resolveConnectionValuesByRef(ref),
           })
           .pipe(
             Effect.mapError((cause) =>
-              pluginStorageFailure(integrationRow.plugin_id, "resolveTools", cause),
+              pluginStorageFailure(
+                integrationRow.plugin_id,
+                "resolveTools",
+                cause,
+              ),
             ),
           );
 
@@ -1922,17 +2222,19 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           updated_at: now,
         }));
 
-        const definitionRows = Object.entries(result.definitions ?? {}).map(([name, schema]) => ({
-          tenant: keys.tenant,
-          owner: keys.owner,
-          subject: keys.subject,
-          integration: String(ref.integration),
-          connection: String(ref.name),
-          plugin_id: integrationRow.plugin_id,
-          name,
-          schema,
-          created_at: now,
-        }));
+        const definitionRows = Object.entries(result.definitions ?? {}).map(
+          ([name, schema]) => ({
+            tenant: keys.tenant,
+            owner: keys.owner,
+            subject: keys.subject,
+            integration: String(ref.integration),
+            connection: String(ref.name),
+            plugin_id: integrationRow.plugin_id,
+            name,
+            schema,
+            created_at: now,
+          }),
+        );
 
         yield* transaction(
           Effect.gen(function* () {
@@ -2024,16 +2326,20 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         const itemIds: Record<string, string> = {};
         if (external.length > 0 && pasted.length > 0) {
           return yield* new InvalidConnectionInputError({
-            message: "A connection cannot mix pasted and external-provider inputs.",
+            message:
+              "A connection cannot mix pasted and external-provider inputs.",
           });
         }
         if (external.length > 0) {
           const providers = new Set(
-            external.map((i) => ("from" in i.origin ? String(i.origin.from.provider) : "")),
+            external.map((i) =>
+              "from" in i.origin ? String(i.origin.from.provider) : "",
+            ),
           );
           if (providers.size > 1) {
             return yield* new InvalidConnectionInputError({
-              message: "A connection's inputs must all use the same external provider.",
+              message:
+                "A connection's inputs must all use the same external provider.",
             });
           }
           const [only] = [...providers];
@@ -2045,7 +2351,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           }
           providerKey = only ?? "";
           for (const i of external) {
-            if ("from" in i.origin) itemIds[i.variable] = String(i.origin.from.id);
+            if ("from" in i.origin)
+              itemIds[i.variable] = String(i.origin.from.id);
           }
         } else {
           const provider = defaultWritableProvider();
@@ -2083,7 +2390,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               identity_label: input.identityLabel ?? null,
               // Re-saving a credential keeps an existing curated description
               // unless the caller explicitly provides one.
-              ...(input.description !== undefined ? { description: input.description } : {}),
+              ...(input.description !== undefined
+                ? { description: input.description }
+                : {}),
               updated_at: now,
             };
             if (existing) {
@@ -2127,7 +2436,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         };
         // Produce + persist tools for the new connection.
         yield* produceConnectionTools(integrationRow, ref).pipe(
-          Effect.catchTag("IntegrationNotFoundError", () => Effect.succeed([] as readonly Tool[])),
+          Effect.catchTag("IntegrationNotFoundError", () =>
+            Effect.succeed([] as readonly Tool[]),
+          ),
         );
 
         const row = yield* findConnectionRow(ref);
@@ -2236,7 +2547,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         // Produce + persist tools for the minted connection (same path
         // connections.create uses).
         yield* produceConnectionTools(integrationRow, ref).pipe(
-          Effect.catchTag("IntegrationNotFoundError", () => Effect.succeed([] as readonly Tool[])),
+          Effect.catchTag("IntegrationNotFoundError", () =>
+            Effect.succeed([] as readonly Tool[]),
+          ),
         );
 
         const row = yield* findConnectionRow(ref);
@@ -2275,13 +2588,19 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               filter?.integration === undefined
                 ? true
                 : b("integration", "=", String(filter.integration)),
-              filter?.owner === undefined ? true : b("owner", "=", filter.owner),
+              filter?.owner === undefined
+                ? true
+                : b("owner", "=", filter.owner),
             ),
         })
         .pipe(Effect.map((rows) => rows.map(rowToConnection)));
 
-    const connectionsGet = (ref: ConnectionRef): Effect.Effect<Connection | null, StorageFailure> =>
-      findConnectionRow(ref).pipe(Effect.map((row) => (row ? rowToConnection(row) : null)));
+    const connectionsGet = (
+      ref: ConnectionRef,
+    ): Effect.Effect<Connection | null, StorageFailure> =>
+      findConnectionRow(ref).pipe(
+        Effect.map((row) => (row ? rowToConnection(row) : null)),
+      );
 
     const connectionsUpdate = (
       ref: ConnectionRef,
@@ -2297,8 +2616,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           });
         }
         const set: Record<string, unknown> = { updated_at: new Date() };
-        if (input.description !== undefined) set.description = input.description;
-        if (input.identityLabel !== undefined) set.identity_label = input.identityLabel;
+        if (input.description !== undefined)
+          set.description = input.description;
+        if (input.identityLabel !== undefined)
+          set.identity_label = input.identityLabel;
         yield* core.updateMany("connection", {
           where: (b: AnyCb) =>
             b.and(
@@ -2326,7 +2647,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             });
           }
           const integrationRow = yield* findIntegrationRow(ref.integration);
-          const runtime = integrationRow ? runtimes.get(integrationRow.plugin_id) : undefined;
+          const runtime = integrationRow
+            ? runtimes.get(integrationRow.plugin_id)
+            : undefined;
           if (integrationRow && runtime?.plugin.removeConnection) {
             yield* runtime.plugin
               .removeConnection({
@@ -2336,7 +2659,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               })
               .pipe(
                 Effect.mapError((cause) =>
-                  pluginStorageFailure(integrationRow.plugin_id, "removeConnection", cause),
+                  pluginStorageFailure(
+                    integrationRow.plugin_id,
+                    "removeConnection",
+                    cause,
+                  ),
                 ),
               );
           }
@@ -2385,11 +2712,23 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     // Tools (read surface)
     // ------------------------------------------------------------------
 
-    const matchesToolFilter = (tool: Tool, filter: ToolListFilter | undefined): boolean => {
+    const matchesToolFilter = (
+      tool: Tool,
+      filter: ToolListFilter | undefined,
+    ): boolean => {
       if (!filter) return true;
-      if (filter.integration !== undefined && tool.integration !== filter.integration) return false;
-      if (filter.owner !== undefined && tool.owner !== filter.owner) return false;
-      if (filter.connection !== undefined && tool.connection !== filter.connection) return false;
+      if (
+        filter.integration !== undefined &&
+        tool.integration !== filter.integration
+      )
+        return false;
+      if (filter.owner !== undefined && tool.owner !== filter.owner)
+        return false;
+      if (
+        filter.connection !== undefined &&
+        tool.connection !== filter.connection
+      )
+        return false;
       if (filter.query !== undefined) {
         const q = filter.query.toLowerCase();
         const hay = `${tool.name} ${tool.description}`.toLowerCase();
@@ -2410,18 +2749,25 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       });
       if (revised.length === 0) return;
       const revisedAt = new Map(
-        revised.map((row) => [row.slug, Number(row.config_revised_at)] as const),
+        revised.map(
+          (row) => [row.slug, Number(row.config_revised_at)] as const,
+        ),
       );
       const connections = yield* core.findMany("connection", {
-        where: (b: AnyCb) => b.or(...revised.map((row) => b("integration", "=", row.slug))),
+        where: (b: AnyCb) =>
+          b.or(...revised.map((row) => b("integration", "=", row.slug))),
       });
       for (const connection of connections) {
         const revisedTime = revisedAt.get(connection.integration);
         if (revisedTime === undefined) continue;
         const syncedAt =
-          connection.tools_synced_at == null ? 0 : Number(connection.tools_synced_at);
+          connection.tools_synced_at == null
+            ? 0
+            : Number(connection.tools_synced_at);
         if (syncedAt >= revisedTime) continue;
-        const integrationRow = revised.find((row) => row.slug === connection.integration);
+        const integrationRow = revised.find(
+          (row) => row.slug === connection.integration,
+        );
         if (!integrationRow) continue;
         yield* produceConnectionTools(integrationRow, {
           owner: connection.owner as Owner,
@@ -2439,7 +2785,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       }
     });
 
-    const toolsList = (filter?: ToolListFilter): Effect.Effect<readonly Tool[], StorageFailure> =>
+    const toolsList = (
+      filter?: ToolListFilter,
+    ): Effect.Effect<readonly Tool[], StorageFailure> =>
       Effect.gen(function* () {
         yield* syncStaleConnectionTools;
         // Projected: the list surface is metadata (address, description,
@@ -2451,7 +2799,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               filter?.integration === undefined
                 ? true
                 : b("integration", "=", String(filter.integration)),
-              filter?.owner === undefined ? true : b("owner", "=", filter.owner),
+              filter?.owner === undefined
+                ? true
+                : b("owner", "=", filter.owner),
               filter?.connection === undefined
                 ? true
                 : b("connection", "=", String(filter.connection)),
@@ -2507,7 +2857,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                 defs: new Map(),
               }),
             catch: (cause) =>
-              storageFailureFromUnknown("Failed to build static tool TypeScript preview", cause),
+              storageFailureFromUnknown(
+                "Failed to build static tool TypeScript preview",
+                cause,
+              ),
           }).pipe(Effect.option);
           return ToolSchemaView.make({
             address,
@@ -2517,7 +2870,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             outputSchema: tool.outputSchema,
             inputTypeScript: Option.getOrUndefined(preview)?.inputTypeScript,
             outputTypeScript: Option.getOrUndefined(preview)?.outputTypeScript,
-            typeScriptDefinitions: Option.getOrUndefined(preview)?.typeScriptDefinitions,
+            typeScriptDefinitions:
+              Option.getOrUndefined(preview)?.typeScriptDefinitions,
           });
         }
 
@@ -2544,7 +2898,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             ),
         });
         const defs = new Map<string, unknown>();
-        for (const def of definitionRows) defs.set(def.name, decodeJsonColumn(def.schema));
+        for (const def of definitionRows)
+          defs.set(def.name, decodeJsonColumn(def.schema));
 
         const referenced = collectReferencedDefinitions(
           [tool.inputSchema, tool.outputSchema],
@@ -2558,7 +2913,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               defs,
             }),
           catch: (cause) =>
-            storageFailureFromUnknown("Failed to build tool TypeScript preview", cause),
+            storageFailureFromUnknown(
+              "Failed to build tool TypeScript preview",
+              cause,
+            ),
         }).pipe(Effect.option);
 
         const view = preview;
@@ -2574,7 +2932,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               : undefined,
           inputTypeScript: Option.getOrUndefined(view)?.inputTypeScript,
           outputTypeScript: Option.getOrUndefined(view)?.outputTypeScript,
-          typeScriptDefinitions: Option.getOrUndefined(view)?.typeScriptDefinitions,
+          typeScriptDefinitions:
+            Option.getOrUndefined(view)?.typeScriptDefinitions,
         });
       });
 
@@ -2583,7 +2942,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     // ------------------------------------------------------------------
 
     const providersList = (): Effect.Effect<readonly ProviderKey[]> =>
-      Effect.sync(() => credentialProviderOrder.map((key) => ProviderKey.make(key)));
+      Effect.sync(() =>
+        credentialProviderOrder.map((key) => ProviderKey.make(key)),
+      );
 
     const providersItems = (
       key: ProviderKey,
@@ -2609,13 +2970,20 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         ? String(tool.address)
         : `${tool.integration}.${tool.owner}.${tool.connection}.${tool.name}`;
 
-    const policiesList = (): Effect.Effect<readonly ToolPolicy[], StorageFailure> =>
+    const policiesList = (): Effect.Effect<
+      readonly ToolPolicy[],
+      StorageFailure
+    > =>
       core
         .findMany("tool_policy", {})
         .pipe(
           Effect.map((rows) =>
             [...rows]
-              .sort((a, b) => ownerRankForRow(a) - ownerRankForRow(b) || comparePolicyRow(a, b))
+              .sort(
+                (a, b) =>
+                  ownerRankForRow(a) - ownerRankForRow(b) ||
+                  comparePolicyRow(a, b),
+              )
               .map(rowToToolPolicy),
           ),
         );
@@ -2648,7 +3016,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           .map((row) => row.position)
           .sort()
           .at(0);
-        const position = input.position ?? generateKeyBetween(null, minPosition ?? null);
+        const position =
+          input.position ?? generateKeyBetween(null, minPosition ?? null);
         const id = PolicyId.make(
           `pol_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`,
         );
@@ -2677,7 +3046,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             cause: undefined,
           });
         }
-        const where = (b: AnyCb) => b.and(byOwner(input.owner)(b), b("id", "=", input.id));
+        const where = (b: AnyCb) =>
+          b.and(byOwner(input.owner)(b), b("id", "=", input.id));
         const existing = yield* core.findFirst("tool_policy", { where });
         if (!existing) {
           return yield* new StorageError({
@@ -2691,12 +3061,17 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         if (input.position !== undefined) set.position = input.position;
         yield* core.updateMany("tool_policy", { where, set });
         const updated = yield* core.findFirst("tool_policy", { where });
-        return rowToToolPolicy(updated ?? ({ ...existing, ...set } as ToolPolicyRow));
+        return rowToToolPolicy(
+          updated ?? ({ ...existing, ...set } as ToolPolicyRow),
+        );
       });
 
-    const policiesRemove = (input: RemoveToolPolicyInput): Effect.Effect<void, StorageFailure> =>
+    const policiesRemove = (
+      input: RemoveToolPolicyInput,
+    ): Effect.Effect<void, StorageFailure> =>
       core.deleteMany("tool_policy", {
-        where: (b: AnyCb) => b.and(byOwner(input.owner)(b), b("id", "=", input.id)),
+        where: (b: AnyCb) =>
+          b.and(byOwner(input.owner)(b), b("id", "=", input.id)),
       });
 
     const policiesResolve = (
@@ -2721,20 +3096,31 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               ),
           });
           if (row) {
-            const annotations = decodeJsonColumn(row.annotations) as ToolAnnotations | undefined;
+            const annotations = decodeJsonColumn(row.annotations) as
+              | ToolAnnotations
+              | undefined;
             requiresApproval = annotations?.requiresApproval;
           }
         }
-        return resolveEffectivePolicy(toolId, policyRows, ownerRankForRow, requiresApproval);
+        return resolveEffectivePolicy(
+          toolId,
+          policyRows,
+          ownerRankForRow,
+          requiresApproval,
+        );
       });
 
     // ------------------------------------------------------------------
     // Elicitation
     // ------------------------------------------------------------------
 
-    const defaultElicitationHandler = resolveElicitationHandler(config.onElicitation);
+    const defaultElicitationHandler = resolveElicitationHandler(
+      config.onElicitation,
+    );
 
-    const pickHandler = (options: InvokeOptions | undefined): ElicitationHandler =>
+    const pickHandler = (
+      options: InvokeOptions | undefined,
+    ): ElicitationHandler =>
       options?.onElicitation
         ? resolveElicitationHandler(options.onElicitation)
         : defaultElicitationHandler;
@@ -2796,15 +3182,17 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
 
     const TOOL_SUGGESTION_LIMIT = 5;
 
-    const toolSuggestions = (rows: readonly ToolInvocationRow[]): readonly ToolAddress[] =>
-      rows.map((row) => rowToTool(row).address);
+    const toolSuggestions = (
+      rows: readonly ToolInvocationRow[],
+    ): readonly ToolAddress[] => rows.map((row) => rowToTool(row).address);
 
-    const toolRowsForConnectionWhere = (parsed: ParsedToolAddress) => (b: AnyCb) =>
-      b.and(
-        byOwner(parsed.owner)(b),
-        b("integration", "=", String(parsed.integration)),
-        b("connection", "=", String(parsed.connection)),
-      );
+    const toolRowsForConnectionWhere =
+      (parsed: ParsedToolAddress) => (b: AnyCb) =>
+        b.and(
+          byOwner(parsed.owner)(b),
+          b("integration", "=", String(parsed.integration)),
+          b("connection", "=", String(parsed.connection)),
+        );
 
     const searchToolRowsForConnection = (
       parsed: ParsedToolAddress,
@@ -2842,7 +3230,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       return Effect.gen(function* () {
         // oxlint-disable executor/no-instanceof-error, executor/no-unknown-error-message, executor/no-manual-tag-check -- boundary: normalize arbitrary unknown plugin failures into a human-readable message for ToolInvocationError/telemetry
         const formatInvocationCauseMessage = (cause: unknown): string => {
-          if (cause instanceof Error && cause.message.length > 0) return cause.message;
+          if (cause instanceof Error && cause.message.length > 0)
+            return cause.message;
           // Non-Error / empty-message causes: `String(plainObject)` renders
           // "[object Object]", which is what telemetry then shows as the only
           // label for the failure. Prefer the tag, else stringify structurally.
@@ -2886,7 +3275,13 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               pattern: policy.pattern ?? "*",
             });
           }
-          yield* enforceApproval(staticEntry.tool.annotations, address, args, policy, handler);
+          yield* enforceApproval(
+            staticEntry.tool.annotations,
+            address,
+            args,
+            policy,
+            handler,
+          );
           return yield* wrapInvocationError(
             staticEntry.tool.handler({
               ctx: staticEntry.ctx,
@@ -2917,7 +3312,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         if (!row) {
           const searchMatches = yield* searchToolRowsForConnection(parsed);
           const connectionTools =
-            searchMatches.length > 0 ? searchMatches : yield* findToolRowsForConnection(parsed);
+            searchMatches.length > 0
+              ? searchMatches
+              : yield* findToolRowsForConnection(parsed);
           return yield* new ToolNotFoundError({
             address,
             suggestions: toolSuggestions(connectionTools),
@@ -2927,7 +3324,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         // Resolve policy (owner-ranked).
         const toolForPolicy = rowToTool(row);
         const policyRows = yield* core.findMany("tool_policy", {});
-        const annotations = decodeJsonColumn(row.annotations) as ToolAnnotations | undefined;
+        const annotations = decodeJsonColumn(row.annotations) as
+          | ToolAnnotations
+          | undefined;
         const policy = resolveEffectivePolicy(
           normalizedPolicyId(toolForPolicy),
           policyRows,
@@ -2982,7 +3381,13 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             .pipe(wrapInvocationError);
           resolvedAnnotations = map[String(parsed.tool)] ?? annotations;
         }
-        yield* enforceApproval(resolvedAnnotations, address, args, policy, handler);
+        yield* enforceApproval(
+          resolvedAnnotations,
+          address,
+          args,
+          policy,
+          handler,
+        );
 
         // Resolve every named credential input (`variable → value`); `value` is
         // the primary `token` for single-input + OAuth callers.
@@ -2995,7 +3400,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           template: AuthTemplateSlug.make(connectionRow.template),
           value: values[PRIMARY_INPUT_VARIABLE] ?? null,
           values,
-          config: integrationRow ? decodeJsonColumn(integrationRow.config) : undefined,
+          config: integrationRow
+            ? decodeJsonColumn(integrationRow.config)
+            : undefined,
         };
 
         return yield* wrapInvocationError(
@@ -3035,7 +3442,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       subject,
       ownedKeys: (owner: Owner) => ownedKeys(owner),
       defaultWritableProvider,
-      mintOAuthConnection: (input: MintOAuthConnectionInput) => mintOAuthConnection(input),
+      mintOAuthConnection: (input: MintOAuthConnectionInput) =>
+        mintOAuthConnection(input),
       // Resolve the integration's DECLARED oauth scopes for a (integration,
       // template): load the row, run the owning plugin's auth-method projector,
       // and return the matching oauth method's declared `oauth.scopes`. Drives
@@ -3043,15 +3451,20 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       // client on a broad integration still requests the integration's full
       // scope set. Empty (no row / no oauth method / no declared scopes) ⇒ the
       // union collapses to the client's scopes (current behavior).
-      resolveDeclaredOAuthScopes: (integration: IntegrationSlug, template: AuthTemplateSlug) =>
+      resolveDeclaredOAuthScopes: (
+        integration: IntegrationSlug,
+        template: AuthTemplateSlug,
+      ) =>
         findIntegrationRow(integration).pipe(
           Effect.map((row): readonly string[] => {
             if (!row) return [];
             const methods = describeAuthMethodsForRow(row);
             const match =
               methods.find(
-                (m: AuthMethodDescriptor) => m.kind === "oauth" && m.template === String(template),
-              ) ?? methods.find((m: AuthMethodDescriptor) => m.kind === "oauth");
+                (m: AuthMethodDescriptor) =>
+                  m.kind === "oauth" && m.template === String(template),
+              ) ??
+              methods.find((m: AuthMethodDescriptor) => m.kind === "oauth");
             return match?.oauth?.scopes ?? [];
           }),
         ),
@@ -3101,7 +3514,8 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         httpClientLayer: config.httpClientLayer ?? FetchHttpClient.layer,
         core: {
           integrations: {
-            register: (input: RegisterIntegrationInput) => integrationsRegister(plugin.id, input),
+            register: (input: RegisterIntegrationInput) =>
+              integrationsRegister(plugin.id, input),
             update: (slug, patch) => integrationsUpdate(slug, patch),
             list: () => integrationsList(),
             get: (slug) => integrationsGetRecord(slug),
@@ -3156,6 +3570,12 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       if (plugin.extension) {
         extensions[plugin.id] = extension;
       }
+      // A plugin that narrows the executor exposes `wrapExecutor` on its
+      // extension; collect it into the generic hook the execution stack runs.
+      const wrapExecutor = (extension as { wrapExecutor?: ExecutorWrapper })
+        .wrapExecutor;
+      if (typeof wrapExecutor === "function")
+        executorWrappers.push(wrapExecutor);
 
       const decls = plugin.staticSources ? plugin.staticSources(extension) : [];
       for (const source of decls) {
@@ -3212,7 +3632,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             yield* runtime.plugin
               .close()
               .pipe(
-                Effect.mapError((cause) => pluginStorageFailure(runtime.plugin.id, "close", cause)),
+                Effect.mapError((cause) =>
+                  pluginStorageFailure(runtime.plugin.id, "close", cause),
+                ),
               );
           }
         }
@@ -3269,8 +3691,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       close,
     };
 
-    const toExecutor = (value: unknown): Executor<TPlugins> => value as Executor<TPlugins>;
-    return toExecutor(Object.assign(base, extensions));
+    const toExecutor = (value: unknown): Executor<TPlugins> =>
+      value as Executor<TPlugins>;
+    return toExecutor(Object.assign(base, extensions, { executorWrappers }));
   });
 
 // Helper alias so the inline literal used for the optimistic projection in

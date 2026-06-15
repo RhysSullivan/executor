@@ -9,7 +9,11 @@ import {
 import { createExecutorMcpServer } from "@executor-js/host-mcp/tool-server";
 
 import { ErrorCapture } from "../observability";
-import { CodeExecutorProvider, EngineDecorator, makeExecutionStack } from "./execution-stack";
+import {
+  CodeExecutorProvider,
+  EngineDecorator,
+  makeExecutionStack,
+} from "./execution-stack";
 import { DbProvider } from "./executor-fuma-db";
 import { HostConfig, PluginsProvider } from "./scoped-executor";
 
@@ -28,7 +32,11 @@ import { HostConfig, PluginsProvider } from "./scoped-executor";
 
 /** The five execution-stack seams a host fully provides (no residual). */
 export type McpExecutionStackLayer = Layer.Layer<
-  DbProvider | PluginsProvider | HostConfig | CodeExecutorProvider | EngineDecorator
+  | DbProvider
+  | PluginsProvider
+  | HostConfig
+  | CodeExecutorProvider
+  | EngineDecorator
 >;
 
 /**
@@ -39,14 +47,15 @@ export type McpExecutionStackLayer = Layer.Layer<
 export const makeMcpBuildServer =
   (executionStack: McpExecutionStackLayer): McpBuildServer =>
   (principal: Principal, options?: McpBuildServerOptions) => {
-    // `toolkitId` narrows the engine in `makeExecutionStack`; the rest of the
-    // options configure the MCP server (elicitation/approval).
-    const { toolkitId, ...serverOptions } = options ?? {};
+    // `selector` narrows the engine in `makeExecutionStack` (a plugin's
+    // executor wrapper applies it); the rest configure the MCP server
+    // (elicitation/approval).
+    const { selector, ...serverOptions } = options ?? {};
     return makeExecutionStack(
       principal.accountId,
       principal.organizationId,
       principal.organizationName,
-      toolkitId,
+      selector,
     ).pipe(
       Effect.map(({ engine }) => engine),
       Effect.provide(executionStack),
@@ -72,6 +81,8 @@ export const makeConsoleMcpErrorReporter = (
     McpErrorReporter,
     Effect.gen(function* () {
       const capture = yield* ErrorCapture;
-      return { report: (cause) => Effect.asVoid(capture.captureException(cause)) };
+      return {
+        report: (cause) => Effect.asVoid(capture.captureException(cause)),
+      };
     }),
   ).pipe(Layer.provide(errorCapture));

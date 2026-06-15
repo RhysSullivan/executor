@@ -1,4 +1,10 @@
-import type { ConnectionName, IntegrationSlug, Owner, ToolAddress, ToolName } from "./ids";
+import type {
+  ConnectionName,
+  IntegrationSlug,
+  Owner,
+  ToolAddress,
+  ToolName,
+} from "./ids";
 
 /* Tools belong to a connection and are PERSISTED, like v1 — not resolved live on
  * every list. A plugin produces them at create/refresh (openapi from the
@@ -13,9 +19,9 @@ export interface ToolAnnotations {
   readonly approvalDescription?: string;
   readonly mayElicit?: boolean;
   /** True when the tool only reads (no side effects). Set by the owning plugin
-   *  (e.g. OpenAPI classifies GET/HEAD/OPTIONS as read-only). Toolkits use this
-   *  to enforce read-only access: in a read-only slice a tool is hidden unless
-   *  `readOnly === true` (fail-closed — unclassified counts as write). */
+   *  (e.g. OpenAPI classifies GET/HEAD/OPTIONS as read-only). Consumers that
+   *  offer a read-only mode use this fail-closed: a tool is hidden unless
+   *  `readOnly === true` (unclassified counts as write). */
   readonly readOnly?: boolean;
 }
 

@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------------------
 // Toolkit scope — wraps an Executor so the MCP surface only sees, and can only
-// run, a toolkit's slice of connections. Toolkit-agnostic: it operates on a
-// plain ResolvedToolkitScope (produced by the toolkits plugin's `resolveScope`)
-// and the base Executor. Because the wrapped Executor is handed to the engine
+// run, a toolkit's slice of connections. This is the toolkits plugin's
+// implementation of core's generic `ExecutorWrapper` seam: the plugin
+// contributes `wrapExecutor` (server.ts) and core runs it without ever knowing
+// what "toolkit" means. Because the wrapped Executor is handed to the engine
 // before construction, EVERY surface (tools.list, search, describe,
 // sources/connections/integrations.list, core-tools, and execute) flows through
 // it — enforcement is at execute, not just listing, so guessed out-of-slice
@@ -11,15 +12,15 @@
 
 import { Effect } from "effect";
 
-import { ToolBlockedError } from "./errors";
-import type { Executor } from "./executor";
-import type { ToolAddress } from "./ids";
-import type { AnyPlugin } from "./plugin";
-import type { StorageFailure } from "./fuma-runtime";
+import {
+  ToolBlockedError,
+  type AnyPlugin,
+  type Executor,
+  type StorageFailure,
+  type ToolAddress,
+} from "@executor-js/sdk";
 
-export type ToolkitAccess = "off" | "read" | "full";
-
-export type ToolkitPolicyAction = "approve" | "require_approval" | "block";
+import type { ToolkitAccess, ToolkitPolicyAction } from "./shared";
 
 export interface ToolkitPolicyRule {
   /** Glob over `<integration>.<connection>.<tool>` — `*` matches one segment,
@@ -62,20 +63,14 @@ const matchPattern = (pattern: string, target: string): boolean => {
     if (p[i] === "*" && i === p.length - 1) return true;
     if (a[i] === undefined) return false;
     const re = new RegExp(
-      "^" + p[i].replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$",
+      "^" +
+        p[i].replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") +
+        "$",
     );
     if (!re.test(a[i])) return false;
   }
   return p.length === a.length;
 };
-
-/** A plugin extension capable of resolving a selector (slug or id) to a scope,
- *  scoped to the caller. `resolveScope` returns null when nothing matches. */
-export interface ToolkitResolver {
-  readonly resolveScope: (
-    selector: string,
-  ) => Effect.Effect<ResolvedToolkitScope | null, StorageFailure>;
-}
 
 const accessFor = (
   scope: ResolvedToolkitScope,
@@ -83,7 +78,8 @@ const accessFor = (
   connection: string,
 ): ToolkitAccess => {
   for (const e of scope.entries) {
-    if (e.integration === integration && e.connection === connection) return e.access;
+    if (e.integration === integration && e.connection === connection)
+      return e.access;
   }
   for (const e of scope.entries) {
     if (e.integration === integration && e.connection === "*") return e.access;
@@ -101,7 +97,9 @@ export const applyToolkitScope = <TPlugins extends readonly AnyPlugin[]>(
   Effect.gen(function* () {
     const blockRules = scope.policies.filter((p) => p.action === "block");
     const isBlocked = (integration: string, connection: string, name: string) =>
-      blockRules.some((p) => matchPattern(p.pattern, `${integration}.${connection}.${name}`));
+      blockRules.some((p) =>
+        matchPattern(p.pattern, `${integration}.${connection}.${name}`),
+      );
 
     const all = yield* base.tools.list();
     const allowed = new Set<string>();
@@ -112,7 +110,10 @@ export const applyToolkitScope = <TPlugins extends readonly AnyPlugin[]>(
         allowed.add(String(t.address));
         continue;
       }
-      if (isBlocked(String(t.integration), String(t.connection), String(t.name))) continue;
+      if (
+        isBlocked(String(t.integration), String(t.connection), String(t.name))
+      )
+        continue;
       const a = accessFor(scope, String(t.integration), String(t.connection));
       if (a === "full" || (a === "read" && t.annotations?.readOnly === true)) {
         allowed.add(String(t.address));
@@ -132,7 +133,11 @@ export const applyToolkitScope = <TPlugins extends readonly AnyPlugin[]>(
         list: () =>
           base.integrations
             .list()
-            .pipe(Effect.map((xs) => xs.filter((i) => allowedIntegrations.has(String(i.slug))))),
+            .pipe(
+              Effect.map((xs) =>
+                xs.filter((i) => allowedIntegrations.has(String(i.slug))),
+              ),
+            ),
         get: (slug) =>
           allowedIntegrations.has(String(slug))
             ? base.integrations.get(slug)
@@ -144,20 +149,27 @@ export const applyToolkitScope = <TPlugins extends readonly AnyPlugin[]>(
           base.connections
             .list(filter)
             .pipe(
-              Effect.map((xs) => xs.filter((c) => connOk(String(c.integration), String(c.name)))),
+              Effect.map((xs) =>
+                xs.filter((c) => connOk(String(c.integration), String(c.name))),
+              ),
             ),
         get: (ref) =>
           base.connections
             .get(ref)
             .pipe(
-              Effect.map((c) => (c && connOk(String(c.integration), String(c.name)) ? c : null)),
+              Effect.map((c) =>
+                c && connOk(String(c.integration), String(c.name)) ? c : null,
+              ),
             ),
       },
       tools: {
         ...base.tools,
         list: (filter) =>
-          base.tools.list(filter).pipe(Effect.map((xs) => xs.filter((t) => addrOk(t.address)))),
-        schema: (address) => (addrOk(address) ? base.tools.schema(address) : Effect.succeed(null)),
+          base.tools
+            .list(filter)
+            .pipe(Effect.map((xs) => xs.filter((t) => addrOk(t.address)))),
+        schema: (address) =>
+          addrOk(address) ? base.tools.schema(address) : Effect.succeed(null),
       },
       execute: (address, args, options) =>
         addrOk(address)
