@@ -1759,7 +1759,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           // rebuild catalogs in its own partition (owner policy), so revise
           // the integration: other subjects' connections compare this stamp
           // against their `tools_synced_at` and lazily rebuild on next read.
-          set.tools_revised_at = now.getTime();
+          set.config_revised_at = now.getTime();
         }
         yield* core.updateMany("integration", {
           where: (b: AnyCb) => b("slug", "=", String(slug)),
@@ -1837,7 +1837,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             b("connection", "=", String(ref.name)),
           );
         // Every exit stamps the sync time — including the cleanup paths that
-        // produce zero tools — so the stale-catalog check (`tools_revised_at`
+        // produce zero tools — so the stale-catalog check (`config_revised_at`
         // vs `tools_synced_at`) doesn't re-attempt this connection per read.
         const stampSynced = core.updateMany("connection", {
           where: (b: AnyCb) =>
@@ -2403,11 +2403,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     // catalog in place and retries on the next read.
     const syncStaleConnectionTools = Effect.gen(function* () {
       const revised = yield* core.findMany("integration", {
-        where: (b: AnyCb) => b.isNotNull("tools_revised_at"),
+        where: (b: AnyCb) => b.isNotNull("config_revised_at"),
       });
       if (revised.length === 0) return;
       const revisedAt = new Map(
-        revised.map((row) => [row.slug, Number(row.tools_revised_at)] as const),
+        revised.map((row) => [row.slug, Number(row.config_revised_at)] as const),
       );
       const connections = yield* core.findMany("connection", {
         where: (b: AnyCb) => b.or(...revised.map((row) => b("integration", "=", row.slug))),

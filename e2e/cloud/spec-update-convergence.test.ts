@@ -3,7 +3,7 @@
 // the new tool catalog on that member's next read — not just the editor's.
 //
 // This is the lazy-convergence design. Tools are stored per connection. The
-// editor stamps the integration's `tools_revised_at`, but the owner policy lets
+// editor stamps the integration's `config_revised_at`, but the owner policy lets
 // them rebuild catalogs only in their own partition — they cannot write a
 // co-worker's personal connection rows. So each member's connection carries a
 // `tools_synced_at` and rebuilds itself the next time THAT member lists tools.

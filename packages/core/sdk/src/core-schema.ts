@@ -129,7 +129,7 @@ export const coreTables = defineTables({
       // template edit). Compared against each connection's `tools_synced_at`
       // so OTHER subjects' connections — whose tool rows the updater cannot
       // write under the owner policy — lazily rebuild on their next read.
-      tools_revised_at: nullableBigintColumn("tools_revised_at"),
+      config_revised_at: nullableBigintColumn("config_revised_at"),
       can_remove: boolColumn("can_remove", true),
       can_refresh: boolColumn("can_refresh", false),
       created_at: dateColumn("created_at"),
@@ -156,7 +156,7 @@ export const coreTables = defineTables({
       // create, editable after; never reset by OAuth re-mints.
       description: nullableTextColumn("description"),
       // Epoch ms of the last tool (re)production for this connection. Stale
-      // vs the integration's `tools_revised_at` → re-produced on next read.
+      // vs the integration's `config_revised_at` → re-produced on next read.
       tools_synced_at: nullableBigintColumn("tools_synced_at"),
       oauth_client: nullableTextColumn("oauth_client"),
       // The OWNER of `oauth_client` (a Personal connection may be minted through

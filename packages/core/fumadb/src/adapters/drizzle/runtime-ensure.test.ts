@@ -23,13 +23,13 @@ const v1Tables = {
 };
 
 // The running schema adds two nullable columns the old file predates — the
-// shape of the integration-descriptions feature (name + tools_revised_at).
+// shape of the integration-descriptions feature (name + config_revised_at).
 const v2Tables = {
   integration: table("integration", {
     id: idColumn("id", "varchar(255)"),
     slug: column("slug", "varchar(255)"),
     name: column("name", "string").nullable(),
-    tools_revised_at: column("tools_revised_at", "bigint").nullable(),
+    config_revised_at: column("config_revised_at", "bigint").nullable(),
   }),
 };
 
@@ -69,7 +69,7 @@ test("ensure evolves an existing table with the schema's new nullable columns", 
     });
     const evolved = await columnNames(client);
     expect(evolved).toContain("name");
-    expect(evolved).toContain("tools_revised_at");
+    expect(evolved).toContain("config_revised_at");
 
     // Idempotent: a second boot tolerates the now-duplicate columns.
     await ensureDrizzleRuntimeSchemaFromTables(db, {

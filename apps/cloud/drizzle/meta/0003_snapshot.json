@@ -497,8 +497,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "tools_revised_at": {
-          "name": "tools_revised_at",
+        "config_revised_at": {
+          "name": "config_revised_at",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false

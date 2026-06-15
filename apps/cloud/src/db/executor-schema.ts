@@ -17,7 +17,7 @@ export const integration = pgTable(
     plugin_id: text("plugin_id").notNull(),
     name: text("name"),
     description: text("description").notNull(),
-    tools_revised_at: bigint("tools_revised_at", { mode: "bigint" }),
+    config_revised_at: bigint("config_revised_at", { mode: "bigint" }),
     config: json("config"),
     can_remove: boolean("can_remove").notNull().default(true),
     can_refresh: boolean("can_refresh").notNull().default(false),
