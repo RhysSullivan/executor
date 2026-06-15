@@ -1,0 +1,57 @@
+{
+  "name": "@executor-js/plugin-toolkits",
+  "version": "1.5.12",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/toolkits",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/plugins/toolkits"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./shared": "./src/shared.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      "./server": {
+        "import": {
+          "types": "./dist/server.d.ts",
+          "default": "./dist/server.js"
+        }
+      },
+      "./shared": {
+        "import": {
+          "types": "./dist/shared.d.ts",
+          "default": "./dist/shared.js"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run",
+    "typecheck:slow": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@executor-js/api": "workspace:*",
+    "@executor-js/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

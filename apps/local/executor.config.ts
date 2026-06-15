@@ -6,6 +6,7 @@ import { keychainPlugin } from "@executor-js/plugin-keychain";
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 import { onepasswordHttpPlugin } from "@executor-js/plugin-onepassword/api";
 import { desktopSettingsPlugin } from "@executor-js/plugin-desktop-settings/server";
+import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
 
 // ---------------------------------------------------------------------------
 // Single source of truth for the local app's plugin list.
@@ -29,5 +30,6 @@ export default defineExecutorConfig({
         webBaseUrl:
           process.env.EXECUTOR_WEB_BASE_URL ?? `http://localhost:${process.env.PORT ?? "4788"}`,
       }),
+      toolkitsPlugin(),
     ] as const,
 });

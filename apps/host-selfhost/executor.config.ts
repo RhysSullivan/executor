@@ -3,6 +3,7 @@ import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
 import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
 import { encryptedSecretsPlugin } from "@executor-js/plugin-encrypted-secrets";
+import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
 
 import { resolveSecretKey } from "./src/config";
 
@@ -24,5 +25,6 @@ export default defineExecutorConfig({
       graphqlHttpPlugin(),
       // First writable secret provider -> the default for `secrets.set`.
       encryptedSecretsPlugin({ key: resolveSecretKey() }),
+      toolkitsPlugin(),
     ] as const,
 });

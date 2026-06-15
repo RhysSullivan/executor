@@ -68,6 +68,7 @@
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
         "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/plugin-toolkits": "workspace:*",
         "@executor-js/plugin-workos-vault": "workspace:*",
         "@executor-js/react": "workspace:*",
         "@executor-js/runtime-dynamic-worker": "workspace:*",
@@ -172,6 +173,7 @@
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
         "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/plugin-toolkits": "workspace:*",
         "@executor-js/react": "workspace:*",
         "@executor-js/runtime-quickjs": "workspace:*",
         "@executor-js/sdk": "workspace:*",
@@ -218,6 +220,7 @@
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
         "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/plugin-toolkits": "workspace:*",
         "@executor-js/react": "workspace:*",
         "@executor-js/runtime-quickjs": "workspace:*",
         "@executor-js/sdk": "workspace:*",
@@ -268,6 +271,7 @@
         "@executor-js/plugin-mcp": "workspace:*",
         "@executor-js/plugin-onepassword": "workspace:*",
         "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/plugin-toolkits": "workspace:*",
         "@executor-js/react": "workspace:*",
         "@executor-js/runtime-quickjs": "workspace:*",
         "@executor-js/sdk": "workspace:*",
@@ -333,6 +337,7 @@
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
         "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/plugin-toolkits": "workspace:*",
         "@executor-js/sdk": "workspace:*",
         "@kitlangton/terminal-control": "^0.3.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -999,6 +1004,22 @@
         "react",
       ],
     },
+    "packages/plugins/toolkits": {
+      "name": "@executor-js/plugin-toolkits",
+      "version": "1.5.12",
+      "dependencies": {
+        "@executor-js/api": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/plugins/workos-vault": {
       "name": "@executor-js/plugin-workos-vault",
       "version": "0.0.2",
@@ -1588,6 +1609,8 @@
     "@executor-js/plugin-onepassword": ["@executor-js/plugin-onepassword@workspace:packages/plugins/onepassword"],
 
     "@executor-js/plugin-openapi": ["@executor-js/plugin-openapi@workspace:packages/plugins/openapi"],
+
+    "@executor-js/plugin-toolkits": ["@executor-js/plugin-toolkits@workspace:packages/plugins/toolkits"],
 
     "@executor-js/plugin-workos-vault": ["@executor-js/plugin-workos-vault@workspace:packages/plugins/workos-vault"],
 

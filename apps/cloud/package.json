@@ -44,6 +44,7 @@
     "@executor-js/plugin-graphql": "workspace:*",
     "@executor-js/plugin-mcp": "workspace:*",
     "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/plugin-toolkits": "workspace:*",
     "@executor-js/plugin-workos-vault": "workspace:*",
     "@executor-js/react": "workspace:*",
     "@executor-js/runtime-dynamic-worker": "workspace:*",
