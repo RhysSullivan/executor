@@ -9,9 +9,16 @@ import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
 import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
-import { makeGreetingMcpServer, serveMcpServer } from "@executor-js/plugin-mcp/testing";
+import {
+  makeGreetingMcpServer,
+  serveMcpServer,
+} from "@executor-js/plugin-mcp/testing";
 import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
-import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk/shared";
+import {
+  AuthTemplateSlug,
+  ConnectionName,
+  IntegrationSlug,
+} from "@executor-js/sdk/shared";
 
 import { scenario } from "../src/scenario";
 import { Api, Mcp, Target } from "../src/services";
@@ -19,10 +26,12 @@ import { Api, Mcp, Target } from "../src/services";
 const api = composePluginApi([mcpHttpPlugin(), toolkitsPlugin()] as const);
 // Identifier-safe (no hyphens) so the sandbox `tools.<int>.<owner>.<conn>.<tool>`
 // dotted path stays valid JS.
-const ident = (prefix: string): string => `${prefix}${randomBytes(4).toString("hex")}`;
+const ident = (prefix: string): string =>
+  `${prefix}${randomBytes(4).toString("hex")}`;
 
-const describeExecute = (defs: ReadonlyArray<{ name: string; description?: string }>): string =>
-  defs.find((d) => d.name === "execute")?.description ?? "";
+const describeExecute = (
+  defs: ReadonlyArray<{ name: string; description?: string }>,
+): string => defs.find((d) => d.name === "execute")?.description ?? "";
 
 scenario(
   "Toolkits · an MCP session scoped to a toolkit sees only its slice; out-of-slice is blocked",
@@ -55,7 +64,12 @@ scenario(
               authenticationTemplate: [
                 {
                   type: "apiKey",
-                  headers: { Authorization: ["Bearer ", { type: "variable", name: "token" }] },
+                  headers: {
+                    Authorization: [
+                      "Bearer ",
+                      { type: "variable", name: "token" },
+                    ],
+                  },
                 },
               ],
             },
@@ -85,7 +99,11 @@ scenario(
           name: "Scoped kit",
           scope: "workspace",
           connections: [
-            { integration: IntegrationSlug.make(slugIn), connection: connIn, access: "full" },
+            {
+              integration: IntegrationSlug.make(slugIn),
+              connection: connIn,
+              access: "full",
+            },
           ],
         },
       });
@@ -93,17 +111,23 @@ scenario(
       // Scoped session: inventory shows the in-slice integration, not the other.
       const scoped = mcp.session(identity, { toolkit: kit.slug });
       const scopedDesc = describeExecute(yield* scoped.describeTools());
-      expect(scopedDesc, "scoped inventory includes the in-slice integration").toContain(slugIn);
-      expect(scopedDesc, "scoped inventory omits the out-of-slice integration").not.toContain(
-        slugOut,
-      );
+      expect(
+        scopedDesc,
+        "scoped inventory includes the in-slice integration",
+      ).toContain(slugIn);
+      expect(
+        scopedDesc,
+        "scoped inventory omits the out-of-slice integration",
+      ).not.toContain(slugOut);
 
       // In-slice tool runs; out-of-slice tool is blocked at execute (even though
       // the agent guessed its address).
       const inSlice = yield* scoped.call("execute", {
         code: `return await tools.${slugIn}.org.${connIn}.simple_echo({});`,
       });
-      expect(inSlice.ok, `in-slice tool executes; text=${inSlice.text}`).toBe(true);
+      expect(inSlice.ok, `in-slice tool executes; text=${inSlice.text}`).toBe(
+        true,
+      );
 
       const outSlice = yield* scoped.call("execute", {
         code: `return await tools.${slugOut}.org.${connOut}.simple_echo({});`,
@@ -116,9 +140,15 @@ scenario(
       ).not.toBe(inSlice.text);
 
       // Bare session (no selector) is unchanged — both integrations visible.
-      const bareDesc = describeExecute(yield* mcp.session(identity).describeTools());
-      expect(bareDesc, "bare /mcp still sees the first integration").toContain(slugIn);
-      expect(bareDesc, "bare /mcp still sees the second integration").toContain(slugOut);
+      const bareDesc = describeExecute(
+        yield* mcp.session(identity).describeTools(),
+      );
+      expect(bareDesc, "bare /mcp still sees the first integration").toContain(
+        slugIn,
+      );
+      expect(bareDesc, "bare /mcp still sees the second integration").toContain(
+        slugOut,
+      );
     }),
   ),
 );

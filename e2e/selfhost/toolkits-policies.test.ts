@@ -10,15 +10,23 @@ import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
 import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
-import { makeGreetingMcpServer, serveMcpServer } from "@executor-js/plugin-mcp/testing";
+import {
+  makeGreetingMcpServer,
+  serveMcpServer,
+} from "@executor-js/plugin-mcp/testing";
 import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
-import { AuthTemplateSlug, ConnectionName, IntegrationSlug } from "@executor-js/sdk/shared";
+import {
+  AuthTemplateSlug,
+  ConnectionName,
+  IntegrationSlug,
+} from "@executor-js/sdk/shared";
 
 import { scenario } from "../src/scenario";
 import { Api, Mcp, Target } from "../src/services";
 
 const api = composePluginApi([mcpHttpPlugin(), toolkitsPlugin()] as const);
-const ident = (prefix: string): string => `${prefix}${randomBytes(4).toString("hex")}`;
+const ident = (prefix: string): string =>
+  `${prefix}${randomBytes(4).toString("hex")}`;
 
 scenario(
   "Toolkits · access modes + block policies are enforced at execute",
@@ -49,7 +57,9 @@ scenario(
           authenticationTemplate: [
             {
               type: "apiKey",
-              headers: { Authorization: ["Bearer ", { type: "variable", name: "token" }] },
+              headers: {
+                Authorization: ["Bearer ", { type: "variable", name: "token" }],
+              },
             },
           ],
         },
@@ -70,7 +80,11 @@ scenario(
           name: "Full",
           scope: "workspace",
           connections: [
-            { integration: IntegrationSlug.make(slug), connection: conn, access: "full" },
+            {
+              integration: IntegrationSlug.make(slug),
+              connection: conn,
+              access: "full",
+            },
           ],
         },
       });
@@ -80,9 +94,15 @@ scenario(
           name: "Blocked",
           scope: "workspace",
           connections: [
-            { integration: IntegrationSlug.make(slug), connection: conn, access: "full" },
+            {
+              integration: IntegrationSlug.make(slug),
+              connection: conn,
+              access: "full",
+            },
           ],
-          policies: [{ pattern: `${slug}.${conn}.simple_echo`, action: "block" }],
+          policies: [
+            { pattern: `${slug}.${conn}.simple_echo`, action: "block" },
+          ],
         },
       });
       const readonly = yield* client.toolkits.create({
@@ -91,7 +111,11 @@ scenario(
           name: "Read",
           scope: "workspace",
           connections: [
-            { integration: IntegrationSlug.make(slug), connection: conn, access: "read" },
+            {
+              integration: IntegrationSlug.make(slug),
+              connection: conn,
+              access: "read",
+            },
           ],
         },
       });
@@ -107,7 +131,10 @@ scenario(
         .session(identity, { toolkit: readonly.slug })
         .call("execute", { code });
 
-      expect(fullCall.ok, `full access runs the tool; text=${fullCall.text}`).toBe(true);
+      expect(
+        fullCall.ok,
+        `full access runs the tool; text=${fullCall.text}`,
+      ).toBe(true);
       expect(
         blockCall.text,
         `block policy must stop the tool; full=${fullCall.text} block=${blockCall.text}`,
