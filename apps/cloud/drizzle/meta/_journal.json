@@ -36,6 +36,13 @@
       "when": 1781375837041,
       "tag": "0004_nervous_quasar",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781491100009,
+      "tag": "0005_integration_descriptions",
+      "breakpoints": true
     }
   ]
 }

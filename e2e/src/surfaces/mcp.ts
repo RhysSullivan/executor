@@ -95,6 +95,11 @@ export interface McpCallResult {
   readonly ok: boolean;
 }
 
+export interface McpToolDef {
+  readonly name: string;
+  readonly description: string;
+}
+
 /** How a connection surfaces a paused (approval-gated) execution. `browser` is
  *  what the browser-approval scenarios drive: the pause yields an `approvalUrl`
  *  for a human to open instead of letting the model resume inline. */
@@ -133,6 +138,9 @@ export const parseBrowserApproval = (result: McpCallResult): McpBrowserApproval 
 
 export interface McpSession {
   readonly listTools: () => Effect.Effect<ReadonlyArray<string>>;
+  /** Full advertised tool definitions — for asserting on the description text
+   *  an MCP client actually reads (e.g. the execute tool's inventory). */
+  readonly describeTools: () => Effect.Effect<ReadonlyArray<McpToolDef>>;
   readonly call: (name: string, args?: Record<string, unknown>) => Effect.Effect<McpCallResult>;
   /** Find the paused executionId in `text` and resume it with approval. */
   readonly approvePaused: (
@@ -298,6 +306,16 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
         return defs.map((tool: { name: string }) => tool.name);
       });
 
+    const describeTools = () =>
+      Effect.promise(async (): Promise<ReadonlyArray<McpToolDef>> => {
+        const defs = await (await runtime()).listTools(serverName, callOptions);
+        connected = true;
+        return defs.map((tool: { name: string; description?: string }) => ({
+          name: tool.name,
+          description: tool.description ?? "",
+        }));
+      });
+
     const call = (name: string, args: Record<string, unknown> = {}) =>
       Effect.promise(async (): Promise<McpCallResult> => {
         if (!connected) {
@@ -311,6 +329,7 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
 
     return {
       listTools,
+      describeTools,
       call,
       approvePaused: (text, content = {}) =>
         Effect.suspend(() => {
