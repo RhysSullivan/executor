@@ -19,10 +19,9 @@ import { LOCAL_V1_V2_LEDGER_NAME } from "./v1-v2-migration";
 
 export const localDataMigrations: readonly SqliteDataMigration[] = [
   // The v1→v2 gate itself runs BEFORE the executor (and this registry) can
-  // exist — see migrateLocalV1ToV2IfNeeded in executor.ts. This entry only
-  // stamps the outcome: by the time the registry runs, the database is v2
-  // (it was either migrated or inspected and found already-v2), and the
-  // stamp short-circuits every future boot's schema probing.
+  // exist — see migrateLocalV1ToV2IfNeeded in executor.ts. Migrated v1 DBs are
+  // stamped atomically inside the staged v2 build; fresh/pre-v2-native DBs get
+  // the same stamp here so future boots skip legacy shape probing.
   { name: LOCAL_V1_V2_LEDGER_NAME, run: () => Effect.void },
   // Rewrite pre-canonical integration auth configs (incl. v1→v2 outputs)
   // into the shared placements model.
