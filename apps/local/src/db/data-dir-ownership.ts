@@ -64,6 +64,15 @@ const configureOwnershipLockClient = async (client: Client): Promise<void> => {
   await client.execute("PRAGMA journal_mode = DELETE");
 };
 
+export const findDataDirOwnershipHeld = (cause: unknown): DataDirOwnershipHeld | null => {
+  if (cause instanceof DataDirOwnershipHeld) return cause;
+  if (!isRecord(cause)) return null;
+
+  const nestedCause = cause.cause;
+  if (nestedCause === undefined || nestedCause === cause) return null;
+  return findDataDirOwnershipHeld(nestedCause);
+};
+
 export const acquireDataDirOwnership = async (dataDir: string): Promise<DataDirOwnership> => {
   const lockPath = ownerLockPath(dataDir);
   const client = openOwnershipLockClient(lockPath);

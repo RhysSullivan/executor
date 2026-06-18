@@ -88,6 +88,9 @@ import {
   getExecutor,
   rotateLocalAuthToken,
   localAuthTokenPath,
+  findDataDirOwnershipHeld,
+  type ServerInstance,
+  type StartServerOptions,
 } from "@executor-js/local";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { fetchIntegrations } from "./integrations";
@@ -177,6 +180,8 @@ import embeddedWebUI from "./embedded-web-ui.gen";
 const { version: CLI_VERSION } = await import("../package.json");
 const DEFAULT_PORT = 4788;
 const DEFAULT_BASE_URL = `http://localhost:${DEFAULT_PORT}`;
+const DESKTOP_SIDECAR_READY_SENTINEL = "EXECUTOR_READY";
+const DESKTOP_SIDECAR_ATTACHED_SENTINEL = "EXECUTOR_ATTACHED";
 const DAEMON_BOOT_TIMEOUT_MS = 15_000;
 const DAEMON_BOOT_POLL_MS = 150;
 const DAEMON_STOP_TIMEOUT_MS = 10_000;
@@ -185,6 +190,8 @@ const SERVICE_BOOT_TIMEOUT_MS = 45_000;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const shouldEmitDesktopSidecarSentinels = (): boolean => process.env.EXECUTOR_CLIENT === "desktop";
 
 const waitForShutdownSignal = () =>
   Effect.callback<void, never>((resume) => {
@@ -204,9 +211,9 @@ const waitForShutdownSignal = () =>
 const isServerReachable = (baseUrl: string): Effect.Effect<boolean> =>
   isExecutorServerReachable({ baseUrl });
 
-const readActiveLocalServerManifest = (): Effect.Effect<
+const readReachableLocalServerHint = (): Effect.Effect<
   ExecutorLocalServerManifest | null,
-  Error,
+  never,
   FileSystem.FileSystem | PlatformPath.Path
 > =>
   Effect.gen(function* () {
@@ -222,16 +229,10 @@ const readActiveLocalServerManifest = (): Effect.Effect<
       return null;
     }
 
-    return yield* Effect.fail(
-      new Error(
-        [
-          `A local Executor ${manifest.kind} is registered at ${manifest.connection.origin} (pid ${manifest.pid}) but is not reachable.`,
-          "Refusing to start another local server against the same data directory.",
-          "Stop the existing process or remove the stale server-control manifest after verifying the process is not using the database.",
-        ].join("\n"),
-      ),
-    );
+    return null;
   });
+
+const readActiveLocalServerManifest = readReachableLocalServerHint;
 
 const normalizeDaemonScopeDir = (dir: string): string => {
   const resolved = resolve(dir);
@@ -262,6 +263,48 @@ interface ExecuteCodeResult {
   readonly connection: ExecutorServerConnection;
   readonly outcome: ExecuteCodeOutcome;
 }
+
+type LocalServerStartResult =
+  | { readonly kind: "started"; readonly server: ServerInstance }
+  | { readonly kind: "attached"; readonly manifest: ExecutorLocalServerManifest };
+
+const attachToOwnedDataDirServerOrFail = (input: {
+  readonly lockPath: string;
+}): Effect.Effect<ExecutorLocalServerManifest, Error, FileSystem.FileSystem | PlatformPath.Path> =>
+  Effect.gen(function* () {
+    const manifest = yield* readReachableLocalServerHint();
+    if (manifest) return manifest;
+
+    const path = yield* PlatformPath.Path;
+    const dataDir = resolveExecutorDataDir(path);
+    return yield* Effect.fail(
+      new Error(
+        [
+          "Executor data directory is owned by another live process, but no reachable local server was advertised.",
+          `Data directory: ${dataDir}`,
+          `Ownership lock: ${input.lockPath}`,
+          "Wait for the existing process to finish starting, or stop it and retry.",
+        ].join("\n"),
+      ),
+    );
+  });
+
+const startServerOrAttachOwnedDataDir = (
+  options: StartServerOptions,
+): Effect.Effect<LocalServerStartResult, Error, FileSystem.FileSystem | PlatformPath.Path> =>
+  Effect.tryPromise({
+    try: () => startServer(options),
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.map((server) => ({ kind: "started" as const, server })),
+    Effect.catch((cause) => {
+      const ownership = findDataDirOwnershipHeld(cause);
+      if (!ownership) return Effect.fail(toError(cause));
+      return attachToOwnedDataDirServerOrFail({ lockPath: ownership.lockPath }).pipe(
+        Effect.map((manifest) => ({ kind: "attached" as const, manifest })),
+      );
+    }),
+  );
 
 const parseDaemonUrl = (baseUrl: string) =>
   Effect.try({
@@ -418,6 +461,38 @@ const resolveDaemonTarget = (baseUrl: string) =>
     };
   });
 
+const waitForDaemonStartupTarget = (input: {
+  readonly requestedBaseUrl: string;
+}): Effect.Effect<string | null, never, FileSystem.FileSystem | PlatformPath.Path> =>
+  Effect.gen(function* () {
+    let readyBaseUrl: string | null = null;
+    let requestedFallbackBaseUrl: string | null = null;
+    const ready = yield* waitForReachable({
+      check: Effect.gen(function* () {
+        // Prefer the manifest: it is written after the server has opened the
+        // owned DB and started serving, and it carries the bearer token the next
+        // API call needs. A bare health response on the requested URL is only a
+        // last-ditch fallback; keep polling for the manifest so tool calls do
+        // not race ahead without auth.
+        const manifest = yield* readReachableLocalServerHint();
+        if (manifest) {
+          readyBaseUrl = manifest.connection.origin;
+          return true;
+        }
+
+        if (yield* isServerReachable(input.requestedBaseUrl)) {
+          requestedFallbackBaseUrl = input.requestedBaseUrl;
+        }
+
+        return false;
+      }),
+      timeoutMs: DAEMON_BOOT_TIMEOUT_MS,
+      intervalMs: DAEMON_BOOT_POLL_MS,
+    });
+
+    return ready ? readyBaseUrl : requestedFallbackBaseUrl;
+  });
+
 // Serialize daemon startup behind a filesystem lock so concurrent CLI invocations don't
 // each spawn their own daemon. The post-lock pointer recheck catches the case where
 // another invocation finished bootstrapping while we were waiting for the lock.
@@ -474,25 +549,21 @@ const spawnAndWaitForDaemon = (input: {
         env: process.env,
       });
 
-      const ready = yield* waitForReachable({
-        check: isServerReachable(startBaseUrl),
-        timeoutMs: DAEMON_BOOT_TIMEOUT_MS,
-        intervalMs: DAEMON_BOOT_POLL_MS,
-      });
+      const readyBaseUrl = yield* waitForDaemonStartupTarget({ requestedBaseUrl: startBaseUrl });
 
-      if (!ready) {
+      if (!readyBaseUrl) {
         yield* terminateSpawnedDetachedProcess(child).pipe(Effect.ignore);
         return yield* Effect.fail(
           new Error(
             [
-              `Daemon did not become reachable at ${startBaseUrl} within ${DAEMON_BOOT_TIMEOUT_MS}ms.`,
+              `Daemon did not become reachable at ${startBaseUrl} and no reachable local server manifest appeared within ${DAEMON_BOOT_TIMEOUT_MS}ms.`,
               `Run in foreground to inspect logs: ${cliPrefix} daemon run --foreground --port ${selectedPort} --hostname ${input.host}`,
             ].join("\n"),
           ),
         );
       }
 
-      return startBaseUrl;
+      return readyBaseUrl;
     } finally {
       yield* releaseDaemonStartLock(lock).pipe(Effect.ignore);
     }
@@ -948,15 +1019,18 @@ const runForegroundSession = (input: {
 
       try {
         yield* assertNoOtherActiveLocalServer();
-        server = yield* Effect.promise(() =>
-          startServer({
-            port: input.port,
-            hostname: input.hostname,
-            allowedHosts: input.allowedHosts,
-            authToken: input.authToken,
-            embeddedWebUI,
-          }),
-        );
+        const startResult = yield* startServerOrAttachOwnedDataDir({
+          port: input.port,
+          hostname: input.hostname,
+          allowedHosts: input.allowedHosts,
+          authToken: input.authToken,
+          embeddedWebUI,
+        });
+        if (startResult.kind === "attached") {
+          console.log(`Executor is already running at ${startResult.manifest.connection.origin}.`);
+          return;
+        }
+        server = startResult.server;
         baseUrl = `http://${displayHost}:${server.port}`;
         yield* publishLocalServerManifest({
           kind: "foreground",
@@ -1072,15 +1146,21 @@ const runDaemonSession = (input: {
           yield* cleanupPointer({ hostname: existing.hostname, scopeId, port: existing.port });
         }
 
-        server = yield* Effect.promise(() =>
-          startServer({
-            port: input.port,
-            hostname: input.hostname,
-            allowedHosts: input.allowedHosts,
-            authToken: input.authToken,
-            embeddedWebUI,
-          }),
-        );
+        const startResult = yield* startServerOrAttachOwnedDataDir({
+          port: input.port,
+          hostname: input.hostname,
+          allowedHosts: input.allowedHosts,
+          authToken: input.authToken,
+          embeddedWebUI,
+        });
+        if (startResult.kind === "attached") {
+          if (shouldEmitDesktopSidecarSentinels()) {
+            console.log(DESKTOP_SIDECAR_ATTACHED_SENTINEL);
+          }
+          console.log(`Daemon already running at ${startResult.manifest.connection.origin}.`);
+          return;
+        }
+        server = startResult.server;
 
         daemonPort = server.port;
         token = randomUUID();
@@ -1118,6 +1198,9 @@ const runDaemonSession = (input: {
           token,
         });
 
+        if (shouldEmitDesktopSidecarSentinels()) {
+          console.log(`${DESKTOP_SIDECAR_READY_SENTINEL}:${daemonPort}`);
+        }
         console.log(`Daemon ready on http://${daemonHost}:${daemonPort}`);
 
         yield* waitForShutdownSignal();
@@ -1214,28 +1297,61 @@ const runStdioMcpSession = (input: { readonly elicitationMode: "browser" | "mode
 
     try {
       yield* assertNoOtherActiveLocalServer();
-      web = yield* Effect.promise(() =>
-        withStdoutReroutedToStderr(async () => {
-          const host = "127.0.0.1";
-          const port = await Effect.runPromise(
-            chooseDaemonPort({ preferredPort: DEFAULT_PORT, hostname: host }),
-          );
-          const baseUrl = `http://localhost:${port}`;
-          const restoreWebBaseUrl = installDefaultExecutorWebBaseUrl(baseUrl);
+      web = yield* Effect.tryPromise({
+        try: () =>
+          withStdoutReroutedToStderr(async () => {
+            const host = "127.0.0.1";
+            const port = await Effect.runPromise(
+              chooseDaemonPort({ preferredPort: DEFAULT_PORT, hostname: host }),
+            );
+            const baseUrl = `http://localhost:${port}`;
+            const restoreWebBaseUrl = installDefaultExecutorWebBaseUrl(baseUrl);
 
-          try {
-            const executor = await getExecutor();
-            const server = await startServer({
-              port,
-              hostname: host,
-              embeddedWebUI,
-            });
-            const serverBaseUrl = `http://localhost:${server.port}`;
-            return { executor, server, baseUrl: serverBaseUrl, restoreWebBaseUrl };
-          } catch (cause) {
-            restoreWebBaseUrl();
-            throw cause;
-          }
+            try {
+              const executor = await getExecutor();
+              const server = await startServer({
+                port,
+                hostname: host,
+                embeddedWebUI,
+              });
+              const serverBaseUrl = `http://localhost:${server.port}`;
+              return { executor, server, baseUrl: serverBaseUrl, restoreWebBaseUrl };
+            } catch (cause) {
+              restoreWebBaseUrl();
+              throw cause;
+            }
+          }),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.catch((cause) => {
+          const ownership = findDataDirOwnershipHeld(cause);
+          if (!ownership) return Effect.fail(toError(cause));
+          return Effect.gen(function* () {
+            const manifest = yield* readReachableLocalServerHint();
+            const path = yield* PlatformPath.Path;
+            const dataDir = resolveExecutorDataDir(path);
+            if (manifest) {
+              return yield* Effect.fail(
+                new Error(
+                  [
+                    `A local Executor server already owns ${dataDir} at ${manifest.connection.origin}.`,
+                    "The stdio MCP server needs exclusive access to the local database.",
+                    `Use the running HTTP MCP endpoint instead: ${manifest.connection.origin}/mcp`,
+                  ].join("\n"),
+                ),
+              );
+            }
+            return yield* Effect.fail(
+              new Error(
+                [
+                  "Executor data directory is owned by another live process, but no reachable local server was advertised.",
+                  `Data directory: ${dataDir}`,
+                  `Ownership lock: ${ownership.lockPath}`,
+                  "Wait for the existing process to finish starting, or stop it and retry.",
+                ].join("\n"),
+              ),
+            );
+          });
         }),
       );
       yield* publishLocalServerManifest({

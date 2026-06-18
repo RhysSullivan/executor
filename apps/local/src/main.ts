@@ -1,9 +1,9 @@
-import { Context, Effect, Layer, ManagedRuntime } from "effect";
+import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { makeLocalApiHandler } from "./app";
-import { getExecutorBundle } from "./executor";
+import { disposeExecutor, getExecutorBundle } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 
 // ---------------------------------------------------------------------------
@@ -35,41 +35,80 @@ export type ServerHandlers = {
   readonly mcp: McpRequestHandler;
 };
 
+class ServerHandlersDisposeError extends Data.TaggedError("ServerHandlersDisposeError")<{
+  readonly operation: "api.dispose" | "mcp.close" | "disposeExecutor" | "runtime.dispose";
+  readonly cause: unknown;
+}> {}
+
+const ignoreDisposeFailure = (
+  operation: ServerHandlersDisposeError["operation"],
+  dispose: () => Promise<unknown>,
+) =>
+  Effect.tryPromise({
+    try: dispose,
+    catch: (cause) => new ServerHandlersDisposeError({ operation, cause }),
+  }).pipe(Effect.ignore);
+
 const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
   await Effect.runPromise(
-    Effect.all(
-      [
-        Effect.tryPromise({
-          try: () => handlers.api.dispose(),
-          catch: (cause) => cause,
-        }).pipe(Effect.ignore),
-        Effect.tryPromise({
-          try: () => handlers.mcp.close(),
-          catch: (cause) => cause,
-        }).pipe(Effect.ignore),
-      ],
-      { concurrency: "unbounded" },
-    ),
+    Effect.gen(function* () {
+      yield* Effect.all(
+        [
+          ignoreDisposeFailure("api.dispose", () => handlers.api.dispose()),
+          ignoreDisposeFailure("mcp.close", () => handlers.mcp.close()),
+        ],
+        { concurrency: "unbounded" },
+      );
+      // The API/MCP handlers borrow the shared local executor handle. Release it
+      // after the surfaces are closed so server shutdown (and failed startup
+      // cleanup via disposeServerHandlers) releases the owned data-dir lock.
+      yield* ignoreDisposeFailure("disposeExecutor", () => disposeExecutor());
+    }),
   );
 };
 
 export const createServerHandlers = async (token: string): Promise<ServerHandlers> => {
-  // The typed `/api` web-handler comes from `ExecutorApp.make` (./app.ts). The
-  // boot bearer token is the authoritative `/api` gate (see `identity.ts`).
-  const apiHandler: ServerHandlers["api"] = await makeLocalApiHandler(token);
+  let apiHandler: ServerHandlers["api"] | null = null;
+  let mcp: McpRequestHandler | null = null;
 
-  // The in-process MCP server runs over the SAME boot executor, with its own
-  // engine instance (the browser-approval + stdio surface is local-only and not
-  // part of the shared API). Reuse the shared boot bundle so the MCP executor is
-  // byte-identical to the one the API serves.
-  const { executor } = await getExecutorBundle();
-  const engine = createExecutionEngine({
-    executor,
-    codeExecutor: makeQuickJsExecutor(),
-  });
-  const mcp = createMcpRequestHandler({ engine });
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: handler boot owns the shared executor; partial startup failure must release it before rethrowing
+  try {
+    // The typed `/api` web-handler comes from `ExecutorApp.make` (./app.ts). The
+    // boot bearer token is the authoritative `/api` gate (see `identity.ts`).
+    apiHandler = await makeLocalApiHandler(token);
 
-  return { api: apiHandler, mcp };
+    // The in-process MCP server runs over the SAME boot executor, with its own
+    // engine instance (the browser-approval + stdio surface is local-only and not
+    // part of the shared API). Reuse the shared boot bundle so the MCP executor is
+    // byte-identical to the one the API serves.
+    const { executor } = await getExecutorBundle();
+    const engine = createExecutionEngine({
+      executor,
+      codeExecutor: makeQuickJsExecutor(),
+    });
+    mcp = createMcpRequestHandler({ engine });
+
+    return { api: apiHandler, mcp };
+  } catch (cause) {
+    const partialApiHandler = apiHandler;
+    const partialMcp = mcp;
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* Effect.all(
+          [
+            partialApiHandler
+              ? ignoreDisposeFailure("api.dispose", () => partialApiHandler.dispose())
+              : Effect.void,
+            partialMcp ? ignoreDisposeFailure("mcp.close", () => partialMcp.close()) : Effect.void,
+          ],
+          { concurrency: "unbounded" },
+        );
+        yield* ignoreDisposeFailure("disposeExecutor", () => disposeExecutor());
+      }),
+    );
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: async factory must reject with the original handler boot failure after cleanup
+    throw cause;
+  }
 };
 
 export class ServerHandlersService extends Context.Service<ServerHandlersService, ServerHandlers>()(
@@ -104,9 +143,11 @@ export const disposeServerHandlers = async (): Promise<void> => {
   if (!runtime) return;
   serverHandlersRuntime = null;
   await Effect.runPromise(
-    Effect.tryPromise({
-      try: () => runtime.dispose(),
-      catch: (cause) => cause,
-    }).pipe(Effect.ignore),
+    Effect.gen(function* () {
+      yield* ignoreDisposeFailure("runtime.dispose", () => runtime.dispose());
+      // Belt-and-suspenders: runtime disposal normally reaches closeServerHandlers,
+      // but a failed runtime finalizer must not leave the shared DB owner alive.
+      yield* ignoreDisposeFailure("disposeExecutor", () => disposeExecutor());
+    }),
   );
 };
