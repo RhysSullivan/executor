@@ -133,6 +133,12 @@ export interface OAuthProbeResult {
   /** RFC 8414 `token_endpoint_auth_methods_supported`. Surfaced so DCR can pick
    *  a public ("none") client when the server allows it. */
   readonly tokenEndpointAuthMethodsSupported?: readonly string[];
+  /** Stable MCP Enterprise-Managed Authorization grant profile support, derived
+   *  from RFC 8414 `authorization_grant_profiles_supported`. */
+  readonly supportsEnterpriseManagedAuthorization?: boolean;
+  /** Raw RFC 8414 `authorization_grant_profiles_supported` values for callers
+   *  that need to inspect extension support directly. */
+  readonly authorizationGrantProfilesSupported?: readonly string[];
 }
 
 /** Mint an OAuth client via RFC 7591 Dynamic Client Registration and persist it.

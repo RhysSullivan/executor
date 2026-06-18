@@ -51,6 +51,7 @@ export interface OAuthTestServerOptions {
   readonly defaultClientSecret?: string;
   readonly clients?: Readonly<Record<string, string | null>>;
   readonly scopes?: readonly string[];
+  readonly authorizationGrantProfilesSupported?: readonly string[];
   readonly supportRefresh?: boolean;
 }
 
@@ -468,6 +469,7 @@ export const serveOAuthTestServer = (
               "client_secret_post",
               "client_secret_basic",
             ],
+            authorization_grant_profiles_supported: options.authorizationGrantProfilesSupported,
             scopes_supported: scopes,
           });
         }

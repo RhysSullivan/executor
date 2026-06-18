@@ -75,6 +75,7 @@ export const OAuthAuthorizationServerMetadataSchema = Schema.Struct({
   scopes_supported: Schema.optional(StringArray),
   response_types_supported: Schema.optional(StringArray),
   grant_types_supported: Schema.optional(StringArray),
+  authorization_grant_profiles_supported: Schema.optional(StringArray),
   code_challenge_methods_supported: Schema.optional(StringArray),
   token_endpoint_auth_methods_supported: Schema.optional(StringArray),
   revocation_endpoint: Schema.optional(Schema.String),

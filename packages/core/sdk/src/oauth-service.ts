@@ -63,6 +63,7 @@ import {
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
   exchangeClientCredentials,
+  OAUTH_ID_JAG_GRANT_PROFILE,
   type OAuth2TokenResponse,
   type OAuthEndpointUrlPolicy,
 } from "./oauth-helpers";
@@ -976,6 +977,11 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         scopesSupported: as.metadata.scopes_supported,
         registrationEndpoint: as.metadata.registration_endpoint ?? null,
         tokenEndpointAuthMethodsSupported: as.metadata.token_endpoint_auth_methods_supported,
+        supportsEnterpriseManagedAuthorization:
+          as.metadata.authorization_grant_profiles_supported?.includes(
+            OAUTH_ID_JAG_GRANT_PROFILE,
+          ) ?? false,
+        authorizationGrantProfilesSupported: as.metadata.authorization_grant_profiles_supported,
       } satisfies OAuthProbeResult;
     }).pipe(Effect.provide(httpClientLayer));
 

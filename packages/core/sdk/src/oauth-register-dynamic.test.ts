@@ -11,6 +11,7 @@ import {
 import { definePlugin } from "./plugin";
 import { makeTestWorkspaceHarness, memoryCredentialsPlugin } from "./test-config";
 import { serveOAuthTestServer } from "./testing/oauth-test-server";
+import { OAUTH_ID_JAG_GRANT_PROFILE } from "./oauth-helpers";
 
 // RFC 7591 Dynamic Client Registration, end to end:
 //   probe → registerDynamicClient (no pasted client id/secret) → listClients
@@ -48,7 +49,10 @@ describe("oauth.registerDynamicClient", () => {
   it.effect("DCR mints + persists a public (no-secret) client that lists + connects", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const server = yield* serveOAuthTestServer({ scopes: ["read"] });
+        const server = yield* serveOAuthTestServer({
+          scopes: ["read"],
+          authorizationGrantProfilesSupported: [OAUTH_ID_JAG_GRANT_PROFILE],
+        });
         const { executor } = yield* makeTestWorkspaceHarness({ plugins });
         yield* executor.acme.seed();
 
@@ -58,6 +62,8 @@ describe("oauth.registerDynamicClient", () => {
         expect(probe.registrationEndpoint).toBe(server.registrationEndpoint);
         expect(probe.tokenEndpointAuthMethodsSupported).toContain("none");
         expect(probe.resource).toBe(server.mcpResourceUrl);
+        expect(probe.supportsEnterpriseManagedAuthorization).toBe(true);
+        expect(probe.authorizationGrantProfilesSupported).toEqual([OAUTH_ID_JAG_GRANT_PROFILE]);
 
         // Register dynamically — NO client id/secret pasted by the user.
         const slug = yield* executor.oauth.registerDynamicClient({

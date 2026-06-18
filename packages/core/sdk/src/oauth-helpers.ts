@@ -45,6 +45,7 @@ export type OAuth2TokenResponse = {
   readonly refresh_token?: string;
   readonly expires_in?: number;
   readonly scope?: string;
+  readonly issued_token_type?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,25 @@ export const OAUTH2_REFRESH_SKEW_MS = 60_000;
 
 /** Default token-endpoint timeout. */
 export const OAUTH2_DEFAULT_TIMEOUT_MS = 20_000;
+
+/** RFC 8693 token exchange grant used to obtain an ID-JAG from an enterprise IdP. */
+export const OAUTH_TOKEN_EXCHANGE_GRANT_TYPE =
+  "urn:ietf:params:oauth:grant-type:token-exchange" as const;
+
+/** Stable MCP Enterprise-Managed Authorization grant profile discovery value. */
+export const OAUTH_ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag" as const;
+
+/** Token type returned by an enterprise IdP for an Identity Assertion JWT Authorization Grant. */
+export const OAUTH_ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag" as const;
+
+/** RFC 7523 grant used to exchange an ID-JAG for an MCP resource access token. */
+export const OAUTH_JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer" as const;
+
+export const OAUTH_ID_TOKEN_SUBJECT_TOKEN_TYPE =
+  "urn:ietf:params:oauth:token-type:id_token" as const;
+export const OAUTH_SAML2_SUBJECT_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:saml2" as const;
+export const OAUTH_REFRESH_TOKEN_SUBJECT_TOKEN_TYPE =
+  "urn:ietf:params:oauth:token-type:refresh_token" as const;
 
 export interface OAuthEndpointUrlPolicy {
   readonly allowHttp?: boolean;
@@ -277,9 +297,10 @@ const toOAuth2Error = (cause: unknown): OAuth2Error => {
 };
 
 const toOAuth2ErrorWithHttpSummary = (cause: unknown): Effect.Effect<OAuth2Error> => {
-  if (isOAuth2Error(cause)) return Effect.succeed(cause);
-  const base = toOAuth2Error(cause);
-  const response = responseFromOAuthErrorCause(cause);
+  const base = isOAuth2Error(cause) ? cause : toOAuth2Error(cause);
+  const response =
+    responseFromOAuthErrorCause(cause) ??
+    (isOAuth2Error(cause) ? responseFromOAuthErrorCause(cause.cause) : undefined);
   if (!response) return Effect.succeed(base);
   return Effect.promise(() => tokenEndpointHttpSummary(response)).pipe(
     Effect.map(
@@ -295,6 +316,9 @@ const toOAuth2ErrorWithHttpSummary = (cause: unknown): Effect.Effect<OAuth2Error
 
 const failOAuth2WithHttpSummary = (cause: unknown): Effect.Effect<never, OAuth2Error> =>
   toOAuth2ErrorWithHttpSummary(cause).pipe(Effect.flatMap((error) => Effect.fail(error)));
+
+const tokenEndpointCause = (cause: unknown): Response | OAuth2Error =>
+  cause instanceof Response ? cause : toOAuth2Error(cause);
 
 // ---------------------------------------------------------------------------
 // oauth4webapi adapter helpers
@@ -386,6 +410,79 @@ const tokenResponseFrom = (r: oauth.TokenEndpointResponse): OAuth2TokenResponse 
   expires_in: typeof r.expires_in === "number" ? r.expires_in : undefined,
   scope: r.scope,
 });
+
+const tokenEndpointJsonObject = async (response: Response): Promise<Record<string, unknown>> => {
+  if (response.status < 200 || response.status >= 300) {
+    return Promise.reject(response);
+  }
+  const body = await response
+    .clone()
+    .json()
+    .then(
+      (value: unknown) => value,
+      (cause: unknown) =>
+        Promise.reject(
+          new OAuth2Error({
+            message: "OAuth token exchange failed: token response was not JSON",
+            cause,
+          }),
+        ),
+    );
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return Promise.reject(
+      new OAuth2Error({
+        message: "OAuth token exchange failed: token response was not an object",
+        cause: body,
+      }),
+    );
+  }
+  return body as Record<string, unknown>;
+};
+
+const optionalString = (body: Record<string, unknown>, key: string): string | undefined => {
+  const value = body[key];
+  return typeof value === "string" ? value : undefined;
+};
+
+const optionalNumber = (body: Record<string, unknown>, key: string): number | undefined => {
+  const value = body[key];
+  return typeof value === "number" ? value : undefined;
+};
+
+const processTokenExchangeResponse = async (
+  response: Response,
+  expectedIssuedTokenType?: string,
+): Promise<OAuth2TokenResponse> => {
+  const body = await tokenEndpointJsonObject(response);
+  const accessToken = optionalString(body, "access_token");
+  if (!accessToken) {
+    return Promise.reject(
+      new OAuth2Error({
+        message: "OAuth token exchange failed: token response is missing access_token",
+        cause: body,
+      }),
+    );
+  }
+
+  const issuedTokenType = optionalString(body, "issued_token_type");
+  if (expectedIssuedTokenType && issuedTokenType !== expectedIssuedTokenType) {
+    return Promise.reject(
+      new OAuth2Error({
+        message: `OAuth token exchange failed: expected issued_token_type ${expectedIssuedTokenType}`,
+        cause: body,
+      }),
+    );
+  }
+
+  return {
+    access_token: accessToken,
+    token_type: optionalString(body, "token_type"),
+    refresh_token: optionalString(body, "refresh_token"),
+    expires_in: optionalNumber(body, "expires_in"),
+    scope: optionalString(body, "scope"),
+    issued_token_type: issuedTokenType,
+  };
+};
 
 // MCP source connections are pure OAuth 2.0 — we never request `openid` and
 // never consume `id_token`. Some providers (PostHog, etc.) front an OIDC
@@ -479,7 +576,7 @@ export const exchangeAuthorizationCode = (
       );
       return await processTokenEndpointResponse(as, client, response);
     },
-    catch: (cause) => cause,
+    catch: tokenEndpointCause,
   }).pipe(Effect.catch(failOAuth2WithHttpSummary));
 
 // ---------------------------------------------------------------------------
@@ -528,7 +625,106 @@ export const exchangeClientCredentials = (
       const result = await oauth.processClientCredentialsResponse(as, client, response);
       return tokenResponseFrom(result);
     },
-    catch: (cause) => cause,
+    catch: tokenEndpointCause,
+  }).pipe(Effect.catch(failOAuth2WithHttpSummary));
+
+// ---------------------------------------------------------------------------
+// Enterprise-Managed Authorization: identity assertion → ID-JAG
+// ---------------------------------------------------------------------------
+
+export type ExchangeIdentityAssertionForIdJagInput = {
+  /** Enterprise IdP token endpoint. */
+  readonly tokenUrl: string;
+  /** MCP client's enterprise IdP client id. */
+  readonly clientId: string;
+  readonly clientSecret?: string | null;
+  /** OIDC ID token, SAML assertion, or refresh token from enterprise SSO. */
+  readonly subjectToken: string;
+  readonly subjectTokenType: string;
+  /** Resource Authorization Server issuer identifier. */
+  readonly audience: string;
+  /** RFC 9728 MCP resource identifier. */
+  readonly resource?: string;
+  readonly scopes?: readonly string[];
+  readonly scopeSeparator?: string;
+  readonly clientAuth?: ClientAuthMethod;
+  readonly timeoutMs?: number;
+  readonly endpointUrlPolicy?: OAuthEndpointUrlPolicy;
+};
+
+export const exchangeIdentityAssertionForIdJag = (
+  input: ExchangeIdentityAssertionForIdJagInput,
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const as = asFromTokenUrl(input.tokenUrl, input.endpointUrlPolicy);
+      const client: oauth.Client = { client_id: input.clientId };
+      const clientAuth = pickClientAuth(
+        input.clientSecret,
+        input.clientAuth ?? DEFAULT_CLIENT_AUTH_METHOD,
+      );
+      const params = new URLSearchParams({
+        requested_token_type: OAUTH_ID_JAG_TOKEN_TYPE,
+        audience: input.audience,
+        subject_token: input.subjectToken,
+        subject_token_type: input.subjectTokenType,
+      });
+      if (input.resource) {
+        params.set("resource", input.resource);
+      }
+      if (input.scopes && input.scopes.length > 0) {
+        params.set("scope", input.scopes.join(input.scopeSeparator ?? " "));
+      }
+      const response = await oauth.genericTokenEndpointRequest(
+        as,
+        client,
+        clientAuth,
+        OAUTH_TOKEN_EXCHANGE_GRANT_TYPE,
+        params,
+        oauth4webapiRequestOptions(input.tokenUrl, input.timeoutMs, input.endpointUrlPolicy),
+      );
+      return await processTokenExchangeResponse(response, OAUTH_ID_JAG_TOKEN_TYPE);
+    },
+    catch: tokenEndpointCause,
+  }).pipe(Effect.catch(failOAuth2WithHttpSummary));
+
+// ---------------------------------------------------------------------------
+// Enterprise-Managed Authorization: ID-JAG → MCP access token
+// ---------------------------------------------------------------------------
+
+export type ExchangeIdJagForAccessTokenInput = {
+  /** MCP Resource Authorization Server token endpoint. */
+  readonly tokenUrl: string;
+  readonly clientId: string;
+  readonly clientSecret?: string | null;
+  readonly idJag: string;
+  readonly clientAuth?: ClientAuthMethod;
+  readonly timeoutMs?: number;
+  readonly endpointUrlPolicy?: OAuthEndpointUrlPolicy;
+};
+
+export const exchangeIdJagForAccessToken = (
+  input: ExchangeIdJagForAccessTokenInput,
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const as = asFromTokenUrl(input.tokenUrl, input.endpointUrlPolicy);
+      const client: oauth.Client = { client_id: input.clientId };
+      const clientAuth = pickClientAuth(
+        input.clientSecret,
+        input.clientAuth ?? DEFAULT_CLIENT_AUTH_METHOD,
+      );
+      const response = await oauth.genericTokenEndpointRequest(
+        as,
+        client,
+        clientAuth,
+        OAUTH_JWT_BEARER_GRANT_TYPE,
+        new URLSearchParams({ assertion: input.idJag }),
+        oauth4webapiRequestOptions(input.tokenUrl, input.timeoutMs, input.endpointUrlPolicy),
+      );
+      return await processTokenEndpointResponse(as, client, response);
+    },
+    catch: tokenEndpointCause,
   }).pipe(Effect.catch(failOAuth2WithHttpSummary));
 
 // ---------------------------------------------------------------------------
@@ -593,7 +789,7 @@ export const refreshAccessToken = (
       );
       return tokenResponseFrom(result);
     },
-    catch: (cause) => cause,
+    catch: tokenEndpointCause,
   }).pipe(Effect.catch(failOAuth2WithHttpSummary));
 
 // ---------------------------------------------------------------------------

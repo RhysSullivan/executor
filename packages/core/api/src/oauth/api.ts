@@ -206,6 +206,8 @@ const ProbeResponse = Schema.Struct({
   scopesSupported: Schema.optional(Schema.Array(Schema.String)),
   registrationEndpoint: Schema.optional(Schema.NullOr(Schema.String)),
   tokenEndpointAuthMethodsSupported: Schema.optional(Schema.Array(Schema.String)),
+  supportsEnterpriseManagedAuthorization: Schema.optional(Schema.Boolean),
+  authorizationGrantProfilesSupported: Schema.optional(Schema.Array(Schema.String)),
 });
 
 // ---------------------------------------------------------------------------

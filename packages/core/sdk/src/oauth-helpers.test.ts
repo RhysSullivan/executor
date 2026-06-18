@@ -12,6 +12,10 @@ import { HttpServerResponse } from "effect/unstable/http";
 import {
   OAUTH2_DEFAULT_TIMEOUT_MS,
   OAUTH2_REFRESH_SKEW_MS,
+  OAUTH_ID_JAG_TOKEN_TYPE,
+  OAUTH_ID_TOKEN_SUBJECT_TOKEN_TYPE,
+  OAUTH_JWT_BEARER_GRANT_TYPE,
+  OAUTH_TOKEN_EXCHANGE_GRANT_TYPE,
   OAuth2Error,
   buildAuthorizationUrl,
   providerAuthorizeExtras,
@@ -19,6 +23,8 @@ import {
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
   exchangeClientCredentials,
+  exchangeIdentityAssertionForIdJag,
+  exchangeIdJagForAccessToken,
   refreshAccessToken,
   shouldRefreshToken,
 } from "./oauth-helpers";
@@ -621,6 +627,96 @@ describe("exchangeClientCredentials", () => {
       if (!Exit.isFailure(exit)) return;
       expect(JSON.stringify(exit.cause)).toContain("Token URL must use https: or loopback http:");
     }),
+  );
+});
+
+describe("enterprise-managed authorization exchanges", () => {
+  it.effect("exchanges an enterprise identity assertion for an ID-JAG token", () =>
+    withTokenEndpoint(
+      tokenResponse({
+        issued_token_type: OAUTH_ID_JAG_TOKEN_TYPE,
+        access_token: "id-jag.jwt",
+        token_type: "N_A",
+        expires_in: 300,
+        scope: "chat.read chat.history",
+      }),
+      ({ tokenUrl, calls }) =>
+        Effect.gen(function* () {
+          const result = yield* exchangeIdentityAssertionForIdJag({
+            tokenUrl,
+            clientId: "enterprise-client",
+            clientSecret: "enterprise-secret",
+            subjectToken: "id-token.jwt",
+            subjectTokenType: OAUTH_ID_TOKEN_SUBJECT_TOKEN_TYPE,
+            audience: "https://auth.chat.example/",
+            resource: "https://mcp.chat.example/",
+            scopes: ["chat.read", "chat.history"],
+          });
+
+          expect(result.access_token).toBe("id-jag.jwt");
+          expect(result.issued_token_type).toBe(OAUTH_ID_JAG_TOKEN_TYPE);
+          expect(result.token_type).toBe("N_A");
+
+          const call = (yield* calls)[0]!;
+          expect(call.method).toBe("POST");
+          expect(call.body.get("grant_type")).toBe(OAUTH_TOKEN_EXCHANGE_GRANT_TYPE);
+          expect(call.body.get("requested_token_type")).toBe(OAUTH_ID_JAG_TOKEN_TYPE);
+          expect(call.body.get("audience")).toBe("https://auth.chat.example/");
+          expect(call.body.get("resource")).toBe("https://mcp.chat.example/");
+          expect(call.body.get("scope")).toBe("chat.read chat.history");
+          expect(call.body.get("subject_token")).toBe("id-token.jwt");
+          expect(call.body.get("subject_token_type")).toBe(OAUTH_ID_TOKEN_SUBJECT_TOKEN_TYPE);
+          expect(call.body.get("client_id")).toBe("enterprise-client");
+          expect(call.body.get("client_secret")).toBe("enterprise-secret");
+        }),
+    ),
+  );
+
+  it.effect("rejects token-exchange responses that are not ID-JAG tokens", () =>
+    withTokenEndpoint(
+      tokenResponse({
+        issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+        access_token: "not-an-id-jag",
+        token_type: "Bearer",
+      }),
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            exchangeIdentityAssertionForIdJag({
+              tokenUrl,
+              clientId: "enterprise-client",
+              subjectToken: "id-token.jwt",
+              subjectTokenType: OAUTH_ID_TOKEN_SUBJECT_TOKEN_TYPE,
+              audience: "https://auth.chat.example/",
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (!Exit.isFailure(exit)) return;
+          expect(JSON.stringify(exit.cause)).toContain("expected issued_token_type");
+          expect(JSON.stringify(exit.cause)).toContain(OAUTH_ID_JAG_TOKEN_TYPE);
+        }),
+    ),
+  );
+
+  it.effect("exchanges an ID-JAG as an RFC 7523 jwt-bearer grant", () =>
+    withTokenEndpoint(
+      tokenResponse({ access_token: "mcp-access", token_type: "Bearer" }),
+      ({ tokenUrl, calls }) =>
+        Effect.gen(function* () {
+          const result = yield* exchangeIdJagForAccessToken({
+            tokenUrl,
+            clientId: "https://client.example.com/client.json",
+            idJag: "id-jag.jwt",
+          });
+
+          expect(result.access_token).toBe("mcp-access");
+          const call = (yield* calls)[0]!;
+          expect(call.body.get("grant_type")).toBe(OAUTH_JWT_BEARER_GRANT_TYPE);
+          expect(call.body.get("assertion")).toBe("id-jag.jwt");
+          expect(call.body.get("client_id")).toBe("https://client.example.com/client.json");
+          expect(call.body.has("client_secret")).toBe(false);
+        }),
+    ),
   );
 });
 
