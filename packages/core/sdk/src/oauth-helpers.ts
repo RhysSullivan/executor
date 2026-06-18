@@ -73,6 +73,8 @@ export const OAUTH_JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt
 
 export const OAUTH_ID_TOKEN_SUBJECT_TOKEN_TYPE =
   "urn:ietf:params:oauth:token-type:id_token" as const;
+export const OAUTH_ACCESS_TOKEN_SUBJECT_TOKEN_TYPE =
+  "urn:ietf:params:oauth:token-type:access_token" as const;
 export const OAUTH_SAML2_SUBJECT_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:saml2" as const;
 export const OAUTH_REFRESH_TOKEN_SUBJECT_TOKEN_TYPE =
   "urn:ietf:params:oauth:token-type:refresh_token" as const;
@@ -411,33 +413,32 @@ const tokenResponseFrom = (r: oauth.TokenEndpointResponse): OAuth2TokenResponse 
   scope: r.scope,
 });
 
-const tokenEndpointJsonObject = async (response: Response): Promise<Record<string, unknown>> => {
-  if (response.status < 200 || response.status >= 300) {
-    return Promise.reject(response);
-  }
-  const body = await response
-    .clone()
-    .json()
-    .then(
-      (value: unknown) => value,
-      (cause: unknown) =>
-        Promise.reject(
-          new OAuth2Error({
-            message: "OAuth token exchange failed: token response was not JSON",
-            cause,
-          }),
-        ),
-    );
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return Promise.reject(
-      new OAuth2Error({
+const tokenEndpointJsonObject = (
+  response: Response,
+): Effect.Effect<Record<string, unknown>, OAuth2Error> =>
+  Effect.gen(function* () {
+    if (response.status < 200 || response.status >= 300) {
+      return yield* new OAuth2Error({
+        message: "OAuth token exchange failed",
+        cause: response,
+      });
+    }
+    const body = yield* Effect.tryPromise({
+      try: () => response.clone().json() as Promise<unknown>,
+      catch: (cause) =>
+        new OAuth2Error({
+          message: "OAuth token exchange failed: token response was not JSON",
+          cause,
+        }),
+    });
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return yield* new OAuth2Error({
         message: "OAuth token exchange failed: token response was not an object",
         cause: body,
-      }),
-    );
-  }
-  return body as Record<string, unknown>;
-};
+      });
+    }
+    return body as Record<string, unknown>;
+  });
 
 const optionalString = (body: Record<string, unknown>, key: string): string | undefined => {
   const value = body[key];
@@ -449,40 +450,37 @@ const optionalNumber = (body: Record<string, unknown>, key: string): number | un
   return typeof value === "number" ? value : undefined;
 };
 
-const processTokenExchangeResponse = async (
+const processTokenExchangeResponse = (
   response: Response,
   expectedIssuedTokenType?: string,
-): Promise<OAuth2TokenResponse> => {
-  const body = await tokenEndpointJsonObject(response);
-  const accessToken = optionalString(body, "access_token");
-  if (!accessToken) {
-    return Promise.reject(
-      new OAuth2Error({
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
+  Effect.gen(function* () {
+    const body = yield* tokenEndpointJsonObject(response);
+    const accessToken = optionalString(body, "access_token");
+    if (!accessToken) {
+      return yield* new OAuth2Error({
         message: "OAuth token exchange failed: token response is missing access_token",
         cause: body,
-      }),
-    );
-  }
+      });
+    }
 
-  const issuedTokenType = optionalString(body, "issued_token_type");
-  if (expectedIssuedTokenType && issuedTokenType !== expectedIssuedTokenType) {
-    return Promise.reject(
-      new OAuth2Error({
+    const issuedTokenType = optionalString(body, "issued_token_type");
+    if (expectedIssuedTokenType && issuedTokenType !== expectedIssuedTokenType) {
+      return yield* new OAuth2Error({
         message: `OAuth token exchange failed: expected issued_token_type ${expectedIssuedTokenType}`,
         cause: body,
-      }),
-    );
-  }
+      });
+    }
 
-  return {
-    access_token: accessToken,
-    token_type: optionalString(body, "token_type"),
-    refresh_token: optionalString(body, "refresh_token"),
-    expires_in: optionalNumber(body, "expires_in"),
-    scope: optionalString(body, "scope"),
-    issued_token_type: issuedTokenType,
-  };
-};
+    return {
+      access_token: accessToken,
+      token_type: optionalString(body, "token_type"),
+      refresh_token: optionalString(body, "refresh_token"),
+      expires_in: optionalNumber(body, "expires_in"),
+      scope: optionalString(body, "scope"),
+      issued_token_type: issuedTokenType,
+    };
+  });
 
 // MCP source connections are pure OAuth 2.0 — we never request `openid` and
 // never consume `id_token`. Some providers (PostHog, etc.) front an OIDC
@@ -683,10 +681,13 @@ export const exchangeIdentityAssertionForIdJag = (
         params,
         oauth4webapiRequestOptions(input.tokenUrl, input.timeoutMs, input.endpointUrlPolicy),
       );
-      return await processTokenExchangeResponse(response, OAUTH_ID_JAG_TOKEN_TYPE);
+      return response;
     },
     catch: tokenEndpointCause,
-  }).pipe(Effect.catch(failOAuth2WithHttpSummary));
+  }).pipe(
+    Effect.flatMap((response) => processTokenExchangeResponse(response, OAUTH_ID_JAG_TOKEN_TYPE)),
+    Effect.catch(failOAuth2WithHttpSummary),
+  );
 
 // ---------------------------------------------------------------------------
 // Enterprise-Managed Authorization: ID-JAG → MCP access token

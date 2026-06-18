@@ -10,6 +10,12 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
+import {
+  OAUTH_ID_JAG_GRANT_PROFILE,
+  OAUTH_ID_JAG_TOKEN_TYPE,
+  OAUTH_JWT_BEARER_GRANT_TYPE,
+  OAUTH_TOKEN_EXCHANGE_GRANT_TYPE,
+} from "../oauth-helpers";
 
 export class OAuthTestServerAddressError extends Data.TaggedError("OAuthTestServerAddressError")<{
   readonly address: unknown;
@@ -52,6 +58,7 @@ export interface OAuthTestServerOptions {
   readonly clients?: Readonly<Record<string, string | null>>;
   readonly scopes?: readonly string[];
   readonly authorizationGrantProfilesSupported?: readonly string[];
+  readonly enterpriseManagedAuthorization?: boolean;
   readonly supportRefresh?: boolean;
 }
 
@@ -110,6 +117,13 @@ interface RefreshTokenRecord {
   readonly username: string;
   readonly scope: string | null;
   readonly resource: string | null;
+}
+
+interface IdJagAssertionRecord {
+  readonly subject: string;
+  readonly scope: string | null;
+  readonly resource: string | null;
+  readonly audience: string;
 }
 
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
@@ -405,8 +419,12 @@ export const serveOAuthTestServer = (
     const transactions = new Map<string, AuthorizationTransaction>();
     const authorizationCodes = new Map<string, AuthorizationCodeRecord>();
     const refreshTokens = new Map<string, RefreshTokenRecord>();
+    const idJagAssertions = new Map<string, IdJagAssertionRecord>();
     const defaultClientId = options.defaultClientId ?? "test-client";
     const defaultClientSecret = options.defaultClientSecret ?? "test-secret";
+    const supportsEnterpriseManagedAuthorization =
+      options.enterpriseManagedAuthorization ??
+      (options.authorizationGrantProfilesSupported?.length ?? 0) > 0;
 
     clients.set(defaultClientId, {
       clientSecret: defaultClientSecret,
@@ -462,14 +480,23 @@ export const serveOAuthTestServer = (
             token_endpoint: `${currentIssuerUrl}/token`,
             registration_endpoint: `${currentIssuerUrl}/register`,
             response_types_supported: ["code"],
-            grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
+            grant_types_supported: [
+              "authorization_code",
+              "refresh_token",
+              "client_credentials",
+              ...(supportsEnterpriseManagedAuthorization
+                ? [OAUTH_TOKEN_EXCHANGE_GRANT_TYPE, OAUTH_JWT_BEARER_GRANT_TYPE]
+                : []),
+            ],
             code_challenge_methods_supported: ["S256"],
             token_endpoint_auth_methods_supported: [
               "none",
               "client_secret_post",
               "client_secret_basic",
             ],
-            authorization_grant_profiles_supported: options.authorizationGrantProfilesSupported,
+            authorization_grant_profiles_supported:
+              options.authorizationGrantProfilesSupported ??
+              (supportsEnterpriseManagedAuthorization ? [OAUTH_ID_JAG_GRANT_PROFILE] : undefined),
             scopes_supported: scopes,
           });
         }
@@ -659,6 +686,56 @@ export const serveOAuthTestServer = (
                 token_type: "Bearer",
                 expires_in: 3600,
                 scope: params.get("scope") ?? scopes.join(" "),
+              },
+              { "cache-control": "no-store" },
+            );
+          }
+
+          if (grantType === OAUTH_TOKEN_EXCHANGE_GRANT_TYPE) {
+            if (params.get("requested_token_type") !== OAUTH_ID_JAG_TOKEN_TYPE) {
+              return oauthError(400, "invalid_request", "requested_token_type must be id-jag");
+            }
+            const subjectToken = params.get("subject_token");
+            const subjectTokenType = params.get("subject_token_type");
+            const audience = params.get("audience");
+            if (!subjectToken || !subjectTokenType || !audience) {
+              return oauthError(400, "invalid_request", "Missing token exchange parameters");
+            }
+            const idJag = `idjag_${randomUUID()}`;
+            idJagAssertions.set(idJag, {
+              subject: subjectToken,
+              scope: params.get("scope"),
+              resource: params.get("resource"),
+              audience,
+            });
+            return jsonResponse(
+              200,
+              {
+                access_token: idJag,
+                issued_token_type: OAUTH_ID_JAG_TOKEN_TYPE,
+                token_type: "N_A",
+                expires_in: 300,
+              },
+              { "cache-control": "no-store" },
+            );
+          }
+
+          if (grantType === OAUTH_JWT_BEARER_GRANT_TYPE) {
+            const assertion = params.get("assertion");
+            const record = assertion ? idJagAssertions.get(assertion) : undefined;
+            if (!assertion || !record) {
+              return oauthError(400, "invalid_grant", "Unknown ID-JAG assertion");
+            }
+            const accessToken = `at_${randomUUID()}`;
+            yield* Ref.update(issuedAccessTokens, (tokens) => new Set([...tokens, accessToken]));
+            return jsonResponse(
+              200,
+              {
+                access_token: accessToken,
+                token_type: "Bearer",
+                expires_in: 3600,
+                ...(record.scope ? { scope: record.scope } : {}),
+                ...(record.resource ? { resource: record.resource } : {}),
               },
               { "cache-control": "no-store" },
             );

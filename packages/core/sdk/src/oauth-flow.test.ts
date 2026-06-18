@@ -10,7 +10,13 @@ import {
   ToolAddress,
   ToolName,
 } from "./ids";
-import { OAuthStartError } from "./oauth-client";
+import { OAuthEnterpriseManagedConnectError, OAuthStartError } from "./oauth-client";
+import {
+  OAUTH_ACCESS_TOKEN_SUBJECT_TOKEN_TYPE,
+  OAUTH_ID_JAG_TOKEN_TYPE,
+  OAUTH_JWT_BEARER_GRANT_TYPE,
+  OAUTH_TOKEN_EXCHANGE_GRANT_TYPE,
+} from "./oauth-helpers";
 import { definePlugin } from "./plugin";
 import { makeTestWorkspaceHarness, memoryCredentialsPlugin } from "./test-config";
 import { serveOAuthTestServer } from "./testing/oauth-test-server";
@@ -43,6 +49,7 @@ const oauthPlugin = definePlugin(() => ({
 }))();
 
 const plugins = [memoryCredentialsPlugin(), oauthPlugin] as const;
+const formBody = (body: string): URLSearchParams => new URLSearchParams(body);
 
 describe("oauth.start / oauth.complete", () => {
   it.effect(
@@ -308,6 +315,134 @@ describe("oauth.start / oauth.complete", () => {
         expect(Predicate.isTagged("OAuthStartError")(error)).toBe(true);
         const startError = error as OAuthStartError;
         expect(startError.message).toContain("must use a Workspace app");
+      }),
+    ),
+  );
+});
+
+describe("oauth.enterpriseManagedConnect", () => {
+  it.effect(
+    "exchanges an enterprise subject token for an MCP access token and mints a connection",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = yield* serveOAuthTestServer({
+            enterpriseManagedAuthorization: true,
+            scopes: ["read"],
+          });
+          const { executor } = yield* makeTestWorkspaceHarness({ plugins });
+          yield* executor.acme.seed();
+
+          yield* executor.oauth.createClient({
+            owner: "org",
+            slug: CLIENT,
+            authorizationUrl: server.authorizationEndpoint,
+            tokenUrl: server.tokenEndpoint,
+            grant: "authorization_code",
+            clientId: "test-client",
+            clientSecret: "test-secret",
+            resource: server.mcpResourceUrl,
+          });
+
+          const connection = yield* executor.oauth.enterpriseManagedConnect({
+            owner: "org",
+            client: CLIENT,
+            clientOwner: "org",
+            name: ConnectionName.make("enterprise"),
+            integration: INTEG,
+            template: TEMPLATE,
+            identityProviderTokenUrl: server.tokenEndpoint,
+            identityProviderClientId: "test-client",
+            identityProviderClientSecret: "test-secret",
+            subjectToken: "enterprise-subject-token",
+            subjectTokenType: OAUTH_ACCESS_TOKEN_SUBJECT_TOKEN_TYPE,
+          });
+
+          expect(String(connection.address)).toBe("tools.acme.org.enterprise");
+          expect(connection.expiresAt).toBeGreaterThan(Date.now());
+          expect(connection.oauthClientOwner).toBe("org");
+
+          const requests = yield* server.requests;
+          const tokenExchange = requests.find(
+            (r) =>
+              r.path === "/token" &&
+              formBody(r.body).get("grant_type") === OAUTH_TOKEN_EXCHANGE_GRANT_TYPE,
+          );
+          const tokenExchangeBody = formBody(tokenExchange?.body ?? "");
+          expect(
+            tokenExchangeBody.get("requested_token_type"),
+            "the IdP exchange requested an ID-JAG",
+          ).toBe(OAUTH_ID_JAG_TOKEN_TYPE);
+          expect(
+            tokenExchangeBody.get("subject_token_type"),
+            "the IdP exchange sent the enterprise subject token type",
+          ).toBe(OAUTH_ACCESS_TOKEN_SUBJECT_TOKEN_TYPE);
+          expect(
+            tokenExchangeBody.get("audience"),
+            "the ID-JAG audience defaults to the MCP AS origin",
+          ).toBe(server.resourceUrl);
+          expect(
+            tokenExchangeBody.get("resource"),
+            "the ID-JAG resource claim uses the MCP resource",
+          ).toBe(server.mcpResourceUrl);
+
+          const jwtBearer = requests.find(
+            (r) =>
+              r.path === "/token" &&
+              formBody(r.body).get("grant_type") === OAUTH_JWT_BEARER_GRANT_TYPE,
+          );
+          expect(
+            formBody(jwtBearer?.body ?? "").get("grant_type"),
+            "the MCP token exchange used the JWT bearer grant",
+          ).toBe(OAUTH_JWT_BEARER_GRANT_TYPE);
+
+          const out = (yield* executor.execute(
+            ToolAddress.make("tools.acme.org.enterprise.whoami"),
+            {},
+          )) as { token: string };
+          expect(out.token).toMatch(/^at_/);
+          expect(yield* server.acceptsAccessToken(out.token)).toBe(true);
+        }),
+      ),
+  );
+
+  it.effect("fails before token exchange when no MCP resource identifier is available", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = yield* serveOAuthTestServer({ enterpriseManagedAuthorization: true });
+        const { executor } = yield* makeTestWorkspaceHarness({ plugins });
+        yield* executor.acme.seed();
+
+        yield* executor.oauth.createClient({
+          owner: "org",
+          slug: CLIENT,
+          authorizationUrl: server.authorizationEndpoint,
+          tokenUrl: server.tokenEndpoint,
+          grant: "authorization_code",
+          clientId: "test-client",
+          clientSecret: "test-secret",
+        });
+
+        const error = yield* Effect.flip(
+          executor.oauth.enterpriseManagedConnect({
+            owner: "org",
+            client: CLIENT,
+            clientOwner: "org",
+            name: ConnectionName.make("enterprise"),
+            integration: INTEG,
+            template: TEMPLATE,
+            identityProviderTokenUrl: server.tokenEndpoint,
+            identityProviderClientId: "test-client",
+            identityProviderClientSecret: "test-secret",
+            subjectToken: "enterprise-subject-token",
+            subjectTokenType: OAUTH_ACCESS_TOKEN_SUBJECT_TOKEN_TYPE,
+          }),
+        );
+
+        expect(Predicate.isTagged("OAuthEnterpriseManagedConnectError")(error)).toBe(true);
+        const enterpriseError = error as OAuthEnterpriseManagedConnectError;
+        expect(enterpriseError.message).toContain("resource identifier");
+        expect((yield* server.requests).some((request) => request.path === "/token")).toBe(false);
       }),
     ),
   );
