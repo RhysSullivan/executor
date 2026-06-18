@@ -1,5 +1,17 @@
 # executor
 
+## 1.5.13
+
+### Patch Changes
+
+- [#1046](https://github.com/RhysSullivan/executor/pull/1046) [`2de1804`](https://github.com/RhysSullivan/executor/commit/2de1804d81d3e9223cd80fa49df2763aa0ea06bb) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Windows installs now repair stale Executor service listeners and only report success after the background daemon publishes the sign-in manifest used by `executor web`. The desktop app also attaches to a reachable supervised daemon before trusting Windows PID probes, so it no longer starts a competing sidecar when the background service already owns the port.
+
+- Updated dependencies []:
+  - @executor-js/local@1.4.4
+  - @executor-js/api@1.4.33
+  - @executor-js/sdk@1.5.13
+  - @executor-js/runtime-quickjs@1.5.13
+
 ## 1.5.12
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @executor-js/api
 
+## 1.4.33
+
+### Patch Changes
+
+- Updated dependencies [[`8244fee`](https://github.com/RhysSullivan/executor/commit/8244fee567cb2408650fc1fcd1a9e72cedc2f683)]:
+  - @executor-js/execution@1.5.13
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/sdk@1.5.13
+
 ## 1.4.32
 
 ### Patch Changes
