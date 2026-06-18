@@ -24,6 +24,7 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
     { envVar: "E2E_CLOUD_DB_PORT", offset: 1, label: "cloud dev-db (PGlite)" },
     { envVar: "E2E_WORKOS_EMULATOR_PORT", offset: 2, label: "WorkOS emulator" },
     { envVar: "E2E_AUTUMN_EMULATOR_PORT", offset: 3, label: "Autumn emulator" },
+    { envVar: "E2E_GITHUB_EMULATOR_PORT", offset: 4, label: "GitHub MCP emulator" },
   ]);
 
   // Suite-owned trace store — every run captures distributed traces.

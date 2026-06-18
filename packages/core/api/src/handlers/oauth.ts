@@ -14,6 +14,7 @@ import { runOAuthCallback, type PopupErrorMessage } from "../oauth-popup";
 import {
   OAUTH_POPUP_MESSAGE_TYPE,
   OAuthCompleteError,
+  OAuthEnterpriseManagedConnectError,
   OAuthProbeError,
   OAuthSessionNotFoundError,
   OAuthStartError,
@@ -24,9 +25,12 @@ import {
 
 import { ExecutorApi } from "../api";
 import { capture } from "../observability";
+import { AuthContext } from "../server/identity";
 import { ExecutorService } from "../services";
 
 const OAUTH_POPUP_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
+const OAUTH_ACCESS_TOKEN_SUBJECT_TOKEN_TYPE =
+  "urn:ietf:params:oauth:token-type:access_token" as const;
 
 const decodeOAuthStartError = Schema.decodeUnknownOption(OAuthStartError);
 const decodeOAuthCompleteError = Schema.decodeUnknownOption(OAuthCompleteError);
@@ -171,6 +175,48 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
           const connection = yield* executor.oauth.complete({
             state: payload.state,
             code: payload.code,
+          });
+          return connectionToResponse(connection);
+        }),
+      ),
+    )
+    .handle("enterpriseManagedConnect", ({ payload }) =>
+      capture(
+        Effect.gen(function* () {
+          const executor = yield* ExecutorService;
+          const auth = yield* Effect.serviceOption(AuthContext);
+          const enterpriseAuth = Option.isSome(auth) ? auth.value : null;
+          const subjectToken = enterpriseAuth?.enterpriseSubjectToken;
+          if (!subjectToken) {
+            return yield* new OAuthEnterpriseManagedConnectError({
+              message:
+                "Enterprise-managed authorization requires an authenticated enterprise session.",
+            });
+          }
+          const identityProviderTokenUrl = enterpriseAuth.enterpriseIdentityProviderTokenUrl;
+          const identityProviderClientId = enterpriseAuth.enterpriseIdentityProviderClientId;
+          if (!identityProviderTokenUrl || !identityProviderClientId) {
+            return yield* new OAuthEnterpriseManagedConnectError({
+              message:
+                "Enterprise-managed authorization requires a server-configured enterprise identity provider.",
+            });
+          }
+          const connection = yield* executor.oauth.enterpriseManagedConnect({
+            client: payload.client,
+            clientOwner: payload.clientOwner,
+            owner: payload.owner,
+            name: payload.name,
+            integration: payload.integration,
+            template: payload.template,
+            identityLabel: payload.identityLabel,
+            identityProviderTokenUrl,
+            identityProviderClientId,
+            identityProviderClientSecret:
+              enterpriseAuth.enterpriseIdentityProviderClientSecret ?? null,
+            subjectToken,
+            subjectTokenType: payload.subjectTokenType ?? OAUTH_ACCESS_TOKEN_SUBJECT_TOKEN_TYPE,
+            audience: payload.audience ?? null,
+            resource: payload.resource ?? null,
           });
           return connectionToResponse(connection);
         }),

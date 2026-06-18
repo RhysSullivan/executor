@@ -330,7 +330,7 @@
       "version": "0.0.9",
       "dependencies": {
         "@executor-js/api": "workspace:*",
-        "@executor-js/emulate": "^0.7.0",
+        "@executor-js/emulate": "^0.7.4",
         "@executor-js/mcporter": "^0.11.4",
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
@@ -1543,7 +1543,7 @@
 
     "@executor-js/e2e": ["@executor-js/e2e@workspace:e2e"],
 
-    "@executor-js/emulate": ["@executor-js/emulate@0.7.0", "", { "dependencies": { "commander": "^14", "graphql": "^16.9.0", "jose": "^6", "picocolors": "^1.1.1", "yaml": "^2" }, "bin": { "emulate": "dist/index.js" } }, "sha512-wm+0O8Fd8X6HZpfZhDTcyQel9SEWBA/5aLwU2uEwjzEbhELRqI+sAVNZ7B2XafnvHRkuGF21ZmbAFfXg16IfCg=="],
+    "@executor-js/emulate": ["@executor-js/emulate@0.7.4", "", { "dependencies": { "commander": "^14", "graphql": "^16.9.0", "jose": "^6", "picocolors": "^1.1.1", "yaml": "^2" }, "bin": { "emulate": "dist/index.js" } }, "sha512-moA+zNVk5aBUdsawgHcaANoMxl6HW0Pzln9b0ul2M1KMvLxnzyCNBoHP5F5ebtzTKgHqFri6SA38/BnQGk+eBQ=="],
 
     "@executor-js/example-all-plugins": ["@executor-js/example-all-plugins@workspace:examples/all-plugins"],
 

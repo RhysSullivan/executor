@@ -36,6 +36,16 @@ export interface Principal {
   readonly name: string | null;
   readonly avatarUrl: string | null;
   readonly roles: readonly string[];
+  /** Server-only enterprise IdP subject token for MCP Enterprise-Managed
+   *  Authorization. Cloud fills this from a sealed WorkOS session; API-key and
+   *  self-host paths leave it absent. */
+  readonly enterpriseSubjectToken?: string | null;
+  /** Server-owned enterprise IdP token endpoint for subject-token exchange. */
+  readonly enterpriseIdentityProviderTokenUrl?: string | null;
+  /** Server-owned enterprise IdP OAuth client id for subject-token exchange. */
+  readonly enterpriseIdentityProviderClientId?: string | null;
+  /** Optional server-owned enterprise IdP client secret for subject-token exchange. */
+  readonly enterpriseIdentityProviderClientSecret?: string | null;
 }
 
 /**
@@ -52,6 +62,10 @@ export class AuthContext extends Context.Service<
     readonly name: string | null;
     readonly avatarUrl: string | null;
     readonly roles: readonly string[];
+    readonly enterpriseSubjectToken?: string | null;
+    readonly enterpriseIdentityProviderTokenUrl?: string | null;
+    readonly enterpriseIdentityProviderClientId?: string | null;
+    readonly enterpriseIdentityProviderClientSecret?: string | null;
   }
 >()("@executor-js/api/AuthContext") {}
 
@@ -63,6 +77,18 @@ export const authContextFromPrincipal = (principal: Principal): AuthContext["Ser
   name: principal.name,
   avatarUrl: principal.avatarUrl,
   roles: principal.roles,
+  ...(principal.enterpriseSubjectToken
+    ? { enterpriseSubjectToken: principal.enterpriseSubjectToken }
+    : {}),
+  ...(principal.enterpriseIdentityProviderTokenUrl
+    ? { enterpriseIdentityProviderTokenUrl: principal.enterpriseIdentityProviderTokenUrl }
+    : {}),
+  ...(principal.enterpriseIdentityProviderClientId
+    ? { enterpriseIdentityProviderClientId: principal.enterpriseIdentityProviderClientId }
+    : {}),
+  ...(principal.enterpriseIdentityProviderClientSecret
+    ? { enterpriseIdentityProviderClientSecret: principal.enterpriseIdentityProviderClientSecret }
+    : {}),
 });
 
 // Optional per-failure render hints. Self-host produces the bare error (these

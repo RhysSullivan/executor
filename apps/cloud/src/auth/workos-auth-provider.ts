@@ -133,6 +133,9 @@ export const resolveSessionPrincipal = (request: Request) =>
       name: sealedSessionDisplayName(session),
       avatarUrl: session.avatarUrl ?? null,
       roles: [],
+      enterpriseSubjectToken: session.enterpriseSubjectToken ?? null,
+      enterpriseIdentityProviderTokenUrl: session.enterpriseIdentityProviderTokenUrl ?? null,
+      enterpriseIdentityProviderClientId: session.enterpriseIdentityProviderClientId ?? null,
     } satisfies Principal;
   });
 

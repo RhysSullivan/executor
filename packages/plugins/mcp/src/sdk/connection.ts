@@ -2,6 +2,7 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
 import { Effect } from "effect";
 
@@ -57,6 +58,18 @@ const buildEndpointUrl = (endpoint: string, queryParams: Record<string, string>)
   return url;
 };
 
+export const MCP_ENTERPRISE_MANAGED_AUTHORIZATION_EXTENSION =
+  "io.modelcontextprotocol/enterprise-managed-authorization" as const;
+
+type ClientCapabilitiesWithExtensions = ClientCapabilities & {
+  readonly extensions?: Record<string, object>;
+};
+
+export const mcpClientCapabilities = {
+  elicitation: { form: {}, url: {} },
+  extensions: { [MCP_ENTERPRISE_MANAGED_AUTHORIZATION_EXTENSION]: {} },
+} satisfies ClientCapabilitiesWithExtensions;
+
 // Use the cfworker JSON Schema validator instead of the SDK's default
 // (Ajv). Ajv compiles schemas via `new Function(...)`, which throws
 // `Code generation from strings disallowed for this context` when the
@@ -67,7 +80,7 @@ const createClient = (): Client =>
   new Client(
     { name: "executor-mcp", version: "0.1.0" },
     {
-      capabilities: { elicitation: { form: {}, url: {} } },
+      capabilities: mcpClientCapabilities as ClientCapabilities,
       jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
     },
   );

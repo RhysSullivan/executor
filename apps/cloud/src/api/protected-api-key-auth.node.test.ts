@@ -28,6 +28,26 @@ const stubWorkOS = Layer.succeed(
   WorkOSClient,
   new Proxy({} as WorkOSClientService, {
     get: (_target, prop) => {
+      if (prop === "authenticateRequest") {
+        return (request: Request) =>
+          Effect.succeed(
+            request.headers.get("cookie") === "wos-session=valid"
+              ? {
+                  userId: "user_123",
+                  email: "session@example.com",
+                  firstName: "Session",
+                  lastName: "User",
+                  avatarUrl: null,
+                  organizationId: "org_123",
+                  sessionId: "session_123",
+                  enterpriseSubjectToken: "workos_access_token",
+                  enterpriseIdentityProviderTokenUrl: "http://workos.test/oauth2/token",
+                  enterpriseIdentityProviderClientId: "client_test",
+                  refreshedSession: undefined,
+                }
+              : null,
+          );
+      }
       if (prop === "listUserMemberships") {
         return (userId: string) =>
           Effect.succeed({
@@ -91,6 +111,30 @@ describe("protected API key auth", () => {
         name: null,
         avatarUrl: null,
         roles: [],
+      });
+      expect(identity.enterpriseSubjectToken).toBeUndefined();
+      expect(identity.enterpriseIdentityProviderTokenUrl).toBeUndefined();
+      expect(identity.enterpriseIdentityProviderClientId).toBeUndefined();
+    }),
+  );
+
+  it.effect("resolves a sealed WorkOS session with a server-only enterprise subject token", () =>
+    Effect.gen(function* () {
+      const identity = yield* run(
+        new Request("https://executor.test/api/tools", {
+          headers: { cookie: "wos-session=valid" },
+        }),
+      );
+
+      expect(identity).toMatchObject({
+        accountId: "user_123",
+        organizationId: "org_123",
+        organizationName: "Org org_123",
+        email: "session@example.com",
+        name: "Session User",
+        enterpriseSubjectToken: "workos_access_token",
+        enterpriseIdentityProviderTokenUrl: "http://workos.test/oauth2/token",
+        enterpriseIdentityProviderClientId: "client_test",
       });
     }),
   );

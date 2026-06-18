@@ -22,6 +22,7 @@ import {
   InternalError,
   OAuthClientSlug,
   OAuthCompleteError,
+  OAuthEnterpriseManagedConnectError,
   OAuthProbeError,
   OAuthRegisterDynamicError,
   OAuthSessionNotFoundError,
@@ -180,6 +181,25 @@ const CompletePayload = Schema.Struct({
 });
 
 // ---------------------------------------------------------------------------
+// enterpriseManagedConnect — MCP Enterprise-Managed Authorization. The payload
+// carries MCP/client connection values only; enterprise IdP details and the
+// subject token itself are taken from server-side AuthContext by the handler.
+// ---------------------------------------------------------------------------
+
+const EnterpriseManagedConnectPayload = Schema.Struct({
+  client: OAuthClientSlug,
+  clientOwner: Owner,
+  owner: Owner,
+  name: ConnectionName,
+  integration: IntegrationSlug,
+  template: AuthTemplateSlug,
+  identityLabel: Schema.optional(Schema.NullOr(Schema.String)),
+  subjectTokenType: Schema.optional(Schema.String),
+  audience: Schema.optional(Schema.NullOr(Schema.String)),
+  resource: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+// ---------------------------------------------------------------------------
 // cancel — drop an in-flight session without exchanging.
 // ---------------------------------------------------------------------------
 
@@ -206,6 +226,8 @@ const ProbeResponse = Schema.Struct({
   scopesSupported: Schema.optional(Schema.Array(Schema.String)),
   registrationEndpoint: Schema.optional(Schema.NullOr(Schema.String)),
   tokenEndpointAuthMethodsSupported: Schema.optional(Schema.Array(Schema.String)),
+  supportsEnterpriseManagedAuthorization: Schema.optional(Schema.Boolean),
+  authorizationGrantProfilesSupported: Schema.optional(Schema.Array(Schema.String)),
 });
 
 // ---------------------------------------------------------------------------
@@ -229,6 +251,9 @@ const HtmlResponse = Schema.String.pipe(HttpApiSchema.asText());
 
 const OAuthStart = OAuthStartError.annotate({ httpApiStatus: 400 });
 const OAuthComplete = OAuthCompleteError.annotate({ httpApiStatus: 400 });
+const OAuthEnterpriseManagedConnect = OAuthEnterpriseManagedConnectError.annotate({
+  httpApiStatus: 400,
+});
 const OAuthProbe = OAuthProbeError.annotate({ httpApiStatus: 400 });
 const OAuthRegisterDynamic = OAuthRegisterDynamicError.annotate({ httpApiStatus: 400 });
 const OAuthSessionNotFound = OAuthSessionNotFoundError.annotate({ httpApiStatus: 404 });
@@ -278,6 +303,13 @@ export const OAuthApi = HttpApiGroup.make("oauth")
       payload: CompletePayload,
       success: ConnectionResponse,
       error: [InternalError, OAuthComplete, OAuthSessionNotFound],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("enterpriseManagedConnect", "/oauth/enterprise-managed-connect", {
+      payload: EnterpriseManagedConnectPayload,
+      success: ConnectionResponse,
+      error: [InternalError, OAuthEnterpriseManagedConnect],
     }),
   )
   .add(

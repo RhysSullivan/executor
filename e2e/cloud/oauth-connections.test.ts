@@ -12,6 +12,8 @@ import { randomBytes } from "node:crypto";
 import { expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
+import { createEmulator, connectEmulator } from "@executor-js/emulate";
+import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 import {
   AuthTemplateSlug,
@@ -24,10 +26,12 @@ import { serveOAuthTestServer } from "@executor-js/sdk/testing";
 
 import { scenario } from "../src/scenario";
 import { Api, Target } from "../src/services";
+import { GITHUB_EMULATOR_PORT, WORKOS_EMULATOR_PORT } from "../targets/cloud";
 
-const api = composePluginApi([openApiHttpPlugin()] as const);
+const api = composePluginApi([openApiHttpPlugin(), mcpHttpPlugin()] as const);
 
 const unique = (prefix: string) => `${prefix}_${randomBytes(4).toString("hex")}`;
+const ACCESS_TOKEN_SUBJECT_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 
 /** Narrow a `start` result to the redirect arm, failing with what came back. */
 const redirected = <R extends { status: string }>(
@@ -37,6 +41,16 @@ const redirected = <R extends { status: string }>(
     throw new Error(`oauth.start did not redirect: ${JSON.stringify(result)}`);
   }
   return result as Extract<R, { status: "redirect" }>;
+};
+
+/** Narrow an execution result to "completed", failing with what came back. */
+const completed = <R extends { status: string; text: string }>(
+  result: R,
+): Extract<R, { status: "completed" }> => {
+  if (result.status !== "completed") {
+    throw new Error(`execution did not complete (status=${result.status}): ${result.text}`);
+  }
+  return result as Extract<R, { status: "completed" }>;
 };
 
 scenario(
@@ -235,4 +249,140 @@ scenario(
     });
     expect(cancelled.cancelled, "cancel reports success even for an unknown session").toBe(true);
   }),
+);
+
+scenario(
+  "OAuth · enterprise-managed authorization connects a WorkOS session to an MCP server",
+  {},
+  Effect.scoped(
+    Effect.gen(function* () {
+      const target = yield* Target;
+      const { client: makeClient } = yield* Api;
+      const github = yield* Effect.acquireRelease(
+        Effect.promise(() =>
+          createEmulator({
+            service: "github",
+            port: GITHUB_EMULATOR_PORT,
+          }),
+        ),
+        (emulator) => Effect.promise(() => emulator.close()),
+      );
+      const identity = yield* target.newIdentity();
+      const client = yield* makeClient(api, identity);
+      const integration = IntegrationSlug.make(unique("mcpema"));
+      const connectionName = ConnectionName.make("enterprise");
+      const workosUrl = `http://127.0.0.1:${WORKOS_EMULATOR_PORT}`;
+
+      yield* client.mcp.addServer({
+        payload: {
+          transport: "remote",
+          name: "GitHub EMA MCP",
+          endpoint: `${github.url}/mcp`,
+          remoteTransport: "streamable-http",
+          slug: String(integration),
+          authenticationTemplate: [{ kind: "oauth2" }],
+        },
+      });
+
+      const probed = yield* client.oauth.probe({
+        payload: { url: `${github.url}/mcp` },
+      });
+      expect(
+        probed.supportsEnterpriseManagedAuthorization,
+        "the MCP authorization server advertises the ID-JAG grant profile",
+      ).toBe(true);
+
+      const clientSlug = OAuthClientSlug.make(unique("ema_client"));
+      yield* client.oauth.registerDynamic({
+        payload: {
+          owner: "org",
+          slug: clientSlug,
+          registrationEndpoint: probed.registrationEndpoint ?? `${github.url}/register`,
+          authorizationUrl: probed.authorizationUrl,
+          tokenUrl: probed.tokenUrl,
+          resource: probed.resource ?? `${github.url}/mcp`,
+          scopes: [],
+          tokenEndpointAuthMethodsSupported: probed.tokenEndpointAuthMethodsSupported ?? [],
+          clientName: "Executor e2e enterprise-managed auth",
+          originIntegration: integration,
+        },
+      });
+
+      const connection = yield* client.oauth.enterpriseManagedConnect({
+        payload: {
+          client: clientSlug,
+          clientOwner: "org",
+          owner: "org",
+          name: connectionName,
+          integration,
+          template: AuthTemplateSlug.make("oauth2"),
+          subjectTokenType: ACCESS_TOKEN_SUBJECT_TOKEN_TYPE,
+          audience: github.url,
+          resource: `${github.url}/mcp`,
+        },
+      });
+      expect(
+        connection,
+        "the enterprise-managed exchange minted a normal OAuth connection",
+      ).toMatchObject({
+        owner: "org",
+        name: connectionName,
+        integration,
+        template: "oauth2",
+        oauthClient: clientSlug,
+      });
+
+      const address = `tools.${integration}.org.enterprise.get_me`;
+      const tools = yield* client.tools.list({ query: { integration } });
+      expect(
+        tools.map((tool) => String(tool.address)),
+        "the connected MCP tool is stamped on the connection",
+      ).toContain(address);
+
+      const execution = completed(
+        yield* client.executions.execute({
+          payload: {
+            code: [`const result = await ${address}({});`, "return result;"].join("\n"),
+          },
+        }),
+      );
+      expect(execution.isError, "the MCP tool call succeeded").toBe(false);
+      expect(
+        execution.structured,
+        "the GitHub MCP emulator resolved the WorkOS user",
+      ).toMatchObject({
+        result: {
+          ok: true,
+          data: {
+            structuredContent: {
+              email: identity.credentials?.email,
+            },
+          },
+        },
+      });
+
+      const workos = yield* Effect.promise(() => connectEmulator({ baseUrl: workosUrl }));
+      const workosLedger = yield* Effect.promise(() => workos.ledger.list());
+      expect(
+        workosLedger.some((entry) => entry.operationId === "workos.oauth.tokenExchange"),
+        "the WorkOS emulator recorded the subject-token to ID-JAG exchange",
+      ).toBe(true);
+
+      const githubLedger = yield* Effect.promise(() => github.ledger.list());
+      expect(
+        githubLedger.some((entry) => entry.operationId === "mcp.oauth.jwtBearer"),
+        "the GitHub MCP emulator recorded the ID-JAG to access-token exchange",
+      ).toBe(true);
+      const mcpCall = githubLedger.find(
+        (entry) => entry.path === "/mcp" && entry.method === "POST",
+      );
+      expect(
+        mcpCall?.identity.user,
+        "the MCP call ran as the GitHub user derived from the WorkOS session",
+      ).toMatchObject({
+        login: identity.credentials?.email.split("@")[0],
+        scopes: ["repo", "read:user"],
+      });
+    }),
+  ),
 );

@@ -10,6 +10,7 @@ import {
   discoverProtectedResourceMetadata,
   registerDynamicClient,
 } from "./oauth-discovery";
+import { OAUTH_ID_JAG_GRANT_PROFILE } from "./oauth-helpers";
 import { serveTestHttpApp } from "./testing";
 
 interface CapturedRequest {
@@ -143,6 +144,25 @@ describe("discoverProtectedResourceMetadata", () => {
 });
 
 describe("discoverAuthorizationServerMetadata", () => {
+  it.effect("preserves advertised authorization grant profiles", () =>
+    withOAuthFixture(
+      (_request, baseUrl) =>
+        sendJson({
+          issuer: baseUrl,
+          authorization_endpoint: `${baseUrl}/authorize`,
+          token_endpoint: `${baseUrl}/token`,
+          authorization_grant_profiles_supported: [OAUTH_ID_JAG_GRANT_PROFILE],
+        }),
+      ({ baseUrl }) =>
+        Effect.gen(function* () {
+          const result = yield* discoverAuthorizationServerMetadata(baseUrl);
+          expect(result?.metadata.authorization_grant_profiles_supported).toEqual([
+            OAUTH_ID_JAG_GRANT_PROFILE,
+          ]);
+        }),
+    ),
+  );
+
   it.effect("falls back to openid-configuration when oauth-authorization-server is absent", () =>
     withOAuthFixture(
       (request, baseUrl) => {

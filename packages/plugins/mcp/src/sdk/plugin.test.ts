@@ -18,6 +18,10 @@ import {
 } from "@executor-js/sdk/testing";
 
 import { mcpPlugin, userFacingProbeMessage } from "./plugin";
+import {
+  MCP_ENTERPRISE_MANAGED_AUTHORIZATION_EXTENSION,
+  mcpClientCapabilities,
+} from "./connection";
 import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
 import { makeAnnotationsMcpServer, serveMcpServer } from "../testing";
 
@@ -164,6 +168,14 @@ describe("joinToolPath", () => {
 // ---------------------------------------------------------------------------
 
 describe("mcpPlugin", () => {
+  it("advertises the enterprise-managed authorization extension to upstream MCP servers", () => {
+    expect(mcpClientCapabilities).toMatchObject({
+      extensions: {
+        [MCP_ENTERPRISE_MANAGED_AUTHORIZATION_EXTENSION]: {},
+      },
+    });
+  });
+
   it.effect("creates executor with mcp plugin", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(

@@ -31,6 +31,7 @@ import {
 } from "./ids";
 import {
   OAuthCompleteError,
+  OAuthEnterpriseManagedConnectError,
   OAuthProbeError,
   OAuthRegisterDynamicError,
   OAuthSessionNotFoundError,
@@ -40,6 +41,7 @@ import {
   type OAuthClientOrigin,
   type OAuthClientSummary,
   type OAuthCompleteInput,
+  type OAuthEnterpriseManagedConnectInput,
   type OAuthGrant,
   type OAuthProbeInput,
   type OAuthProbeResult,
@@ -63,6 +65,9 @@ import {
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
   exchangeClientCredentials,
+  exchangeIdentityAssertionForIdJag,
+  exchangeIdJagForAccessToken,
+  OAUTH_ID_JAG_GRANT_PROFILE,
   type OAuth2TokenResponse,
   type OAuthEndpointUrlPolicy,
 } from "./oauth-helpers";
@@ -250,6 +255,20 @@ const clientSecretItemId = (owner: Owner, slug: OAuthClientSlug): string =>
 
 const expiresAtFrom = (token: OAuth2TokenResponse): number | null =>
   typeof token.expires_in === "number" ? Date.now() + token.expires_in * 1000 : null;
+
+const authorizationServerAudienceFromTokenUrl = (
+  tokenUrl: string,
+): Effect.Effect<string, OAuthEnterpriseManagedConnectError> =>
+  Effect.try({
+    try: () => {
+      const url = new URL(tokenUrl);
+      return url.origin;
+    },
+    catch: () =>
+      new OAuthEnterpriseManagedConnectError({
+        message: "Cannot derive enterprise-managed authorization audience from token URL.",
+      }),
+  });
 
 /** Error message surfaced when a redirect-requiring OAuth flow runs on an
  *  executor that was constructed without a `redirectUri`. Previously this path
@@ -865,6 +884,104 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
     });
 
   // -----------------------------------------------------------------------
+  // enterpriseManagedConnect — exchange a server-held enterprise identity
+  // token for an ID-JAG, then exchange that ID-JAG for an MCP access token and
+  // mint a normal OAuth connection through the existing storage/tool path.
+  // -----------------------------------------------------------------------
+  const enterpriseManagedConnect = (
+    input: OAuthEnterpriseManagedConnectInput,
+  ): Effect.Effect<Connection, OAuthEnterpriseManagedConnectError | StorageFailure> =>
+    Effect.gen(function* () {
+      if (input.owner === "org" && input.clientOwner === "user") {
+        return yield* new OAuthEnterpriseManagedConnectError({
+          message: "A Workspace connection must use a Workspace app.",
+        });
+      }
+
+      const client = yield* loadClient(input.clientOwner, input.client);
+      if (!client) {
+        return yield* new OAuthEnterpriseManagedConnectError({
+          message: `OAuth client not found: ${input.client}`,
+        });
+      }
+
+      const declaredScopes = yield* deps
+        .resolveDeclaredOAuthScopes(input.integration, input.template)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OAuthEnterpriseManagedConnectError({
+                // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: StorageFailure carries a typed `message` field
+                message: `Failed to resolve declared OAuth scopes: ${cause.message}`,
+              }),
+          ),
+        );
+      const requestedScopes = dedupeScopes(declaredScopes);
+      const audience =
+        input.audience && input.audience.trim().length > 0
+          ? input.audience
+          : yield* authorizationServerAudienceFromTokenUrl(client.tokenUrl);
+      const resource =
+        input.resource !== undefined
+          ? input.resource === null
+            ? undefined
+            : input.resource
+          : (client.resource ?? undefined);
+      if (!resource || resource.trim().length === 0) {
+        return yield* new OAuthEnterpriseManagedConnectError({
+          message:
+            "Enterprise-managed authorization requires an MCP resource identifier. Register the OAuth client from MCP resource metadata or pass the resource explicitly.",
+        });
+      }
+
+      const idJag = yield* exchangeIdentityAssertionForIdJag({
+        tokenUrl: input.identityProviderTokenUrl,
+        clientId: input.identityProviderClientId,
+        clientSecret: input.identityProviderClientSecret ?? null,
+        subjectToken: input.subjectToken,
+        subjectTokenType: input.subjectTokenType,
+        audience,
+        resource,
+        scopes: requestedScopes,
+        endpointUrlPolicy: deps.endpointUrlPolicy,
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OAuthEnterpriseManagedConnectError({
+              // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: OAuth2Error carries a typed `message` field
+              message: `Enterprise identity assertion exchange failed: ${cause.message}`,
+            }),
+        ),
+      );
+
+      const token = yield* exchangeIdJagForAccessToken({
+        tokenUrl: client.tokenUrl,
+        clientId: client.clientId,
+        clientSecret: client.clientSecret,
+        idJag: idJag.access_token,
+        endpointUrlPolicy: deps.endpointUrlPolicy,
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OAuthEnterpriseManagedConnectError({
+              // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: OAuth2Error carries a typed `message` field
+              message: `Enterprise ID-JAG access-token exchange failed: ${cause.message}`,
+            }),
+        ),
+      );
+
+      return yield* mintFromToken(input, client, token, requestedScopes, input.clientOwner).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OAuthEnterpriseManagedConnectError({
+              // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: StorageFailure carries a typed `message` field
+              message: `Failed to mint OAuth connection: ${cause.message}`,
+            }),
+        ),
+      );
+    });
+
+  // -----------------------------------------------------------------------
   // Mint the connection from a freshly exchanged token: store the access
   // value (+ refresh) in the default writable provider, then write the
   // connection row with OAuth lifecycle fields + produce its tools.
@@ -976,6 +1093,11 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         scopesSupported: as.metadata.scopes_supported,
         registrationEndpoint: as.metadata.registration_endpoint ?? null,
         tokenEndpointAuthMethodsSupported: as.metadata.token_endpoint_auth_methods_supported,
+        supportsEnterpriseManagedAuthorization:
+          as.metadata.authorization_grant_profiles_supported?.includes(
+            OAUTH_ID_JAG_GRANT_PROFILE,
+          ) ?? false,
+        authorizationGrantProfilesSupported: as.metadata.authorization_grant_profiles_supported,
       } satisfies OAuthProbeResult;
     }).pipe(Effect.provide(httpClientLayer));
 
@@ -986,6 +1108,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
     listClients,
     start,
     complete,
+    enterpriseManagedConnect,
     cancel,
     probe,
   };

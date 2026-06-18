@@ -114,6 +114,33 @@ export interface OAuthCompleteInput {
   readonly code: string;
 }
 
+/** Complete MCP Enterprise-Managed Authorization without a browser redirect.
+ *  The caller supplies a server-held enterprise identity token (for cloud this
+ *  comes from the sealed WorkOS session, never from the browser payload). The
+ *  service exchanges it for an ID-JAG at the enterprise IdP, exchanges the
+ *  ID-JAG for an MCP resource access token, then mints a normal OAuth-backed
+ *  connection. */
+export interface OAuthEnterpriseManagedConnectInput {
+  readonly client: OAuthClientSlug;
+  readonly clientOwner: Owner;
+  readonly owner: Owner;
+  readonly name: ConnectionName;
+  readonly integration: IntegrationSlug;
+  readonly template: AuthTemplateSlug;
+  readonly identityLabel?: string | null;
+  readonly identityProviderTokenUrl: string;
+  readonly identityProviderClientId: string;
+  readonly identityProviderClientSecret?: string | null;
+  readonly subjectToken: string;
+  readonly subjectTokenType: string;
+  /** Audience for the ID-JAG. Defaults to the MCP authorization-server origin
+   *  derived from the registered client's token URL. */
+  readonly audience?: string | null;
+  /** Resource claim for the ID-JAG. Defaults to the registered client's
+   *  resource indicator when present. */
+  readonly resource?: string | null;
+}
+
 /** Probe a base/issuer URL for OAuth 2.1 authorization-server metadata so the
  *  onboarding UI can pre-fill a client's endpoints. */
 export interface OAuthProbeInput {
@@ -133,6 +160,12 @@ export interface OAuthProbeResult {
   /** RFC 8414 `token_endpoint_auth_methods_supported`. Surfaced so DCR can pick
    *  a public ("none") client when the server allows it. */
   readonly tokenEndpointAuthMethodsSupported?: readonly string[];
+  /** Stable MCP Enterprise-Managed Authorization grant profile support, derived
+   *  from RFC 8414 `authorization_grant_profiles_supported`. */
+  readonly supportsEnterpriseManagedAuthorization?: boolean;
+  /** Raw RFC 8414 `authorization_grant_profiles_supported` values for callers
+   *  that need to inspect extension support directly. */
+  readonly authorizationGrantProfilesSupported?: readonly string[];
 }
 
 /** Mint an OAuth client via RFC 7591 Dynamic Client Registration and persist it.
@@ -170,6 +203,11 @@ export class OAuthCompleteError extends Schema.TaggedErrorClass<OAuthCompleteErr
     /** True when the auth-code exchange failed in a way the user must restart. */
     restartRequired: Schema.optional(Schema.Boolean),
   },
+) {}
+
+export class OAuthEnterpriseManagedConnectError extends Schema.TaggedErrorClass<OAuthEnterpriseManagedConnectError>()(
+  "OAuthEnterpriseManagedConnectError",
+  { message: Schema.String },
 ) {}
 
 export class OAuthProbeError extends Schema.TaggedErrorClass<OAuthProbeError>()("OAuthProbeError", {
@@ -216,6 +254,9 @@ export interface OAuthService {
   readonly complete: (
     input: OAuthCompleteInput,
   ) => Effect.Effect<Connection, OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure>;
+  readonly enterpriseManagedConnect: (
+    input: OAuthEnterpriseManagedConnectInput,
+  ) => Effect.Effect<Connection, OAuthEnterpriseManagedConnectError | StorageFailure>;
   readonly cancel: (state: OAuthState) => Effect.Effect<void, StorageFailure>;
   readonly probe: (
     input: OAuthProbeInput,

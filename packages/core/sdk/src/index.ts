@@ -218,6 +218,7 @@ export { OAUTH2_PROVIDER_KEY, OAUTH2_SESSION_TTL_MS } from "./oauth";
 export {
   OAuthStartError,
   OAuthCompleteError,
+  OAuthEnterpriseManagedConnectError,
   OAuthProbeError,
   OAuthRegisterDynamicError,
   OAuthSessionNotFoundError,
@@ -230,6 +231,7 @@ export {
   type ConnectResult,
   type OAuthStartInput,
   type OAuthCompleteInput,
+  type OAuthEnterpriseManagedConnectInput,
   type OAuthProbeInput,
   type OAuthProbeResult,
   type OAuthService,

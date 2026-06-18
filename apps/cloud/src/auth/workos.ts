@@ -130,6 +130,9 @@ export const workosApiUrlOptions = (
   };
 };
 
+export const workosOAuthTokenUrl = (url: string | undefined): string =>
+  `${(url ?? "https://api.workos.com").replace(/\/+$/, "")}/oauth2/token`;
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -146,6 +149,7 @@ const make = Effect.gen(function* () {
   }
 
   const workos = new WorkOS({ apiKey, clientId, ...workosApiUrlOptions(env.WORKOS_API_URL) });
+  const enterpriseIdentityProviderTokenUrl = workosOAuthTokenUrl(env.WORKOS_API_URL);
 
   const use = <A>(fn: (wos: WorkOS) => Promise<A>) =>
     withServiceLogging(
@@ -174,6 +178,9 @@ const make = Effect.gen(function* () {
           avatarUrl: result.user.profilePictureUrl,
           organizationId: result.organizationId,
           sessionId: result.sessionId,
+          enterpriseSubjectToken: result.accessToken,
+          enterpriseIdentityProviderTokenUrl,
+          enterpriseIdentityProviderClientId: clientId,
           refreshedSession: undefined as string | undefined,
         };
       }
@@ -196,6 +203,9 @@ const make = Effect.gen(function* () {
         avatarUrl: refreshed.user.profilePictureUrl,
         organizationId: refreshed.organizationId,
         sessionId: refreshed.sessionId,
+        enterpriseSubjectToken: refreshed.session?.accessToken,
+        enterpriseIdentityProviderTokenUrl,
+        enterpriseIdentityProviderClientId: clientId,
         refreshedSession: refreshed.sealedSession,
       };
     });
