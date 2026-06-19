@@ -1,8 +1,8 @@
 # Executor docs
 
 The Executor documentation site, built with [Mintlify](https://mintlify.com).
-This is a standalone Mintlify project (no `package.json` — it is not part of the
-bun workspace; Mintlify builds it in its own cloud).
+This is a standalone Mintlify project (no `package.json`, so it is not part of
+the bun workspace; Mintlify builds it in its own cloud).
 
 ## Develop
 

@@ -3,7 +3,7 @@ title: CLI
 description: "Run Executor as a local background service and drive it from the command line."
 ---
 
-The CLI runs a small HTTP runtime on your machine — a durable background service
+The CLI runs a small HTTP runtime on your machine: a durable background service
 that any MCP-compatible agent can connect to. Your integrations, credentials, and
 policies stay local.
 
@@ -45,8 +45,8 @@ throwaway foreground runtime instead, run `executor web --foreground`.
 
 ## Connect an agent
 
-Add Executor to any MCP client (Claude Code, Cursor, OpenCode) with `npx add-mcp` —
-it detects the client and writes its config for you. Connect over HTTP or through
+Add Executor to any MCP client (Claude Code, Cursor, OpenCode) with `npx add-mcp`.
+It detects the client and writes its config for you. Connect over HTTP or through
 the CLI:
 
 <Tabs>
@@ -63,7 +63,7 @@ the CLI:
   </Tab>
   <Tab title="CLI (stdio)">
     With the `executor` CLI on your PATH, the client launches `executor mcp`
-    directly — no URL needed:
+    directly (no URL needed):
 
     ```bash
     npx add-mcp "executor mcp" --name executor
@@ -74,7 +74,7 @@ the CLI:
 
 ## Add an integration
 
-From the web UI, click **Add Source** and paste an OpenAPI, GraphQL, or MCP URL —
+From the web UI, click **Add Source** and paste an OpenAPI, GraphQL, or MCP URL.
 Executor detects the type, indexes the tools, and handles auth. Or add one from the
 CLI:
 

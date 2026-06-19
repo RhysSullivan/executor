@@ -5,9 +5,9 @@ description: "Policies control whether each tool is always allowed, requires app
 
 A **policy** controls what an agent can do with each tool:
 
-- **Allow** — the tool runs without interruption.
-- **Require approval** — the call pauses until a human approves it.
-- **Block** — the tool can't be called.
+- **Allow**: the tool runs without interruption.
+- **Require approval**: the call pauses until a human approves it.
+- **Block**: the tool can't be called.
 
 Policies start from a sensible default derived from the integration's spec. For example,
 read-only `GET` operations on an OpenAPI spec are allowed by default, while writes can be

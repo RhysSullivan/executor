@@ -84,6 +84,10 @@ Code is very cheap to write. Do not give time estimates; with agents, code is
 practically instant to generate. Unless stated otherwise, time to implement is
 not a blocker.
 
+Never use em-dashes (the `—` character) anywhere: prose, docs, code comments,
+commit messages, or PRs. Use commas, colons, parentheses, or separate sentences
+instead.
+
 ## Reference Repos
 
 Repos in `.reference`, such as Effect and effect-atom, are available for
