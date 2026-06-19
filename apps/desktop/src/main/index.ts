@@ -35,6 +35,7 @@ import {
   reportAProblem,
 } from "./diagnostics";
 import { sidecarCrashHtml } from "./crash-screen";
+import { replaceSupervisedDaemonForDesktop } from "./supervised-connection";
 import {
   bundledExecutorPath,
   installSupervisedService,
@@ -86,6 +87,11 @@ const liveMainWindow = (): BrowserWindow | null => {
     return null;
   }
   return window;
+};
+
+const destroyWindow = (window: BrowserWindow) => {
+  if (mainWindow === window) mainWindow = null;
+  if (!window.isDestroyed()) window.destroy();
 };
 
 const focusMainWindow = () => {
@@ -208,17 +214,21 @@ const ensureSupervisedConnection = async (): Promise<SidecarConnection | null> =
   if (attached) {
     if (!shouldReplaceDaemonForDesktop(attached)) return attached;
     const settings = getServerSettings();
-    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: desktop launch should attach to the running daemon if automatic upgrade fails
-    try {
-      await installSupervisedService({
-        port: settings.port,
-        dataDir: DESKTOP_DATA_DIR,
-      });
-      return (await waitForSupervisedAttach(30_000, { port: settings.port })) ?? attached;
-    } catch (error) {
-      log.warn("Failed to replace older supervised daemon; attaching to the running daemon", error);
-      return attached;
-    }
+    return replaceSupervisedDaemonForDesktop(attached, {
+      install: () =>
+        installSupervisedService({
+          port: settings.port,
+          dataDir: DESKTOP_DATA_DIR,
+        }),
+      waitForAttach: () => waitForSupervisedAttach(30_000, { port: settings.port }),
+      attach: attachToSupervisedDaemon,
+      onInstallFailure: (error) => {
+        log.warn(
+          "Failed to replace older supervised daemon; re-checking before falling back",
+          error,
+        );
+      },
+    });
   }
 
   const status = await supervisedServiceStatus();
@@ -449,7 +459,18 @@ const createWindow = async (conn: SidecarConnection) => {
     return { action: "deny" };
   });
 
-  await window.loadURL(webUrlForConnection(conn));
+  // A supervised daemon can pass the health probe and still disappear before
+  // navigation begins. Treat that as a failed connection instead of leaving the
+  // user with a visible BrowserWindow that only shows the black background.
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Electron navigation rejects when the sidecar vanishes during startup
+  try {
+    await window.loadURL(webUrlForConnection(conn));
+  } catch (error) {
+    log.error("Failed to load Executor web UI", error);
+    destroyWindow(window);
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: caller decides whether to fall back or surface startup failure
+    throw error;
+  }
 };
 
 const showPortInUseDialog = async (port: number) => {
@@ -849,10 +870,18 @@ const boot = async () => {
     const supervised = await ensureSupervisedConnection();
     if (supervised) {
       connection = supervised;
-      await createWindow(supervised); // installs the bearer-auth header itself
-      armSupervisedMonitor();
-      void runUpdateCheck({ alertOnFail: false });
-      return;
+      // createWindow installs the bearer-auth header itself.
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: supervised attach can race with daemon shutdown; fall back to managed spawn
+      try {
+        await createWindow(supervised);
+        armSupervisedMonitor();
+        void runUpdateCheck({ alertOnFail: false });
+        return;
+      } catch (error) {
+        log.warn("Failed to load supervised daemon; falling back to managed sidecar", error);
+        stopSupervisedMonitor();
+        connection = null;
+      }
     }
   }
   connection = await startWithCurrentSettings();
@@ -875,7 +904,44 @@ const boot = async () => {
     app.quit();
     return;
   }
-  await createWindow(connection);
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: renderer navigation failure must show the startup recovery dialog, not a black window
+  try {
+    await createWindow(connection);
+  } catch (error) {
+    log.error("Failed to load managed sidecar web UI", error);
+    const failedConnection = connection;
+    connection = null;
+    await stopConnection(failedConnection);
+
+    const retryAfterReset = await handleFatalSidecarFailure(error);
+    if (!retryAfterReset) {
+      app.quit();
+      return;
+    }
+
+    lastSidecarStartError = null;
+    connection = await startWithCurrentSettings();
+    if (!connection && lastSidecarStartError != null) {
+      await handleFatalSidecarFailure(lastSidecarStartError);
+    }
+    if (!connection) {
+      app.quit();
+      return;
+    }
+
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: one post-reset retry before giving the user the final startup failure
+    try {
+      await createWindow(connection);
+    } catch (retryError) {
+      log.error("Failed to load managed sidecar web UI after reset", retryError);
+      const failedRetryConnection = connection;
+      connection = null;
+      await stopConnection(failedRetryConnection);
+      await handleFatalSidecarFailure(retryError);
+      app.quit();
+      return;
+    }
+  }
   // Check at boot. If an update is available, autoDownload pulls it and
   // the 'update-downloaded' handler fires the install dialog. Silent on
   // no-update / failure so we don't bother users on every launch.

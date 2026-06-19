@@ -661,6 +661,15 @@ if (!guiAvailable() || !packagedSingleInstanceAvailable()) {
   );
 
   scenario(
+    "Desktop packaged supervised attach · install failure falls back instead of black-screening",
+    { timeout: 300_000 },
+    Effect.gen(function* () {
+      const runDir = yield* RunDir;
+      yield* Effect.promise(() => runInstallFailureFallsBackToManagedSidecar(runDir));
+    }),
+  );
+
+  scenario(
     "Desktop packaged supervised settings · changing the port moves the active daemon",
     { timeout: 300_000 },
     Effect.gen(function* () {
@@ -685,6 +694,9 @@ const writeCliDaemonManifest = (input: {
   readonly origin: string;
   readonly displayName: string;
   readonly token: string;
+  readonly ownerVersion?: string | null;
+  readonly ownerClient?: "cli" | "desktop";
+  readonly ownerExecutablePath?: string | null;
 }): void => {
   mkdirSync(input.controlDir, { recursive: true });
   writeFileSync(
@@ -701,10 +713,132 @@ const writeCliDaemonManifest = (input: {
         displayName: input.displayName,
         auth: { kind: "bearer", token: input.token },
       }),
-      owner: { client: "cli", version: null, executablePath: null },
+      owner: {
+        client: input.ownerClient ?? "cli",
+        version: input.ownerVersion ?? null,
+        executablePath: input.ownerExecutablePath ?? null,
+      },
     }),
     { mode: 0o600 },
   );
+};
+
+const shellSingleQuote = (value: string): string => `'${value.replaceAll("'", "'\"'\"'")}'`;
+
+const withFailingBundledInstall = async <T>(run: () => Promise<T>): Promise<T> => {
+  const { executor } = requireBundle();
+  const original = readFileSync(executor);
+  const mode = statSync(executor).mode & 0o777;
+  const backup = `${executor}.e2e-real`;
+  writeFileSync(backup, original, { mode });
+  chmodSync(backup, mode);
+  writeFileSync(
+    executor,
+    [
+      "#!/bin/sh",
+      'if [ "$1" = "install" ]; then',
+      '  echo "launchctl bootstrap failed (exit 5): Bootstrap failed: 5: Input/output error" >&2',
+      "  exit 1",
+      "fi",
+      `exec ${shellSingleQuote(backup)} "$@"`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  try {
+    return await run();
+  } finally {
+    writeFileSync(executor, original, { mode });
+    chmodSync(executor, mode);
+    rmSync(backup, { force: true });
+  }
+};
+
+const runInstallFailureFallsBackToManagedSidecar = async (runDir: string) => {
+  const home = mkdtempSync(join(tmpdir(), "executor-pkg-install-failure-fallback-"));
+  const dataDir = join(home, ".executor");
+  const controlDir = join(dataDir, "server-control");
+  const token = "install-failure-fallback-token";
+  const launchdSnapshot = captureLaunchdService();
+  const oldPort = await freePort();
+  const requests: Array<{ readonly url: string; readonly authorization: string | null }> = [];
+  let resolveHealthProbe!: () => void;
+  const sawHealthProbe = new Promise<void>((resolve) => {
+    resolveHealthProbe = resolve;
+  });
+  let app: PackagedApp | undefined;
+  let serverOpen = false;
+
+  const server = createServer((req: IncomingMessage, res) => {
+    const url = req.url ?? "/";
+    requests.push({
+      url,
+      authorization: req.headers.authorization ?? null,
+    });
+    if (url.startsWith("/api/health")) {
+      res.writeHead(200, {
+        "content-type": "text/plain",
+        connection: "close",
+      });
+      res.end("ok", () => {
+        resolveHealthProbe();
+        void closeServer();
+      });
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<!doctype html><title>Stale Executor</title><body>Stale daemon</body>");
+  });
+  const closeServer = async (): Promise<void> => {
+    if (!serverOpen) return;
+    serverOpen = false;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  };
+
+  try {
+    await new Promise<void>((resolve) =>
+      server.listen(oldPort, "127.0.0.1", () => {
+        serverOpen = true;
+        resolve();
+      }),
+    );
+    writeCliDaemonManifest({
+      controlDir,
+      dataDir,
+      origin: `http://127.0.0.1:${oldPort}`,
+      displayName: "Older daemon that disappears",
+      token,
+      ownerVersion: "0.0.0",
+    });
+
+    await withFailingBundledInstall(async () => {
+      app = await launchPackaged(home);
+      const page = app.cdp;
+      await sawHealthProbe;
+      await page.waitForText("Settings", 120_000);
+      await page.screenshot(join(runDir, "01-fell-back-to-managed-sidecar.png"));
+
+      const connection = await page.evaluate<{ readonly origin: string } | null>(
+        "window.executor.getServerConnection()",
+      );
+      expect(
+        new URL(connection!.origin).port,
+        "desktop should not keep rendering from the stale daemon port after install failure",
+      ).not.toBe(String(oldPort));
+      expect(
+        requests
+          .filter((request) => request.url.startsWith("/api/health"))
+          .map((request) => request.authorization),
+        "the stale-daemon health probe must not disclose the saved bearer",
+      ).not.toContain(`Bearer ${token}`);
+    });
+  } finally {
+    await closePackaged(app);
+    await restoreLaunchdService(launchdSnapshot);
+    await closeServer();
+    rmSync(home, { recursive: true, force: true });
+  }
 };
 
 const runSlowLiveDaemonProbe = async (runDir: string) => {
