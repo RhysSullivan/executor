@@ -22,7 +22,7 @@ import {
 
 import { decodeOpenApiIntegrationConfig, type OpenApiIntegrationConfig } from "./config";
 import { OpenApiExtractionError, OpenApiOAuthError, OpenApiParseError } from "./errors";
-import { parse, resolveSpecText } from "./parse";
+import { ensureGenericOpenApiSpecTextWithinLimit, parse, resolveSpecText } from "./parse";
 import {
   convertGoogleDiscoveryBundleToOpenApi,
   convertGoogleDiscoveryToOpenApi,
@@ -473,7 +473,8 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         const specText = yield* resolveSpecText(spec.url).pipe(Effect.provide(httpClientLayer));
         return { specText };
       }
-      return { specText: spec.value };
+      const specText = yield* ensureGenericOpenApiSpecTextWithinLimit(spec.value);
+      return { specText };
     });
 
   return {

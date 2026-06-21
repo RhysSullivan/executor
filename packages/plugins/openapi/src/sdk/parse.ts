@@ -12,6 +12,31 @@ export interface SpecFetchCredentials {
   readonly queryParams?: Record<string, string>;
 }
 
+export const MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH = 25 * 1024 * 1024;
+
+const formatMiB = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+
+const oversizedOpenApiSpecError = (size: number): OpenApiParseError =>
+  new OpenApiParseError({
+    message: `OpenAPI document is too large for the generic OpenAPI importer (${formatMiB(size)}; limit ${formatMiB(MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH)}). Use a provider-specific integration when available, or import a smaller filtered OpenAPI document.`,
+  });
+
+const parseContentLength = (
+  headers: Readonly<Record<string, string | undefined>>,
+): number | undefined => {
+  const raw = headers["content-length"] ?? headers["Content-Length"];
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+};
+
+export const ensureGenericOpenApiSpecTextWithinLimit = (
+  specText: string,
+): Effect.Effect<string, OpenApiParseError> =>
+  specText.length > MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH
+    ? Effect.fail(oversizedOpenApiSpecError(specText.length))
+    : Effect.succeed(specText);
+
 // ExtractionError subclass raised from parse() for non-3.x specs
 class OpenApiExtractionErrorFromParse extends OpenApiExtractionError {}
 
@@ -50,7 +75,11 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
       message: `Failed to fetch OpenAPI document: HTTP ${response.status}`,
     });
   }
-  return yield* response.text.pipe(
+  const contentLength = parseContentLength(response.headers);
+  if (contentLength !== undefined && contentLength > MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH) {
+    return yield* oversizedOpenApiSpecError(contentLength);
+  }
+  const specText = yield* response.text.pipe(
     Effect.mapError(
       (_cause) =>
         new OpenApiParseError({
@@ -58,6 +87,7 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
         }),
     ),
   );
+  return yield* ensureGenericOpenApiSpecTextWithinLimit(specText);
 });
 
 /**
@@ -67,7 +97,7 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
 export const resolveSpecText = (input: string, credentials?: SpecFetchCredentials) =>
   input.startsWith("http://") || input.startsWith("https://")
     ? fetchSpecText(input, credentials)
-    : Effect.succeed(input);
+    : ensureGenericOpenApiSpecTextWithinLimit(input);
 
 /**
  * Parse an OpenAPI document from spec text and validate it's OpenAPI 3.x.
