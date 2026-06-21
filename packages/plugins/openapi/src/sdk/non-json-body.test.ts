@@ -414,7 +414,75 @@ describe("OpenAPI non-JSON request body dispatch", () => {
     }),
   );
 
-  it.effect("Gmail attachment bytes inherit filename and MIME from the parent message part", () =>
+  it.effect("format: byte response: ZIP bytes are sniffed from octet-stream output", () =>
+    Effect.gen(function* () {
+      const zipBase64Url = "UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA";
+      const MessagePartBody = Schema.Struct({
+        data: Schema.String,
+        size: Schema.Number,
+      });
+      const group = HttpApiGroup.make("zipAttachment").add(
+        HttpApiEndpoint.get("getAttachment", "/attachments/:id", {
+          success: MessagePartBody,
+        }),
+      );
+      const api = HttpApi.make("zipAttachmentTest").add(group);
+      const handlersLayer = HttpApiBuilder.group(api, "zipAttachment", (handlers) =>
+        handlers.handleRaw("getAttachment", () =>
+          Effect.succeed(
+            HttpServerResponse.jsonUnsafe({
+              data: zipBase64Url,
+              size: 22,
+            }),
+          ),
+        ),
+      );
+      const server = yield* serveOpenApiHttpApiTestServer({
+        api,
+        handlersLayer,
+        transformSpec: replaceResponseContent("/attachments/{id}", "get", {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                data: {
+                  type: "string",
+                  format: "byte",
+                  description: "The body data as a base64url encoded string.",
+                },
+                size: {
+                  type: "integer",
+                  format: "int32",
+                  description: "Number of bytes for the message part data.",
+                },
+              },
+              required: ["data", "size"],
+            },
+          },
+        }),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "zip_attachment" });
+
+      const result = yield* executor.execute(conn.address("zipAttachment.getAttachment"), {
+        id: "att_1",
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          _tag: "ToolFile",
+          encoding: "base64",
+          mimeType: "application/zip",
+          data: `${zipBase64Url}==`,
+          byteLength: 22,
+        },
+      });
+    }),
+  );
+
+  it.effect("Gmail-style byte responses stay generic and do not fetch parent metadata", () =>
     Effect.gen(function* () {
       const attachmentText = [
         "id,name,status,amount",
@@ -469,24 +537,12 @@ describe("OpenAPI non-JSON request body dispatch", () => {
                   mimeType: "multipart/mixed",
                   parts: [
                     {
-                      filename: "",
-                      mimeType: "text/plain",
-                      body: { data: "SGVsbG8=", size: 5 },
-                    },
-                    {
-                      filename: "",
-                      mimeType: "multipart/mixed",
-                      body: { size: 0 },
-                      parts: [
-                        {
-                          filename: "executor-test.csv",
-                          mimeType: "text/csv",
-                          body: {
-                            attachmentId: "fresh_att_1",
-                            size: attachmentBytes.byteLength,
-                          },
-                        },
-                      ],
+                      filename: "executor-test.csv",
+                      mimeType: "text/csv",
+                      body: {
+                        attachmentId: "att_1",
+                        size: attachmentBytes.byteLength,
+                      },
                     },
                   ],
                 },
@@ -533,14 +589,13 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         id: "att_1",
       });
 
-      expect(parentRequestUrl).toContain("format=full");
+      expect(parentRequestUrl).toBe("");
       expect(result).toMatchObject({
         ok: true,
         data: {
           _tag: "ToolFile",
-          name: "executor-test.csv",
           encoding: "base64",
-          mimeType: "text/csv",
+          mimeType: "text/plain",
           data: `${attachmentBase64Url}=`,
           byteLength: attachmentBytes.byteLength,
         },
