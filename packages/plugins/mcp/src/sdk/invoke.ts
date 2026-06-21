@@ -40,6 +40,8 @@ const argsRecord = (value: unknown): Record<string, unknown> =>
 const SsePostErrorCause = Schema.Struct({ message: Schema.String });
 const decodeSsePostErrorCause = Schema.decodeUnknownOption(SsePostErrorCause);
 
+// Matches the SDK's SSEClientTransport POST-failure message (sse.js); re-verify
+// on SDK bumps. A format drift just yields undefined (generic error, no crash).
 const statusFromSsePostError = (cause: unknown): number | undefined =>
   Option.match(decodeSsePostErrorCause(cause), {
     onNone: () => undefined,
