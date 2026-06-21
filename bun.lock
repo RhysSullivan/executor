@@ -968,15 +968,16 @@
         "@effect/platform-node": "catalog:",
         "@executor-js/config": "workspace:*",
         "@executor-js/sdk": "workspace:*",
+        "js-yaml": "4.1.1",
         "lucide-react": "^1.7.0",
         "openapi-types": "^12.1.3",
-        "yaml": "^2.7.1",
       },
       "devDependencies": {
         "@effect/atom-react": "catalog:",
         "@effect/vitest": "catalog:",
         "@executor-js/api": "workspace:*",
         "@executor-js/react": "workspace:*",
+        "@types/js-yaml": "4.0.9",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "bun-types": "catalog:",
@@ -2840,6 +2841,8 @@
     "@types/http-cache-semantics": ["@types/http-cache-semantics@4.2.0", "", {}, "sha512-L3LgimLHXtGkWikKnsPg0/VFx9OGZaC+eN1u4r+OB1XRqH3meBIAVC2zr1WdMH+RHmnRkqliQAOHNJ/E0j/e0Q=="],
 
     "@types/js-cookie": ["@types/js-cookie@3.0.6", "", {}, "sha512-wkw9yd1kEXOPnvEeEV1Go1MmxtBJL0RR79aOTAApecWFVu7w0NNXNqhcWgvw2YgZDYadliXkl14pa3WXw5jlCQ=="],
+
+    "@types/js-yaml": ["@types/js-yaml@4.0.9", "", {}, "sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg=="],
 
     "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
 

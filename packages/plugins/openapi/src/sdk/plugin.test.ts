@@ -628,6 +628,37 @@ describe("OpenAPI Plugin", () => {
     ),
   );
 
+  it.effect("addSpec accepts Graph-sized OpenAPI blobs", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+      const largeDescription = "x".repeat(36 * 1024 * 1024);
+
+      const added = yield* executor.openapi.addSpec({
+        spec: {
+          kind: "blob",
+          value: `openapi: 3.0.0
+info:
+  title: Large Test
+  version: 1.0.0
+  description: "${largeDescription}"
+servers:
+  - url: https://example.com
+paths:
+  /me:
+    get:
+      operationId: getMe
+      responses:
+        "200":
+          description: OK
+`,
+        },
+        slug: "large_api",
+      });
+
+      expect(added.toolCount).toBe(1);
+    }),
+  );
+
   it.effect("removeSpec cleans up the integration and its tools", () =>
     Effect.scoped(
       Effect.gen(function* () {

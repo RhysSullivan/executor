@@ -1,7 +1,7 @@
 import type { OpenAPI, OpenAPIV3, OpenAPIV3_1 } from "openapi-types";
 import { Duration, Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
-import YAML from "yaml";
+import { JSON_SCHEMA, load as parseYamlDocument } from "js-yaml";
 
 import { OpenApiExtractionError, OpenApiParseError } from "./errors";
 
@@ -11,31 +11,6 @@ export interface SpecFetchCredentials {
   readonly headers?: Record<string, string>;
   readonly queryParams?: Record<string, string>;
 }
-
-export const MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH = 25 * 1024 * 1024;
-
-const formatMiB = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-
-const oversizedOpenApiSpecError = (size: number): OpenApiParseError =>
-  new OpenApiParseError({
-    message: `OpenAPI document is too large for the generic OpenAPI importer (${formatMiB(size)}; limit ${formatMiB(MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH)}). Use a provider-specific integration when available, or import a smaller filtered OpenAPI document.`,
-  });
-
-const parseContentLength = (
-  headers: Readonly<Record<string, string | undefined>>,
-): number | undefined => {
-  const raw = headers["content-length"] ?? headers["Content-Length"];
-  if (!raw) return undefined;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-};
-
-export const ensureGenericOpenApiSpecTextWithinLimit = (
-  specText: string,
-): Effect.Effect<string, OpenApiParseError> =>
-  specText.length > MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH
-    ? Effect.fail(oversizedOpenApiSpecError(specText.length))
-    : Effect.succeed(specText);
 
 // ExtractionError subclass raised from parse() for non-3.x specs
 class OpenApiExtractionErrorFromParse extends OpenApiExtractionError {}
@@ -75,10 +50,6 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
       message: `Failed to fetch OpenAPI document: HTTP ${response.status}`,
     });
   }
-  const contentLength = parseContentLength(response.headers);
-  if (contentLength !== undefined && contentLength > MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH) {
-    return yield* oversizedOpenApiSpecError(contentLength);
-  }
   const specText = yield* response.text.pipe(
     Effect.mapError(
       (_cause) =>
@@ -87,7 +58,7 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
         }),
     ),
   );
-  return yield* ensureGenericOpenApiSpecTextWithinLimit(specText);
+  return specText;
 });
 
 /**
@@ -97,7 +68,7 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
 export const resolveSpecText = (input: string, credentials?: SpecFetchCredentials) =>
   input.startsWith("http://") || input.startsWith("https://")
     ? fetchSpecText(input, credentials)
-    : ensureGenericOpenApiSpecTextWithinLimit(input);
+    : Effect.succeed(input);
 
 /**
  * Parse an OpenAPI document from spec text and validate it's OpenAPI 3.x.
@@ -158,7 +129,7 @@ const parseJsonText = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Un
 
 const parseJsonLike = (text: string): Effect.Effect<unknown, unknown> => {
   const parseYaml = Effect.try({
-    try: () => YAML.parse(text) as unknown,
+    try: () => parseYamlDocument(text, { json: true, schema: JSON_SCHEMA }) as unknown,
     catch: () => "YamlParseFailed" as const,
   });
   if (!text.startsWith("{") && !text.startsWith("[")) return parseYaml;

@@ -22,7 +22,7 @@ import {
 
 import { decodeOpenApiIntegrationConfig, type OpenApiIntegrationConfig } from "./config";
 import { OpenApiExtractionError, OpenApiOAuthError, OpenApiParseError } from "./errors";
-import { ensureGenericOpenApiSpecTextWithinLimit, parse, resolveSpecText } from "./parse";
+import { parse, resolveSpecText } from "./parse";
 import {
   convertGoogleDiscoveryBundleToOpenApi,
   convertGoogleDiscoveryToOpenApi,
@@ -30,7 +30,7 @@ import {
   isGoogleDiscoveryUrl,
 } from "./google-discovery";
 import { extract } from "./extract";
-import { previewSpec, previewSpecText, type SpecPreview } from "./preview";
+import { previewSpecText, type SpecPreview } from "./preview";
 import { deriveAuthenticationTemplateFromPreview, firstBaseUrlForPreview } from "./derive-auth";
 import { openApiPresets } from "./presets";
 import { makeDefaultOpenapiStore, type OpenapiStore } from "./store";
@@ -473,8 +473,7 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         const specText = yield* resolveSpecText(spec.url).pipe(Effect.provide(httpClientLayer));
         return { specText };
       }
-      const specText = yield* ensureGenericOpenApiSpecTextWithinLimit(spec.value);
-      return { specText };
+      return { specText: spec.value };
     });
 
   return {
@@ -722,7 +721,7 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
                   Effect.map((conversion) => conversion.specText),
                 )
               : yield* resolveSpecText(previewInput.spec).pipe(Effect.provide(httpClientLayer));
-            return yield* previewSpec(specText).pipe(Effect.provide(httpClientLayer));
+            return yield* previewSpecText(specText);
           }),
 
         addSpec,

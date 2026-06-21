@@ -2,11 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { OpenApiParseError } from "./errors";
-import {
-  ensureGenericOpenApiSpecTextWithinLimit,
-  MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH,
-  parse,
-} from "./parse";
+import { parse } from "./parse";
 
 describe("OpenAPI parse", () => {
   it.effect("parses JSON OpenAPI documents", () =>
@@ -69,17 +65,21 @@ paths: {}
     }),
   );
 
-  it.effect("rejects oversized generic OpenAPI documents before parsing", () =>
+  it.effect("parses Graph-sized YAML OpenAPI documents", () =>
     Effect.gen(function* () {
-      const error = yield* ensureGenericOpenApiSpecTextWithinLimit(
-        "x".repeat(MAX_GENERIC_OPENAPI_SPEC_TEXT_LENGTH + 1),
-      ).pipe(Effect.flip);
-
-      expect(error).toBeInstanceOf(OpenApiParseError);
-      expect(error).toHaveProperty(
-        "message",
-        expect.stringContaining("too large for the generic OpenAPI importer"),
+      const largeDescription = "x".repeat(36 * 1024 * 1024);
+      const doc = yield* parse(
+        `openapi: 3.0.0
+info:
+  title: Large Test
+  version: 1.0.0
+  description: "${largeDescription}"
+paths: {}
+`,
       );
+
+      expect(doc.info.title).toBe("Large Test");
+      expect(doc.info.description).toHaveLength(largeDescription.length);
     }),
   );
 });
