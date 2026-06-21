@@ -3,7 +3,11 @@ import { Effect } from "effect";
 import * as YAML from "yaml";
 
 import { MICROSOFT_AUTH_TEMPLATE_SLUG, MICROSOFT_GRAPH_CLIENT_CREDENTIALS_SCOPES } from "./presets";
-import { filterMicrosoftGraphOpenApiSpec } from "./graph";
+import {
+  buildFilteredMicrosoftGraphOpenApiSpec,
+  filterMicrosoftGraphOpenApiSpec,
+  parseMicrosoftGraphDelegatedScopes,
+} from "./graph";
 
 const graphFixture = `
 openapi: 3.0.4
@@ -22,6 +26,27 @@ paths:
   /me/messages:
     get:
       operationId: me.messages.ListMessages
+      security:
+        - azureAdDelegated:
+            - Mail.ReadWrite
+      responses:
+        "200":
+          description: OK
+  /me/onenote/pages:
+    get:
+      operationId: me.onenote.pages.ListPages
+      security:
+        - azureAdDelegated:
+            - Notes.ReadWrite
+      responses:
+        "200":
+          description: OK
+  /teams/{team-id}/channels/{channel-id}/messages:
+    post:
+      operationId: teams.channels.messages.CreateMessage
+      x-ms-permissions:
+        delegated:
+          - ChannelMessage.Send
       responses:
         "200":
           description: OK
@@ -38,6 +63,34 @@ components:
 `;
 
 describe("Microsoft Graph OpenAPI filtering", () => {
+  it("parses delegated scopes from the generated Microsoft permissions reference", () => {
+    expect(
+      parseMicrosoftGraphDelegatedScopes(`
+### User.Read
+
+| Category | Application | Delegated |
+|--|--|--|
+| Identifier | - | e1fe6dd8-ba31-4d61-89e7-88639da4683d |
+
+---
+
+### AppCatalog.Read.All
+
+| Category | Application | Delegated |
+|--|--|--|
+| Identifier | e12dae10-5a57-4817-b79d-dfbec5348930 | - |
+
+---
+
+### Calendars.ReadWrite
+
+| Category | Application | Delegated |
+|--|--|--|
+| Identifier | ef54d2bf-783f-4e0f-bca1-3210c0444d99 | 1ec239c2-d7c9-4623-a91a-a9775856bb36 |
+`),
+    ).toEqual(["User.Read", "Calendars.ReadWrite"]);
+  });
+
   it.effect("keeps selected paths and injects delegated OAuth", () =>
     Effect.gen(function* () {
       const filtered = yield* filterMicrosoftGraphOpenApiSpec(graphFixture, {
@@ -60,6 +113,56 @@ describe("Microsoft Graph OpenAPI filtering", () => {
         "User.Read",
         "Mail.ReadWrite",
       ]);
+    }),
+  );
+
+  it.effect("keeps operations matched by selected Graph scopes", () =>
+    Effect.gen(function* () {
+      const filtered = yield* filterMicrosoftGraphOpenApiSpec(graphFixture, {
+        scopes: ["offline_access", "Notes.ReadWrite", "ChannelMessage.Send"],
+        exactPaths: [],
+        pathPrefixes: [],
+      });
+      const doc = YAML.parse(filtered) as {
+        readonly paths: Record<string, unknown>;
+      };
+
+      expect(Object.keys(doc.paths).sort()).toEqual([
+        "/me/onenote/pages",
+        "/teams/{team-id}/channels/{channel-id}/messages",
+      ]);
+    }),
+  );
+
+  it.effect("keeps full Graph selections and derives delegated scopes from the spec", () =>
+    Effect.gen(function* () {
+      const filtered = yield* buildFilteredMicrosoftGraphOpenApiSpec(graphFixture, {
+        scopes: ["offline_access"],
+        exactPaths: [],
+        pathPrefixes: [],
+        includeAllGraph: true,
+        fullGraphScopes: ["User.Read", "Mail.ReadWrite", "Notes.ReadWrite"],
+      });
+      const doc = YAML.parse(filtered.specText) as {
+        readonly paths: Record<string, unknown>;
+        readonly security: readonly Record<string, readonly string[]>[];
+      };
+
+      expect(Object.keys(doc.paths).sort()).toEqual([
+        "/me",
+        "/me/messages",
+        "/me/onenote/pages",
+        "/sites",
+        "/teams/{team-id}/channels/{channel-id}/messages",
+      ]);
+      expect(filtered.scopes).toEqual([
+        "offline_access",
+        "User.Read",
+        "Mail.ReadWrite",
+        "Notes.ReadWrite",
+        "ChannelMessage.Send",
+      ]);
+      expect(doc.security[0]?.[MICROSOFT_AUTH_TEMPLATE_SLUG]).toEqual(filtered.scopes);
     }),
   );
 

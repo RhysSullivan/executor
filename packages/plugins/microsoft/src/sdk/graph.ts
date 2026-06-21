@@ -16,12 +16,15 @@ import {
   MICROSOFT_AUTH_TEMPLATE_SLUG,
   MICROSOFT_CLIENT_CREDENTIALS_AUTH_TEMPLATE_SLUG,
   MICROSOFT_GRAPH_BASE_URL,
+  MICROSOFT_GRAPH_BASE_SCOPES,
   MICROSOFT_GRAPH_CLIENT_CREDENTIALS_SCOPES,
   MICROSOFT_GRAPH_DEFAULT_PRESET_IDS,
   MICROSOFT_GRAPH_OPENAPI_URL,
+  MICROSOFT_GRAPH_PERMISSIONS_REFERENCE_URL,
   MICROSOFT_TOKEN_URL,
   microsoftGraphExactPathsForPresetIds,
   microsoftGraphPathPrefixesForPresetIds,
+  microsoftGraphPresetIdsIncludeAllGraph,
   microsoftGraphScopesForPresetIds,
 } from "./presets";
 
@@ -47,6 +50,7 @@ export interface MicrosoftGraphSpecBuild {
   readonly scopes: readonly string[];
   readonly exactPaths: readonly string[];
   readonly pathPrefixes: readonly string[];
+  readonly includeAllGraph: boolean;
   readonly authenticationTemplate: readonly Authentication[];
 }
 
@@ -56,6 +60,7 @@ export type MicrosoftGraphIntegrationConfig = OpenApiIntegrationConfig & {
   readonly microsoftGraphScopes?: readonly string[];
   readonly microsoftGraphExactPaths?: readonly string[];
   readonly microsoftGraphPathPrefixes?: readonly string[];
+  readonly microsoftGraphIncludeAllGraph?: boolean;
   readonly microsoftGraphAuthorizationUrl?: string;
   readonly microsoftGraphTokenUrl?: string;
   readonly microsoftGraphClientCredentialsTokenUrl?: string;
@@ -73,6 +78,7 @@ const MicrosoftGraphIntegrationConfigSchema = Schema.Struct({
   microsoftGraphScopes: Schema.optional(Schema.Array(Schema.String)),
   microsoftGraphExactPaths: Schema.optional(Schema.Array(Schema.String)),
   microsoftGraphPathPrefixes: Schema.optional(Schema.Array(Schema.String)),
+  microsoftGraphIncludeAllGraph: Schema.optional(Schema.Boolean),
   microsoftGraphAuthorizationUrl: Schema.optional(Schema.String),
   microsoftGraphTokenUrl: Schema.optional(Schema.String),
   microsoftGraphClientCredentialsTokenUrl: Schema.optional(Schema.String),
@@ -107,6 +113,7 @@ const normalizeSelection = (input: MicrosoftGraphSelectionInput) => {
   const scopes = microsoftGraphScopesForPresetIds(presetIds, customScopes);
   const exactPaths = microsoftGraphExactPathsForPresetIds(presetIds);
   const pathPrefixes = microsoftGraphPathPrefixesForPresetIds(presetIds);
+  const includeAllGraph = microsoftGraphPresetIdsIncludeAllGraph(presetIds);
   const specUrl = input.specUrl?.trim() || MICROSOFT_GRAPH_OPENAPI_URL;
   const baseUrl = input.baseUrl?.trim() || undefined;
   const authorizationUrl = input.authorizationUrl?.trim() || undefined;
@@ -118,6 +125,7 @@ const normalizeSelection = (input: MicrosoftGraphSelectionInput) => {
     scopes,
     exactPaths,
     pathPrefixes,
+    includeAllGraph,
     specUrl,
     baseUrl,
     authorizationUrl,
@@ -154,6 +162,9 @@ const microsoftOAuthTemplate = (
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+
+const HTTP_METHODS = new Set(["delete", "get", "patch", "post", "put"]);
+const BASE_OAUTH_SCOPES = new Set(["offline_access", "openid", "profile", "email"]);
 
 const firstString = (values: readonly unknown[]): string | undefined =>
   values.find((value): value is string => typeof value === "string" && value.trim().length > 0);
@@ -227,6 +238,151 @@ const matchesGraphPath = (
   );
 };
 
+const isGraphPermissionScope = (value: string): boolean =>
+  value.startsWith("https://graph.microsoft.com/") ||
+  /^[A-Z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)+(?:\.All)?$/.test(value);
+
+export const parseMicrosoftGraphDelegatedScopes = (
+  permissionsReference: string,
+): readonly string[] =>
+  uniqueStrings(
+    permissionsReference.split(/\n(?=###\s+)/).flatMap((section) => {
+      const scope = section.match(/^###\s+([^\n]+)$/m)?.[1]?.trim();
+      if (!scope || !isGraphPermissionScope(scope)) return [];
+      const identifierRow = section.match(/^\|\s*Identifier\s*\|\s*([^|]*)\|\s*([^|]*)\|/m);
+      const delegatedIdentifier = identifierRow?.[2]?.trim();
+      return delegatedIdentifier && delegatedIdentifier !== "-" ? [scope] : [];
+    }),
+  );
+
+const collectScopeStrings = (value: unknown): readonly string[] => {
+  if (typeof value === "string") return isGraphPermissionScope(value) ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap(collectScopeStrings);
+  if (!isRecord(value)) return [];
+  return Object.values(value).flatMap(collectScopeStrings);
+};
+
+const securityScopes = (
+  value: unknown,
+  options?: { readonly delegatedOnly?: boolean },
+): readonly string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    return Object.entries(entry).flatMap(([scheme, scopes]) => {
+      const lowerScheme = scheme.toLowerCase();
+      if (options?.delegatedOnly && lowerScheme.includes("app")) return [];
+      if (options?.delegatedOnly && lowerScheme.includes("application")) return [];
+      return Array.isArray(scopes)
+        ? scopes.filter((scope): scope is string => typeof scope === "string")
+        : [];
+    });
+  });
+};
+
+const permissionScopes = (
+  operation: Record<string, unknown>,
+  options?: { readonly delegatedOnly?: boolean },
+): readonly string[] => {
+  const xMsPermissions = isRecord(operation["x-ms-permissions"])
+    ? operation["x-ms-permissions"]
+    : {};
+  const delegatedScopes = options?.delegatedOnly
+    ? collectScopeStrings({
+        delegated: xMsPermissions.delegated,
+        leastPrivilegedDelegated: xMsPermissions.leastPrivilegedDelegated,
+      })
+    : collectScopeStrings(xMsPermissions);
+  return uniqueStrings([...securityScopes(operation.security, options), ...delegatedScopes]);
+};
+
+const operationMatchesScope = (
+  operation: Record<string, unknown>,
+  selectedScopes: ReadonlySet<string>,
+): boolean =>
+  permissionScopes(operation).some(
+    (scope) => selectedScopes.has(scope) && !BASE_OAUTH_SCOPES.has(scope),
+  );
+
+const selectedOAuthScopesForPaths = (
+  paths: Record<string, unknown>,
+  requestedScopes: readonly string[],
+  fullGraphScopes: readonly string[] = [],
+): readonly string[] =>
+  uniqueStrings([
+    ...MICROSOFT_GRAPH_BASE_SCOPES,
+    ...fullGraphScopes,
+    ...Object.values(paths).flatMap((pathItem) => {
+      if (!isRecord(pathItem)) return [];
+      return Object.entries(pathItem).flatMap(([method, operation]) =>
+        HTTP_METHODS.has(method.toLowerCase()) && isRecord(operation)
+          ? permissionScopes(operation, { delegatedOnly: true })
+          : [],
+      );
+    }),
+    ...requestedScopes.filter((scope) => !BASE_OAUTH_SCOPES.has(scope)),
+  ]);
+
+const filterPathItem = (
+  path: string,
+  pathItem: Record<string, unknown>,
+  options: {
+    readonly exactPaths: ReadonlySet<string>;
+    readonly pathPrefixes: readonly string[];
+    readonly selectedScopes: ReadonlySet<string>;
+  },
+): Record<string, unknown> | null => {
+  const pathMatches = matchesGraphPath(path, options.exactPaths, options.pathPrefixes);
+  const kept: Record<string, unknown> = {};
+  let hasOperation = false;
+
+  for (const [key, value] of Object.entries(pathItem)) {
+    const lowerKey = key.toLowerCase();
+    if (!HTTP_METHODS.has(lowerKey)) continue;
+    if (!isRecord(value)) continue;
+    if (pathMatches || operationMatchesScope(value, options.selectedScopes)) {
+      kept[key] = value;
+      hasOperation = true;
+    }
+  }
+
+  if (!hasOperation) return null;
+  for (const [key, value] of Object.entries(pathItem)) {
+    if (!HTTP_METHODS.has(key.toLowerCase())) kept[key] = value;
+  }
+  return kept;
+};
+
+const selectMicrosoftGraphPaths = (
+  paths: Record<string, unknown>,
+  options: {
+    readonly scopes: readonly string[];
+    readonly exactPaths: readonly string[];
+    readonly pathPrefixes: readonly string[];
+    readonly includeAllGraph?: boolean;
+  },
+): Record<string, unknown> => {
+  if (options.includeAllGraph === true) return paths;
+
+  const exactPaths = new Set(options.exactPaths);
+  const selectedScopes = new Set(options.scopes);
+  const entries = Object.entries(paths).flatMap(([path, pathItem]) => {
+    if (!isRecord(pathItem)) return [];
+    const filtered = filterPathItem(path, pathItem, {
+      exactPaths,
+      pathPrefixes: options.pathPrefixes,
+      selectedScopes,
+    });
+    return filtered ? ([[path, filtered]] as const) : [];
+  });
+  return Object.fromEntries(entries);
+};
+
+interface MicrosoftGraphFilterResult {
+  readonly specText: string;
+  readonly scopes: readonly string[];
+}
+
 export const fetchMicrosoftGraphOpenApiSpec = Effect.fn("Microsoft.fetchGraphOpenApiSpec")(
   function* (specUrl: string) {
     const client = yield* HttpClient.HttpClient;
@@ -260,6 +416,39 @@ export const fetchMicrosoftGraphOpenApiSpec = Effect.fn("Microsoft.fetchGraphOpe
   },
 );
 
+export const fetchMicrosoftGraphPermissionsReference = Effect.fn(
+  "Microsoft.fetchGraphPermissionsReference",
+)(function* () {
+  const client = yield* HttpClient.HttpClient;
+  const response = yield* client
+    .execute(
+      HttpClientRequest.get(MICROSOFT_GRAPH_PERMISSIONS_REFERENCE_URL).pipe(
+        HttpClientRequest.setHeader("Accept", "text/markdown, text/plain, */*"),
+      ),
+    )
+    .pipe(
+      Effect.mapError(
+        () =>
+          new OpenApiParseError({
+            message: "Failed to fetch Microsoft Graph permissions reference",
+          }),
+      ),
+    );
+  if (response.status < 200 || response.status >= 300) {
+    return yield* new OpenApiParseError({
+      message: `Failed to fetch Microsoft Graph permissions reference: HTTP ${response.status}`,
+    });
+  }
+  return yield* response.text.pipe(
+    Effect.mapError(
+      () =>
+        new OpenApiParseError({
+          message: "Failed to read Microsoft Graph permissions reference body",
+        }),
+    ),
+  );
+});
+
 const parseMicrosoftGraphOpenApiDocument = (
   specText: string,
 ): Effect.Effect<Record<string, unknown>, OpenApiParseError> =>
@@ -279,18 +468,20 @@ const parseMicrosoftGraphOpenApiDocument = (
     return parsed;
   });
 
-export const filterMicrosoftGraphOpenApiSpec = (
+export const buildFilteredMicrosoftGraphOpenApiSpec = (
   specText: string,
   options: {
     readonly scopes: readonly string[];
     readonly exactPaths: readonly string[];
     readonly pathPrefixes: readonly string[];
+    readonly includeAllGraph?: boolean;
     readonly baseUrl?: string;
     readonly authorizationUrl?: string;
     readonly tokenUrl?: string;
     readonly clientCredentialsTokenUrl?: string;
+    readonly fullGraphScopes?: readonly string[];
   },
-): Effect.Effect<string, OpenApiParseError> =>
+): Effect.Effect<MicrosoftGraphFilterResult, OpenApiParseError> =>
   Effect.gen(function* () {
     const parsed = yield* parseMicrosoftGraphOpenApiDocument(specText);
     const paths = parsed.paths;
@@ -300,18 +491,17 @@ export const filterMicrosoftGraphOpenApiSpec = (
       });
     }
 
-    const exactPaths = new Set(options.exactPaths);
-    const filteredPaths = Object.fromEntries(
-      Object.entries(paths).filter(([path]) =>
-        matchesGraphPath(path, exactPaths, options.pathPrefixes),
-      ),
-    );
+    const filteredPaths = selectMicrosoftGraphPaths(paths, options);
     if (Object.keys(filteredPaths).length === 0) {
       return yield* new OpenApiParseError({
         message: "Microsoft Graph scope selection did not match any OpenAPI paths",
       });
     }
 
+    const scopes =
+      options.includeAllGraph === true
+        ? selectedOAuthScopesForPaths(filteredPaths, options.scopes, options.fullGraphScopes ?? [])
+        : options.scopes;
     const serverUrl = options.baseUrl ?? firstServerUrl(parsed) ?? MICROSOFT_GRAPH_BASE_URL;
     const endpoints = resolveOAuthEndpoints(parsed, options);
     const components = isRecord(parsed.components) ? parsed.components : {};
@@ -335,7 +525,7 @@ export const filterMicrosoftGraphOpenApiSpec = (
               authorizationCode: {
                 authorizationUrl: endpoints.authorizationUrl,
                 tokenUrl: endpoints.tokenUrl,
-                scopes: Object.fromEntries(options.scopes.map((scope) => [scope, scope])),
+                scopes: Object.fromEntries(scopes.map((scope) => [scope, scope])),
               },
               clientCredentials: {
                 tokenUrl: endpoints.clientCredentialsTokenUrl,
@@ -347,17 +537,26 @@ export const filterMicrosoftGraphOpenApiSpec = (
           },
         },
       },
-      security: [{ [MICROSOFT_AUTH_TEMPLATE_SLUG]: [...options.scopes] }],
+      security: [{ [MICROSOFT_AUTH_TEMPLATE_SLUG]: [...scopes] }],
     };
 
-    return yield* Effect.try({
+    const filteredSpecText = yield* Effect.try({
       try: () => YAML.stringify(next),
       catch: () =>
         new OpenApiParseError({
           message: "Failed to serialize Microsoft Graph OpenAPI document",
         }),
     });
+    return { specText: filteredSpecText, scopes };
   });
+
+export const filterMicrosoftGraphOpenApiSpec = (
+  specText: string,
+  options: Parameters<typeof buildFilteredMicrosoftGraphOpenApiSpec>[1],
+): Effect.Effect<string, OpenApiParseError> =>
+  buildFilteredMicrosoftGraphOpenApiSpec(specText, options).pipe(
+    Effect.map((result) => result.specText),
+  );
 
 export const buildMicrosoftGraphOpenApiSpec = (
   input: MicrosoftGraphSelectionInput,
@@ -368,15 +567,26 @@ export const buildMicrosoftGraphOpenApiSpec = (
     const sourceText = yield* fetchMicrosoftGraphOpenApiSpec(selection.specUrl).pipe(
       Effect.provide(httpClientLayer),
     );
+    const permissionsReference =
+      selection.includeAllGraph === true
+        ? yield* fetchMicrosoftGraphPermissionsReference().pipe(Effect.provide(httpClientLayer))
+        : undefined;
+    const fullGraphScopes = permissionsReference
+      ? parseMicrosoftGraphDelegatedScopes(permissionsReference)
+      : [];
     const parsed = yield* parseMicrosoftGraphOpenApiDocument(sourceText);
     const endpoints = resolveOAuthEndpoints(parsed, selection);
-    const specText = yield* filterMicrosoftGraphOpenApiSpec(sourceText, selection);
+    const filtered = yield* buildFilteredMicrosoftGraphOpenApiSpec(sourceText, {
+      ...selection,
+      fullGraphScopes,
+    });
     return {
       ...selection,
-      specText,
+      specText: filtered.specText,
+      scopes: filtered.scopes,
       authorizationUrl: endpoints.authorizationUrl,
       tokenUrl: endpoints.tokenUrl,
       clientCredentialsTokenUrl: endpoints.clientCredentialsTokenUrl,
-      authenticationTemplate: microsoftOAuthTemplate(selection.scopes, endpoints),
+      authenticationTemplate: microsoftOAuthTemplate(filtered.scopes, endpoints),
     };
   });

@@ -21,8 +21,10 @@ import { OpenApiSourceDetailsFields } from "@executor-js/plugin-openapi/react";
 import { addMicrosoftGraph } from "./atoms";
 import { MicrosoftScopePicker } from "./MicrosoftScopePicker";
 import {
+  MICROSOFT_GRAPH_ALL_PRESET_ID,
   MICROSOFT_GRAPH_BASE_URL,
   MICROSOFT_GRAPH_DEFAULT_PRESET_IDS,
+  microsoftGraphPresetIdsIncludeAllGraph,
   microsoftGraphScopesForPresetIds,
 } from "../sdk/presets";
 
@@ -52,12 +54,21 @@ export default function AddMicrosoftSource(props: {
     () => microsoftGraphScopesForPresetIds(selectedIds, customScopes),
     [selectedIds, customScopes],
   );
+  const includesAllGraph = useMemo(
+    () => microsoftGraphPresetIdsIncludeAllGraph(selectedIds),
+    [selectedIds],
+  );
 
   const togglePreset = useCallback((presetId: string, checked: boolean) => {
     setSelectedPresetIds((current: ReadonlySet<string>) => {
+      if (presetId === MICROSOFT_GRAPH_ALL_PRESET_ID && checked) {
+        return new Set([MICROSOFT_GRAPH_ALL_PRESET_ID]);
+      }
       const next = new Set(current);
-      if (checked) next.add(presetId);
-      else next.delete(presetId);
+      if (checked) {
+        next.delete(MICROSOFT_GRAPH_ALL_PRESET_ID);
+        next.add(presetId);
+      } else next.delete(presetId);
       return next;
     });
   }, []);
@@ -125,9 +136,13 @@ export default function AddMicrosoftSource(props: {
 
       <OpenApiSourceDetailsFields
         title="Microsoft Graph"
-        subtitle={`${selectedIds.length} workload${selectedIds.length !== 1 ? "s" : ""} with ${
-          selectedScopes.length
-        } OAuth scope${selectedScopes.length !== 1 ? "s" : ""}`}
+        subtitle={
+          includesAllGraph
+            ? "All Microsoft Graph workloads with the full Graph scope catalog"
+            : `${selectedIds.length} workload${selectedIds.length !== 1 ? "s" : ""} with ${
+                selectedScopes.length
+              } OAuth scope${selectedScopes.length !== 1 ? "s" : ""}`
+        }
         identity={identity}
         description={resolvedDescription}
         onDescriptionChange={setDescriptionDraft}

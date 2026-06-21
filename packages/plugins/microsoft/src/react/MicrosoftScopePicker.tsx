@@ -15,6 +15,7 @@ import { Input } from "@executor-js/react/components/input";
 import { IntegrationFavicon } from "@executor-js/react/components/integration-favicon";
 
 import {
+  microsoftGraphPresetIdsIncludeAllGraph,
   microsoftGraphScopePresets,
   microsoftGraphScopesForPresetIds,
   type MicrosoftGraphScopeAudience,
@@ -29,14 +30,20 @@ type MicrosoftScopePickerProps = {
   readonly onRemoveCustomScope: (scope: string) => void;
 };
 
-const AUDIENCE_ORDER: readonly MicrosoftGraphScopeAudience[] = ["standard-user", "admin"];
+const AUDIENCE_ORDER: readonly MicrosoftGraphScopeAudience[] = [
+  "full-graph",
+  "standard-user",
+  "admin",
+];
 
 const AUDIENCE_LABEL: Readonly<Record<MicrosoftGraphScopeAudience, string>> = {
+  "full-graph": "Full Graph",
   "standard-user": "User-delegated workloads",
   admin: "Admin consent workloads",
 };
 
 const AUDIENCE_DESCRIPTION: Readonly<Record<MicrosoftGraphScopeAudience, string>> = {
+  "full-graph": "Expose every operation from Microsoft Graph v1.0.",
   "standard-user": "A signed-in Microsoft account can grant these delegated scopes.",
   admin: "These Graph scopes commonly require tenant admin consent.",
 };
@@ -180,6 +187,10 @@ export function MicrosoftScopePicker({
     () => microsoftGraphScopesForPresetIds([...selectedPresetIds], customScopes),
     [selectedPresetIds, customScopes],
   );
+  const includesAllGraph = useMemo(
+    () => microsoftGraphPresetIdsIncludeAllGraph(selectedPresetIds),
+    [selectedPresetIds],
+  );
 
   return (
     <section className="space-y-4">
@@ -248,12 +259,21 @@ export function MicrosoftScopePicker({
 
       <Collapsible open={scopesOpen} onOpenChange={setScopesOpen}>
         <CollapsibleTrigger asChild>
-          <Button type="button" variant="outline" size="sm" disabled={scopes.length === 0}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={scopes.length === 0 && !includesAllGraph}
+          >
             <ChevronDownIcon
               className={cn("size-3.5 transition-transform", scopesOpen ? "rotate-180" : "")}
             />
             View scopes
-            {scopes.length > 0 ? (
+            {includesAllGraph ? (
+              <Badge variant="secondary" className="ml-1">
+                All
+              </Badge>
+            ) : scopes.length > 0 ? (
               <Badge variant="secondary" className="ml-1">
                 {scopes.length}
               </Badge>
@@ -262,6 +282,11 @@ export function MicrosoftScopePicker({
         </CollapsibleTrigger>
         <CollapsibleContent className="pt-3">
           <ul className="space-y-1">
+            {includesAllGraph ? (
+              <li className="rounded-md border border-border bg-muted/20 px-2.5 py-1 font-mono text-[11px] break-all text-muted-foreground">
+                All delegated Microsoft Graph scopes from the generated permissions reference
+              </li>
+            ) : null}
             {scopes.map((scope: string) => (
               <li
                 key={scope}

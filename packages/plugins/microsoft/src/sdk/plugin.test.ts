@@ -16,6 +16,7 @@ import {
   MICROSOFT_CLIENT_CREDENTIALS_AUTH_TEMPLATE_SLUG,
   MICROSOFT_GRAPH_CLIENT_CREDENTIALS_SCOPES,
   MICROSOFT_GRAPH_OPENAPI_URL,
+  MICROSOFT_GRAPH_PERMISSIONS_REFERENCE_URL,
 } from "./presets";
 
 const graphFixture = `
@@ -29,18 +30,36 @@ paths:
   /me:
     get:
       operationId: me.GetUser
+      security:
+        - azureAdDelegated:
+            - User.Read
       responses:
         "200":
           description: OK
   /me/messages:
     get:
       operationId: me.messages.ListMessages
+      security:
+        - azureAdDelegated:
+            - Mail.ReadWrite
       responses:
         "200":
           description: OK
   /me/events:
     get:
       operationId: me.events.ListEvents
+      security:
+        - azureAdDelegated:
+            - Calendars.ReadWrite
+      responses:
+        "200":
+          description: OK
+  /me/onenote/pages:
+    get:
+      operationId: me.onenote.pages.ListPages
+      security:
+        - azureAdDelegated:
+            - Notes.ReadWrite
       responses:
         "200":
           description: OK
@@ -54,6 +73,46 @@ components:
   schemas:
     user:
       type: object
+`;
+
+const permissionsReferenceFixture = `
+### User.Read
+
+| Category | Application | Delegated |
+|--|--|--|
+| Identifier | - | e1fe6dd8-ba31-4d61-89e7-88639da4683d |
+
+---
+
+### Mail.ReadWrite
+
+| Category | Application | Delegated |
+|--|--|--|
+| Identifier | e2a3a72e-5f79-4c64-b1b1-878b674786c9 | 024d486e-b451-40bb-833d-3e66d98c5c73 |
+
+---
+
+### Calendars.ReadWrite
+
+| Category | Application | Delegated |
+|--|--|--|
+| Identifier | ef54d2bf-783f-4e0f-bca1-3210c0444d99 | 1ec239c2-d7c9-4623-a91a-a9775856bb36 |
+
+---
+
+### Notes.ReadWrite
+
+| Category | Application | Delegated |
+|--|--|--|
+| Identifier | 085ca537-6565-41c2-aca7-db852babc212 | 615e82d5-1f7f-4f99-a456-0a0484a820d5 |
+
+---
+
+### AppCatalog.Read.All
+
+| Category | Application | Delegated |
+|--|--|--|
+| Identifier | e12dae10-5a57-4817-b79d-dfbec5348930 | - |
 `;
 
 const EMULATOR_SPEC_URL = "https://microsoft.emulators.dev/_emulate/openapi";
@@ -103,15 +162,24 @@ const graphHttpClientLayer = Layer.succeed(HttpClient.HttpClient)(
         new Response(
           request.url === MICROSOFT_GRAPH_OPENAPI_URL
             ? graphFixture
-            : request.url === EMULATOR_SPEC_URL
-              ? emulatorGraphFixture
-              : "not found",
+            : request.url === MICROSOFT_GRAPH_PERMISSIONS_REFERENCE_URL
+              ? permissionsReferenceFixture
+              : request.url === EMULATOR_SPEC_URL
+                ? emulatorGraphFixture
+                : "not found",
           {
             status:
-              request.url === MICROSOFT_GRAPH_OPENAPI_URL || request.url === EMULATOR_SPEC_URL
+              request.url === MICROSOFT_GRAPH_OPENAPI_URL ||
+              request.url === MICROSOFT_GRAPH_PERMISSIONS_REFERENCE_URL ||
+              request.url === EMULATOR_SPEC_URL
                 ? 200
                 : 404,
-            headers: { "content-type": "application/yaml" },
+            headers: {
+              "content-type":
+                request.url === MICROSOFT_GRAPH_PERMISSIONS_REFERENCE_URL
+                  ? "text/markdown"
+                  : "application/yaml",
+            },
           },
         ),
       ),
@@ -138,11 +206,13 @@ describe("Microsoft Graph provider", () => {
 
         const config = yield* executor.microsoft.getConfig("microsoft_graph");
         expect(config?.microsoftGraphPresetIds).toEqual(["profile", "mail"]);
+        expect(config?.microsoftGraphIncludeAllGraph).toBe(false);
         expect(config?.microsoftGraphScopes).toEqual([
           "offline_access",
           "User.Read",
           "Mail.ReadWrite",
           "Mail.Send",
+          "MailboxSettings.ReadWrite",
         ]);
 
         const oauthTemplates = config?.authenticationTemplate?.filter(
@@ -162,6 +232,7 @@ describe("Microsoft Graph provider", () => {
           "User.Read",
           "Mail.ReadWrite",
           "Mail.Send",
+          "MailboxSettings.ReadWrite",
         ]);
         expect(clientCredentials?.kind === "oauth2" ? clientCredentials.slug : undefined).toBe(
           AuthTemplateSlug.make(MICROSOFT_CLIENT_CREDENTIALS_AUTH_TEMPLATE_SLUG),
@@ -182,6 +253,44 @@ describe("Microsoft Graph provider", () => {
         expect(toolNames).toContain("me.getUser");
         expect(toolNames).toContain("me.messagesListMessages");
         expect(toolNames).not.toContain("sites.listSites");
+      }),
+    ),
+  );
+
+  it.effect("adds full Microsoft Graph by default", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const executor = yield* createExecutor(makeTestConfig({ plugins: graphPlugins() }));
+
+        yield* executor.microsoft.addGraph({
+          slug: "microsoft_graph_all",
+          description: "Microsoft Graph",
+        });
+
+        const config = yield* executor.microsoft.getConfig("microsoft_graph_all");
+        expect(config?.microsoftGraphIncludeAllGraph).toBe(true);
+        expect(config?.microsoftGraphScopes).toEqual([
+          "offline_access",
+          "User.Read",
+          "Mail.ReadWrite",
+          "Calendars.ReadWrite",
+          "Notes.ReadWrite",
+        ]);
+
+        yield* executor.connections.create({
+          owner: "org",
+          name: ConnectionName.make("all"),
+          integration: IntegrationSlug.make("microsoft_graph_all"),
+          template: AuthTemplateSlug.make(MICROSOFT_AUTH_TEMPLATE_SLUG),
+          value: "token-xyz",
+        });
+
+        const toolNames = (yield* executor.tools.list()).map((tool) => String(tool.name));
+        expect(toolNames).toContain("me.getUser");
+        expect(toolNames).toContain("me.messagesListMessages");
+        expect(toolNames).toContain("me.eventsListEvents");
+        expect(toolNames).toContain("me.onenotePagesListPages");
+        expect(toolNames).toContain("sites.listSites");
       }),
     ),
   );

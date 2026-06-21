@@ -22,7 +22,9 @@ scenario(
       await step(
         "The provider list exposes OpenAPI, Google, and Microsoft separately",
         async () => {
-          const dialog = page.getByRole("dialog", { name: "Connect an integration" });
+          const dialog = page.getByRole("dialog", {
+            name: "Connect an integration",
+          });
           await dialog.getByRole("link", { name: "OpenAPI", exact: true }).waitFor();
           await dialog.getByRole("link", { name: "Google", exact: true }).waitFor();
           await dialog.getByRole("link", { name: "Microsoft", exact: true }).waitFor();
@@ -30,7 +32,9 @@ scenario(
       );
 
       await step("OpenAPI add remains generic", async () => {
-        await page.goto("/integrations/add/openapi", { waitUntil: "domcontentloaded" });
+        await page.goto("/integrations/add/openapi", {
+          waitUntil: "domcontentloaded",
+        });
         await page.getByRole("heading", { name: "Add OpenAPI Integration" }).waitFor();
         await page.getByText("OpenAPI Spec").waitFor();
         expect(await page.getByText("Customize your Google connection").count()).toBe(0);
@@ -38,7 +42,9 @@ scenario(
       });
 
       await step("Google has its own product picker", async () => {
-        await page.goto("/integrations/add/google", { waitUntil: "domcontentloaded" });
+        await page.goto("/integrations/add/google", {
+          waitUntil: "domcontentloaded",
+        });
         await page.getByRole("heading", { name: "Add Google" }).waitFor();
         await page.getByText("Customize your Google connection").waitFor();
         await page.getByText("Gmail").first().waitFor();
@@ -46,16 +52,25 @@ scenario(
       });
 
       await step("Microsoft has its own Graph scope picker", async () => {
-        await page.goto("/integrations/add/microsoft", { waitUntil: "domcontentloaded" });
+        await page.goto("/integrations/add/microsoft", {
+          waitUntil: "domcontentloaded",
+        });
         await page.getByRole("heading", { name: "Add Microsoft Graph" }).waitFor();
         await page.getByText("Customize Microsoft Graph").waitFor();
+        await page.getByText("All Microsoft Graph", { exact: true }).waitFor();
         await page.getByText("Outlook Mail").waitFor();
         await page.getByText("OneDrive Files").waitFor();
+        await page.getByText("OneNote").waitFor();
+        await page.getByText("Teams Channels").waitFor();
         await page.locator('img[src*="svgl.app/library/microsoft-outlook.svg"]').first().waitFor();
         await page.locator('img[src*="svgl.app/library/microsoft-onedrive.svg"]').waitFor();
         await page.getByRole("button", { name: /View scopes/ }).click();
+        await page
+          .getByText(
+            "All delegated Microsoft Graph scopes from the generated permissions reference",
+          )
+          .waitFor();
         await page.getByText("offline_access").waitFor();
-        await page.getByText("Mail.ReadWrite").waitFor();
       });
     });
   }),
