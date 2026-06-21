@@ -102,6 +102,31 @@ const contentFor = (contentType: string) => ({
   },
 });
 
+const replaceResponseContent =
+  (path: string, operation: string, content: Record<string, unknown>) =>
+  (spec: Record<string, unknown>): Record<string, unknown> => {
+    const paths = { ...(spec.paths as Record<string, unknown>) };
+    const pathItem = { ...(paths[path] as Record<string, unknown>) };
+    const operationSpec = { ...(pathItem[operation] as Record<string, unknown>) };
+    const responses = { ...(operationSpec.responses as Record<string, unknown>) };
+    const ok = { ...(responses["200"] as Record<string, unknown>) };
+    responses["200"] = { ...ok, content };
+    pathItem[operation] = { ...operationSpec, responses };
+    paths[path] = pathItem;
+    return { ...spec, paths };
+  };
+
+const replaceOperationServers =
+  (path: string, operation: string, servers: readonly Record<string, unknown>[]) =>
+  (spec: Record<string, unknown>): Record<string, unknown> => {
+    const paths = { ...(spec.paths as Record<string, unknown>) };
+    const pathItem = { ...(paths[path] as Record<string, unknown>) };
+    const operationSpec = { ...(pathItem[operation] as Record<string, unknown>) };
+    pathItem[operation] = { ...operationSpec, servers };
+    paths[path] = pathItem;
+    return { ...spec, paths };
+  };
+
 const replaceRequestBodyContent =
   (
     path: string,
@@ -231,6 +256,450 @@ describe("OpenAPI non-JSON request body dispatch", () => {
       expect(captured.contentType).toBe("application/octet-stream");
       expect(captured.body.length).toBe(payload.length);
       expect(Array.from(captured.body)).toEqual(Array.from(payload));
+    }),
+  );
+
+  it.effect(
+    "format: byte response: Gmail-style image attachment data is exposed as a file artifact",
+    () =>
+      Effect.gen(function* () {
+        const attachmentBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+        const attachmentBase64Url = "_9j_4AAQ";
+        const MessagePartBody = Schema.Struct({
+          data: Schema.String,
+          size: Schema.Number,
+        });
+        const group = HttpApiGroup.make("gmail").add(
+          HttpApiEndpoint.get("getAttachment", "/attachments/:id", {
+            success: MessagePartBody,
+          }),
+        );
+        const api = HttpApi.make("gmailAttachmentTest").add(group);
+        const handlersLayer = HttpApiBuilder.group(api, "gmail", (handlers) =>
+          handlers.handleRaw("getAttachment", () =>
+            Effect.succeed(
+              HttpServerResponse.jsonUnsafe({
+                data: attachmentBase64Url,
+                size: attachmentBytes.byteLength,
+              }),
+            ),
+          ),
+        );
+        const server = yield* serveOpenApiHttpApiTestServer({
+          api,
+          handlersLayer,
+          transformSpec: replaceResponseContent("/attachments/{id}", "get", {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  data: {
+                    type: "string",
+                    format: "byte",
+                    description: "The body data as a base64url encoded string.",
+                  },
+                  size: {
+                    type: "integer",
+                    format: "int32",
+                    description: "Number of bytes for the message part data.",
+                  },
+                },
+                required: ["data", "size"],
+              },
+            },
+          }),
+        });
+
+        const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+        const conn = yield* addOpenApiTestConnection(executor, server, { slug: "gmail" });
+
+        const schema = yield* executor.tools.schema(conn.address("gmail.getAttachment"));
+        expect(schema?.outputSchema).toMatchObject({
+          properties: {
+            _tag: { enum: ["ToolFile"] },
+            data: { contentEncoding: "base64" },
+          },
+        });
+
+        const result = yield* executor.execute(conn.address("gmail.getAttachment"), {
+          id: "att_1",
+        });
+
+        expect(result).toMatchObject({
+          ok: true,
+          data: {
+            _tag: "ToolFile",
+            encoding: "base64",
+            mimeType: "image/jpeg",
+            data: "/9j/4AAQ",
+            byteLength: attachmentBytes.byteLength,
+          },
+        });
+      }),
+  );
+
+  it.effect("format: byte response: UTF-8 attachment data falls back to text/plain", () =>
+    Effect.gen(function* () {
+      const attachmentText = [
+        "id,name,status,amount",
+        "1,Ada,confirmed,42.50",
+        "2,Grace,pending,13.75",
+        "3,Linus,cancelled,0.00",
+        "",
+      ].join("\n");
+      const attachmentBase64Url =
+        "aWQsbmFtZSxzdGF0dXMsYW1vdW50CjEsQWRhLGNvbmZpcm1lZCw0Mi41MAoyLEdyYWNlLHBlbmRpbmcsMTMuNzUKMyxMaW51cyxjYW5jZWxsZWQsMC4wMAo";
+      const MessagePartBody = Schema.Struct({
+        data: Schema.String,
+        size: Schema.Number,
+      });
+      const group = HttpApiGroup.make("gmailText").add(
+        HttpApiEndpoint.get("getAttachment", "/attachments/:id", {
+          success: MessagePartBody,
+        }),
+      );
+      const api = HttpApi.make("gmailTextAttachmentTest").add(group);
+      const handlersLayer = HttpApiBuilder.group(api, "gmailText", (handlers) =>
+        handlers.handleRaw("getAttachment", () =>
+          Effect.succeed(
+            HttpServerResponse.jsonUnsafe({
+              data: attachmentBase64Url,
+              size: new TextEncoder().encode(attachmentText).byteLength,
+            }),
+          ),
+        ),
+      );
+      const server = yield* serveOpenApiHttpApiTestServer({
+        api,
+        handlersLayer,
+        transformSpec: replaceResponseContent("/attachments/{id}", "get", {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                data: {
+                  type: "string",
+                  format: "byte",
+                  description: "The body data as a base64url encoded string.",
+                },
+                size: {
+                  type: "integer",
+                  format: "int32",
+                  description: "Number of bytes for the message part data.",
+                },
+              },
+              required: ["data", "size"],
+            },
+          },
+        }),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "gmail_text" });
+
+      const result = yield* executor.execute(conn.address("gmailText.getAttachment"), {
+        id: "att_1",
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          _tag: "ToolFile",
+          encoding: "base64",
+          mimeType: "text/plain",
+          data: `${attachmentBase64Url}=`,
+          byteLength: 89,
+        },
+      });
+    }),
+  );
+
+  it.effect("format: byte response: ZIP bytes are sniffed from octet-stream output", () =>
+    Effect.gen(function* () {
+      const zipBase64Url = "UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA";
+      const MessagePartBody = Schema.Struct({
+        data: Schema.String,
+        size: Schema.Number,
+      });
+      const group = HttpApiGroup.make("zipAttachment").add(
+        HttpApiEndpoint.get("getAttachment", "/attachments/:id", {
+          success: MessagePartBody,
+        }),
+      );
+      const api = HttpApi.make("zipAttachmentTest").add(group);
+      const handlersLayer = HttpApiBuilder.group(api, "zipAttachment", (handlers) =>
+        handlers.handleRaw("getAttachment", () =>
+          Effect.succeed(
+            HttpServerResponse.jsonUnsafe({
+              data: zipBase64Url,
+              size: 22,
+            }),
+          ),
+        ),
+      );
+      const server = yield* serveOpenApiHttpApiTestServer({
+        api,
+        handlersLayer,
+        transformSpec: replaceResponseContent("/attachments/{id}", "get", {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                data: {
+                  type: "string",
+                  format: "byte",
+                  description: "The body data as a base64url encoded string.",
+                },
+                size: {
+                  type: "integer",
+                  format: "int32",
+                  description: "Number of bytes for the message part data.",
+                },
+              },
+              required: ["data", "size"],
+            },
+          },
+        }),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "zip_attachment" });
+
+      const result = yield* executor.execute(conn.address("zipAttachment.getAttachment"), {
+        id: "att_1",
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          _tag: "ToolFile",
+          encoding: "base64",
+          mimeType: "application/zip",
+          data: `${zipBase64Url}==`,
+          byteLength: 22,
+        },
+      });
+    }),
+  );
+
+  it.effect("Gmail-style byte responses stay generic and do not fetch parent metadata", () =>
+    Effect.gen(function* () {
+      const attachmentText = [
+        "id,name,status,amount",
+        "1,Ada,confirmed,42.50",
+        "2,Grace,pending,13.75",
+        "3,Linus,cancelled,0.00",
+        "",
+      ].join("\n");
+      const attachmentBase64Url =
+        "aWQsbmFtZSxzdGF0dXMsYW1vdW50CjEsQWRhLGNvbmZpcm1lZCw0Mi41MAoyLEdyYWNlLHBlbmRpbmcsMTMuNzUKMyxMaW51cyxjYW5jZWxsZWQsMC4wMAo";
+      const attachmentBytes = new TextEncoder().encode(attachmentText);
+      const MessagePartBody = Schema.Struct({
+        data: Schema.String,
+        size: Schema.Number,
+      });
+      const Message = Schema.Struct({
+        payload: Schema.Unknown,
+      });
+      let parentRequestUrl = "";
+      const group = HttpApiGroup.make("gmailMeta")
+        .add(
+          HttpApiEndpoint.get(
+            "getAttachment",
+            "/users/:userId/messages/:messageId/attachments/:id",
+            {
+              success: MessagePartBody,
+            },
+          ),
+        )
+        .add(
+          HttpApiEndpoint.get("getMessage", "/users/:userId/messages/:messageId", {
+            success: Message,
+          }),
+        );
+      const api = HttpApi.make("gmailMetadataAttachmentTest").add(group);
+      const handlersLayer = HttpApiBuilder.group(api, "gmailMeta", (handlers) =>
+        handlers
+          .handleRaw("getAttachment", () =>
+            Effect.succeed(
+              HttpServerResponse.jsonUnsafe({
+                data: attachmentBase64Url,
+                size: attachmentBytes.byteLength,
+              }),
+            ),
+          )
+          .handleRaw("getMessage", () =>
+            Effect.gen(function* () {
+              const request = yield* HttpServerRequest.HttpServerRequest;
+              parentRequestUrl = request.url;
+              return HttpServerResponse.jsonUnsafe({
+                payload: {
+                  mimeType: "multipart/mixed",
+                  parts: [
+                    {
+                      filename: "executor-test.csv",
+                      mimeType: "text/csv",
+                      body: {
+                        attachmentId: "att_1",
+                        size: attachmentBytes.byteLength,
+                      },
+                    },
+                  ],
+                },
+              });
+            }),
+          ),
+      );
+      const server = yield* serveOpenApiHttpApiTestServer({
+        api,
+        handlersLayer,
+        transformSpec: (spec) =>
+          replaceOperationServers("/users/{userId}/messages/{messageId}/attachments/{id}", "get", [
+            { url: "https://gmail.googleapis.com/gmail/v1" },
+          ])(
+            replaceResponseContent("/users/{userId}/messages/{messageId}/attachments/{id}", "get", {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "string",
+                      format: "byte",
+                      description: "The body data as a base64url encoded string.",
+                    },
+                    size: {
+                      type: "integer",
+                      format: "int32",
+                      description: "Number of bytes for the message part data.",
+                    },
+                  },
+                  required: ["data", "size"],
+                },
+              },
+            })(spec),
+          ),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "gmail_meta" });
+
+      const result = yield* executor.execute(conn.address("gmailMeta.getAttachment"), {
+        userId: "me",
+        messageId: "msg_1",
+        id: "att_1",
+      });
+
+      expect(parentRequestUrl).toBe("");
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          _tag: "ToolFile",
+          encoding: "base64",
+          mimeType: "text/plain",
+          data: `${attachmentBase64Url}=`,
+          byteLength: attachmentBytes.byteLength,
+        },
+      });
+    }),
+  );
+
+  it.effect("format: binary response: raw file bodies are exposed as file artifacts", () =>
+    Effect.gen(function* () {
+      const group = HttpApiGroup.make("files").add(
+        HttpApiEndpoint.get("download", "/files/:id", {
+          success: Schema.String,
+        }),
+      );
+      const api = HttpApi.make("binaryDownloadTest").add(group);
+      const handlersLayer = HttpApiBuilder.group(api, "files", (handlers) =>
+        handlers.handleRaw("download", () =>
+          Effect.succeed(HttpServerResponse.text("%PDF-", { contentType: "application/pdf" })),
+        ),
+      );
+      const server = yield* serveOpenApiHttpApiTestServer({
+        api,
+        handlersLayer,
+        transformSpec: replaceResponseContent("/files/{id}", "get", {
+          "application/pdf": {
+            schema: {
+              type: "string",
+              format: "binary",
+            },
+          },
+        }),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "files" });
+
+      const schema = yield* executor.tools.schema(conn.address("files.download"));
+      expect(schema?.outputSchema).toMatchObject({
+        properties: {
+          _tag: { enum: ["ToolFile"] },
+          data: { contentEncoding: "base64" },
+        },
+      });
+
+      const result = yield* executor.execute(conn.address("files.download"), {
+        id: "report",
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          _tag: "ToolFile",
+          encoding: "base64",
+          mimeType: "application/pdf",
+          data: "JVBERi0=",
+          byteLength: 5,
+        },
+      });
+    }),
+  );
+
+  it.effect("format: binary response: non-2xx responses keep their error body", () =>
+    Effect.gen(function* () {
+      const group = HttpApiGroup.make("files").add(
+        HttpApiEndpoint.get("download", "/files/:id", {
+          success: Schema.String,
+        }),
+      );
+      const api = HttpApi.make("binaryDownloadErrorTest").add(group);
+      const handlersLayer = HttpApiBuilder.group(api, "files", (handlers) =>
+        handlers.handleRaw("download", () =>
+          Effect.succeed(HttpServerResponse.jsonUnsafe({ error: "missing" }, { status: 404 })),
+        ),
+      );
+      const server = yield* serveOpenApiHttpApiTestServer({
+        api,
+        handlersLayer,
+        transformSpec: replaceResponseContent("/files/{id}", "get", {
+          "application/pdf": {
+            schema: {
+              type: "string",
+              format: "binary",
+            },
+          },
+        }),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "files" });
+
+      const result = yield* executor.execute(conn.address("files.download"), {
+        id: "missing",
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: "upstream_http_error",
+          status: 404,
+          details: {
+            error: "missing",
+          },
+        },
+      });
     }),
   );
 

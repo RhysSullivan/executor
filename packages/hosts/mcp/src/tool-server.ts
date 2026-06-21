@@ -1,6 +1,7 @@
 import { Effect, Match, Option, Schema } from "effect";
 import * as Cause from "effect/Cause";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import type {
   jsonSchemaValidator,
   JsonSchemaType,
@@ -9,11 +10,13 @@ import type {
 import { Validator } from "@cfworker/json-schema";
 import * as z from "zod/v4";
 
+import { isToolFile, isToolResult } from "@executor-js/sdk";
 import type {
   ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
   ElicitationRequest,
+  ToolFileValue,
 } from "@executor-js/sdk";
 import type * as Tracer from "effect/Tracer";
 import {
@@ -263,16 +266,239 @@ const formatBoundaryError = (err: unknown): { name?: string; message: string; st
 // ---------------------------------------------------------------------------
 
 type McpToolResult = {
-  content: Array<{ type: "text"; text: string }>;
+  content: ContentBlock[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
 
-const toMcpResult = (formatted: ReturnType<typeof formatExecuteResult>): McpToolResult => ({
-  content: [{ type: "text", text: formatted.text }],
-  structuredContent: formatted.structured,
-  isError: formatted.isError || undefined,
+type FormattedExecuteInput = Parameters<typeof formatExecuteResult>[0];
+
+const TEXT_FILE_CONTENT_MAX_CHARS = 64_000;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isTextContentBlock = (value: unknown): value is Extract<ContentBlock, { type: "text" }> =>
+  isRecord(value) && value.type === "text" && typeof value.text === "string";
+
+const isImageContentBlock = (value: unknown): value is Extract<ContentBlock, { type: "image" }> =>
+  isRecord(value) &&
+  value.type === "image" &&
+  typeof value.data === "string" &&
+  typeof value.mimeType === "string";
+
+const isResourceContentBlock = (
+  value: unknown,
+): value is Extract<ContentBlock, { type: "resource" }> =>
+  isRecord(value) && value.type === "resource" && isRecord(value.resource);
+
+const isNativeMcpContentBlock = (value: unknown): value is ContentBlock =>
+  isTextContentBlock(value) || isImageContentBlock(value) || isResourceContentBlock(value);
+
+const nativeMcpContentResult = (value: unknown): McpToolResult | null => {
+  if (!isToolResult(value) || !value.ok || !isRecord(value.data)) return null;
+  const content = value.data.content;
+  if (!Array.isArray(content) || content.length === 0 || !content.every(isNativeMcpContentBlock)) {
+    return null;
+  }
+  if (!content.some((block) => block.type !== "text")) return null;
+  return {
+    content,
+    ...(isRecord(value.data.structuredContent)
+      ? { structuredContent: value.data.structuredContent }
+      : {}),
+    isError: value.data.isError === true || undefined,
+  };
+};
+
+const redactToolFileBytes = (file: ToolFileValue): Record<string, unknown> => ({
+  _tag: "ToolFile",
+  ...(file.name ? { name: file.name } : {}),
+  mimeType: file.mimeType,
+  encoding: file.encoding,
+  byteLength: file.byteLength,
 });
+
+type ToolFileExtraction = {
+  readonly value: unknown;
+  readonly files: readonly ToolFileValue[];
+};
+
+const extractToolFiles = (
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+): ToolFileExtraction => {
+  if (isToolFile(value)) {
+    return { value: redactToolFileBytes(value), files: [value] };
+  }
+
+  if (isToolResult(value) && value.ok) {
+    const data = extractToolFiles(value.data, seen);
+    if (data.files.length === 0) return { value, files: [] };
+    return {
+      value: {
+        ...value,
+        data: data.value,
+      },
+      files: data.files,
+    };
+  }
+
+  if (Array.isArray(value)) {
+    const files: ToolFileValue[] = [];
+    const items = value.map((item) => {
+      const extracted = extractToolFiles(item, seen);
+      files.push(...extracted.files);
+      return extracted.value;
+    });
+    return { value: files.length > 0 ? items : value, files };
+  }
+
+  if (!isRecord(value)) return { value, files: [] };
+  if (seen.has(value)) return { value: "[Circular]", files: [] };
+  seen.add(value);
+
+  const files: ToolFileValue[] = [];
+  const entries = Object.entries(value).map(([key, item]) => {
+    const extracted = extractToolFiles(item, seen);
+    files.push(...extracted.files);
+    return [key, extracted.value] as const;
+  });
+  seen.delete(value);
+
+  return { value: files.length > 0 ? Object.fromEntries(entries) : value, files };
+};
+
+const directToolFile = (value: unknown): ToolFileValue | null => {
+  if (isToolFile(value)) return value;
+  if (isToolResult(value) && value.ok && isToolFile(value.data)) return value.data;
+  return null;
+};
+
+const toolFileName = (file: ToolFileValue): string => file.name ?? "tool-output";
+
+const fileResourceUri = (file: ToolFileValue): string =>
+  `executor-file:///${encodeURIComponent(toolFileName(file))}`;
+
+const normalizedMimeType = (file: ToolFileValue): string =>
+  file.mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+
+const toolFileKind = (file: ToolFileValue): "image" | "text" | "resource" => {
+  const mimeType = normalizedMimeType(file);
+  if (mimeType.startsWith("image/")) return "image";
+  if (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType.endsWith("+json") ||
+    mimeType === "application/xml" ||
+    mimeType.endsWith("+xml") ||
+    mimeType === "application/javascript" ||
+    mimeType === "application/x-javascript" ||
+    mimeType === "application/yaml" ||
+    mimeType === "application/x-yaml"
+  ) {
+    return "text";
+  }
+  return "resource";
+};
+
+const bytesFromBase64 = (base64: string): Uint8Array => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
+const decodeTextFile = (file: ToolFileValue): string => {
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(bytesFromBase64(file.data));
+  if (text.length <= TEXT_FILE_CONTENT_MAX_CHARS) return text;
+  return `${text.slice(0, TEXT_FILE_CONTENT_MAX_CHARS)}\n\n[truncated ${
+    text.length - TEXT_FILE_CONTENT_MAX_CHARS
+  } characters]`;
+};
+
+const toolFileContent = (file: ToolFileValue): ContentBlock[] => {
+  const kind = toolFileKind(file);
+  if (kind === "image") {
+    return [{ type: "image", data: file.data, mimeType: file.mimeType }];
+  }
+  if (kind === "text") {
+    return [{ type: "text", text: decodeTextFile(file) }];
+  }
+  return [
+    {
+      type: "resource",
+      resource: {
+        uri: fileResourceUri(file),
+        mimeType: file.mimeType,
+        blob: file.data,
+      },
+    },
+  ];
+};
+
+const toolFileSummaryLine = (file: ToolFileValue, index?: number): string => {
+  const prefix = index === undefined ? "" : `${index + 1}. `;
+  return `${prefix}${toolFileName(file)} (${file.mimeType}, ${file.byteLength} bytes)`;
+};
+
+const toMcpFileResult = (
+  result: FormattedExecuteInput,
+  extracted: ToolFileExtraction,
+): McpToolResult => {
+  const files = extracted.files;
+  const hasModelNativeFile = files.some((file) => toolFileKind(file) !== "resource");
+  const redactedResult = { ...result, result: extracted.value };
+  const formatted = formatExecuteResult(redactedResult);
+  const directFile = directToolFile(result.result);
+  const logText =
+    result.logs && result.logs.length > 0 ? `\n\nLogs:\n${result.logs.join("\n")}` : "";
+  const summary =
+    directFile && files.length === 1
+      ? `File output: ${toolFileName(directFile)}\n${directFile.mimeType}, ${
+          directFile.byteLength
+        } bytes${logText}`
+      : [
+          "File outputs:",
+          ...files.map((file, index) => toolFileSummaryLine(file, index)),
+          "",
+          "Result metadata:",
+          formatted.text,
+        ].join("\n");
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: summary,
+      },
+      ...files.flatMap(toolFileContent),
+    ],
+    ...(hasModelNativeFile
+      ? {}
+      : {
+          structuredContent: formatted.structured,
+        }),
+    isError: formatted.isError || undefined,
+  };
+};
+
+const toMcpResult = (result: FormattedExecuteInput): McpToolResult => {
+  const nativeMcpResult = result.error ? null : nativeMcpContentResult(result.result);
+  if (nativeMcpResult) return nativeMcpResult;
+  const extracted = result.error
+    ? { value: result.result, files: [] }
+    : extractToolFiles(result.result);
+  if (extracted.files.length > 0) return toMcpFileResult(result, extracted);
+  const formatted = formatExecuteResult(result);
+  return {
+    content: [{ type: "text", text: formatted.text }],
+    structuredContent: formatted.structured,
+    isError: formatted.isError || undefined,
+  };
+};
 
 const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>): McpToolResult => ({
   content: [{ type: "text", text: formatted.text }],
@@ -443,7 +669,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           const result = yield* engine.execute(code, {
             onElicitation: makeMcpElicitationHandler(server, debugLog),
           });
-          return toMcpResult(formatExecuteResult(result));
+          return toMcpResult(result);
         }
         const outcome = yield* engine.executeWithPause(code);
         debugLog("execute.paused_flow_result", {
@@ -455,7 +681,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
               : undefined,
         });
         return outcome.status === "completed"
-          ? toMcpResult(formatExecuteResult(outcome.result))
+          ? toMcpResult(outcome.result)
           : elicitationMode.mode === "browser"
             ? yield* requireUserResumeApproval(outcome.execution.id)
             : toMcpPausedResult(formatPausedExecution(outcome.execution));
@@ -495,7 +721,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
               : undefined,
         });
         return outcome.status === "completed"
-          ? toMcpResult(formatExecuteResult(outcome.result))
+          ? toMcpResult(outcome.result)
           : toMcpPausedResult(formatPausedExecution(outcome.execution));
       }).pipe(
         Effect.withSpan("mcp.host.tool.resume", {
@@ -558,7 +784,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           return missingExecutionResult(executionId);
         }
         return outcome.status === "completed"
-          ? toMcpResult(formatExecuteResult(outcome.result))
+          ? toMcpResult(outcome.result)
           : yield* requireUserResumeApproval(outcome.execution.id);
       }).pipe(
         Effect.withSpan("mcp.host.tool.resume.browser_approval", {
