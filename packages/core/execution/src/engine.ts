@@ -654,7 +654,16 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
       toolDiscoveryProvider,
     );
     const invoker: SandboxToolInvoker = {
-      invoke: (input) => baseInvoker.invoke(input),
+      invoke: (input) =>
+        baseInvoker.invoke(input).pipe(
+          Effect.withSpan("executor.code.cell.tool", {
+            attributes: {
+              "executor.code.cell_id": cell.id,
+              "executor.tool.source": "code_cell",
+              "executor.tool.path": input.path,
+            },
+          }),
+        ),
     };
 
     const fiber = yield* Effect.forkDetach(
