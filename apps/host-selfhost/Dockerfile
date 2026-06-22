@@ -13,7 +13,7 @@ FROM oven/bun:1 AS prod-deps
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile --production --ignore-scripts --filter @executor-js/host-selfhost \
-  && bun run scripts/package-selfhost-runtime.ts
+  && bun run apps/host-selfhost/scripts/package-runtime.ts
 
 FROM oven/bun:1 AS build
 WORKDIR /app
