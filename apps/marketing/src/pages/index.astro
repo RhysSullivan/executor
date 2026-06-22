@@ -442,13 +442,11 @@ Source (and the place to start if something breaks): https://github.com/RhysSull
           btn.dataset.copied = "true";
           const event = btn.dataset.event;
           if (event) {
-            (
-              window as unknown as {
-                posthog?: {
-                  capture: (e: string, p?: Record<string, unknown>) => void;
-                };
-              }
-            ).posthog?.capture(event, { surface: "marketing_hero" });
+            window.dispatchEvent(
+              new CustomEvent("analytics:capture", {
+                detail: { event, properties: { surface: "marketing_hero" } },
+              }),
+            );
           }
         } catch {
           btn.dataset.copied = "false";

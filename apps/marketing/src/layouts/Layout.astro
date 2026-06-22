@@ -67,7 +67,17 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).toString(
             capture_pageview: false,
             persistence: "localStorage",
           });
-          Object.assign(window, { posthog });
+          // The copy handler (in index.astro) is a separate bundle, so it asks
+          // for a capture via a DOM event rather than reaching for a global.
+          window.addEventListener("analytics:capture", (e) => {
+            const detail = (
+              e as CustomEvent<{
+                event: string;
+                properties?: Record<string, unknown>;
+              }>
+            ).detail;
+            posthog.capture(detail.event, detail.properties);
+          });
         });
       }
     </script>
