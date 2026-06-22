@@ -1,12 +1,52 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import { AnimatedBeamDemo } from "../components/animated-beam-demo";
+import { ContextBloatDemo } from "../components/context-bloat-demo";
 import { SelfHostContactModal } from "../components/self-host-contact-modal";
+
+const GH = "https://github.com/RhysSullivan/executor";
+
+// Copied to the clipboard by the "Set up with your agent" hero CTA. A visitor
+// pastes it into their coding agent (Claude, Cursor, ...) and the agent picks
+// the right form of Executor, installs it, connects over MCP, and gets a first
+// connection working. Keep in sync with the docs "Set up with your agent"
+// section (apps/docs/index.mdx).
+const setupPrompt = `Help me set up Executor and get my first connection working.
+
+Executor is an open source integration layer for AI agents: one place to configure every integration (MCP servers, OpenAPI specs, GraphQL APIs) and connect to them over MCP.
+
+Start by helping me pick the right form to run it in. Chat with me about it rather than jumping straight to a yes/no question, and recommend one. All forms expose the same functionality, just packaged differently:
+
+Local (everything stays on my machine):
+- Desktop app: a native app for Mac, Windows, and Linux. Best for a regular desktop environment.
+- CLI (\`executor\`): best for a headless or server environment.
+Both run a local HTTP server as a background service that any MCP client can connect to.
+
+Hosted (use it from multiple agents, including cloud ones, with nothing running locally):
+- Executor Cloud: hosted, generous free tier, sign in and start immediately.
+- Self-hosted: a Docker image or a Cloudflare Worker.
+
+How to think about it:
+- Want all your data on your own machine? Go local: the desktop app for a regular environment, the CLI for a headless one.
+- Want to use it from multiple agents (including cloud agents like ChatGPT), or not run anything locally? Go hosted: Executor Cloud is the fastest start; the self-hosted Docker or Cloudflare versions give you full control.
+
+Terms you'll come across:
+- Integration: anything you add (an MCP server, an OpenAPI spec, a GraphQL API).
+- Connection: one configured instance of an integration. An integration can have many connections, and a connection doesn't have to be authenticated.
+- Policy: whether each tool is always allowed, requires approval, or is blocked. Policies start from a sensible default derived from the imported spec (for example, GET requests on an OpenAPI spec are allowed by default).
+
+Once you know which form I want:
+1. Walk me through installing it.
+2. Connect Executor to you over MCP.
+3. Help me add my first integration and get one tool working end to end.
+
+Docs: https://executor.sh/docs
+Source (and the place to start if something breaks): https://github.com/RhysSullivan/executor`;
 ---
 
 <Layout>
   <main class="bg-soft min-h-dvh relative antialiased">
-    {/* Pattern + fade — span the top 100vh, behind everything */}
+    {/* Pattern + fade: span the top 100vh, behind everything */}
     <div
       class="pattern-bg pattern-graph"
       style="position: absolute; top: 0; left: 0; right: 0; height: 100vh; z-index: 1; pointer-events: none;"
@@ -18,7 +58,7 @@ import { SelfHostContactModal } from "../components/self-host-contact-modal";
     </div>
 
     <div class="relative z-10">
-      {/* NAV */}
+      {/* ─── NAV ─── */}
       <nav>
         <div
           class="max-w-[1200px] mx-auto px-6 sm:px-10 h-14 flex items-center justify-between"
@@ -31,18 +71,29 @@ import { SelfHostContactModal } from "../components/self-host-contact-modal";
           </a>
           <div class="flex items-center gap-5">
             <a
-              href="https://github.com/RhysSullivan/executor"
+              href="#pricing"
+              class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors hidden sm:inline"
+              >Pricing</a
+            >
+            <a
+              href="https://executor.sh/docs"
+              class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors hidden sm:inline"
+              >Docs</a
+            >
+            <a
+              href={GH}
               class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors"
               >GitHub</a
             >
-            <a href="/cloud" class="btn-primary">Try Cloud →</a>
+            <a href="#install" class="btn-primary">Get started →</a>
           </div>
         </div>
       </nav>
 
-      {/* HERO — centered, tight */}
+      {/* ─── HERO ─── */}
       <section class="relative">
-        <div class="relative z-10 px-6 sm:px-10 pt-28 pb-32 sm:pt-36 sm:pb-44">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="relative z-10 px-6 sm:px-10 pt-24 pb-28 sm:pt-32 sm:pb-36">
           <div class="max-w-[920px] mx-auto text-center">
             <h1
               class="rise-1 text-[clamp(2.8rem,7.2vw,6rem)] font-semibold tracking-[-0.025em] leading-[1.02] text-ink mb-12 mx-auto max-w-[18ch] text-balance"
@@ -54,216 +105,407 @@ import { SelfHostContactModal } from "../components/self-host-contact-modal";
                 <AnimatedBeamDemo client:load variant="stripe" />
               </div>
             </div>
-            <p
-              class="rise-3 text-[18px] leading-[1.55] text-ink-2 mx-auto max-w-[44ch] mb-9 text-pretty"
-            >
-              One gateway. Every tool. Every team.
-            </p>
-
-            {/* ── Toggle: Try in Cloud / Try locally ── */}
-            <div
-              class="rise-4 hero-toggle flex flex-col items-center gap-7"
-              data-active="cloud"
-            >
-              <div
-                class="tab-toggle"
-                data-active="cloud"
-                role="tablist"
-                aria-label="Choose how to try Executor"
-              >
-                <span class="tab-indicator" aria-hidden="true"></span>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected="true"
-                  data-tab="cloud"
-                >
-                  Cloud
+            {/* ── CTA: For humans / For agents ── */}
+            <div class="rise-4 hero-cta" data-audience="humans">
+              <div class="audience-toggle" role="tablist" aria-label="Choose your path">
+                <button type="button" role="tab" data-audience-set="humans" aria-selected="true">
+                  For humans
                 </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected="false"
-                  data-tab="local"
-                >
-                  Local
+                <span class="audience-sep" aria-hidden="true"></span>
+                <button type="button" role="tab" data-audience-set="agents" aria-selected="false">
+                  For agents
                 </button>
               </div>
 
-              {/* Cloud pane */}
-              <div
-                class="pane flex-col items-center gap-4"
-                data-pane="cloud"
-                role="tabpanel"
-                aria-labelledby="tab-cloud"
-              >
-                <p class="pane-desc">
-                  Built for teams. Plug into any agent via MCP.
-                </p>
-                <a href="/cloud" class="btn-primary btn-primary--hero"
-                  >Try Cloud →</a
-                >
+              {/* For humans: sign up or run it yourself */}
+              <div class="audience-pane" data-audience-pane="humans" role="tabpanel">
+                <a href="#install" class="btn-primary btn-primary--hero">Run locally →</a>
+                <a href="/cloud" class="btn-secondary">Try Cloud</a>
               </div>
 
-              {/* Local pane — auto-detected download */}
-              <div
-                class="pane flex-col items-center gap-4"
-                data-pane="local"
-                role="tabpanel"
-                aria-labelledby="tab-local"
-                data-download
-              >
-                <p class="pane-desc">
-                  Everything runs on your machine locally.
-                </p>
-                <div class="flex flex-wrap items-center justify-center gap-3">
-                  <a
-                    data-os="mac-arm64"
-                    href="https://github.com/RhysSullivan/executor/releases/latest/download/executor-desktop-mac-arm64.dmg"
-                    class="btn-primary btn-primary--hero"
-                  >
-                    Download for Mac (Apple Silicon)
-                  </a>
-                  <a
-                    data-os="mac-x64"
-                    href="https://github.com/RhysSullivan/executor/releases/latest/download/executor-desktop-mac-x64.dmg"
-                    class="btn-primary btn-primary--hero"
-                  >
-                    Download for Mac (Intel)
-                  </a>
-                  <a
-                    data-os="win-x64"
-                    href="https://github.com/RhysSullivan/executor/releases/latest/download/executor-desktop-win-x64.exe"
-                    class="btn-primary btn-primary--hero"
-                  >
-                    Download for Windows
-                  </a>
-                  <a
-                    data-os="linux-x64"
-                    href="https://github.com/RhysSullivan/executor/releases/latest/download/executor-desktop-linux-x86_64.AppImage"
-                    class="btn-primary btn-primary--hero"
-                  >
-                    Download for Linux
-                  </a>
-
-                  <details
-                    class="download-other hidden"
-                    data-download-other
-                  >
-                    <summary>Other platforms ▾</summary>
-                    <div
-                      class="download-other-list"
-                      data-download-other-list
+              {/* For agents: hand setup to a coding agent, or read the docs */}
+              <div class="audience-pane" data-audience-pane="agents" role="tabpanel" hidden>
+                <button type="button" class="agent-pill copy-btn" data-copy={setupPrompt}>
+                  <span class="agent-pill__label">Set up with your agent</span>
+                  <span class="copy-icons" aria-hidden="true">
+                    <svg
+                      class="copy-icon-copy" xmlns="http://www.w3.org/2000/svg"
+                      width="14" height="14" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                      stroke-linejoin="round"
+                      ><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path
+                        d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg
                     >
-                    </div>
-                  </details>
+                    <svg
+                      class="copy-icon-check" xmlns="http://www.w3.org/2000/svg"
+                      width="14" height="14" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                      stroke-linejoin="round"
+                      ><path d="M20 6 9 17l-5-5"></path></svg
+                    >
+                  </span>
+                </button>
+                <a href="https://executor.sh/docs" class="btn-secondary">Read docs</a>
+              </div>
+            </div>
+
+            <a
+              href="https://www.ycombinator.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="rise-4 mt-10 inline-flex"
+              aria-label="Backed by Y Combinator"
+            >
+              <img
+                src="/yc-backed-by.svg"
+                alt="Backed by Y Combinator"
+                width="96"
+                height="36"
+              />
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── TRUST STRIP ─── */}
+      <section class="py-16 sm:py-20 border-t border-rule">
+        <div class="reveal max-w-[1100px] mx-auto px-6 sm:px-10">
+          <p
+            class="text-center text-[13px] font-medium text-ink-3 mb-7 tracking-[-0.005em]"
+          >
+            Called from the agents you already use. Wired to the tools your
+            work already lives in.
+          </p>
+
+          <div class="logo-wall max-w-[920px] mx-auto">
+            <div class="logo-cell">
+              <svg viewBox="0 0 24 24" fill="currentColor"
+                ><path
+                  d="M4.7144 15.9555l4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"
+                ></path></svg
+              >
+              <span class="logo-name">Claude Code</span>
+            </div>
+            <div class="logo-cell">
+              <svg viewBox="0 0 24 24" fill="currentColor"
+                ><path
+                  d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23"
+                ></path></svg
+              >
+              <span class="logo-name">Cursor</span>
+            </div>
+            <div class="logo-cell">
+              <svg viewBox="0 0 24 24" fill="currentColor"
+                ><path
+                  d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"
+                ></path></svg
+              >
+              <span class="logo-name">Codex</span>
+            </div>
+            <div class="logo-cell">
+              <svg viewBox="0 0 24 24" fill="currentColor"
+                ><path
+                  d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
+                ></path></svg
+              >
+              <span class="logo-name">GitHub Copilot</span>
+            </div>
+            <div class="logo-cell">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                ><polyline points="4 17 10 11 4 5"></polyline><line
+                  x1="12"
+                  y1="19"
+                  x2="20"
+                  y2="19"></line></svg
+              >
+              <span class="logo-name">Executor CLI</span>
+            </div>
+            <div class="logo-cell">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                ><circle cx="12" cy="12" r="9"></circle><path
+                  d="M3.5 9h17M3.5 15h17M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"
+                ></path></svg
+              >
+              <span class="logo-name">Any MCP client</span>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-3 mt-8">
+            <span class="badge-chip">MCP</span>
+            <span class="badge-sep"></span>
+            <span class="badge-chip">OpenAPI</span>
+            <span class="badge-sep"></span>
+            <span class="badge-chip">GraphQL</span>
+            <span class="badge-sep"></span>
+            <span class="badge-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                ><path d="M20 6 9 17l-5-5"></path></svg
+              >Open source, MIT
+            </span>
+            <span class="badge-sep"></span>
+            <span class="badge-chip">Self-host or cloud</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── WEDGE ─── */}
+      <section class="py-20 sm:py-28 border-t border-rule">
+        <div class="reveal max-w-[840px] mx-auto px-6 sm:px-10">
+          <p
+            class="text-[clamp(1.5rem,3.4vw,2.2rem)] font-medium tracking-[-0.02em] leading-[1.28] text-ink text-balance"
+          >
+            Wiring tools to agents is fiddly, per-client, and easy to get wrong.
+            Executor makes every tool, from any protocol, look the
+            <span class="serif-italic">same</span>: one name, one input
+            schema, one output schema, so any agent can call any of them
+            the same way.
+          </p>
+        </div>
+      </section>
+
+      {/* ─── NO CONTEXT BLOAT (interactive) ─── */}
+      <section class="py-20 sm:py-28 border-t border-rule">
+        <div class="reveal max-w-[1100px] mx-auto px-6 sm:px-10">
+          <div class="text-center max-w-2xl mx-auto mb-12">
+            <div class="eyebrow mb-4">Context efficiency</div>
+            <h2 class="section-title mx-auto max-w-[20ch] mb-5">
+              Thousands of tools, no <span class="serif-italic">bloat</span>.
+            </h2>
+            <p class="section-sub mx-auto max-w-[58ch]">
+              Connect everything you use and Executor still shows the model a
+              single tool. It searches your catalog and loads a tool's schema
+              only when the code actually calls it, so the prompt never
+              balloons.
+            </p>
+          </div>
+
+          <ContextBloatDemo client:load />
+        </div>
+      </section>
+
+      {/* ─── CAPABILITIES ─── */}
+      <section class="py-20 sm:py-28 border-t border-rule">
+        <div class="reveal max-w-[1100px] mx-auto px-6 sm:px-10">
+          <div class="mb-12 max-w-[34ch]">
+            <div class="eyebrow mb-4">What you get</div>
+            <h2 class="section-title">
+              The model reasons. Executor handles the
+              <span class="serif-italic">rest</span>.
+            </h2>
+          </div>
+
+          <div class="cap-grid">
+            {/* One tool shape */}
+            <div class="cap-card">
+              <span class="cap-icon"
+                ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                  ><path d="m12 2 9 5-9 5-9-5 9-5Z"></path><path
+                    d="m3 12 9 5 9-5"></path><path d="m3 17 9 5 9-5"
+                  ></path></svg
+                ></span
+              >
+              <h3>One tool shape</h3>
+              <p>
+                MCP, OpenAPI, GraphQL, or a custom integration. Under the hood
+                they all become a tool name, an input schema, and an output
+                schema.
+              </p>
+            </div>
+
+            {/* Code-mode */}
+            <div class="cap-card">
+              <span class="cap-icon"
+                ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                  ><polyline points="4 17 10 11 4 5"></polyline><line
+                    x1="12"
+                    y1="19"
+                    x2="20"
+                    y2="19"></line></svg
+                ></span
+              >
+              <h3>Call it any way</h3>
+              <p>
+                Today it is a code-mode MCP. It could just as well be the
+                Executor CLI, a one-off script, a gen-UI dashboard, or a reusable
+                workflow. Same tools, every surface.
+              </p>
+            </div>
+
+            {/* Trace every call */}
+            <div class="cap-card">
+              <span class="cap-icon"
+                ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                  ><path d="M3 12h4l3 8 4-16 3 8h4"></path></svg
+                ></span
+              >
+              <h3>Trace every call</h3>
+              <p class="mb-1">
+                One place to see every run and tool call. Audit any
+                decision after the fact.
+              </p>
+              <div class="cap-visual trace">
+                <div class="trace-row is-root">
+                  <span class="lbl">run_7421</span>
+                  <span class="track"
+                    ><span class="bar" style="left:0%;width:100%"></span></span
+                  >
+                  <span class="dur">1.42s</span>
+                </div>
+                <div class="trace-row">
+                  <span class="lbl">sentry.getIssue</span>
+                  <span class="track"
+                    ><span class="bar" style="left:0%;width:18%"></span></span
+                  >
+                  <span class="dur">184ms</span>
+                </div>
+                <div class="trace-row">
+                  <span class="lbl">github.searchCode</span>
+                  <span class="track"
+                    ><span class="bar" style="left:18%;width:34%"></span></span
+                  >
+                  <span class="dur">391ms</span>
+                </div>
+                <div class="trace-row">
+                  <span class="lbl">linear.createIssue</span>
+                  <span class="track"
+                    ><span class="bar" style="left:52%;width:48%"></span></span
+                  >
+                  <span class="dur">612ms</span>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
 
-      {/* ─── FOUNDER NOTE ─── */}
-      <section class="py-20 sm:py-28 border-t border-rule">
-        <div class="max-w-[680px] mx-auto px-6 sm:px-10">
-          <h2
-            class="text-[clamp(2rem,3.6vw,2.6rem)] font-semibold tracking-[-0.02em] leading-[1.08] text-ink mb-10 text-balance"
-          >
-            What is <span class="serif-italic">Executor</span>?
-          </h2>
-
-          <div
-            class="space-y-5 text-[16.5px] leading-[1.65] text-ink-2 text-pretty"
-          >
-            <p>
-              Executor is a tool/source discovery and execution layer for
-              agent-callable tools.
-            </p>
-            <p>
-              Executor doesn't care what you add. MCP, OpenAPI, GraphQL, custom
-              sources, under the hood they all become a tool name, an input
-              schema, and an output schema. Once they're in that shape, you can
-              call them however you want. Today that's implemented as a
-              code-mode MCP, but it could just as well be the Executor CLI, or a
-              native client you drop in.
-            </p>
-            <p>
-              Because every tool looks the same, your agent can call them from
-              gen-UI dashboards it writes on the fly, call them as one off
-              scripts in a chat, or use them in reusable workflows.
-            </p>
-
-            <h3
-              class="text-[17px] font-semibold tracking-[-0.01em] text-ink pt-5"
-            >
-              Teams
-            </h3>
-            <p>
-              Set your sources up once and your whole team has them. It supports
-              per-user credentials and shared ones. No more onboarding ritual,
-              no more toggling MCPs on and off mid-task. Your agents should be
-              able to reach your company's resources in a way that isn't scary.
-            </p>
-
-            <h3
-              class="text-[17px] font-semibold tracking-[-0.01em] text-ink pt-5"
-            >
-              Sandboxing
-            </h3>
-            <p>
-              Tool calls run in a JavaScript sandbox. The agent has access to
-              secrets.
-            </p>
-
-            <h3
-              class="text-[17px] font-semibold tracking-[-0.01em] text-ink pt-5"
-            >
-              Destructive actions
-            </h3>
-            <p>
-              Executor preserves the semantics of whatever it imported from: GET
-              vs DELETE for OpenAPI, <code
-                class="font-mono text-[14px] text-ink bg-surface-2 border border-rule px-1.5 py-0.5 rounded"
-                >destructiveHint</code
-              > for MCP, mutations for GraphQL. That tells the agent what it can auto-run
-              and what should pull you back into the loop, so it can work autonomously
-              without taking you out of it.
-            </p>
-
-            <p class="pt-5">
-              It's all open source, built on the same SDK we publish to npm.
-              There's two ways to try it, either the local version via the
-              `executor` cli, or the cloud version.
-            </p>
-
-            <p class="text-ink-3 text-[14.5px] pt-3">— Rhys</p>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── GET STARTED ─── */}
-      <section id="install" class="py-24 sm:py-32 border-t border-rule">
-        <div class="max-w-[1200px] mx-auto px-6 sm:px-10">
-          <div class="mb-14 mx-auto text-center max-w-2xl">
-            <div
-              class="font-mono text-[12px] uppercase tracking-[0.18em] text-ink-3 mb-4"
-            >
-              Get started
+            {/* Teams */}
+            <div class="cap-card">
+              <span class="cap-icon"
+                ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                  ><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"
+                  ></path><circle cx="9" cy="7" r="4"></circle><path
+                    d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"
+                  ></path></svg
+                ></span
+              >
+              <h3>Set up once, whole team has it</h3>
+              <p class="mb-1">
+                Per-user credentials and shared ones. No onboarding ritual, no
+                toggling MCPs on and off mid-task.
+              </p>
+              <div class="cap-visual matrix">
+                <div class="matrix-head">
+                  <span></span><span>GH</span><span>Sntry</span><span>Linr</span
+                  ><span>Slack</span><span>Notn</span>
+                </div>
+                <div class="matrix-row">
+                  <span class="who">Aria</span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-warn"></i></span>
+                </div>
+                <div class="matrix-row">
+                  <span class="who">Noah</span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-off"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                </div>
+                <div class="matrix-row">
+                  <span class="who">Mina</span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                  <span class="cell"><i class="stat stat-ok"></i></span>
+                </div>
+              </div>
             </div>
-            <h2
-              class="text-[clamp(2.2rem,4.5vw,3.4rem)] font-semibold tracking-[-0.02em] leading-[1.05] text-ink mx-auto max-w-[20ch] text-balance"
-            >
+
+            {/* Destructive gating */}
+            <div class="cap-card">
+              <span class="cap-icon"
+                ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                  ><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"
+                  ></path><path d="m9 12 2 2 4-4"></path></svg
+                ></span
+              >
+              <h3>Destructive actions pull you back in</h3>
+              <p>
+                Executor keeps the semantics it imported: GET vs DELETE for
+                OpenAPI, destructiveHint for MCP, mutations for GraphQL. Agents
+                auto-run the safe stuff and ask before the rest.
+              </p>
+            </div>
+
+            {/* Sandboxed */}
+            <div class="cap-card">
+              <span class="cap-icon"
+                ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                  ><rect x="3" y="3" width="18" height="18" rx="2"
+                  ></rect><path d="m7 8 3 3-3 3M13 14h4"></path></svg
+                ></span
+              >
+              <h3>Sandboxed execution</h3>
+              <p>
+                Tool calls run in an isolated JavaScript sandbox. Secrets are
+                injected host-side at call time and never enter the sandbox
+                heap, so the agent and model never see a raw token.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── FOUNDER NOTE (condensed) ─── */}
+      <section class="py-20 sm:py-28 border-t border-rule">
+        <div class="reveal max-w-[680px] mx-auto px-6 sm:px-10">
+          <div class="eyebrow mb-6">Why we built it</div>
+          <div class="space-y-5 text-[16.5px] leading-[1.65] text-ink-2 text-pretty">
+            <p>
+              Your agent should be able to reach your company's resources in a
+              way that isn't scary. Most setups make you choose between locked
+              down and useless, or wide open and risky.
+            </p>
+            <p>
+              Executor doesn't care what you add. Once a tool is in that one
+              shape, a name and two schemas, you can call it however you want and
+              the same guardrails apply everywhere. That is the whole idea: make
+              the safe path the easy path.
+            </p>
+            <p class="text-ink-3 text-[14.5px] pt-2">Rhys, founder</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── CHOOSE YOUR PATH ─── */}
+      <section id="install" class="py-24 sm:py-32 border-t border-rule">
+        <div class="reveal max-w-[1100px] mx-auto px-6 sm:px-10">
+          <div class="mb-14 mx-auto text-center max-w-2xl">
+            <div class="eyebrow mb-4">Get started</div>
+            <h2 class="section-title mx-auto max-w-[20ch]">
               Pick your <span class="serif-italic">path</span>.
             </h2>
           </div>
 
-          <div
-            class="grid md:grid-cols-2 gap-6 max-w-[760px] mx-auto"
-          >
-            {/* Cloud */}
+          <div class="plus-grid grid md:grid-cols-3 gap-6 max-w-[1000px] mx-auto">
+            <span class="plus-mark" style="top:-7px;left:-7px"></span>
+            <span class="plus-mark" style="top:-7px;right:-7px"></span>
+            <span class="plus-mark" style="bottom:-7px;left:-7px"></span>
+            <span class="plus-mark" style="bottom:-7px;right:-7px"></span>
+
+            {/* Cloud (recommended: fastest start) */}
             <div
-              class="surface-card p-8 flex flex-col"
+              class="surface-card path-card beam-card p-8 flex flex-col"
               style="border-color: rgba(99,91,255,0.25)"
             >
               <div class="flex items-center gap-2 mb-4">
@@ -272,51 +514,350 @@ import { SelfHostContactModal } from "../components/self-host-contact-modal";
                   style="color: var(--color-accent)">Recommended</span
                 >
               </div>
-              <h3
-                class="text-[22px] font-semibold tracking-[-0.01em] text-ink mb-3"
-              >
+              <h3 class="text-[22px] font-semibold tracking-[-0.01em] text-ink mb-3">
                 Cloud
               </h3>
-              <p
-                class="text-[14.5px] leading-[1.55] text-ink-2 mb-3 text-pretty"
-              >
-                Hosted Executor. Auth, sync, policies, and the whole team
-                online in five minutes. Free tier to start.
-              </p>
-              <p class="mb-6 text-[13.5px] leading-[1.55] text-ink-3 flex-1">
-                <SelfHostContactModal client:load variant="inline" />
+              <span class="path-chip mb-4 self-start">executor.sh/cloud</span>
+              <p class="text-[14.5px] leading-[1.55] text-ink-2 mb-3 text-pretty flex-1">
+                Hosted Executor. Auth, sync, policies, and your whole team online
+                in five minutes. Free tier to start.
               </p>
               <a href="/cloud" class="btn-primary self-start">Try Cloud →</a>
+              <p class="mt-3 min-h-[1.25rem] text-[13px] leading-[1.5] text-ink-3">
+                <SelfHostContactModal client:load variant="inline" />
+              </p>
             </div>
 
-            {/* Desktop */}
-            <div class="surface-card p-8 flex flex-col">
+            {/* Desktop (native app, local) */}
+            <div class="surface-card path-card p-8 flex flex-col">
               <div class="flex items-center gap-2 mb-4">
-                <span
-                  class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-3"
+                <span class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-3"
                   >Open source</span
                 >
               </div>
-              <h3
-                class="text-[22px] font-semibold tracking-[-0.01em] text-ink mb-3"
-              >
+              <h3 class="text-[22px] font-semibold tracking-[-0.01em] text-ink mb-3">
                 Desktop
               </h3>
-              <p
-                class="text-[14.5px] leading-[1.55] text-ink-2 mb-6 text-pretty flex-1"
-              >
-                A native app for Mac, Windows, and Linux. Everything stays
-                on your machine — sources, secrets, sessions. MIT licensed.
+              <span class="path-chip mb-4 self-start">Mac · Windows · Linux</span>
+              <p class="text-[14.5px] leading-[1.55] text-ink-2 mb-6 text-pretty flex-1">
+                A native app that runs entirely on your machine. Your
+                integrations, credentials, and sessions never leave the device.
+                MIT licensed.
               </p>
-              <button
-                type="button"
-                data-jump-to-local
-                class="btn-primary self-start"
+              <div class="flex flex-col gap-3 self-stretch" data-download>
+                <a
+                  data-os="mac-arm64"
+                  href={`${GH}/releases/latest/download/executor-desktop-mac-arm64.dmg`}
+                  class="btn-primary self-start"
+                  >Download for Mac</a
+                >
+                <a
+                  data-os="mac-x64"
+                  href={`${GH}/releases/latest/download/executor-desktop-mac-x64.dmg`}
+                  class="btn-primary self-start"
+                  >Download for Mac (Intel)</a
+                >
+                <a
+                  data-os="win-x64"
+                  href={`${GH}/releases/latest/download/executor-desktop-win-x64.exe`}
+                  class="btn-primary self-start"
+                  >Download for Windows</a
+                >
+                <a
+                  data-os="linux-x64"
+                  href={`${GH}/releases/latest/download/executor-desktop-linux-x86_64.AppImage`}
+                  class="btn-primary self-start"
+                  >Download for Linux</a
+                >
+                <details class="download-other hidden min-h-[1.25rem]" data-download-other>
+                  <summary>Other platforms ▾</summary>
+                  <div class="download-other-list" data-download-other-list></div>
+                </details>
+              </div>
+            </div>
+
+            {/* CLI (headless / servers) */}
+            <div class="surface-card path-card p-8 flex flex-col">
+              <div class="flex items-center gap-2 mb-4">
+                <span class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-3"
+                  >Headless</span
+                >
+              </div>
+              <h3 class="text-[22px] font-semibold tracking-[-0.01em] text-ink mb-3">
+                CLI
+              </h3>
+              <span class="path-chip mb-4 self-start">npm i -g executor</span>
+              <p class="text-[14.5px] leading-[1.55] text-ink-2 mb-6 text-pretty flex-1">
+                Run Executor as a background service and drive it from your
+                terminal. Best for headless and server environments. MIT
+                licensed.
+              </p>
+              <a href="https://executor.sh/docs" class="btn-primary self-start"
+                >Read the docs →</a
               >
-                Download →
-              </button>
+              <p class="mt-3 min-h-[1.25rem] text-[13px] leading-[1.5] text-ink-3">
+                <a href={GH} class="hover:text-ink-2 transition-colors"
+                  >View source →</a
+                >
+              </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ─── FAQ ─── */}
+      <section class="py-20 sm:py-28 border-t border-rule">
+        <div class="reveal max-w-[760px] mx-auto px-6 sm:px-10">
+          <div class="mb-10">
+            <h2 class="section-title">FAQ</h2>
+          </div>
+
+          <div>
+            <details class="faq-item">
+              <summary>
+                Where does my code run, and what touches my credentials?
+                <span class="faq-mark"
+                  ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round"
+                    ><path d="M12 5v14M5 12h14"></path></svg
+                  ></span
+                >
+              </summary>
+              <div class="faq-body">
+                Tool calls run in an isolated JavaScript sandbox. Credentials are
+                resolved host-side at call time and injected into the outbound
+                request only. They never enter the sandbox heap, the code your
+                agent wrote, the agent, or the model.
+              </div>
+            </details>
+
+            <details class="faq-item">
+              <summary>
+                Can the agent or the model ever see a raw token?
+                <span class="faq-mark"
+                  ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round"
+                    ><path d="M12 5v14M5 12h14"></path></svg
+                  ></span
+                >
+              </summary>
+              <div class="faq-body">
+                No. Secrets stay host-side by design. The sandbox calls a tool by
+                name; Executor attaches the credential to the real request
+                outside the sandbox, so a token is never present in anything the
+                model can read.
+              </div>
+            </details>
+
+            <details class="faq-item">
+              <summary>
+                What can call Executor?
+                <span class="faq-mark"
+                  ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round"
+                    ><path d="M12 5v14M5 12h14"></path></svg
+                  ></span
+                >
+              </summary>
+              <div class="faq-body">
+                Any MCP client (Claude Code, Cursor, Codex, and others), the
+                Executor CLI, or a native client you drop in. Because tools share
+                one shape, the calling surface is interchangeable.
+              </div>
+            </details>
+
+            <details class="faq-item">
+              <summary>
+                How does it know what is safe to auto-run?
+                <span class="faq-mark"
+                  ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round"
+                    ><path d="M12 5v14M5 12h14"></path></svg
+                  ></span
+                >
+              </summary>
+              <div class="faq-body">
+                Executor preserves the semantics of whatever it imported: GET vs
+                DELETE for OpenAPI, destructiveHint for MCP, and mutations for
+                GraphQL. That tells the agent what it can run on its own and what
+                should pull you back into the loop.
+              </div>
+            </details>
+
+            <details class="faq-item">
+              <summary>
+                Is it open source? Can I self-host?
+                <span class="faq-mark"
+                  ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round"
+                    ><path d="M12 5v14M5 12h14"></path></svg
+                  ></span
+                >
+              </summary>
+              <div class="faq-body">
+                Yes. Executor is MIT licensed and built on the SDK we publish to
+                npm. Run the desktop app locally, self-host the server, or use
+                the hosted cloud. Same code paths, different deployment.
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── PRICING ─── */}
+      <section id="pricing" class="py-20 sm:py-28 border-t border-rule">
+        <div class="reveal max-w-[1100px] mx-auto px-6 sm:px-10">
+          <div class="mb-14 mx-auto text-center max-w-2xl">
+            <div class="eyebrow mb-4">Pricing</div>
+            <h2 class="section-title mx-auto max-w-[20ch]">
+              Start free, pay as you <span class="serif-italic">run</span>.
+            </h2>
+          </div>
+
+          <div class="grid md:grid-cols-3 gap-6 max-w-[1000px] mx-auto items-stretch">
+            {/* Free */}
+            <div class="surface-card path-card p-8 flex flex-col">
+              <div class="flex items-center gap-2 mb-4">
+                <span class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-3"
+                  >Get started</span
+                >
+              </div>
+              <h3 class="text-[22px] font-semibold tracking-[-0.01em] text-ink mb-1">
+                Free
+              </h3>
+              <p class="text-[14px] text-ink-3 mb-5">For small teams getting started</p>
+              <div class="flex items-baseline gap-1.5 mb-6">
+                <span
+                  class="text-[40px] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums"
+                  >$0</span
+                >
+                <span class="text-[13.5px] text-ink-3">/ month</span>
+              </div>
+              <a href="/cloud" class="btn-primary self-start mb-7">Start free →</a>
+              <ul class="check-list">
+                {[
+                  "Up to 3 members",
+                  "10,000 included executions per month",
+                  "$0.20 per 1,000 additional executions",
+                  "Unlimited integrations",
+                ].map((f) => (
+                  <li>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                      ><path d="M20 6 9 17l-5-5"></path></svg
+                    >{f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Team */}
+            <div
+              class="surface-card path-card beam-card p-8 flex flex-col"
+              style="border-color: rgba(99,91,255,0.25)"
+            >
+              <div class="flex items-center gap-2 mb-4">
+                <span
+                  class="font-mono text-[11px] uppercase tracking-[0.18em]"
+                  style="color: var(--color-accent)">Recommended</span
+                >
+              </div>
+              <h3 class="text-[22px] font-semibold tracking-[-0.01em] text-ink mb-1">
+                Team
+              </h3>
+              <p class="text-[14px] text-ink-3 mb-5">For growing organizations</p>
+              <div class="flex items-baseline gap-1.5 mb-6">
+                <span
+                  class="text-[40px] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums"
+                  >$49</span
+                >
+                <span class="text-[13.5px] text-ink-3">/ org / month</span>
+              </div>
+              <a href="/cloud" class="btn-primary self-start mb-7">Start Team →</a>
+              <ul class="check-list">
+                {[
+                  "Unlimited members",
+                  "250,000 included executions per month",
+                  "5 minute execution timeout",
+                  "Join by team domain",
+                  "$0.20 per 1,000 additional executions",
+                ].map((f) => (
+                  <li>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                      ><path d="M20 6 9 17l-5-5"></path></svg
+                    >{f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Enterprise */}
+            <div class="surface-card path-card p-8 flex flex-col">
+              <div class="flex items-center gap-2 mb-4">
+                <span class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-3"
+                  >Custom needs</span
+                >
+              </div>
+              <h3 class="text-[22px] font-semibold tracking-[-0.01em] text-ink mb-1">
+                Enterprise
+              </h3>
+              <p class="text-[14px] text-ink-3 mb-5">For orgs with custom needs</p>
+              <div class="flex items-baseline gap-1.5 mb-6">
+                <span
+                  class="text-[40px] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums"
+                  >Custom</span
+                >
+              </div>
+              <a
+                href="mailto:rhys@executor.sh?subject=Executor%20Enterprise%20inquiry"
+                class="btn-primary self-start mb-7">Contact us →</a
+              >
+              <p class="text-[12.5px] font-medium text-ink mb-2.5">Everything in Team, plus</p>
+              <ul class="check-list">
+                {[
+                  "Self-hosted or dedicated cloud deployment support",
+                  "SSO / SAML & SCIM provisioning",
+                  "Audit logs for every tool call",
+                  "Dedicated support & onboarding",
+                  "Security reviews, DPA & SOC 2 on request",
+                ].map((f) => (
+                  <li>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                      ><path d="M20 6 9 17l-5-5"></path></svg
+                    >{f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── FINAL CTA ─── */}
+      <section class="cta-band py-20 sm:py-24">
+        <div class="reveal max-w-[760px] mx-auto px-6 sm:px-10 text-center">
+          <h2 class="section-title mb-8 mx-auto max-w-[18ch]">
+            Connect your agent to
+            <span class="serif-italic">everything</span>.
+          </h2>
+          <div class="flex flex-wrap items-center justify-center gap-3">
+            <a href="#install" class="btn-primary btn-primary--hero">Run it locally →</a>
+            <a
+              href={GH}
+              class="btn-primary btn-primary--hero"
+              style="background:white;color:var(--color-ink);box-shadow:0 0 0 1px var(--color-rule-strong)"
+              >Star on GitHub →</a
+            >
+          </div>
+          <p class="mt-5 text-[13.5px] text-ink-3">
+            or <a
+              href="/cloud"
+              class="underline underline-offset-2 hover:text-ink-2 transition-colors"
+              >try Executor Cloud →</a
+            >
+          </p>
         </div>
       </section>
 
@@ -333,13 +874,11 @@ import { SelfHostContactModal } from "../components/self-host-contact-modal";
             >
           </div>
           <div class="flex items-center gap-6 text-[13px] text-ink-2">
-            <a
-              href="https://github.com/RhysSullivan/executor"
-              class="hover:text-ink transition-colors">GitHub</a
+            <a href="https://executor.sh/docs" class="hover:text-ink transition-colors"
+              >Docs</a
             >
-            <a href="/privacy" class="hover:text-ink transition-colors"
-              >Privacy</a
-            >
+            <a href={GH} class="hover:text-ink transition-colors">GitHub</a>
+            <a href="/privacy" class="hover:text-ink transition-colors">Privacy</a>
             <a href="/terms" class="hover:text-ink transition-colors">Terms</a>
           </div>
         </div>
@@ -349,90 +888,85 @@ import { SelfHostContactModal } from "../components/self-host-contact-modal";
 </Layout>
 
 <script>
-  document
-    .querySelectorAll<HTMLButtonElement>("button[data-copy]")
-    .forEach((btn) => {
-      let timer: ReturnType<typeof setTimeout> | null = null;
+  // Copy buttons. Use the async Clipboard API in secure contexts and fall back
+  // to a hidden textarea + execCommand otherwise, so copy (and the copied-state
+  // animation) also works over plain HTTP, e.g. a LAN / tailnet dev host where
+  // navigator.clipboard is undefined.
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {}
+    }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "0";
+    ta.style.left = "0";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {}
+    document.body.removeChild(ta);
+    return ok;
+  };
 
-      btn.addEventListener("click", async () => {
-        const text = btn.dataset.copy ?? "";
-        try {
-          await navigator.clipboard.writeText(text);
-          btn.dataset.copied = "true";
-        } catch {
-          btn.dataset.copied = "false";
-        }
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-          delete btn.dataset.copied;
-        }, 1500);
-      });
+  for (const btn of document.querySelectorAll<HTMLButtonElement>(
+    "button[data-copy]",
+  )) {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    btn.addEventListener("click", async () => {
+      const ok = await copyToClipboard(btn.dataset.copy ?? "");
+      btn.dataset.copied = ok ? "true" : "false";
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        delete btn.dataset.copied;
+      }, 1500);
     });
+  }
 </script>
 
 <script>
-  // ── Hero tab toggle: Try in Cloud / Try locally ────────────────────
-  // Drives the sliding pill indicator + pane visibility via a single
-  // `data-active` attribute on the wrapper. Default "cloud" so no-JS
-  // visitors still see the recommended path.
-  const heroToggle = document.querySelector<HTMLElement>(".hero-toggle");
-  const tabToggle = heroToggle?.querySelector<HTMLElement>(".tab-toggle");
-  const TAB_PARAM = "try";
-  const isHeroTab = (v: unknown): v is "cloud" | "local" =>
-    v === "cloud" || v === "local";
-  const syncTabToUrl = (tab: "cloud" | "local") => {
-    const url = new URL(window.location.href);
-    if (url.searchParams.get(TAB_PARAM) === tab) return;
-    url.searchParams.set(TAB_PARAM, tab);
-    window.history.replaceState(window.history.state, "", url);
-  };
-  const setActiveTab = (tab: "cloud" | "local", updateUrl = true) => {
-    if (!heroToggle || !tabToggle) return;
-    heroToggle.dataset.active = tab;
-    tabToggle.dataset.active = tab;
-    tabToggle.querySelectorAll<HTMLButtonElement>("button[data-tab]").forEach(
-      (btn) => {
-        btn.setAttribute(
+  // ── Hero "For humans / For agents" audience toggle ─────────────────
+  const heroCta = document.querySelector<HTMLElement>(".hero-cta");
+  if (heroCta) {
+    const tabs = Array.from(
+      heroCta.querySelectorAll<HTMLButtonElement>("[data-audience-set]"),
+    );
+    const panes = Array.from(
+      heroCta.querySelectorAll<HTMLElement>("[data-audience-pane]"),
+    );
+    const setAudience = (aud: string) => {
+      heroCta.dataset.audience = aud;
+      for (const t of tabs) {
+        t.setAttribute(
           "aria-selected",
-          btn.dataset.tab === tab ? "true" : "false",
+          t.dataset.audienceSet === aud ? "true" : "false",
         );
-      },
-    );
-    if (updateUrl) syncTabToUrl(tab);
-  };
-  if (heroToggle && tabToggle) {
-    const initial = new URLSearchParams(window.location.search).get(TAB_PARAM);
-    if (isHeroTab(initial)) setActiveTab(initial, false);
-    tabToggle.querySelectorAll<HTMLButtonElement>("button[data-tab]").forEach(
-      (btn) => {
-        btn.addEventListener("click", () => {
-          const tab = btn.dataset.tab as "cloud" | "local" | undefined;
-          if (tab) setActiveTab(tab);
-        });
-      },
-    );
-    window.addEventListener("popstate", () => {
-      const next = new URLSearchParams(window.location.search).get(TAB_PARAM);
-      setActiveTab(isHeroTab(next) ? next : "cloud", false);
-    });
+      }
+      for (const p of panes) {
+        p.hidden = p.dataset.audiencePane !== aud;
+      }
+    };
+    for (const t of tabs) {
+      t.addEventListener("click", () =>
+        setAudience(t.dataset.audienceSet ?? "humans"),
+      );
+    }
   }
+</script>
 
-  // Desktop card "Download →" CTA jumps to the hero, switches to Local,
-  // and lets the auto-detect script there pick the right OS button.
-  document
-    .querySelectorAll<HTMLButtonElement>("button[data-jump-to-local]")
-    .forEach((btn) => {
-      btn.addEventListener("click", () => {
-        setActiveTab("local");
-        heroToggle?.scrollIntoView({ behavior: "smooth", block: "center" });
-      });
-    });
-
+<script>
   // ── Auto-detect download platform ──────────────────────────────────
-  // Shows ONE primary button matching the visitor's OS in the "Try
-  // locally" pane; tucks the others behind an "Other platforms"
-  // popover. No-JS / unrecognised UA: all four buttons visible (still
-  // functional, just less polished).
+  // Shows ONE primary button matching the visitor's OS in the Desktop
+  // card; tucks the others behind an "Other platforms" popover. No-JS /
+  // unrecognised UA: all four buttons visible (still functional, just
+  // less polished).
   type DownloadOs = "mac-arm64" | "mac-x64" | "win-x64" | "linux-x64";
 
   type UserAgentData = {
@@ -504,4 +1038,32 @@ import { SelfHostContactModal } from "../components/self-host-contact-modal";
     }
     other.classList.remove("hidden");
   })();
+</script>
+
+<script>
+  // ── Scroll reveals ─────────────────────────────────────────────────
+  // Sections fade + rise into view as they enter the viewport. The
+  // hidden initial state is applied by JS (`.reveal-init`) so no-JS
+  // visitors and reduced-motion users always see fully-rendered content.
+  const reveals = Array.from(
+    document.querySelectorAll<HTMLElement>(".reveal"),
+  );
+  const prefersReduced = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  if (reveals.length > 0 && !prefersReduced && "IntersectionObserver" in window) {
+    for (const el of reveals) el.classList.add("reveal-init");
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            io.unobserve(entry.target);
+          }
+        }
+      },
+      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" },
+    );
+    for (const el of reveals) io.observe(el);
+  }
 </script>
