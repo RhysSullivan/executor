@@ -11,6 +11,16 @@ const makeBaseEngine = (): ExecutionEngine =>
         status: "completed",
         result: { result: "ok", logs: [] },
       }),
+    startCell: () =>
+      Effect.succeed({
+        status: "completed",
+        cellId: "cell_test",
+        cursor: 1,
+        events: [],
+        result: { result: "ok", logs: [] },
+      }),
+    waitCell: () => Effect.succeed(null),
+    terminateCell: () => Effect.succeed(null),
     resume: () =>
       Effect.succeed({
         status: "completed",

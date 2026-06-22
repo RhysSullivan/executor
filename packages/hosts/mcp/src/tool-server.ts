@@ -21,6 +21,8 @@ import type {
 import type * as Tracer from "effect/Tracer";
 import {
   createExecutionEngine,
+  type ExecutionCellEvent,
+  type ExecutionCellObservation,
   formatExecuteResult,
   formatPausedExecution,
   type ExecutionEngine,
@@ -437,6 +439,43 @@ const toMcpResult = (result: FormattedExecuteInput): McpToolResult => {
   };
 };
 
+const cellEventContent = (event: ExecutionCellEvent): ContentBlock[] => {
+  if (event.type === "output") return outputItemContent(event.item);
+  if (event.type === "yielded") {
+    return [{ type: "text", text: `Execution yielded at cursor ${event.id}.` }];
+  }
+  if (event.type === "completed") {
+    return [{ type: "text", text: formatExecuteResult(event.result).text }];
+  }
+  if (event.type === "failed") {
+    return [{ type: "text", text: `Execution failed:\n${event.error}` }];
+  }
+  return [{ type: "text", text: "Execution terminated." }];
+};
+
+const toMcpCellResult = (observation: ExecutionCellObservation): McpToolResult => {
+  const content = observation.events.flatMap(cellEventContent);
+  if (content.length === 0) {
+    content.push({
+      type: "text",
+      text: `Execution cell ${observation.cellId} is ${observation.status}. cursor=${observation.cursor}`,
+    });
+  }
+
+  return {
+    content,
+    structuredContent: {
+      status: observation.status,
+      cellId: observation.cellId,
+      cursor: observation.cursor,
+      events: observation.events,
+      ...(observation.result !== undefined ? { result: observation.result } : {}),
+      ...(observation.error !== undefined ? { error: observation.error } : {}),
+    },
+    isError: observation.status === "failed" || undefined,
+  };
+};
+
 const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>): McpToolResult => ({
   content: [{ type: "text", text: formatted.text }],
   structuredContent: formatted.structured,
@@ -522,6 +561,20 @@ const missingExecutionResult = (executionId: string): McpToolResult => ({
     status: "execution_not_found",
     executionId,
     recovery: "re_execute",
+  },
+  isError: true,
+});
+
+const missingCellResult = (cellId: string): McpToolResult => ({
+  content: [
+    {
+      type: "text" as const,
+      text: `No execution cell: ${cellId}. The cell expired, was terminated, or was lost when its session restarted.`,
+    },
+  ],
+  structuredContent: {
+    status: "cell_not_found",
+    cellId,
   },
   isError: true,
 });
@@ -627,6 +680,54 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           attributes: {
             "mcp.tool.name": "execute",
             "mcp.execute.code_length": code.length,
+          },
+        }),
+      );
+
+    const executeCell = (
+      code: string,
+      yieldAfterMs: number | undefined,
+    ): Effect.Effect<McpToolResult, E> =>
+      Effect.gen(function* () {
+        const observation = yield* engine.startCell(code, { yieldAfterMs });
+        return toMcpCellResult(observation);
+      }).pipe(
+        Effect.withSpan("mcp.host.tool.execute_cell", {
+          attributes: {
+            "mcp.tool.name": "execute_cell",
+            "mcp.execute.code_length": code.length,
+          },
+        }),
+      );
+
+    const waitCell = (
+      cellId: string,
+      after: number | undefined,
+      timeoutMs: number | undefined,
+    ): Effect.Effect<McpToolResult, E> =>
+      Effect.gen(function* () {
+        const observation = yield* engine.waitCell(cellId, { after, timeoutMs });
+        if (!observation) return missingCellResult(cellId);
+        return toMcpCellResult(observation);
+      }).pipe(
+        Effect.withSpan("mcp.host.tool.wait_cell", {
+          attributes: {
+            "mcp.tool.name": "wait_cell",
+            "mcp.execute.cell_id": cellId,
+          },
+        }),
+      );
+
+    const terminateCell = (cellId: string): Effect.Effect<McpToolResult, E> =>
+      Effect.gen(function* () {
+        const observation = yield* engine.terminateCell(cellId);
+        if (!observation) return missingCellResult(cellId);
+        return toMcpCellResult(observation);
+      }).pipe(
+        Effect.withSpan("mcp.host.tool.terminate_cell", {
+          attributes: {
+            "mcp.tool.name": "terminate_cell",
+            "mcp.execute.cell_id": cellId,
           },
         }),
       );
@@ -746,6 +847,65 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     ).pipe(
       Effect.withSpan("mcp.host.register_tool", {
         attributes: { "mcp.tool.name": "execute" },
+      }),
+    );
+
+    yield* Effect.sync(() =>
+      server.registerTool(
+        "execute_cell",
+        {
+          description: [
+            "Start a persistent execution cell. Use this for code that yields, runs longer than one request, or needs incremental observation.",
+            "The code can call `await yield_control()` or `await yieldControl()` to hand back currently emitted output and continue after the next wait.",
+            "Call `wait_cell` with the returned cellId and cursor to observe new events. Call `terminate_cell` to stop it.",
+          ].join("\n"),
+          inputSchema: {
+            code: z.string().trim().min(1),
+            yieldAfterMs: z.number().optional(),
+          },
+        },
+        ({ code, yieldAfterMs }) => runToolEffect(executeCell(code, yieldAfterMs)),
+      ),
+    ).pipe(
+      Effect.withSpan("mcp.host.register_tool", {
+        attributes: { "mcp.tool.name": "execute_cell" },
+      }),
+    );
+
+    yield* Effect.sync(() =>
+      server.registerTool(
+        "wait_cell",
+        {
+          description:
+            "Wait for new events from a persistent execution cell. Pass the cursor returned by execute_cell or the previous wait_cell call.",
+          inputSchema: {
+            cellId: z.string(),
+            after: z.number().optional(),
+            timeoutMs: z.number().optional(),
+          },
+        },
+        ({ cellId, after, timeoutMs }) => runToolEffect(waitCell(cellId, after, timeoutMs)),
+      ),
+    ).pipe(
+      Effect.withSpan("mcp.host.register_tool", {
+        attributes: { "mcp.tool.name": "wait_cell" },
+      }),
+    );
+
+    yield* Effect.sync(() =>
+      server.registerTool(
+        "terminate_cell",
+        {
+          description: "Terminate a persistent execution cell.",
+          inputSchema: {
+            cellId: z.string(),
+          },
+        },
+        ({ cellId }) => runToolEffect(terminateCell(cellId)),
+      ),
+    ).pipe(
+      Effect.withSpan("mcp.host.register_tool", {
+        attributes: { "mcp.tool.name": "terminate_cell" },
       }),
     );
 

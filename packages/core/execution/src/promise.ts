@@ -23,10 +23,13 @@ import type { CodeExecutionError, CodeExecutor, ExecuteResult } from "@executor-
 
 import {
   createExecutionEngine as createEffectExecutionEngine,
+  type ExecutionCellObservation,
   type ExecutionEngine as EffectExecutionEngine,
   type ExecutionResult,
   type PausedExecution,
   type ResumeResponse,
+  type StartExecutionCellOptions,
+  type WaitExecutionCellOptions,
 } from "./engine";
 
 export type ElicitationHandler = (ctx: ElicitationContext) => Promise<ElicitationResponse>;
@@ -47,6 +50,15 @@ export type ExecutionEngine = {
     response: ResumeResponse,
   ) => Promise<ExecutionResult | null>;
   readonly getPausedExecution: (executionId: string) => Promise<PausedExecution | null>;
+  readonly startCell: (
+    code: string,
+    options?: StartExecutionCellOptions,
+  ) => Promise<ExecutionCellObservation>;
+  readonly waitCell: (
+    cellId: string,
+    options?: WaitExecutionCellOptions,
+  ) => Promise<ExecutionCellObservation | null>;
+  readonly terminateCell: (cellId: string) => Promise<ExecutionCellObservation | null>;
   readonly getDescription: () => Promise<string>;
 };
 
@@ -152,6 +164,9 @@ export const toPromiseExecutionEngine = <E extends Cause.YieldableError>(
   executeWithPause: (code) => Effect.runPromise(engine.executeWithPause(code)),
   resume: (executionId, response) => Effect.runPromise(engine.resume(executionId, response)),
   getPausedExecution: (executionId) => Effect.runPromise(engine.getPausedExecution(executionId)),
+  startCell: (code, options) => Effect.runPromise(engine.startCell(code, options)),
+  waitCell: (cellId, options) => Effect.runPromise(engine.waitCell(cellId, options)),
+  terminateCell: (cellId) => Effect.runPromise(engine.terminateCell(cellId)),
   getDescription: () => Effect.runPromise(engine.getDescription),
 });
 
@@ -171,7 +186,15 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
 
 export { formatExecuteResult, formatPausedExecution } from "./engine";
 
-export type { ExecutionResult, PausedExecution, ResumeResponse, ExecuteResult };
+export type {
+  ExecutionCellObservation,
+  ExecutionResult,
+  PausedExecution,
+  ResumeResponse,
+  ExecuteResult,
+  StartExecutionCellOptions,
+  WaitExecutionCellOptions,
+};
 
 export { buildExecuteDescription } from "./description";
 export { ExecutionToolError } from "./errors";

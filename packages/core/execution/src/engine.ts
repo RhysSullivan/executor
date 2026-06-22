@@ -1,5 +1,5 @@
 import { Deferred, Effect, Fiber, Predicate, Queue } from "effect";
-import type * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 
 import type {
@@ -12,6 +12,7 @@ import type {
 import { CodeExecutionError } from "@executor-js/codemode-core";
 import type {
   CodeExecutor,
+  ExecuteOutputItem,
   ExecuteNotification,
   ExecuteResult,
   SandboxToolInvoker,
@@ -41,6 +42,50 @@ export type ExecutionResult =
   | { readonly status: "completed"; readonly result: ExecuteResult }
   | { readonly status: "paused"; readonly execution: PausedExecution };
 
+export type ExecutionCellStatus = "running" | "completed" | "failed" | "terminated";
+
+type ExecutionCellEventPayload =
+  | {
+      readonly type: "output";
+      readonly item: ExecuteOutputItem;
+    }
+  | {
+      readonly type: "yielded";
+    }
+  | {
+      readonly type: "completed";
+      readonly result: ExecuteResult;
+    }
+  | {
+      readonly type: "failed";
+      readonly error: string;
+    }
+  | {
+      readonly type: "terminated";
+    };
+
+export type ExecutionCellEvent = ExecutionCellEventPayload & {
+  readonly id: number;
+};
+
+export type ExecutionCellObservation = {
+  readonly status: ExecutionCellStatus;
+  readonly cellId: string;
+  readonly cursor: number;
+  readonly events: readonly ExecutionCellEvent[];
+  readonly result?: ExecuteResult;
+  readonly error?: string;
+};
+
+export type StartExecutionCellOptions = {
+  readonly yieldAfterMs?: number;
+};
+
+export type WaitExecutionCellOptions = {
+  readonly after?: number;
+  readonly timeoutMs?: number;
+};
+
 export type PausedExecution = {
   readonly id: string;
   readonly elicitationContext: ElicitationContext;
@@ -52,6 +97,25 @@ type InternalPausedExecution<E> = PausedExecution & {
   readonly fiber: Fiber.Fiber<ExecuteResult, E>;
   readonly pauseQueue: Queue.Queue<InternalPausedExecution<E>>;
 };
+
+type InternalExecutionCell<E> = {
+  readonly id: string;
+  events: ExecutionCellEvent[];
+  nextEventId: number;
+  status: ExecutionCellStatus;
+  result?: ExecuteResult;
+  error?: string;
+  fiber?: Fiber.Fiber<ExecuteResult, E>;
+  readonly waiters: Set<Deferred.Deferred<void>>;
+  readonly yieldContinuations: Set<{
+    readonly resume: () => void;
+    readonly terminate: () => void;
+  }>;
+};
+
+type CellObservationMode = "any-event" | "yield-or-terminal";
+
+const CELL_TERMINATED_MESSAGE = "Execution cell terminated";
 
 export type ResumeResponse = {
   readonly action: "accept" | "decline" | "cancel";
@@ -406,6 +470,30 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
   readonly getPausedExecution: (executionId: string) => Effect.Effect<PausedExecution | null>;
 
   /**
+   * Start a persistent execution cell. The cell keeps running after the first
+   * observation when it yields or exceeds `yieldAfterMs`.
+   */
+  readonly startCell: (
+    code: string,
+    options?: StartExecutionCellOptions,
+  ) => Effect.Effect<ExecutionCellObservation, E>;
+
+  /**
+   * Wait for new cell events after `after`. Returns null when the cell id is
+   * unknown.
+   */
+  readonly waitCell: (
+    cellId: string,
+    options?: WaitExecutionCellOptions,
+  ) => Effect.Effect<ExecutionCellObservation | null, E>;
+
+  /**
+   * Stop a running cell and return its current observation. Returns null when
+   * the cell id is unknown.
+   */
+  readonly terminateCell: (cellId: string) => Effect.Effect<ExecutionCellObservation | null>;
+
+  /**
    * Get the dynamic tool description (workflow + namespaces).
    */
   readonly getDescription: Effect.Effect<string>;
@@ -416,6 +504,8 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
 ): ExecutionEngine<E> => {
   const { executor, codeExecutor, toolDiscoveryProvider = defaultToolDiscoveryProvider } = config;
   const pausedExecutions = new Map<string, InternalPausedExecution<E>>();
+  const executionCells = new Map<string, InternalExecutionCell<E>>();
+  const runSync = Effect.runSync;
   // Outcomes of executions that already settled (resumed to completion, hit a
   // new pause, or died while paused). MCP clients retry `resume` when a
   // response gets lost in transit; without this cache the retry of an
@@ -465,6 +555,193 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
         Effect.map((paused): ExecutionResult => ({ status: "paused", execution: paused })),
       ),
     );
+
+  const notifyCellWaiters = (cell: InternalExecutionCell<E>): void => {
+    for (const waiter of cell.waiters) {
+      runSync(Deferred.succeed(waiter, undefined));
+    }
+    cell.waiters.clear();
+  };
+
+  const appendCellEvent = (
+    cell: InternalExecutionCell<E>,
+    event: ExecutionCellEventPayload,
+  ): ExecutionCellEvent => {
+    const recorded = { ...event, id: cell.nextEventId++ } as ExecutionCellEvent;
+    cell.events.push(recorded);
+    notifyCellWaiters(cell);
+    return recorded;
+  };
+
+  const observeCell = (cell: InternalExecutionCell<E>, after = 0): ExecutionCellObservation => {
+    const events = cell.events.filter((event) => event.id > after);
+    const yielded = events.some((event) => event.type === "yielded");
+    if (yielded) {
+      for (const continuation of cell.yieldContinuations) {
+        continuation.resume();
+      }
+      cell.yieldContinuations.clear();
+    }
+    const cursor = Math.max(after, cell.events.at(-1)?.id ?? after);
+    return {
+      status: cell.status,
+      cellId: cell.id,
+      cursor,
+      events,
+      ...(cell.result !== undefined ? { result: cell.result } : {}),
+      ...(cell.error !== undefined ? { error: cell.error } : {}),
+    };
+  };
+
+  const waitForCellObservation = (
+    cell: InternalExecutionCell<E>,
+    options: WaitExecutionCellOptions = {},
+    mode: CellObservationMode = "any-event",
+  ): Effect.Effect<ExecutionCellObservation> => {
+    const after = options.after ?? 0;
+    const timeoutMs = Math.max(0, Math.floor(options.timeoutMs ?? 30_000));
+    return Effect.gen(function* () {
+      const startedAt = Date.now();
+      while (true) {
+        const current = observeCell(cell, after);
+        const hasYieldOrTerminalEvent = current.events.some((event) => event.type !== "output");
+        const ready =
+          mode === "any-event"
+            ? current.events.length > 0 || cell.status !== "running"
+            : hasYieldOrTerminalEvent || cell.status !== "running";
+        if (ready || timeoutMs === 0) return current;
+
+        const remainingMs = timeoutMs - (Date.now() - startedAt);
+        if (remainingMs <= 0) return current;
+
+        const waiter = yield* Deferred.make<void>();
+        cell.waiters.add(waiter);
+        yield* Deferred.await(waiter).pipe(
+          Effect.timeoutOrElse({
+            duration: `${remainingMs} millis`,
+            orElse: () => Effect.void,
+          }),
+          Effect.ensuring(Effect.sync(() => cell.waiters.delete(waiter))),
+        );
+      }
+    });
+  };
+
+  const startExecutionCell = Effect.fn("mcp.execute.cell.start")(function* (
+    code: string,
+    options: StartExecutionCellOptions = {},
+  ) {
+    yield* Effect.annotateCurrentSpan({
+      "mcp.execute.mode": "cell",
+      "mcp.execute.code_length": code.length,
+    });
+
+    const cell: InternalExecutionCell<E> = {
+      id: `cell_${crypto.randomUUID()}`,
+      events: [],
+      nextEventId: 1,
+      status: "running",
+      waiters: new Set(),
+      yieldContinuations: new Set(),
+    };
+    executionCells.set(cell.id, cell);
+
+    const baseInvoker = makeFullInvoker(
+      executor,
+      {
+        onElicitation: () => Effect.succeed({ action: "cancel" as const }),
+      },
+      toolDiscoveryProvider,
+    );
+    const invoker: SandboxToolInvoker = {
+      invoke: (input) => baseInvoker.invoke(input),
+    };
+
+    const fiber = yield* Effect.forkDetach(
+      codeExecutor
+        .execute(code, invoker, {
+          onOutput: (item) => {
+            if (cell.status !== "running") return;
+            appendCellEvent(cell, { type: "output", item });
+          },
+          onYield: () =>
+            new Promise<void>((resolve, reject) => {
+              if (cell.status !== "running") {
+                // oxlint-disable-next-line executor/no-promise-reject -- boundary: sandbox runtimes observe rejected yield promises as cooperative cell termination
+                reject(CELL_TERMINATED_MESSAGE);
+                return;
+              }
+              appendCellEvent(cell, { type: "yielded" });
+              cell.yieldContinuations.add({
+                resume: resolve,
+                terminate: () => {
+                  // oxlint-disable-next-line executor/no-promise-reject -- boundary: sandbox runtimes observe rejected yield promises as cooperative cell termination
+                  reject(CELL_TERMINATED_MESSAGE);
+                },
+              });
+            }),
+        })
+        .pipe(Effect.withSpan("executor.code.exec")),
+    );
+    cell.fiber = fiber;
+
+    yield* Effect.forkDetach(
+      Fiber.await(fiber).pipe(
+        Effect.flatMap((exit) =>
+          Effect.sync(() => {
+            if (cell.status === "terminated") return;
+            if (Exit.isSuccess(exit)) {
+              cell.result = exit.value;
+              cell.status = exit.value.error ? "failed" : "completed";
+              appendCellEvent(cell, { type: "completed", result: exit.value });
+              return;
+            }
+            const error = Cause.pretty(exit.cause);
+            cell.error = error;
+            cell.status = "failed";
+            appendCellEvent(cell, { type: "failed", error });
+          }),
+        ),
+      ),
+    );
+
+    return yield* waitForCellObservation(
+      cell,
+      {
+        after: 0,
+        timeoutMs: options.yieldAfterMs ?? 1_000,
+      },
+      "yield-or-terminal",
+    );
+  });
+
+  const waitExecutionCell = Effect.fn("mcp.execute.cell.wait")(function* (
+    cellId: string,
+    options: WaitExecutionCellOptions = {},
+  ) {
+    const cell = executionCells.get(cellId);
+    if (!cell) return null;
+    return yield* waitForCellObservation(cell, options);
+  });
+
+  const terminateExecutionCell = Effect.fn("mcp.execute.cell.terminate")(function* (
+    cellId: string,
+  ) {
+    const cell = executionCells.get(cellId);
+    if (!cell) return null;
+    if (cell.status === "running") {
+      cell.status = "terminated";
+      appendCellEvent(cell, { type: "terminated" });
+      for (const continuation of cell.yieldContinuations) {
+        continuation.terminate();
+      }
+      cell.yieldContinuations.clear();
+      if (cell.fiber) {
+        yield* Fiber.interrupt(cell.fiber).pipe(Effect.ignore);
+      }
+    }
+    return observeCell(cell);
+  });
 
   /**
    * Start an execution in pause/resume mode.
@@ -625,6 +902,9 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
     resume: resumeExecution,
     getPausedExecution: (executionId) =>
       Effect.sync(() => pausedExecutions.get(executionId) ?? null),
+    startCell: startExecutionCell,
+    waitCell: waitExecutionCell,
+    terminateCell: terminateExecutionCell,
     getDescription: buildExecuteDescription(executor),
   };
 };
