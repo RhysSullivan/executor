@@ -1,5 +1,13 @@
 # @executor-js/react
 
+## 1.4.37
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/api@1.4.37
+
 ## 1.4.36
 
 ### Patch Changes
