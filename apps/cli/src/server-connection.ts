@@ -44,7 +44,7 @@ export const withCliServerAuthFallback = (
 export const canAutoStartCliServerConnection = (connection: ExecutorServerConnection): boolean => {
   if (connection.kind !== "http") return false;
   // A stored credential (basic password, bearer key, or an oauth device-login
-  // token) means the user is targeting an EXISTING authenticated server — never
+  // token) means the user is targeting an EXISTING authenticated server, never
   // spawn a local daemon for it, even when it happens to be on http://localhost
   // (e.g. a hosted server reached over a tunnel, or a local e2e cloud server).
   if (connection.auth) return false;

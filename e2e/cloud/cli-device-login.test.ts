@@ -1,10 +1,10 @@
 // Cloud: the CLI `executor login` device-authorization flow end to end against
-// the real cloud app — terminal AND browser, both recorded for the viewer. The
+// the real cloud app, terminal AND browser, both recorded for the viewer. The
 // actual `executor` binary runs the OAuth 2.0 Device Authorization Grant
 // (RFC 8628) in a real terminal (terminal.cast): it prints the verification URL
 // and polls. The browser leg is REAL too (session.mp4): Playwright opens that
 // URL, confirms the code, and clicks "Authorize device" on the WorkOS
-// emulator's verification page — exactly the human hop, the way the MCP
+// emulator's verification page, exactly the human hop, the way the MCP
 // approval scenarios drive their browser step. The terminal then runs `whoami`
 // and `tools sources`; a clean exit of that chain proves the resulting WorkOS
 // access token (a JWT) is accepted by the protected `/api/*` plane.
@@ -33,7 +33,16 @@ scenario(
       // Cloud-only: the discovery endpoint + WorkOS device flow are this target's.
       if (target.name !== "cloud") return;
 
-      // Slow + hold the browser steps so the recording is watchable.
+      // Slow + hold the browser steps so the recording is watchable. Scoped to
+      // this scenario and restored after (files run serially, so a leaked flag
+      // would slow every later scenario).
+      const prevFilm = process.env.E2E_FILM;
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          if (prevFilm === undefined) delete process.env.E2E_FILM;
+          else process.env.E2E_FILM = prevFilm;
+        }),
+      );
       process.env.E2E_FILM = "1";
 
       const cli = yield* Cli;
@@ -41,7 +50,7 @@ scenario(
       const runDir = yield* RunDir;
       const dataDir = join(runDir, "cli-home");
 
-      // A fresh signed-in user with an org — the org is what the device token's
+      // A fresh signed-in user with an org, the org is what the device token's
       // org_id claim binds to, and what the /api plane authorizes against.
       const identity = yield* target.newIdentity();
       const email = identity.credentials?.email ?? identity.label;
@@ -58,8 +67,8 @@ scenario(
       });
 
       // The terminal journey, recorded to terminal.cast. `&&` means a clean
-      // exit only happens if every step — including the authenticated /api call
-      // (`tools sources`) — succeeded.
+      // exit only happens if every step, including the authenticated /api call
+      // (`tools sources`), succeeded.
       const cli_ = `bun run ${CLI_ENTRY}`;
       const journey =
         `${cli_} login --base-url ${CLOUD_BASE_URL} --no-browser --name cloud && ` +
@@ -90,7 +99,7 @@ scenario(
         },
       );
 
-      // The browser leg — a REAL Playwright session approving the device on the
+      // The browser leg, a REAL Playwright session approving the device on the
       // verification page (recorded to session.mp4 + per-step screenshots). Runs
       // concurrently with the terminal: it waits for the printed URL, then
       // approves while the CLI is mid-poll.
@@ -205,7 +214,7 @@ scenario(
       }>;
     };
     const oauthProfiles = store.profiles.filter((p) => p.connection.auth?.kind === "oauth");
-    // The second login must NOT clobber the first — both accounts kept.
+    // The second login must NOT clobber the first, both accounts kept.
     expect(oauthProfiles.length, "both accounts retained as separate profiles").toBe(2);
     expect(new Set(oauthProfiles.map((p) => p.name)).size, "profile names are distinct").toBe(2);
     const emails = new Set(oauthProfiles.map((p) => p.connection.displayName));

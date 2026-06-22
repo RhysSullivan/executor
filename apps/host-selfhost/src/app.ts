@@ -56,7 +56,7 @@ const escapeHtml = (value: string): string =>
 // Server-rendered verification page for the CLI device flow. It binds the
 // signed-in user to the pending code (GET /api/auth/device) and approves/denies
 // it (POST /api/auth/device/approve|deny) via same-origin fetches carrying the
-// session cookie — so the human just confirms the code and clicks Authorize.
+// session cookie, so the human just confirms the code and clicks Authorize.
 const renderDevicePage = (userCode: string): string => {
   const code = JSON.stringify(userCode);
   return `<!doctype html>
@@ -191,12 +191,12 @@ export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
     },
     extensions: {
       routes: [
-        // CLI device-login discovery — must precede the /api/auth/* wildcard
+        // CLI device-login discovery, must precede the /api/auth/* wildcard
         // below (Better Auth would otherwise 404 it).
         HttpRouter.add("GET", "/api/auth/cli-login", cliLoginHandler),
         // The device-flow verification page (verification_uri).
         HttpRouter.add("GET", "/device", devicePageHandler),
-        // Better Auth owns the rest of /api/auth/* — the full path reaches it.
+        // Better Auth owns the rest of /api/auth/*, the full path reaches it.
         HttpRouter.add("*", "/api/auth/*", HttpEffect.fromWebHandler(authHandler)),
         // Browser approval of paused MCP executions: the console resume page
         // reads paused detail (GET) and records the decision (POST .../resume),

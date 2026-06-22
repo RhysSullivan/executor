@@ -622,7 +622,7 @@ const refreshOAuthConnection = (
       try: () => refreshDeviceTokens({ tokenEndpoint, clientId, refreshToken }),
       catch: toError,
       // On a failed refresh, keep the existing token and let the eventual 401
-      // surface — better than blocking the command on a transient hiccup.
+      // surface, better than blocking the command on a transient hiccup.
     }).pipe(Effect.option);
     if (Option.isNone(refreshed)) return connection;
 
@@ -682,7 +682,7 @@ const resolveExecutorServerConnection = (
       // An authenticated remote connection (oauth device-login, bearer key, or
       // basic password): use it directly. The /api/health liveness probe is only
       // a gate for the local auto-start decision and isn't necessarily exposed
-      // by hosted servers — the real API call surfaces any connectivity/auth
+      // by hosted servers, the real API call surfaces any connectivity/auth
       // error with proper context.
       if (requested.auth) return requested;
       if (yield* isServerReachable(requested.origin)) {
@@ -2082,7 +2082,7 @@ const sanitizeProfileName = (raw: string): string => {
   return cleaned.length > 0 ? cleaned : "server";
 };
 
-// The (origin, user, org) a stored oauth profile authenticates as — lets us
+// The (origin, user, org) a stored oauth profile authenticates as, lets us
 // recognize a re-login to the SAME account (update in place) versus a
 // different account on the same host (needs its own profile).
 const oauthAccountIdentity = (connection: ExecutorServerConnection): string | null => {
@@ -2095,7 +2095,7 @@ const oauthAccountIdentity = (connection: ExecutorServerConnection): string | nu
 };
 
 // Name a login's profile by the ACCOUNT it authenticates (email, falling back
-// to user id), not the hostname — so two accounts on the same server get
+// to user id), not the hostname, so two accounts on the same server get
 // distinct profiles instead of clobbering each other (the way opencode keys
 // accounts by email/url). A re-login to the same account reuses its profile.
 const chooseLoginProfileName = (

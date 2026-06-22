@@ -107,7 +107,7 @@ const looksLikeJwt = (token: string): boolean => token.split(".").length === 3;
 /**
  * Resolve a WorkOS access-token JWT (CLI `executor login`) into a protected
  * `Principal`. Verifies the token against AuthKit's JWKS (issuer + audience),
- * then live-checks org membership — exactly like the api-key path. The
+ * then live-checks org membership, exactly like the api-key path. The
  * `org_id` claim must be present (a token with no org context is rejected as
  * `NoOrganization`). Mirrors the MCP plane's JWT verify, reusing the same
  * `cloudflare:workers`-free verifier so a CLI holds ONE credential for both
@@ -151,7 +151,7 @@ const resolveJwtPrincipal = (token: string, jwt: JwtBearerConfig) =>
  * Resolve a `Bearer` credential into a `Principal`: a WorkOS access-token JWT
  * (when `jwt` config is supplied and the value looks like a JWT) or a WorkOS
  * API key. Returns `null` when there is no `Authorization` header, so the
- * caller falls through to the sealed-session path. (Kept the historical name —
+ * caller falls through to the sealed-session path. (Kept the historical name,
  * the re-export and resolver tests reference it.)
  */
 export const resolveApiKeyPrincipal = (request: Request, jwt: JwtBearerConfig | null = null) =>

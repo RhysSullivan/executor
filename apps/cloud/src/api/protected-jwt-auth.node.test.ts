@@ -32,7 +32,7 @@ const makeJwt = async () => {
   return { config, sign };
 };
 
-// The api-key path must never run for a JWT bearer — die loudly if it does.
+// The api-key path must never run for a JWT bearer, die loudly if it does.
 const stubApiKeys = Layer.succeed(ApiKeyService)({
   validate: () => Effect.die("JWT bearer must not hit ApiKeyService.validate"),
   listUserKeys: () => Effect.succeed([]),

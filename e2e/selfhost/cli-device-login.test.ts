@@ -1,5 +1,5 @@
 // Self-host: the CLI `executor login` device-authorization flow end to end
-// against the self-host app (Better Auth) — terminal AND browser, both recorded.
+// against the self-host app (Better Auth), terminal AND browser, both recorded.
 // The `executor` binary runs RFC 8628 in a real terminal (terminal.cast): it
 // discovers Better Auth's device endpoints via /api/auth/cli-login, prints the
 // verification URL, and polls. The browser leg is REAL (session.mp4): Playwright
@@ -30,7 +30,16 @@ scenario(
       const target = yield* Target;
       if (target.name !== "selfhost") return;
 
-      // Slow + hold the browser steps so the recording is watchable.
+      // Slow + hold the browser steps so the recording is watchable. Scoped to
+      // this scenario and restored after (files run serially, so a leaked flag
+      // would slow every later scenario).
+      const prevFilm = process.env.E2E_FILM;
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          if (prevFilm === undefined) delete process.env.E2E_FILM;
+          else process.env.E2E_FILM = prevFilm;
+        }),
+      );
       process.env.E2E_FILM = "1";
 
       const cli = yield* Cli;
@@ -81,7 +90,7 @@ scenario(
         },
       );
 
-      // The browser leg — approve on the self-host /device page (session cookie
+      // The browser leg, approve on the self-host /device page (session cookie
       // from the identity authorizes it). Recorded to session.mp4.
       const browserApproval = Effect.gen(function* () {
         const url = yield* Effect.promise(() => verificationUrl);
@@ -103,7 +112,7 @@ scenario(
         yield* Effect.promise(() => enterFocus(runDir, "terminal"));
       });
 
-      // Reaching here means the whole `&&` chain exited 0 — including the
+      // Reaching here means the whole `&&` chain exited 0, including the
       // authenticated `tools sources` /api call.
       yield* Effect.all([terminal, browserApproval], { concurrency: "unbounded" });
 

@@ -3,7 +3,7 @@
 //
 // The protected HTTP API accepts THREE credential forms on the `Authorization`
 // header, in this precedence: a WorkOS access-token JWT (CLI device-login,
-// `executor login`), then a WorkOS API key, then — with no header — the
+// `executor login`), then a WorkOS API key, then, with no header, the
 // sealed-session cookie. This module supplies the JWT-verification config
 // (JWKS + issuer + audience) the JWT branch needs.
 //

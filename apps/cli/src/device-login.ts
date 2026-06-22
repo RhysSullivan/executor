@@ -79,7 +79,7 @@ const readUserEmail = (body: Record<string, unknown>): string | undefined => {
 
 /**
  * Decode a JWT access token's claims WITHOUT verifying it. The CLI only uses
- * this for display (`whoami`, the post-login summary) and to read `exp` — the
+ * this for display (`whoami`, the post-login summary) and to read `exp`, the
  * server is the only thing that verifies the token's signature.
  */
 export const decodeAccessTokenClaims = (
@@ -318,11 +318,11 @@ export const openBrowser = (url: string): void => {
   const args = platform === "win32" ? ["/c", "start", "", url] : [url];
   try {
     const child = spawn(command, args, { stdio: "ignore", detached: true });
-    // Swallow async spawn failures (e.g. the opener binary is missing) — the
+    // Swallow async spawn failures (e.g. the opener binary is missing), the
     // URL is printed too, so the user can open it by hand.
     (child as { on?: (event: "error", listener: () => void) => void }).on?.("error", () => {});
     child.unref();
   } catch {
-    // Ignore — the URL is also printed for manual opening.
+    // Ignore, the URL is also printed for manual opening.
   }
 };
