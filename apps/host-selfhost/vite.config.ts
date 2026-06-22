@@ -76,9 +76,6 @@ function executorApiPlugin(): Plugin {
           path.startsWith("/mcp/") ||
           path === "/docs" ||
           path.startsWith("/docs/") ||
-          // The CLI device-login verification page (verification_uri), served by
-          // the Effect router; without this the SPA fallback answers it instead.
-          path === "/device" ||
           // RFC 9728 / RFC 8414 OAuth discovery the MCP client fetches before
           // auth. Served by the Effect router in prod; without this the SPA
           // index.html fallback answers 200-with-HTML and breaks discovery.

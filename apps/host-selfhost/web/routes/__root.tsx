@@ -11,6 +11,7 @@ import { Shell, defaultShellNavItems } from "@executor-js/react/multiplayer/shel
 import { plugins as clientPlugins } from "virtual:executor/plugins-client";
 
 import { authClient } from "../auth-client";
+import { DevicePage } from "../device";
 import { McpConsentPage } from "../mcp-consent";
 import { LoginPage } from "../login";
 import { SetupPage } from "../setup";
@@ -121,6 +122,20 @@ function RootComponent() {
       <AuthProvider>
         <AuthGate>
           <McpConsentPage />
+          <Toaster />
+        </AuthGate>
+      </AuthProvider>
+    );
+  }
+
+  // The CLI device-login verification page: chromeless, inside the auth gate
+  // (the user signs in here if needed, then authorizes the code). Same
+  // static-import + pathname-branch convention as /mcp-consent.
+  if (pathname === "/device") {
+    return (
+      <AuthProvider>
+        <AuthGate>
+          <DevicePage />
           <Toaster />
         </AuthGate>
       </AuthProvider>

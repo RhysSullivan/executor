@@ -47,84 +47,6 @@ export interface MakeSelfHostAppOptions {
   readonly dbPath?: string;
 }
 
-const escapeHtml = (value: string): string =>
-  value.replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c,
-  );
-
-// Server-rendered verification page for the CLI device flow. It binds the
-// signed-in user to the pending code (GET /api/auth/device) and approves/denies
-// it (POST /api/auth/device/approve|deny) via same-origin fetches carrying the
-// session cookie, so the human just confirms the code and clicks Authorize.
-const renderDevicePage = (userCode: string): string => {
-  const code = JSON.stringify(userCode);
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Authorize device · Executor</title>
-<style>
-  body { font-family: ui-sans-serif, system-ui, sans-serif; background: #0b0b0c; color: #e7e7ea;
-         display: grid; place-items: center; min-height: 100vh; margin: 0; }
-  .card { background: #161618; border: 1px solid #2a2a2e; border-radius: 12px; padding: 32px;
-          width: 360px; text-align: center; }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  p { color: #a1a1aa; font-size: 14px; margin: 8px 0 20px; }
-  .code { font-family: ui-monospace, monospace; font-size: 28px; letter-spacing: 4px;
-          background: #0b0b0c; border: 1px solid #2a2a2e; border-radius: 8px; padding: 12px; margin: 12px 0; }
-  button { font: inherit; border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; margin: 4px; }
-  .approve { background: #5b5bd6; color: white; }
-  .deny { background: transparent; color: #a1a1aa; border: 1px solid #2a2a2e; }
-  a { color: #8b8bf0; }
-</style>
-</head>
-<body>
-<div class="card" id="card">
-  <h1>Authorize this device</h1>
-  <p>Confirm the code shown in your terminal.</p>
-  <div class="code">${escapeHtml(userCode)}</div>
-  <div id="actions" hidden>
-    <button class="approve" id="approve">Authorize device</button>
-    <button class="deny" id="deny">Deny</button>
-  </div>
-  <p id="status">Checking your session…</p>
-</div>
-<script>
-  const userCode = ${code};
-  const card = document.getElementById("card");
-  const actions = document.getElementById("actions");
-  const status = document.getElementById("status");
-  const done = (msg) => { actions.hidden = true; status.textContent = msg; };
-  const post = (path) => fetch("/api/auth/device/" + path, {
-    method: "POST", credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ userCode }),
-  });
-  (async () => {
-    // Bind the signed-in user to the pending code.
-    const bound = await fetch("/api/auth/device?user_code=" + encodeURIComponent(userCode), {
-      credentials: "include", headers: { accept: "application/json" },
-    }).then((r) => r.ok).catch(() => false);
-    if (!bound) {
-      status.innerHTML = 'Sign in to this Executor first, then reopen this link. <a href="/login">Sign in</a>';
-      return;
-    }
-    actions.hidden = false;
-    status.textContent = "";
-    document.getElementById("approve").onclick = async () => {
-      done((await post("approve")).ok ? "Device approved. Return to your terminal." : "Could not approve. Try again.");
-    };
-    document.getElementById("deny").onclick = async () => {
-      await post("deny"); done("Request denied. You can close this window.");
-    };
-  })();
-</script>
-</body>
-</html>`;
-};
-
 export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
   const config = loadConfig();
 
@@ -168,16 +90,6 @@ export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
       ),
   );
 
-  // The verification page the device flow's verification_uri points at. Binds
-  // the signed-in user to the pending code and approves/denies it via Better
-  // Auth's device endpoints (same-origin, with the session cookie).
-  const devicePageHandler = HttpEffect.fromWebHandler(async (request) => {
-    const userCode = new URL(request.url).searchParams.get("user_code") ?? "";
-    return new Response(renderDevicePage(userCode), {
-      headers: { "content-type": "text/html; charset=utf-8" },
-    });
-  });
-
   const { appLayer, toWebHandler } = ExecutorApp.make({
     plugins: selfHostPlugins,
     providers: {
@@ -192,10 +104,9 @@ export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
     extensions: {
       routes: [
         // CLI device-login discovery, must precede the /api/auth/* wildcard
-        // below (Better Auth would otherwise 404 it).
+        // below (Better Auth would otherwise 404 it). The verification page it
+        // points at (/device) is a console SPA route (web/device.tsx).
         HttpRouter.add("GET", "/api/auth/cli-login", cliLoginHandler),
-        // The device-flow verification page (verification_uri).
-        HttpRouter.add("GET", "/device", devicePageHandler),
         // Better Auth owns the rest of /api/auth/*, the full path reaches it.
         HttpRouter.add("*", "/api/auth/*", HttpEffect.fromWebHandler(authHandler)),
         // Browser approval of paused MCP executions: the console resume page
