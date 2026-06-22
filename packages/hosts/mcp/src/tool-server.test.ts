@@ -29,6 +29,9 @@ class TestExecutionError extends Data.TaggedError("TestExecutionError")<{
 const makeStubEngine = <E extends Cause.YieldableError = never>(overrides: {
   execute?: ExecutionEngine<E>["execute"];
   executeWithPause?: ExecutionEngine<E>["executeWithPause"];
+  startCell?: ExecutionEngine<E>["startCell"];
+  waitCell?: ExecutionEngine<E>["waitCell"];
+  terminateCell?: ExecutionEngine<E>["terminateCell"];
   resume?: ExecutionEngine<E>["resume"];
   description?: string;
 }): ExecutionEngine<E> => ({
@@ -36,6 +39,18 @@ const makeStubEngine = <E extends Cause.YieldableError = never>(overrides: {
   executeWithPause:
     overrides.executeWithPause ??
     (() => Effect.succeed({ status: "completed", result: { result: "default" } })),
+  startCell:
+    overrides.startCell ??
+    (() =>
+      Effect.succeed({
+        status: "completed",
+        cellId: "cell_test",
+        cursor: 1,
+        events: [],
+        result: { result: "default" },
+      })),
+  waitCell: overrides.waitCell ?? (() => Effect.succeed(null)),
+  terminateCell: overrides.terminateCell ?? (() => Effect.succeed(null)),
   resume: overrides.resume ?? (() => Effect.succeed(null)),
   getPausedExecution: () => Effect.succeed(null),
   getDescription: Effect.succeed(overrides.description ?? "test executor"),
