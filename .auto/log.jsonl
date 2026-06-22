@@ -1,0 +1,1 @@
+{"type":"config","name":"Optimize self-host Docker image size","metricName":"image_mb","metricUnit":"mb","bestDirection":"lower"}
