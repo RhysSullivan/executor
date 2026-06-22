@@ -80,22 +80,43 @@ export const formatExecuteResult = (
 
   const logText = result.logs && result.logs.length > 0 ? result.logs.join("\n") : null;
 
+  // `emit()` output is shown to the user, not returned to the model, so a
+  // script that only emits comes back with a null result. Acknowledge the
+  // emitted items in the envelope so an emit-without-return reads as "output
+  // went to the user" rather than a silent void.
+  const emitted = result.output?.length ?? 0;
+  const emittedNote =
+    emitted > 0 ? `${emitted} item${emitted === 1 ? "" : "s"} emitted to the user` : null;
+  const emittedField = emitted > 0 ? { emitted } : {};
+
   if (result.error) {
     const parts = [`Error: ${result.error}`, ...(logText ? [`\nLogs:\n${logText}`] : [])];
     return {
       text: truncate(parts.join("\n"), MAX_PREVIEW_CHARS),
-      structured: { status: "error", error: result.error, logs: result.logs ?? [] },
+      structured: {
+        status: "error",
+        error: result.error,
+        ...emittedField,
+        logs: result.logs ?? [],
+      },
       isError: true,
     };
   }
 
-  const parts = [
-    ...(resultText ? [truncate(resultText, MAX_PREVIEW_CHARS)] : ["(no result)"]),
-    ...(logText ? [`\nLogs:\n${logText}`] : []),
-  ];
+  const resultPart = resultText
+    ? truncate(resultText, MAX_PREVIEW_CHARS)
+    : emittedNote
+      ? `(no return value; ${emittedNote})`
+      : "(no result)";
+  const parts = [resultPart, ...(logText ? [`\nLogs:\n${logText}`] : [])];
   return {
     text: parts.join("\n"),
-    structured: { status: "completed", result: result.result ?? null, logs: result.logs ?? [] },
+    structured: {
+      status: "completed",
+      result: result.result ?? null,
+      ...emittedField,
+      logs: result.logs ?? [],
+    },
     isError: false,
   };
 };

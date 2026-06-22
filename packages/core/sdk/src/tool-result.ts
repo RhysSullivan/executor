@@ -30,6 +30,27 @@ export const ToolHttpMetaSchema = Schema.Struct({
  */
 export type ToolHttpMeta = typeof ToolHttpMetaSchema.Type;
 
+export const ToolFileSchema = Schema.TaggedStruct("ToolFile", {
+  name: Schema.optional(Schema.String),
+  mimeType: Schema.String,
+  encoding: Schema.Literal("base64"),
+  data: Schema.String.annotate({
+    description: "Base64-encoded file bytes.",
+    contentEncoding: "base64",
+  }),
+  byteLength: Schema.Int.annotate({
+    description: "Raw file size in bytes before base64 encoding.",
+  }),
+});
+
+export type ToolFile = typeof ToolFileSchema.Type;
+
+export const ToolFileJsonSchema = Schema.toJsonSchemaDocument(ToolFileSchema).schema;
+
+const matchesToolFileSchema = Schema.is(ToolFileSchema);
+
+export const isToolFile = (value: unknown): value is ToolFile => matchesToolFileSchema(value);
+
 export type ToolResult<T> =
   | { readonly ok: true; readonly data: T; readonly http?: ToolHttpMeta }
   | { readonly ok: false; readonly error: ToolError };

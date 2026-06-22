@@ -1,5 +1,64 @@
 # executor
 
+## 1.5.17
+
+### Patch Changes
+
+- [#1076](https://github.com/RhysSullivan/executor/pull/1076) [`3e47752`](https://github.com/RhysSullivan/executor/commit/3e4775292d75e65fe3fa9ab4101360123b29e27c) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Add `executor login` (plus `logout` and `whoami`) for signing the CLI into a
+  hosted or self-hosted Executor server using the OAuth 2.0 Device Authorization
+  Grant (RFC 8628), instead of manually creating and pasting an API key. `login`
+  prints a code and verification URL, opens the browser, and polls; afterwards the
+  CLI authenticates with a bearer token. Works against both cloud (WorkOS) and
+  self-host (Better Auth) servers.
+
+- [#1076](https://github.com/RhysSullivan/executor/pull/1076) [`3e47752`](https://github.com/RhysSullivan/executor/commit/3e4775292d75e65fe3fa9ab4101360123b29e27c) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - `connections.list` now returns a lean summary by default, replacing the full
+  `oauthScope` grant string (which can run to thousands of characters per
+  connection) with an `oauthScopeCount`. Pass `verbose: true` to get the full
+  grant back.
+
+- [#1076](https://github.com/RhysSullivan/executor/pull/1076) [`3e47752`](https://github.com/RhysSullivan/executor/commit/3e4775292d75e65fe3fa9ab4101360123b29e27c) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - The execute result envelope now reports how many items a script sent to the user
+  via `emit()`. A script that only emits (with no return value) is no longer
+  indistinguishable from one that did nothing: the envelope includes an emitted
+  count and a `(no return value; N items emitted to the user)` text preview.
+
+- [#1076](https://github.com/RhysSullivan/executor/pull/1076) [`3e47752`](https://github.com/RhysSullivan/executor/commit/3e4775292d75e65fe3fa9ab4101360123b29e27c) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Fix OAuth connect for providers that issue authorization codes redeemable only
+  at a region-specific token host. Executor now redeems the code at the region
+  returned on the callback rather than the statically advertised token endpoint,
+  so connecting these providers no longer fails at the token-exchange step.
+
+- [#1076](https://github.com/RhysSullivan/executor/pull/1076) [`3e47752`](https://github.com/RhysSullivan/executor/commit/3e4775292d75e65fe3fa9ab4101360123b29e27c) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Send a default `executor` User-Agent on OpenAPI tool calls. Upstreams such as
+  GitHub that reject requests without a User-Agent (HTTP 403) now succeed instead
+  of surfacing the rejection as a credential error. A spec- or connection-provided
+  User-Agent still takes precedence.
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/runtime-quickjs@1.5.17
+  - @executor-js/local@1.4.4
+  - @executor-js/api@1.4.37
+
+## 1.5.16
+
+### Patch Changes
+
+- [#1066](https://github.com/RhysSullivan/executor/pull/1066) [`0961773`](https://github.com/RhysSullivan/executor/commit/09617733310152bfa5ae9439b17bd6903cac611e) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Replace the code-mode output helpers with a single `emit(value)` primitive.
+  `emit(...)` accepts plain values, `ToolFile` attachments, and MCP content blocks,
+  while `return` remains reserved for ordinary structured data.
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+  - @executor-js/runtime-quickjs@1.5.16
+  - @executor-js/local@1.4.4
+  - @executor-js/api@1.4.36
+
+## 1.5.15
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+  - @executor-js/local@1.4.4
+  - @executor-js/api@1.4.35
+  - @executor-js/runtime-quickjs@1.5.15
+
 ## 1.5.14
 
 ### Patch Changes

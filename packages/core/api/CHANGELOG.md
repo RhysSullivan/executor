@@ -1,5 +1,32 @@
 # @executor-js/api
 
+## 1.4.37
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/execution@1.5.17
+  - @executor-js/host-mcp@1.4.4
+
+## 1.4.36
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+  - @executor-js/execution@1.5.16
+  - @executor-js/host-mcp@1.4.4
+
+## 1.4.35
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+  - @executor-js/execution@1.5.15
+  - @executor-js/host-mcp@1.4.4
+
 ## 1.4.34
 
 ### Patch Changes

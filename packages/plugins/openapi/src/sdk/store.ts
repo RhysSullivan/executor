@@ -26,6 +26,7 @@ import { OperationBinding } from "./types";
 
 const OPERATION_COLLECTION = "operation";
 const STORE_OWNER = "org" as const;
+const OPERATION_KEY_VERSION = "op";
 
 const encodeBinding = Schema.encodeSync(OperationBinding);
 const decodeBinding = Schema.decodeUnknownSync(OperationBinding);
@@ -63,7 +64,21 @@ const rowToOperation = (row: PluginStorageEntry): StoredOperation | null => {
   };
 };
 
+const stableKeyHash = (value: string): string => {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= BigInt(value.charCodeAt(index));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(36).padStart(13, "0");
+};
+
 const operationKey = (integration: string, toolName: string): string =>
+  `${OPERATION_KEY_VERSION}.${stableKeyHash(integration)}.${stableKeyHash(toolName)}`;
+
+const legacyOperationKey = (integration: string, toolName: string): string =>
   `${integration}.${toolName}`;
 
 /** Blob key for a spec's content hash. Content-addressed so re-puts are
@@ -104,7 +119,7 @@ export const makeDefaultOpenapiStore = ({ pluginStorage, blobs }: StorageDeps): 
 
   const listRows = (integration: string) =>
     pluginStorage
-      .list({ collection: OPERATION_COLLECTION, keyPrefix: `${integration}.` })
+      .list({ collection: OPERATION_COLLECTION })
       .pipe(
         Effect.map((rows: readonly PluginStorageEntry[]) =>
           rows.filter((row) => rowToOperation(row)?.integration === integration),
@@ -135,9 +150,20 @@ export const makeDefaultOpenapiStore = ({ pluginStorage, blobs }: StorageDeps): 
       }),
 
     getOperation: (integration, toolName) =>
-      pluginStorage
-        .get({ collection: OPERATION_COLLECTION, key: operationKey(integration, toolName) })
-        .pipe(Effect.map((row) => (row ? rowToOperation(row) : null))),
+      Effect.gen(function* () {
+        const row = yield* pluginStorage.get({
+          collection: OPERATION_COLLECTION,
+          key: operationKey(integration, toolName),
+        });
+        if (row) return rowToOperation(row);
+        const legacyKey = legacyOperationKey(integration, toolName);
+        if (legacyKey.length > 255) return null;
+        const legacyRow = yield* pluginStorage.get({
+          collection: OPERATION_COLLECTION,
+          key: legacyKey,
+        });
+        return legacyRow ? rowToOperation(legacyRow) : null;
+      }),
 
     listOperations: (integration) =>
       listRows(integration).pipe(

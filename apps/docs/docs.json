@@ -25,7 +25,7 @@
     "groups": [
       {
         "group": "Get started",
-        "pages": ["index"]
+        "pages": ["index", "mcp-proxy"]
       },
       {
         "group": "Local",

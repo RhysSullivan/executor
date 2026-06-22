@@ -109,22 +109,3 @@ resume it:
 ```bash
 executor resume --execution-id exec_123
 ```
-
-## CLI reference
-
-| Command                               | Description                                   |
-| ------------------------------------- | --------------------------------------------- |
-| `executor install`                    | Install/start the durable background service  |
-| `executor web`                        | Open the running web UI                       |
-| `executor web --foreground`           | Start a temporary foreground runtime + web UI |
-| `executor daemon run`                 | Start the persistent local daemon             |
-| `executor daemon status`              | Show daemon status                            |
-| `executor daemon stop`                | Stop the daemon                               |
-| `executor daemon restart`             | Restart the daemon                            |
-| `executor mcp`                        | Start the MCP endpoint                        |
-| `executor tools search "<query>"`     | Search tools by intent                        |
-| `executor tools sources`              | List configured integrations + tool counts    |
-| `executor tools describe <path>`      | Show a tool's TypeScript / JSON schema        |
-| `executor call <path...> '{...}'`     | Invoke a tool by path segments                |
-| `executor call <path...> --help`      | Browse namespaces / resources / methods       |
-| `executor resume --execution-id <id>` | Resume a paused execution                     |

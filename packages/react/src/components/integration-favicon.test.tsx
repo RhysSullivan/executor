@@ -41,8 +41,8 @@ describe("IntegrationFavicon", () => {
         },
         [
           {
-            key: "openapi",
-            label: "OpenAPI",
+            key: "google",
+            label: "Google",
             add: () => null,
             edit: () => null,
             presets: [
@@ -70,8 +70,8 @@ describe("IntegrationFavicon", () => {
         },
         [
           {
-            key: "openapi",
-            label: "OpenAPI",
+            key: "google",
+            label: "Google",
             add: () => null,
             edit: () => null,
             presets: [

@@ -52,13 +52,7 @@ export default function UpdateSpecSection(props: EditSheetSectionProps) {
   const config =
     AsyncResult.isSuccess(configResult) && configResult.value ? configResult.value : null;
 
-  const sourceUrl = config
-    ? config.googleDiscoveryUrls?.length
-      ? `${config.googleDiscoveryUrls.length} Google Discovery document${
-          config.googleDiscoveryUrls.length !== 1 ? "s" : ""
-        }`
-      : config.sourceUrl
-    : undefined;
+  const sourceUrl = config?.sourceUrl;
 
   // The staged apply, rebuilt whenever the staged inputs change. Reported to
   // the sheet through a ref-stable callback so Save can run it.

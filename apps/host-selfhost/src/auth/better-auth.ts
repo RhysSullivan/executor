@@ -1,6 +1,6 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { APIError } from "better-auth/api";
-import { admin, bearer, mcp, organization } from "better-auth/plugins";
+import { admin, bearer, deviceAuthorization, mcp, organization } from "better-auth/plugins";
 import { apiKey } from "@better-auth/api-key";
 import { type Client } from "@libsql/client";
 import { LibsqlDialect, type LibsqlDialectConfig } from "@libsql/kysely-libsql";
@@ -114,6 +114,14 @@ const makeAuthOptions = (client: Client, getOrganizationId: () => string, gate?:
       admin(),
       apiKey({ enableSessionForAPIKeys: true, rateLimit: { enabled: false } }),
       bearer(),
+      // RFC 8628 device authorization, the CLI `executor login` flow. Registers
+      // /device/code + /device/token + the approval endpoints; the issued token
+      // is an opaque session that `bearer()` (above) accepts as `Authorization:
+      // Bearer` on the /api/* plane. `validateClient` is left unset, so any
+      // client_id is accepted (the CLI presents "executor-cli"). `verificationUri`
+      // is the page the user opens to confirm the code — the self-host app serves
+      // it at /device (this is also the Better Auth default; pinned for clarity).
+      deviceAuthorization({ verificationUri: "/device" }),
       // `consentPage` makes the MCP authorize flow redirect to a human approval
       // screen instead of auto-issuing a code — but ONLY when the request
       // carries `prompt=consent`. MCP clients don't send that, so the self-host

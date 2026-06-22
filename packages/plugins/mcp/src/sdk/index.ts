@@ -30,11 +30,7 @@ export { migrateMcpAuthConfig } from "./migrate-config";
 // Request-shaped authoring: `headers: { Authorization: ["Bearer ", variable("token")] }`.
 export { variable, type ApiKeyAuthTemplate } from "@executor-js/sdk/http-auth";
 
-export {
-  McpConnectionError,
-  McpToolDiscoveryError,
-  McpInvocationError,
-  McpOAuthError,
-} from "./errors";
+// Only the API-facing errors; the internal Data.TaggedError ones stay private.
+export { McpConnectionError, McpToolDiscoveryError, McpOAuthError } from "./errors";
 
 export { deriveMcpNamespace, joinToolPath, extractManifestFromListToolsResult } from "./manifest";

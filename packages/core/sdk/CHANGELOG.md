@@ -1,5 +1,15 @@
 # @executor-js/sdk
 
+## 1.5.17
+
+## 1.5.16
+
+## 1.5.15
+
+### Patch Changes
+
+- Surface binary tool results as model-native file outputs across OpenAPI and upstream MCP integrations.
+
 ## 1.5.14
 
 ## 1.5.13

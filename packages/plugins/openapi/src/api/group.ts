@@ -9,7 +9,7 @@ import {
 } from "@executor-js/sdk/shared";
 
 import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
-import { SpecPreview } from "../sdk/preview";
+import { SpecPreviewSummary } from "../sdk/preview";
 
 // ---------------------------------------------------------------------------
 // Errors — the plugin-domain tagged errors flow directly to clients
@@ -48,14 +48,6 @@ const SlugParams = {
 const OpenApiSpecInputPayload = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("url"), url: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("blob"), value: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("googleDiscovery"),
-    url: Schema.String,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("googleDiscoveryBundle"),
-    urls: Schema.Array(Schema.String),
-  }),
 ]);
 
 const OAuthTemplatePayload = Schema.Struct({
@@ -134,7 +126,6 @@ const IntegrationView = Schema.Struct({
 // store, and no client reads it (the configure UI only touches the template).
 const OpenApiConfigView = Schema.Struct({
   sourceUrl: Schema.optional(Schema.String),
-  googleDiscoveryUrls: Schema.optional(Schema.Array(Schema.String)),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
@@ -155,7 +146,7 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
   .add(
     HttpApiEndpoint.post("previewSpec", "/openapi/preview", {
       payload: PreviewSpecPayload,
-      success: SpecPreview,
+      success: SpecPreviewSummary,
       error: DomainErrors,
     }),
   )

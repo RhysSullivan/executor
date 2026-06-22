@@ -1,5 +1,26 @@
 # @executor-js/plugin-encrypted-secrets
 
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+
+## 0.0.15
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+
+## 0.0.14
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+
 ## 0.0.13
 
 ### Patch Changes

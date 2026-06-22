@@ -24,7 +24,7 @@ const KIND_TO_PLUGIN_KEY: Record<string, string> = {
   openapi: "openapi",
   mcp: "mcp",
   graphql: "graphql",
-  googleDiscovery: "openapi",
+  googleDiscovery: "google",
 };
 
 const normalizeUrl = (url: string | undefined): string | null => {

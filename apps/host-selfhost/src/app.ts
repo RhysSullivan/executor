@@ -21,6 +21,7 @@ import {
 import { makeSelfHostMcpSeams } from "./mcp";
 import { selfHostPlugins } from "./plugins";
 import { ErrorCaptureLive } from "./observability";
+import { oauthCallbackSignInRedirectLocation } from "./auth/oauth-callback-login";
 
 // ===========================================================================
 // The self-hosted Executor app, as ONE `ExecutorApp.make` call.
@@ -72,6 +73,24 @@ export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
   // a reverse proxy (not the internal 127.0.0.1 bind from the request URL).
   const mcp = makeSelfHostMcpSeams(dbHandle, betterAuth, config.webBaseUrl);
 
+  // CLI device-login discovery (`executor login`). Points the CLI at Better
+  // Auth's device endpoints; `requestFormat: "json"` because those endpoints
+  // only accept JSON (unlike WorkOS's form-encoded ones). The issued token is a
+  // Better Auth session that `bearer()` accepts on the /api/* plane.
+  const cliLoginHandler = HttpEffect.fromWebHandler(
+    async () =>
+      new Response(
+        JSON.stringify({
+          provider: "better-auth",
+          deviceAuthorizationEndpoint: `${config.webBaseUrl}/api/auth/device/code`,
+          tokenEndpoint: `${config.webBaseUrl}/api/auth/device/token`,
+          clientId: "executor-cli",
+          requestFormat: "json",
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+  );
+
   const { appLayer, toWebHandler } = ExecutorApp.make({
     plugins: selfHostPlugins,
     providers: {
@@ -85,7 +104,11 @@ export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
     },
     extensions: {
       routes: [
-        // Better Auth owns /api/auth/* — the full path reaches it unmodified.
+        // CLI device-login discovery, must precede the /api/auth/* wildcard
+        // below (Better Auth would otherwise 404 it). The verification page it
+        // points at (/device) is a console SPA route (web/device.tsx).
+        HttpRouter.add("GET", "/api/auth/cli-login", cliLoginHandler),
+        // Better Auth owns the rest of /api/auth/*, the full path reaches it.
         HttpRouter.add("*", "/api/auth/*", HttpEffect.fromWebHandler(authHandler)),
         // Browser approval of paused MCP executions: the console resume page
         // reads paused detail (GET) and records the decision (POST .../resume),
@@ -113,6 +136,7 @@ export const makeSelfHostApp = async (options: MakeSelfHostAppOptions = {}) => {
     // (it can't prove each host's resolution); self-host narrows it here.
     AppLayer: appLayer as Layer.Layer<never>,
     toWebHandler,
+    betterAuth,
     closeDb: async () => {
       await mcp.close();
       await dbHandle.close();
@@ -132,10 +156,14 @@ export interface SelfHostApiHandler {
 export const makeSelfHostApiHandler = async (
   options: MakeSelfHostAppOptions = {},
 ): Promise<SelfHostApiHandler> => {
-  const { toWebHandler, closeDb } = await makeSelfHostApp(options);
+  const { toWebHandler, betterAuth, closeDb } = await makeSelfHostApp(options);
   const web = toWebHandler();
   return {
-    handler: web.handler,
+    handler: async (request) => {
+      const location = await oauthCallbackSignInRedirectLocation(request, betterAuth.auth);
+      if (location) return new Response(null, { status: 302, headers: { location } });
+      return web.handler(request);
+    },
     dispose: async () => {
       await web.dispose();
       await closeDb();

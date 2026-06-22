@@ -95,6 +95,13 @@ describe("buildExecuteDescription", () => {
 
       // Stable anchor from the workflow preamble.
       expect(description).toContain("Execute TypeScript in a sandboxed runtime");
+      expect(description).toContain("Use `emit(value)` to append user-visible output");
+      expect(description).toContain("Emit any attachment with `emit(result.data)`");
+      expect(description).toContain("pass an MCP content block to `emit(...)`");
+      expect(description).toContain("`emit(ToolFile)` is MIME-based");
+      expect(description).toContain(
+        "Returning a `ToolFile`, a `ToolResult`, an MCP content block, or a bare base64 string does not emit content",
+      );
       expect(description).toContain("## Available connection prefixes");
       expect(description).toContain("- `github.org.prod`");
       expect(description).toContain("- `github.user.personal`");

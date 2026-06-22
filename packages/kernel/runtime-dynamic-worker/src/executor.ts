@@ -17,6 +17,7 @@ import {
   recoverExecutionBody,
   stripTypeScript,
   type CodeExecutor,
+  type ExecuteOutputItem,
   type ExecuteResult,
   type SandboxToolInvoker,
 } from "@executor-js/codemode-core";
@@ -413,6 +414,7 @@ export class ToolDispatcher extends RpcTarget {
 type DynamicWorkerEntrypoint = {
   evaluate(dispatcher: ToolDispatcher): Promise<{
     result: unknown;
+    output?: ExecuteOutputItem[];
     error?: SerializedWorkerError;
     logs?: string[];
   }>;
@@ -498,6 +500,8 @@ const evaluate = (
     return {
       result: error ? null : response.result,
       error,
+      output:
+        Array.isArray(response.output) && response.output.length > 0 ? response.output : undefined,
       logs: response.logs,
     } satisfies ExecuteResult;
   });

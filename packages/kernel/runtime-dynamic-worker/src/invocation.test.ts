@@ -552,6 +552,90 @@ describe("makeDynamicWorkerExecutor", () => {
     }),
   );
 
+  it.effect("accumulates helper output separately from returned data", () =>
+    Effect.gen(function* () {
+      const executor = makeDynamicWorkerExecutor({ loader });
+      const invoker = makeInvoker(() => ({
+        _tag: "ToolFile",
+        name: "photo.png",
+        mimeType: "image/png",
+        encoding: "base64",
+        data: "iVBORw0KGgo=",
+        byteLength: 8,
+      }));
+
+      const result = yield* executor.execute(
+        `async () => {
+          const attachment = await tools.download.fetch({});
+          const values = [
+            emit("hello"),
+            emit(attachment),
+            emit({ type: "text", text: "mcp hello" }),
+            emit({ type: "image", data: "Zm9v", mimeType: "image/png" }),
+            emit({ type: "audio", data: "SUQz", mimeType: "audio/mpeg" }),
+            emit({
+              type: "resource",
+              resource: { uri: "executor-file:///report.pdf", mimeType: "application/pdf", blob: "JVBERg==" },
+            }),
+            emit({
+              type: "resource_link",
+              uri: "executor-file:///remote.pdf",
+              name: "remote.pdf",
+              mimeType: "application/pdf",
+            }),
+            emit({ arbitrary: true }),
+          ];
+          return { values: values.map((value) => value === undefined), keptReturn: true };
+        }`,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual({
+        values: [true, true, true, true, true, true, true, true],
+        keptReturn: true,
+      });
+      expect(result.output).toEqual([
+        { type: "content", content: { type: "text", text: "hello" } },
+        {
+          type: "file",
+          file: {
+            _tag: "ToolFile",
+            name: "photo.png",
+            mimeType: "image/png",
+            encoding: "base64",
+            data: "iVBORw0KGgo=",
+            byteLength: 8,
+          },
+        },
+        { type: "content", content: { type: "text", text: "mcp hello" } },
+        { type: "content", content: { type: "image", data: "Zm9v", mimeType: "image/png" } },
+        { type: "content", content: { type: "audio", data: "SUQz", mimeType: "audio/mpeg" } },
+        {
+          type: "content",
+          content: {
+            type: "resource",
+            resource: {
+              uri: "executor-file:///report.pdf",
+              mimeType: "application/pdf",
+              blob: "JVBERg==",
+            },
+          },
+        },
+        {
+          type: "content",
+          content: {
+            type: "resource_link",
+            uri: "executor-file:///remote.pdf",
+            name: "remote.pdf",
+            mimeType: "application/pdf",
+          },
+        },
+        { type: "content", content: { type: "text", text: '{"arbitrary":true}' } },
+      ]);
+    }),
+  );
+
   it.effect("preserves File tool args (name + lastModified survive)", () =>
     Effect.gen(function* () {
       const executor = makeDynamicWorkerExecutor({ loader });

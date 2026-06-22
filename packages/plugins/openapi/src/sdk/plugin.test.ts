@@ -105,8 +105,106 @@ const TestApi = HttpApi.make("testApi").add(ItemsGroup);
 const testApiSpecText = () => {
   const spec = makeOpenApiHttpApiTestSourceConfig(TestApi, {}).spec;
   if (spec.kind === "blob") return spec.value;
-  if (spec.kind === "googleDiscoveryBundle") return spec.urls[0] ?? "";
   return spec.url;
+};
+
+const MICROSOFT_GRAPH_V1_OPERATION_COUNT = 16_548;
+
+const microsoftGraphScaleSpecText = () => {
+  const paths: Record<string, unknown> = {};
+  for (let index = 0; index < MICROSOFT_GRAPH_V1_OPERATION_COUNT; index += 1) {
+    paths[`/users/{userId}/messages/${index}`] = {
+      get: {
+        operationId: `users_messages_list_${index}`,
+        tags: [`Graph category ${index % 37}`],
+        summary: `List synthetic Graph messages ${index}`,
+        parameters: [
+          {
+            name: "userId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "$top",
+            in: "query",
+            schema: { type: "integer", format: "int32" },
+          },
+          {
+            name: "$select",
+            in: "query",
+            style: "form",
+            explode: false,
+            schema: { type: "array", items: { type: "string" } },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/MessageCollectionResponse" },
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  return JSON.stringify({
+    openapi: "3.0.0",
+    info: {
+      title: "Microsoft Graph Scale Fixture",
+      version: "v1.0",
+      description: "Synthetic Graph-scale fixture for generic OpenAPI imports.",
+    },
+    servers: [{ url: "https://graph.microsoft.com/v1.0" }],
+    security: [{ MicrosoftGraph: ["User.Read", "Mail.Read"] }],
+    components: {
+      securitySchemes: {
+        MicrosoftGraph: {
+          type: "oauth2",
+          flows: {
+            authorizationCode: {
+              authorizationUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+              tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+              scopes: {
+                "User.Read": "Read user profile",
+                "Mail.Read": "Read user mail",
+              },
+            },
+            clientCredentials: {
+              tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+              scopes: {
+                ".default": "Application permissions",
+              },
+            },
+          },
+        },
+      },
+      schemas: {
+        Message: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            subject: { type: "string" },
+            receivedDateTime: { type: "string", format: "date-time" },
+          },
+        },
+        MessageCollectionResponse: {
+          type: "object",
+          properties: {
+            value: {
+              type: "array",
+              items: { $ref: "#/components/schemas/Message" },
+            },
+          },
+        },
+      },
+    },
+    paths,
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -626,6 +724,54 @@ describe("OpenAPI Plugin", () => {
         expect(config?.authenticationTemplate ?? []).toEqual([]);
       }),
     ),
+  );
+
+  it.effect("addSpec accepts Graph-sized OpenAPI blobs", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+      const largeDescription = "x".repeat(36 * 1024 * 1024);
+
+      const added = yield* executor.openapi.addSpec({
+        spec: {
+          kind: "blob",
+          value: `openapi: 3.0.0
+info:
+  title: Large Test
+  version: 1.0.0
+  description: "${largeDescription}"
+servers:
+  - url: https://example.com
+paths:
+  /me:
+    get:
+      operationId: getMe
+      responses:
+        "200":
+          description: OK
+`,
+        },
+        slug: "large_api",
+      });
+
+      expect(added.toolCount).toBe(1);
+    }),
+  );
+
+  it.effect(
+    "addSpec accepts Microsoft Graph-scale operation catalogs from one spec",
+    () =>
+      Effect.gen(function* () {
+        const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+
+        const added = yield* executor.openapi.addSpec({
+          spec: { kind: "blob", value: microsoftGraphScaleSpecText() },
+          slug: "microsoft_graph_scale",
+          authenticationTemplate: [],
+        });
+
+        expect(added.toolCount).toBe(MICROSOFT_GRAPH_V1_OPERATION_COUNT);
+      }),
+    30_000,
   );
 
   it.effect("removeSpec cleans up the integration and its tools", () =>

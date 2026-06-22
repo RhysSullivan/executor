@@ -3,6 +3,7 @@ import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor-js/api";
 import type { OpenApiPluginExtension } from "../sdk/plugin";
+import { specPreviewSummary } from "../sdk/preview";
 import { OpenApiGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +44,8 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
-          return yield* ext.previewSpec({ spec: payload.spec });
+          const preview = yield* ext.previewSpec({ spec: payload.spec });
+          return specPreviewSummary(preview);
         }),
       ),
     )
@@ -89,9 +91,6 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           return config
             ? {
                 sourceUrl: config.sourceUrl,
-                googleDiscoveryUrls: config.googleDiscoveryUrls
-                  ? [...config.googleDiscoveryUrls]
-                  : undefined,
                 baseUrl: config.baseUrl,
                 headers: config.headers ? { ...config.headers } : undefined,
                 queryParams: config.queryParams ? { ...config.queryParams } : undefined,

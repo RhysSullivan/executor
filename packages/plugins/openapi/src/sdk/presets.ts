@@ -1,5 +1,3 @@
-import { googleOpenApiBundlePreset, googleOpenApiPresets } from "./google-presets";
-
 export interface OpenApiPreset {
   readonly id: string;
   readonly name: string;
@@ -45,7 +43,7 @@ const openApiOnlyPresets: readonly OpenApiPreset[] = [
   {
     id: "neon",
     name: "Neon",
-    summary: "Serverless Postgres — projects, branches, and endpoints.",
+    summary: "Serverless Postgres: projects, branches, and endpoints.",
     url: "https://neon.tech/api_spec/release/v2.json",
     icon: "https://neon.tech/favicon/favicon.ico",
     featured: true,
@@ -113,7 +111,7 @@ const openApiOnlyPresets: readonly OpenApiPreset[] = [
   {
     id: "petstore",
     name: "Petstore",
-    summary: "Classic OpenAPI demo — no auth required.",
+    summary: "Classic OpenAPI demo, no auth required.",
     url: "https://petstore3.swagger.io/api/v3/openapi.json",
     icon: "https://petstore3.swagger.io/favicon-32x32.png",
   },
@@ -140,10 +138,4 @@ const openApiOnlyPresets: readonly OpenApiPreset[] = [
   },
 ];
 
-export { googleOpenApiPresets, googleStandardUserOAuthPresets } from "./google-presets";
-
-export const openApiPresets: readonly OpenApiPreset[] = [
-  googleOpenApiBundlePreset,
-  ...openApiOnlyPresets,
-  ...googleOpenApiPresets,
-];
+export const openApiPresets: readonly OpenApiPreset[] = openApiOnlyPresets;

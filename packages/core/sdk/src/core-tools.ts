@@ -80,9 +80,30 @@ const ConnectionOutput = Schema.Struct({
 const ConnectionsListInput = Schema.Struct({
   integration: Schema.optional(Schema.String),
   owner: Schema.optional(OwnerSchema),
+  verbose: Schema.optional(Schema.Boolean),
+});
+
+/** Lean per-connection shape for list scans. Omits the full `oauthScope`
+ *  grant string (a single connection's scope list can run to thousands of
+ *  characters and dominates the payload) in favor of `oauthScopeCount`. The
+ *  full scope is included only when the caller passes `verbose: true`. */
+const ConnectionListItem = Schema.Struct({
+  owner: OwnerSchema,
+  name: Schema.String,
+  integration: Schema.String,
+  template: Schema.String,
+  provider: Schema.String,
+  address: Schema.String,
+  identityLabel: Schema.optional(Schema.NullOr(Schema.String)),
+  description: Schema.optional(Schema.NullOr(Schema.String)),
+  expiresAt: Schema.NullOr(Schema.Number),
+  oauthClient: Schema.NullOr(Schema.String),
+  oauthClientOwner: Schema.NullOr(OwnerSchema),
+  oauthScopeCount: Schema.NullOr(Schema.Number),
+  oauthScope: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const ConnectionsListOutput = Schema.Struct({
-  connections: Schema.Array(ConnectionOutput),
+  connections: Schema.Array(ConnectionListItem),
 });
 
 const ConnectionCreateHandoffInput = Schema.Struct({
@@ -311,6 +332,30 @@ const connectionToOutput = (connection: Connection) => ({
   oauthScope: connection.oauthScope ?? null,
 });
 
+/** Number of space-separated grants in an `oauthScope` string, or null when
+ *  the connection carries no scope (static credentials, or an OAuth AS that
+ *  omitted scope). */
+const oauthScopeCount = (scope: string | null | undefined): number | null =>
+  scope == null ? null : scope.split(/\s+/).filter(Boolean).length;
+
+/** Lean projection for `connections.list`. Summarizes `oauthScope` to a count
+ *  unless `verbose`, where the full grant string is included too. */
+const connectionToListItem = (connection: Connection, verbose: boolean) => ({
+  owner: connection.owner,
+  name: String(connection.name),
+  integration: String(connection.integration),
+  template: String(connection.template),
+  provider: String(connection.provider),
+  address: String(connection.address),
+  identityLabel: connection.identityLabel ?? null,
+  description: connection.description ?? null,
+  expiresAt: connection.expiresAt ?? null,
+  oauthClient: connection.oauthClient == null ? null : String(connection.oauthClient),
+  oauthClientOwner: connection.oauthClientOwner ?? null,
+  oauthScopeCount: oauthScopeCount(connection.oauthScope),
+  ...(verbose ? { oauthScope: connection.oauthScope ?? null } : {}),
+});
+
 const toolToOutput = (toolRow: Tool) => ({
   address: String(toolRow.address),
   owner: toolRow.owner,
@@ -433,7 +478,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
         tool({
           name: "connections.list",
           description:
-            "List saved connections (the credential for one integration). Never returns the credential value. Optionally filter by integration or owner.",
+            "List saved connections (the credential for one integration). Never returns the credential value. Optionally filter by integration or owner. OAuth scopes are summarized as `oauthScopeCount` by default; pass `verbose: true` to include the full `oauthScope` grant string per connection.",
           inputSchema: ConnectionsListInputStd,
           outputSchema: ConnectionsListOutputStd,
           execute: (input: typeof ConnectionsListInput.Type, { ctx }) =>
@@ -446,7 +491,9 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
                 owner: input.owner === undefined ? undefined : (input.owner as Owner),
               }),
               (connections) => ({
-                connections: connections.map(connectionToOutput),
+                connections: connections.map((connection) =>
+                  connectionToListItem(connection, input.verbose === true),
+                ),
               }),
             ),
         }),

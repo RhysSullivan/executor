@@ -5,10 +5,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { AuthTemplateSlug, IntegrationSlug } from "@executor-js/sdk/shared";
 import type { IntegrationAccountHandoff } from "@executor-js/sdk/client";
 
-import { TriangleAlert } from "lucide-react";
-
 import { AccountsSection } from "@executor-js/react/components/accounts-section";
-import { Alert, AlertDescription, AlertTitle } from "@executor-js/react/components/alert";
 import { integrationWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import type { AuthMethod, Placement } from "@executor-js/react/lib/auth-placements";
 import {
@@ -23,15 +20,7 @@ import {
   templateFromPlacements,
   openApiWireAuthInput,
 } from "./auth-method-config";
-import { googleAudienceWarningsForUrls } from "../sdk/google-presets";
 import type { Authentication } from "../sdk/types";
-
-const GOOGLE_AUDIENCE_WARNING: Readonly<Record<string, string>> = {
-  "workspace-admin":
-    "This connection includes Google Workspace admin APIs (Chat, Admin Directory, Admin Reports). Connecting requires a Workspace admin account — personal Gmail accounts cannot grant these scopes.",
-  "unsupported-user":
-    "This connection includes APIs (e.g. Google Keep) that Google does not grant through standard user OAuth consent. Those tools may fail to authorize.",
-};
 
 const NO_AUTH_METHOD: AuthMethod = {
   id: "none",
@@ -43,11 +32,11 @@ const NO_AUTH_METHOD: AuthMethod = {
 };
 
 // ---------------------------------------------------------------------------
-// OpenAPI Accounts hub — fills the generic detail page's `accounts` slot.
+// OpenAPI Accounts hub: fills the generic detail page's `accounts` slot.
 //
 // Reads the integration's real `authenticationTemplate` (via `getConfig`),
 // converts it to generic `AuthMethod[]`, and composes the generic
-// `AccountsSection` — whose Add-account offers those methods plus a "+ Custom
+// `AccountsSection`, whose Add-account offers those methods plus a "+ Custom
 // method" row (apiKey-only). The custom-method create is INJECTED here
 // (`createCustomMethod`): generic placements → an `APIKeyAuthentication`
 // (`templateFromPlacements`, slug omitted → backend `custom_<id>`) merge-
@@ -114,31 +103,8 @@ export default function OpenApiAccountsPanel(props: {
     configure,
   });
 
-  // For a bundled `google` integration, surface a caution when any selected API
-  // needs a privileged or unsupported OAuth consent the user should know about
-  // BEFORE connecting an account. Derived from the stored Discovery URLs.
-  const audienceWarnings = useMemo<readonly string[]>(() => {
-    if (!AsyncResult.isSuccess(configResult) || configResult.value == null) return [];
-    const urls = configResult.value.googleDiscoveryUrls ?? [];
-    return googleAudienceWarningsForUrls(urls).flatMap((audience: string) => {
-      const message = GOOGLE_AUDIENCE_WARNING[audience];
-      return message ? [message] : [];
-    });
-  }, [configResult]);
-
   return (
     <div className="mx-auto max-w-3xl space-y-8 px-6 py-8">
-      {audienceWarnings.length > 0 && (
-        <Alert variant="destructive">
-          <TriangleAlert />
-          <AlertTitle>Some Google APIs need special consent</AlertTitle>
-          <AlertDescription>
-            {audienceWarnings.map((message: string) => (
-              <p key={message}>{message}</p>
-            ))}
-          </AlertDescription>
-        </Alert>
-      )}
       <AccountsSection
         integration={slug}
         integrationName={integrationName}

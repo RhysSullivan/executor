@@ -15,7 +15,7 @@ const setupPrompt = `Help me set up Executor and get my first connection working
 
 Executor is an open source integration layer for AI agents: one place to configure every integration (MCP servers, OpenAPI specs, GraphQL APIs) and connect to them over MCP.
 
-Start by helping me pick the right form to run it in. Chat with me about it rather than jumping straight to a yes/no question, and recommend one. All forms expose the same functionality, just packaged differently:
+Start by helping me pick the right form to run it in. Chat with me about it rather than jumping straight to a yes/no question, and recommend one. If I just want the fastest path, suggest Executor Cloud (free tier, nothing to install). All forms expose the same functionality, just packaged differently:
 
 Local (everything stays on my machine):
 - Desktop app: a native app for Mac, Windows, and Linux. Best for a regular desktop environment.
@@ -37,8 +37,8 @@ Terms you'll come across:
 
 Once you know which form I want:
 1. Walk me through installing it.
-2. Connect Executor to you over MCP.
-3. Help me add my first integration and get one tool working end to end.
+2. Connect Executor to you over MCP. Most MCP clients only load servers at startup, so after adding it I may need to restart the client or open a new chat before the Executor tools appear. Tell me if that's needed and wait for me to do it before continuing.
+3. Once the tools are available, help me add my first integration and get one tool working end to end.
 
 Docs: https://executor.sh/docs
 Source (and the place to start if something breaks): https://github.com/RhysSullivan/executor`;
@@ -125,7 +125,12 @@ Source (and the place to start if something breaks): https://github.com/RhysSull
 
               {/* For agents: hand setup to a coding agent, or read the docs */}
               <div class="audience-pane" data-audience-pane="agents" role="tabpanel" hidden>
-                <button type="button" class="agent-pill copy-btn" data-copy={setupPrompt}>
+                <button
+                  type="button"
+                  class="agent-pill copy-btn"
+                  data-copy={setupPrompt}
+                  data-event="marketing_setup_prompt_copied"
+                >
                   <span class="agent-pill__label">Set up with your agent</span>
                   <span class="copy-icons" aria-hidden="true">
                     <svg
@@ -923,6 +928,14 @@ Source (and the place to start if something breaks): https://github.com/RhysSull
     btn.addEventListener("click", async () => {
       const ok = await copyToClipboard(btn.dataset.copy ?? "");
       btn.dataset.copied = ok ? "true" : "false";
+      const event = btn.dataset.event;
+      if (ok && event) {
+        window.dispatchEvent(
+          new CustomEvent("analytics:capture", {
+            detail: { event, properties: { surface: "marketing_hero" } },
+          }),
+        );
+      }
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         delete btn.dataset.copied;
