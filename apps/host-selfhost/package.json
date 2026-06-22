@@ -19,10 +19,8 @@
   },
   "dependencies": {
     "@better-auth/api-key": "^1.6.11",
-    "@effect/atom-react": "catalog:",
     "@effect/platform-bun": "catalog:",
     "@executor-js/api": "workspace:*",
-    "@executor-js/app": "workspace:*",
     "@executor-js/execution": "workspace:*",
     "@executor-js/fumadb": "workspace:*",
     "@executor-js/host-mcp": "workspace:*",
@@ -32,18 +30,14 @@
     "@executor-js/plugin-mcp": "workspace:*",
     "@executor-js/plugin-microsoft": "workspace:*",
     "@executor-js/plugin-openapi": "workspace:*",
-    "@executor-js/react": "workspace:*",
     "@executor-js/runtime-quickjs": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "@libsql/client": "catalog:",
     "@libsql/kysely-libsql": "catalog:",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@tanstack/react-router": "catalog:",
     "better-auth": "^1.6.11",
     "drizzle-orm": "catalog:",
-    "effect": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
@@ -58,6 +52,12 @@
     "bun-types": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@effect/atom-react": "catalog:",
+    "@executor-js/app": "workspace:*",
+    "@executor-js/react": "workspace:*",
+    "@tanstack/react-router": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
   }
 }
