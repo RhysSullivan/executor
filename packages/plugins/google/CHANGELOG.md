@@ -1,5 +1,15 @@
 # @executor-js/plugin-google
 
+## 1.5.17
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+  - @executor-js/plugin-openapi@1.5.18
+  - @executor-js/api@1.4.38
+  - @executor-js/react@1.4.38
+
 ## 1.5.16
 
 ### Patch Changes

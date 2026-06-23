@@ -1,5 +1,25 @@
 # executor
 
+## 1.5.18
+
+### Patch Changes
+
+- [#1093](https://github.com/RhysSullivan/executor/pull/1093) [`bc24d1a`](https://github.com/RhysSullivan/executor/commit/bc24d1a4924ed8b3f09d64c639b0fe7fe02ed53d) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - `connections.create` now accepts no-auth connections (the `none` template with
+  no credential), which previously failed validation with "Expected exactly one
+  provider credential origin". Agents can wire up public, no-auth integrations
+  (public MCP servers, public REST APIs) programmatically instead of bouncing
+  through the web UI. Templates that take a credential still require exactly one.
+
+- [#1093](https://github.com/RhysSullivan/executor/pull/1093) [`bc24d1a`](https://github.com/RhysSullivan/executor/commit/bc24d1a4924ed8b3f09d64c639b0fe7fe02ed53d) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - OpenAPI tools that return a file now spell out how to emit it directly in the
+  tool's description, so an agent sees the `emit(result.data)` contract before its
+  first call instead of only discovering it after a failed attempt or by reading
+  `describe.tool`. Non-file tools are unchanged.
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+  - @executor-js/runtime-quickjs@1.5.18
+  - @executor-js/local@1.4.4
+  - @executor-js/api@1.4.38
+
 ## 1.5.17
 
 ### Patch Changes
