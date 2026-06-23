@@ -670,12 +670,31 @@ body {
   }
 }
 .cap-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
   padding: 1.6rem 1.5rem 1.7rem;
   background: white;
   transition: background 0.15s ease;
+}
+/* Coming-soon card: greyed out, with a corner badge that stays legible. */
+.cap-card--soon > :not(.cap-soon-badge) {
+  opacity: 0.45;
+}
+.cap-soon-badge {
+  position: absolute;
+  top: 1.45rem;
+  right: 1.4rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-ink-3);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-rule);
+  border-radius: 999px;
+  padding: 3px 9px;
 }
 .cap-card:hover {
   background: var(--color-surface);
