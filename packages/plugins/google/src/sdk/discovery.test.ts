@@ -5,6 +5,8 @@ import { buildToolTypeScriptPreview } from "@executor-js/sdk/core";
 import {
   convertGoogleDiscoveryBundleToOpenApi,
   convertGoogleDiscoveryToOpenApi,
+  isGoogleDiscoveryUrl,
+  normalizeGoogleDiscoveryUrl,
 } from "./discovery";
 import { extract, parse } from "@executor-js/plugin-openapi";
 
@@ -43,6 +45,31 @@ const ConvertedSpec = Schema.Struct({
 });
 
 const decodeConvertedSpec = Schema.decodeUnknownSync(Schema.fromJsonString(ConvertedSpec));
+
+it("accepts only supported HTTPS Google Discovery endpoints", () => {
+  expect(
+    normalizeGoogleDiscoveryUrl("https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest/"),
+  ).toBe("https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest");
+  expect(
+    normalizeGoogleDiscoveryUrl("https://chat.googleapis.com/$discovery/rest?version=v1"),
+  ).toBe("https://www.googleapis.com/discovery/v1/apis/chat/v1/rest");
+
+  expect(isGoogleDiscoveryUrl("https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest")).toBe(
+    true,
+  );
+  expect(isGoogleDiscoveryUrl("https://evilgoogleapis.com/discovery/v1/apis/gmail/v1/rest")).toBe(
+    false,
+  );
+  expect(isGoogleDiscoveryUrl("http://www.googleapis.com/discovery/v1/apis/gmail/v1/rest")).toBe(
+    false,
+  );
+  expect(
+    isGoogleDiscoveryUrl("https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest?next=x"),
+  ).toBe(false);
+  expect(
+    isGoogleDiscoveryUrl("https://token@www.googleapis.com/discovery/v1/apis/gmail/v1/rest"),
+  ).toBe(false);
+});
 
 const normalizeOpenApiRefsForPreview = (node: unknown): unknown => {
   if (node == null || typeof node !== "object") return node;

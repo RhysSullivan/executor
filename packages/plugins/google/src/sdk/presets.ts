@@ -1,3 +1,5 @@
+import { normalizeGoogleDiscoveryUrl } from "./discovery";
+
 export interface GooglePreset {
   readonly id: string;
   readonly name: string;
@@ -242,6 +244,8 @@ export const googleOAuthConsentScopesForPreset = (presetId: string): readonly st
 // ---------------------------------------------------------------------------
 
 const normalizeGooglePresetUrl = (url: string): string => {
+  const discoveryUrl = normalizeGoogleDiscoveryUrl(url);
+  if (discoveryUrl) return discoveryUrl;
   const trimmed = url.trim();
   if (!URL.canParse(trimmed)) return trimmed.replace(/\/$/, "");
   const parsed = new URL(trimmed);

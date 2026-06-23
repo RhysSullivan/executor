@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Exit, Layer } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import {
@@ -174,6 +174,43 @@ const bundlePlugins = () =>
   [googlePlugin({ httpClientLayer: discoveryHttpClientLayer }), memoryCredentialsPlugin()] as const;
 
 describe("Google bundle add flow", () => {
+  it.effect("rejects lookalike Discovery hosts before fetching bundle documents", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let requests = 0;
+        const blockedHttpClientLayer = Layer.succeed(HttpClient.HttpClient)(
+          HttpClient.make((request: HttpClientRequest.HttpClientRequest) =>
+            Effect.sync(() => {
+              requests += 1;
+              return HttpClientResponse.fromWeb(
+                request,
+                new Response("unexpected request", { status: 500 }),
+              );
+            }),
+          ),
+        );
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              googlePlugin({ httpClientLayer: blockedHttpClientLayer }),
+              memoryCredentialsPlugin(),
+            ],
+          }),
+        );
+
+        const exit = yield* executor.google
+          .addBundle({
+            urls: ["https://evilgoogleapis.com/discovery/v1/apis/calendar/v3/rest"],
+            slug: "bad_google",
+          })
+          .pipe(Effect.exit);
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(requests).toBe(0);
+      }),
+    ),
+  );
+
   it.effect(
     "addBundle merges calendar+gmail+drive into one google integration with no tool-name collisions",
     () =>

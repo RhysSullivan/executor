@@ -33,7 +33,7 @@ import {
 import {
   convertGoogleDiscoveryBundleToOpenApi,
   fetchGoogleDiscoveryDocument,
-  isGoogleDiscoveryUrl,
+  normalizeGoogleDiscoveryUrl,
 } from "./discovery";
 import { decodeGoogleIntegrationConfig, type GoogleIntegrationConfig } from "./config";
 import { googleOpenApiBundlePreset } from "./presets";
@@ -83,7 +83,7 @@ const fetchGoogleBundleConversion = (
   ).pipe(Effect.flatMap((documents) => convertGoogleDiscoveryBundleToOpenApi({ documents })));
 
 const uniqueUrls = (urls: readonly string[]): readonly string[] => [
-  ...new Set(urls.map((url) => url.trim()).filter((url) => url.length > 0)),
+  ...new Set(urls.flatMap((url) => normalizeGoogleDiscoveryUrl(url) ?? [])),
 ];
 
 const describeGoogleAuthMethods = (record: IntegrationRecord): readonly AuthMethodDescriptor[] => {
@@ -326,13 +326,14 @@ export const googlePlugin = definePlugin((options?: GooglePluginOptions) => ({
   detect: ({ ctx, url }) =>
     Effect.gen(function* () {
       const trimmed = url.trim();
-      if (!trimmed || !isGoogleDiscoveryUrl(trimmed)) return null;
+      const discoveryUrl = normalizeGoogleDiscoveryUrl(trimmed);
+      if (!trimmed || !discoveryUrl) return null;
       const httpClientLayer = options?.httpClientLayer ?? ctx.httpClientLayer;
-      const conversion = yield* fetchGoogleDiscoveryDocument(trimmed).pipe(
+      const conversion = yield* fetchGoogleDiscoveryDocument(discoveryUrl).pipe(
         Effect.provide(httpClientLayer),
         Effect.flatMap((documentText) =>
           convertGoogleDiscoveryBundleToOpenApi({
-            documents: [{ discoveryUrl: trimmed, documentText }],
+            documents: [{ discoveryUrl, documentText }],
           }),
         ),
         Effect.catch(() => Effect.succeed(null)),
@@ -341,7 +342,7 @@ export const googlePlugin = definePlugin((options?: GooglePluginOptions) => ({
       return IntegrationDetectionResult.make({
         kind: "google",
         confidence: "high",
-        endpoint: trimmed,
+        endpoint: discoveryUrl,
         name: conversion.title,
         slug: DEFAULT_GOOGLE_SLUG,
       });

@@ -231,38 +231,76 @@ const decodeDiscoveryMethod = Schema.decodeUnknownSync(DiscoveryMethod);
 const decodeDiscoveryResource = Schema.decodeUnknownSync(DiscoveryResource);
 const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
-const normalizeDiscoveryUrl = (discoveryUrl: string): string => {
-  const trimmed = discoveryUrl.trim();
-  if (!URL.canParse(trimmed)) return trimmed;
-  const parsed = new URL(trimmed);
-  if (parsed.pathname !== "/$discovery/rest") return trimmed;
-  const version = parsed.searchParams.get("version")?.trim();
-  if (!version) return trimmed;
-  const host = parsed.hostname.toLowerCase();
-  if (!host.endsWith(".googleapis.com")) return trimmed;
+const DISCOVERY_SERVICE_PATH_RE =
+  /^\/discovery\/v1\/apis\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/rest\/?$/;
+const DISCOVERY_VERSION_RE = /^[A-Za-z0-9._-]+$/;
+
+const serviceFromGoogleApisHost = (host: string): string | null => {
+  if (!host.endsWith(".googleapis.com")) return null;
   const rawService = host.slice(0, -".googleapis.com".length);
+  if (!rawService || rawService.includes(".")) return null;
   const service =
     rawService === "calendar-json"
       ? "calendar"
       : rawService.endsWith("-json")
         ? rawService.slice(0, -5)
         : rawService;
-  return service ? `${DISCOVERY_SERVICE_HOST}/${service}/${version}/rest` : trimmed;
+  return /^[a-z0-9][a-z0-9-]*$/.test(service) ? service : null;
+};
+
+export const normalizeGoogleDiscoveryUrl = (discoveryUrl: string): string | null => {
+  const trimmed = discoveryUrl.trim();
+  if (!URL.canParse(trimmed)) return null;
+  const parsed = new URL(trimmed);
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) {
+    return null;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (host === "www.googleapis.com") {
+    if (parsed.search) return null;
+    const match = parsed.pathname.match(DISCOVERY_SERVICE_PATH_RE);
+    const service = match?.[1];
+    const version = match?.[2];
+    return service && version ? `${DISCOVERY_SERVICE_HOST}/${service}/${version}/rest` : null;
+  }
+
+  const service = serviceFromGoogleApisHost(host);
+  if (!service || !["/$discovery/rest", "/$discovery/rest/"].includes(parsed.pathname)) {
+    return null;
+  }
+  const keys = [...parsed.searchParams.keys()];
+  const version = parsed.searchParams.get("version")?.trim();
+  if (
+    keys.length !== 1 ||
+    keys[0] !== "version" ||
+    !version ||
+    !DISCOVERY_VERSION_RE.test(version)
+  ) {
+    return null;
+  }
+  return `${DISCOVERY_SERVICE_HOST}/${service}/${version}/rest`;
+};
+
+const normalizeDiscoveryUrl = (discoveryUrl: string): string => {
+  return normalizeGoogleDiscoveryUrl(discoveryUrl) ?? discoveryUrl.trim();
 };
 
 export const isGoogleDiscoveryUrl = (url: string): boolean => {
-  const trimmed = url.trim();
-  if (!URL.canParse(trimmed)) return false;
-  const parsed = new URL(trimmed);
-  const host = parsed.hostname.toLowerCase();
-  if (!host.endsWith("googleapis.com")) return false;
-  return parsed.pathname.includes("/discovery/") || parsed.pathname.includes("$discovery");
+  return normalizeGoogleDiscoveryUrl(url) !== null;
 };
 
 export const fetchGoogleDiscoveryDocument = Effect.fn("OpenApi.fetchGoogleDiscoveryDocument")(
   function* (discoveryUrl: string, credentials?: SpecFetchCredentials) {
+    const normalizedDiscoveryUrl = normalizeGoogleDiscoveryUrl(discoveryUrl);
+    if (!normalizedDiscoveryUrl) {
+      return yield* new OpenApiParseError({
+        message:
+          "Google Discovery document URL must be a supported googleapis.com HTTPS Discovery endpoint",
+      });
+    }
     const client = yield* HttpClient.HttpClient;
-    const requestUrl = new URL(discoveryUrl);
+    const requestUrl = new URL(normalizedDiscoveryUrl);
     for (const [name, value] of Object.entries(credentials?.queryParams ?? {})) {
       requestUrl.searchParams.set(name, value);
     }
