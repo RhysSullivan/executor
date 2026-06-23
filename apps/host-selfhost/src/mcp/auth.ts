@@ -80,7 +80,7 @@ export const selfHostMcpAuth: Layer.Layer<McpAuthProvider, never, BetterAuth | I
   Layer.effect(
     McpAuthProvider,
     Effect.gen(function* () {
-      const { auth, organizationId, organizationName } = yield* BetterAuth;
+      const { auth, organizationId, organizationName, organizationSlug } = yield* BetterAuth;
       const fallback = yield* IdentityProvider;
 
       const asMetadata = oAuthDiscoveryMetadata(auth);
@@ -121,6 +121,7 @@ export const selfHostMcpAuth: Layer.Layer<McpAuthProvider, never, BetterAuth | I
             // the seeded org (same default as the cookie/api-key path).
             organizationId,
             organizationName,
+            organizationSlug,
             email: user.email ?? "",
             name: user.name ?? null,
             avatarUrl: user.image ?? null,

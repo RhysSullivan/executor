@@ -109,6 +109,25 @@ export class RequestWebOrigin extends Context.Service<RequestWebOrigin, RequestW
   "@executor-js/api/RequestWebOrigin",
 ) {}
 
+// ---------------------------------------------------------------------------
+// RequestOrgSlug seam — the URL slug of the org the executor is bound to for
+// this request. Threaded into `coreTools.orgSlug` so browser-handoff URLs open
+// the right org's console (`${webBaseUrl}/<slug>/integrations/...`) instead of
+// a bare path the browser would canonicalize to its last-active org. Like
+// `RequestWebOrigin` it is provided per request by the host's pipeline (the
+// HTTP middleware from the resolved principal; the MCP session DO from the
+// stored session meta) and read OPTIONALLY, so non-request callers (CLI, tests,
+// local) simply emit a slug-less URL.
+// ---------------------------------------------------------------------------
+
+export interface RequestOrgSlugShape {
+  readonly slug: string;
+}
+
+export class RequestOrgSlug extends Context.Service<RequestOrgSlug, RequestOrgSlugShape>()(
+  "@executor-js/api/RequestOrgSlug",
+) {}
+
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 const isLoopbackOrigin = (origin: string): boolean => {
@@ -198,6 +217,13 @@ export const makeScopedExecutor = <
         onSome: (o) => o.origin,
       }),
     });
+    // The bound org's URL slug, when the host's request pipeline provided one.
+    // Stays `undefined` for non-request callers — `coreTools` then emits bare
+    // (org-less) handoff URLs, which org-scoped hosts canonicalize client-side.
+    const orgSlug = Option.match(yield* Effect.serviceOption(RequestOrgSlug), {
+      onNone: () => undefined,
+      onSome: (o) => o.slug,
+    });
 
     // EXPLICIT OAuth wiring: the redirect callback the host serves and sends to
     // providers is `${webBaseUrl}${oauthCallbackPath}` — the host's API mount
@@ -233,6 +259,7 @@ export const makeScopedExecutor = <
       redirectUri,
       coreTools: {
         webBaseUrl,
+        orgSlug,
         includeProviders: config.exposeCredentialProviders ?? true,
       },
     });

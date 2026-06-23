@@ -7,7 +7,10 @@
 //
 //   1. MCP `execute` → `openapi.addSpec` registers the emulated Resend API
 //   2. MCP `execute` → `connections.createHandoff` returns the browser URL
-//   3. The URL's origin must be THIS deployment (not a hardcoded host)
+//   3. The URL's origin must be THIS deployment (not a hardcoded host) AND it
+//      must carry the bound org's slug (`/<slug>/integrations/…`), so a user in
+//      several orgs lands in the exact org the agent is scoped to, not whatever
+//      org the browser happened to last canonicalize onto
 //   4. Playwright opens it: the Add connection modal must be open with a
 //      credential field, the emulator-minted API key is pasted and submitted
 //   5. The saved connection is proven live: `execute` sends an email through
@@ -17,6 +20,7 @@ import { randomBytes } from "node:crypto";
 
 import { expect } from "@effect/vitest";
 import { Effect } from "effect";
+import { AccountHttpApi } from "@executor-js/api";
 import { composePluginApi } from "@executor-js/api/server";
 import { connectEmulator } from "@executor-js/emulate";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
@@ -126,6 +130,13 @@ scenario(
     const session = mcp.session(identity);
     const client = yield* makeApiClient(api, identity);
 
+    // The bound org's slug, read from the same account surface the console
+    // shell reads — the handoff URL must canonicalize onto exactly this.
+    const accountClient = yield* makeApiClient(AccountHttpApi, identity);
+    const me = yield* accountClient.account.me();
+    const orgSlug = me.organization?.slug;
+    expect(orgSlug, "the bound organization advertises a URL slug").toBeTruthy();
+
     yield* runScenario({
       target,
       browser,
@@ -134,6 +145,7 @@ scenario(
       integration,
       emailSubject,
       apiKey,
+      orgSlug: orgSlug!,
     }).pipe(
       // Best-effort cleanup even on failure: drop the created connection(s)
       // over MCP, then the integration over the API.
@@ -155,9 +167,11 @@ const runScenario = (input: {
   readonly integration: string;
   readonly emailSubject: string;
   readonly apiKey: string;
+  readonly orgSlug: string;
 }) =>
   Effect.gen(function* () {
-    const { target, browser, session, identity, integration, emailSubject, apiKey } = input;
+    const { target, browser, session, identity, integration, emailSubject, apiKey, orgSlug } =
+      input;
 
     // 1. Agent registers the emulated provider over MCP.
     const added = yield* executeJson(session, addSpecCode(integration));
@@ -168,13 +182,16 @@ const runScenario = (input: {
     expect(handoff.ok, `createHandoff succeeded: ${JSON.stringify(handoff)}`).toBe(true);
     const handoffUrl = String(handoff.url);
 
-    // 3. The URL must target THIS deployment. (Production returned a URL the
-    //    user called "wrong/bad" — pin the contract here.)
+    // 3. The URL must target THIS deployment AND carry the bound org's slug.
+    //    (Production returned a URL the user called "wrong/bad" — it had no slug,
+    //    so a multi-org user could land in the wrong workspace. Pin both here.)
     const parsed = new URL(handoffUrl);
     expect(parsed.origin, `handoff URL (${handoffUrl}) targets this deployment`).toBe(
       new URL(target.baseUrl).origin,
     );
-    expect(parsed.pathname).toBe(`/integrations/${integration}`);
+    expect(parsed.pathname, `handoff URL (${handoffUrl}) carries the bound org slug`).toBe(
+      `/${orgSlug}/integrations/${integration}`,
+    );
     expect(parsed.searchParams.get("addAccount")).toBe("1");
 
     // 4. The user opens the handoff URL and pastes the credential.

@@ -59,6 +59,7 @@ export class McpSessionDO extends McpSessionDOBase<CfSessionDbHandle> {
     return Effect.succeed({
       organizationId: token.organizationId,
       organizationName: this.cfConfig.organizationName,
+      organizationSlug: this.cfConfig.organizationSlug,
       userId: token.userId,
       elicitationMode: token.elicitationMode,
     } satisfies SessionMeta);

@@ -427,19 +427,29 @@ const createConnectionInputFromTool = (
 
 const connectionCreateHandoffUrl = (
   webBaseUrl: string | undefined,
+  orgSlug: string | undefined,
   input: typeof ConnectionCreateHandoffInput.Type,
 ): string => {
   const search = new URLSearchParams({ addAccount: "1" });
   if (input.owner !== undefined) search.set("owner", input.owner);
   if (input.template !== undefined) search.set("template", input.template);
   if (input.label !== undefined) search.set("label", input.label);
-  const path = `/integrations/${encodeURIComponent(input.integration)}?${search.toString()}`;
+  // Org-scoped hosts (cloud, self-host, cloudflare) serve the console under an
+  // optional `/<org-slug>` segment. Pin the URL to the executor's bound org so
+  // it opens that org directly instead of relying on the browser's last-active
+  // org (which `OrgSlugGate` would otherwise canonicalize a bare URL to). When
+  // no slug is known (CLI, local, non-request callers) we emit the bare path.
+  const orgPrefix = orgSlug !== undefined && orgSlug.length > 0 ? `/${orgSlug}` : "";
+  const path = `${orgPrefix}/integrations/${encodeURIComponent(input.integration)}?${search.toString()}`;
   if (webBaseUrl === undefined || webBaseUrl.length === 0) return path;
   return new URL(path, webBaseUrl.endsWith("/") ? webBaseUrl : `${webBaseUrl}/`).toString();
 };
 
 export interface CoreToolsPluginOptions {
   readonly webBaseUrl?: string;
+  /** The bound org's URL slug, prefixed onto browser-handoff URLs so they open
+   *  the right org's console (`${webBaseUrl}/<orgSlug>/integrations/...`). */
+  readonly orgSlug?: string;
   readonly includeProviders?: boolean;
 }
 
@@ -529,7 +539,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
           inputSchema: ConnectionCreateHandoffInputStd,
           outputSchema: ConnectionCreateHandoffOutputStd,
           execute: (input: typeof ConnectionCreateHandoffInput.Type) => {
-            const url = connectionCreateHandoffUrl(options.webBaseUrl, input);
+            const url = connectionCreateHandoffUrl(options.webBaseUrl, options.orgSlug, input);
             return Effect.succeed({
               url,
               instructions:

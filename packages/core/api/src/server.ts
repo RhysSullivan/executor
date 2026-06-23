@@ -56,9 +56,11 @@ export {
   HostConfig,
   PluginsProvider,
   RequestWebOrigin,
+  RequestOrgSlug,
   type HostConfigShape,
   type PluginsProviderShape,
   type RequestWebOriginShape,
+  type RequestOrgSlugShape,
 } from "./server/scoped-executor";
 export { collectTables } from "@executor-js/sdk";
 export {

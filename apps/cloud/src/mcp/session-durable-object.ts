@@ -170,6 +170,7 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
       return {
         organizationId: org.id,
         organizationName: org.name,
+        organizationSlug: org.slug,
         userId: token.userId,
         elicitationMode: token.elicitationMode,
       } satisfies SessionMeta;

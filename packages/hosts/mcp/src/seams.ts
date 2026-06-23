@@ -40,6 +40,10 @@ export const Principal = Schema.Struct({
   accountId: Schema.String,
   organizationId: Schema.String,
   organizationName: Schema.String,
+  /** The org's URL slug, when the auth provider resolved it. Threaded into
+   *  browser-handoff URLs so they open the right org's console. Optional so a
+   *  provider without it (no org row loaded) still maps onto this shape. */
+  organizationSlug: Schema.optional(Schema.String),
   email: Schema.String,
   name: Schema.NullOr(Schema.String),
   avatarUrl: Schema.NullOr(Schema.String),

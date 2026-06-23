@@ -372,6 +372,7 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
    */
   readonly coreTools?: {
     readonly webBaseUrl?: string;
+    readonly orgSlug?: string;
     readonly includeProviders?: boolean;
   };
 }
@@ -1239,6 +1240,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       ? ([
           coreToolsPlugin({
             webBaseUrl: config.coreTools.webBaseUrl,
+            orgSlug: config.coreTools.orgSlug,
             includeProviders: config.coreTools.includeProviders,
           }),
           ...userPlugins,

@@ -32,6 +32,13 @@ export interface Principal {
   readonly accountId: string;
   readonly organizationId: string;
   readonly organizationName: string;
+  /**
+   * The org's URL slug (`acme`), when the resolver has it. Optional because not
+   * every principal source carries it (api-key paths that never load the org
+   * row). Threaded into browser-handoff URLs so they open the right org's
+   * console; a missing slug just falls back to a bare, client-canonicalized URL.
+   */
+  readonly organizationSlug?: string;
   readonly email: string;
   readonly name: string | null;
   readonly avatarUrl: string | null;

@@ -40,7 +40,12 @@ import { Context, Effect, Layer } from "effect";
 import type { AnyPlugin } from "@executor-js/sdk";
 
 import type { DbProvider } from "./executor-fuma-db";
-import { RequestWebOrigin, type HostConfig, type PluginsProvider } from "./scoped-executor";
+import {
+  RequestOrgSlug,
+  RequestWebOrigin,
+  type HostConfig,
+  type PluginsProvider,
+} from "./scoped-executor";
 import { ExecutionEngineService, ExecutorService } from "../services";
 import { providePluginExtensions, type PluginExtensionServices } from "../plugin-routes";
 import {
@@ -169,7 +174,7 @@ export const makeExecutionStackMiddleware = <
           // web base URL (a Worker) derives one zero-config. An explicit
           // `HostConfig.webBaseUrl` still wins; we deliberately read `request.url`
           // (not a spoofable `X-Forwarded-Host`).
-          const { executor, engine } = yield* makeExecutionStack<TPlugins>(
+          const stack = makeExecutionStack<TPlugins>(
             resolved.accountId,
             resolved.organizationId,
             resolved.organizationName,
@@ -179,6 +184,12 @@ export const makeExecutionStackMiddleware = <
               origin: requestWebOriginFromRequest(webRequest),
             }),
           );
+          // Pin browser-handoff URLs to the resolved org's slug when the identity
+          // provider carried one. Absent slug -> the service stays unprovided and
+          // the URL falls back to its bare, client-canonicalized form.
+          const { executor, engine } = yield* resolved.organizationSlug !== undefined
+            ? stack.pipe(Effect.provideService(RequestOrgSlug, { slug: resolved.organizationSlug }))
+            : stack;
           return yield* httpEffect.pipe(
             Effect.provideService(AuthContext, auth),
             Effect.provideService(ExecutorService, executor),

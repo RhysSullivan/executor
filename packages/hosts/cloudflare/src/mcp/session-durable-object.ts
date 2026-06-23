@@ -18,7 +18,7 @@ import type { TransportState } from "agents/mcp";
 
 import { jsonRpcErrorBody } from "@executor-js/host-mcp";
 import { formatResumeAcknowledgement } from "@executor-js/host-mcp/browser-approval";
-import { RequestWebOrigin } from "@executor-js/api/server";
+import { RequestOrgSlug, RequestWebOrigin } from "@executor-js/api/server";
 import {
   formatPausedExecution,
   type ExecutionEngine,
@@ -122,6 +122,9 @@ export interface SessionDbHandle {
 export interface SessionMeta {
   readonly organizationId: string;
   readonly organizationName: string;
+  /** The org's URL slug, when the host's `resolveSessionMeta` carried one.
+   *  Pins browser-handoff URLs to the right org's console. */
+  readonly organizationSlug?: string;
   readonly userId: string;
   readonly elicitationMode?: "browser" | "model" | "native";
   /** Public origin captured at session create — used to derive the runtime's
@@ -354,9 +357,16 @@ export abstract class McpSessionDOBase<
       // The session's captured origin is provided here so the host's execution
       // stack derives a web base URL zero-config (a no-op when it configures one).
       const built = self.buildMcpServer(sessionMeta, options.dbHandle);
-      const { mcpServer, engine } = yield* sessionMeta.webOrigin
+      const withOrigin = sessionMeta.webOrigin
         ? built.pipe(Effect.provideService(RequestWebOrigin, { origin: sessionMeta.webOrigin }))
         : built;
+      // Pin browser-handoff URLs to the session's org slug when captured at
+      // create; absent slug leaves the URL bare for client canonicalization.
+      const { mcpServer, engine } = yield* sessionMeta.organizationSlug
+        ? withOrigin.pipe(
+            Effect.provideService(RequestOrgSlug, { slug: sessionMeta.organizationSlug }),
+          )
+        : withOrigin;
       const transport = yield* makeMcpWorkerTransport({
         sessionIdGenerator: () => self.sessionId,
         storage: self.makeStorage(),
