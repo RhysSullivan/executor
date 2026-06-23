@@ -290,12 +290,22 @@ const decodeDefsJson = Schema.decodeUnknownOption(Schema.fromJsonString(DefsJson
 
 /** Rebuild a tool def from a stored operation binding, no spec parse. Mirrors
  *  `openApiToolDefsFromCompiled` but sources its schemas from the persisted
- *  binding (params/body/response carry `$ref`s into the shared defs blob). */
+ *  binding (params/body/response carry `$ref`s into the shared defs blob). The
+ *  file-emit hint is applied here, at the same ToolDef projection step the
+ *  re-parse path applies it, so a file-returning op carries the contract
+ *  whether it is served fast (from the binding) or via the spec fallback. */
 const toolDefFromStoredOperation = (op: StoredOperation): ToolDef => {
   const binding = op.binding;
+  const returnsFile = Option.match(binding.responseBody, {
+    onNone: () => false,
+    onSome: (responseBody) => Option.isSome(responseBody.fileHint),
+  });
   return {
     name: ToolName.make(op.toolName),
-    description: op.description ?? `${binding.method.toUpperCase()} ${binding.pathTemplate}`,
+    description: withFileEmitHint(
+      op.description ?? `${binding.method.toUpperCase()} ${binding.pathTemplate}`,
+      returnsFile,
+    ),
     inputSchema: normalizeOpenApiRefs(
       buildInputSchema(
         binding.parameters,
@@ -303,13 +313,13 @@ const toolDefFromStoredOperation = (op: StoredOperation): ToolDef => {
         binding.servers ?? [],
       ),
     ),
-    outputSchema: Option.match(binding.responseBody, {
-      onNone: () => undefined,
-      onSome: (responseBody) =>
-        Option.isSome(responseBody.fileHint)
-          ? ToolFileJsonSchema
-          : normalizeOpenApiRefs(Option.getOrUndefined(responseBody.schema)),
-    }),
+    outputSchema: returnsFile
+      ? ToolFileJsonSchema
+      : Option.match(binding.responseBody, {
+          onNone: () => undefined,
+          onSome: (responseBody) =>
+            normalizeOpenApiRefs(Option.getOrUndefined(responseBody.schema)),
+        }),
     annotations: annotationsForOperation(binding.method, binding.pathTemplate),
   };
 };
