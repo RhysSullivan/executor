@@ -64,7 +64,7 @@ export const team = plan({
   addOn: false,
   autoEnable: false,
   price: {
-    amount: 49,
+    amount: 150,
     interval: "month",
   },
   items: [
