@@ -143,6 +143,7 @@ const writeSidecarManifest = (input: {
     displayName: "Desktop sidecar",
     auth: { kind: "bearer" as const, token: input.authToken },
   });
+  mkdirSync(serverControlDir(input.dataDir), { recursive: true });
   const manifestPath = localServerManifestPath(input.dataDir);
   writeFileSync(
     manifestPath,
