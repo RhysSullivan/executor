@@ -12,6 +12,7 @@ import {
   type MediaBinding,
   type OperationParameter,
   type ServerInfo,
+  type ServerVariable,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -745,31 +746,82 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   });
 });
 
+const urlOrigin = (value: string): string | null => {
+  return URL.canParse(value) ? new URL(value).origin : null;
+};
+
+const enumValues = (variable: ServerVariable | undefined): readonly string[] | undefined =>
+  variable ? Option.getOrUndefined(variable.enum) : undefined;
+
+const validateServerVariableOverrides = (
+  templateUrl: string,
+  variables: Record<string, ServerVariable>,
+  overrides: Record<string, string>,
+): Effect.Effect<void, OpenApiInvocationError> =>
+  Effect.gen(function* () {
+    const defaultUrl = resolveServerUrl(templateUrl, variables, {});
+    const defaultOrigin = urlOrigin(defaultUrl);
+    const resolvedUrl = resolveServerUrl(templateUrl, variables, overrides);
+    const resolvedOrigin = urlOrigin(resolvedUrl);
+
+    for (const [name, value] of Object.entries(overrides)) {
+      const variable = variables[name];
+      const allowed = enumValues(variable);
+      if (allowed && !allowed.includes(value)) {
+        return yield* new OpenApiInvocationError({
+          message: `Server variable "${name}" must be one of: ${allowed.join(", ")}`,
+          statusCode: Option.none(),
+        });
+      }
+    }
+
+    if (!defaultOrigin || !resolvedOrigin || defaultOrigin === resolvedOrigin) return;
+
+    const unsafe = Object.keys(overrides).filter((name) => {
+      const variable = variables[name];
+      if (!variable || enumValues(variable)) return false;
+      const singleOrigin = urlOrigin(
+        resolveServerUrl(templateUrl, variables, { [name]: overrides[name]! }),
+      );
+      return singleOrigin !== null && singleOrigin !== defaultOrigin;
+    });
+
+    if (unsafe.length > 0) {
+      return yield* new OpenApiInvocationError({
+        message: `Server variable override cannot change request origin: ${unsafe.join(", ")}`,
+        statusCode: Option.none(),
+      });
+    }
+  });
+
 // Connection `baseUrl` wins; otherwise the call's chosen server (`server.url`, or
 // the first) resolved with its `{variables}` (call values, else spec defaults).
 const resolveRequestHost = (
   servers: readonly ServerInfo[],
   serverArg: unknown,
   baseUrl: string,
-): string => {
-  if (baseUrl) return baseUrl;
-  if (servers.length === 0) return "";
+): Effect.Effect<string, OpenApiInvocationError> =>
+  Effect.gen(function* () {
+    if (baseUrl) return baseUrl;
+    if (servers.length === 0) return "";
 
-  const arg = (
-    typeof serverArg === "object" && serverArg !== null && !Array.isArray(serverArg)
-      ? serverArg
-      : {}
-  ) as { url?: unknown; variables?: unknown };
-  const chosen = servers.find((server) => server.url === arg.url) ?? servers[0]!;
+    const arg = (
+      typeof serverArg === "object" && serverArg !== null && !Array.isArray(serverArg)
+        ? serverArg
+        : {}
+    ) as { url?: unknown; variables?: unknown };
+    const chosen = servers.find((server) => server.url === arg.url) ?? servers[0]!;
 
-  const overrides: Record<string, string> = {};
-  if (typeof arg.variables === "object" && arg.variables !== null) {
-    for (const [name, value] of Object.entries(arg.variables as Record<string, unknown>)) {
-      if (value != null && value !== "") overrides[name] = String(value);
+    const overrides: Record<string, string> = {};
+    if (typeof arg.variables === "object" && arg.variables !== null) {
+      for (const [name, value] of Object.entries(arg.variables as Record<string, unknown>)) {
+        if (value != null && value !== "") overrides[name] = String(value);
+      }
     }
-  }
-  return resolveServerUrl(chosen.url, Option.getOrUndefined(chosen.variables), overrides);
-};
+    const variables = Option.getOrUndefined(chosen.variables) ?? {};
+    yield* validateServerVariableOverrides(chosen.url, variables, overrides);
+    return resolveServerUrl(chosen.url, variables, overrides);
+  });
 
 // ---------------------------------------------------------------------------
 // Invoke with a provided HttpClient layer + per-call host resolution
@@ -783,32 +835,38 @@ export const invokeWithLayer = (
   sourceQueryParams: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient, never, never>,
 ) => {
-  const effectiveBaseUrl = resolveRequestHost(operation.servers ?? [], args.server, baseUrl);
-  const clientWithBaseUrl = effectiveBaseUrl
-    ? Layer.effect(
-        HttpClient.HttpClient,
-        Effect.map(
-          Effect.service(HttpClient.HttpClient),
-          HttpClient.mapRequest(HttpClientRequest.prependUrl(effectiveBaseUrl)),
-        ),
-      ).pipe(Layer.provide(httpClientLayer))
-    : httpClientLayer;
+  return Effect.gen(function* () {
+    const effectiveBaseUrl = yield* resolveRequestHost(
+      operation.servers ?? [],
+      args.server,
+      baseUrl,
+    );
+    const clientWithBaseUrl = effectiveBaseUrl
+      ? Layer.effect(
+          HttpClient.HttpClient,
+          Effect.map(
+            Effect.service(HttpClient.HttpClient),
+            HttpClient.mapRequest(HttpClientRequest.prependUrl(effectiveBaseUrl)),
+          ),
+        ).pipe(Layer.provide(httpClientLayer))
+      : httpClientLayer;
 
-  return invoke(operation, args, resolvedHeaders, sourceQueryParams).pipe(
-    Effect.provide(clientWithBaseUrl),
-    // `invoke` annotates http.status_code on ITS span (`OpenApi.invoke`,
-    // via Effect.fn) — annotateCurrentSpan inside it never reaches this
-    // wrapper span. Stamp the status here too so queries against
-    // `plugin.openapi.invoke` see the upstream outcome directly.
-    Effect.tap((result) => Effect.annotateCurrentSpan({ "http.status_code": result.status })),
-    Effect.withSpan("plugin.openapi.invoke", {
-      attributes: {
-        "plugin.openapi.method": operation.method.toUpperCase(),
-        "plugin.openapi.path_template": operation.pathTemplate,
-        "plugin.openapi.base_url": effectiveBaseUrl,
-      },
-    }),
-  );
+    return yield* invoke(operation, args, resolvedHeaders, sourceQueryParams).pipe(
+      Effect.provide(clientWithBaseUrl),
+      // `invoke` annotates http.status_code on ITS span (`OpenApi.invoke`,
+      // via Effect.fn), annotateCurrentSpan inside it never reaches this
+      // wrapper span. Stamp the status here too so queries against
+      // `plugin.openapi.invoke` see the upstream outcome directly.
+      Effect.tap((result) => Effect.annotateCurrentSpan({ "http.status_code": result.status })),
+      Effect.withSpan("plugin.openapi.invoke", {
+        attributes: {
+          "plugin.openapi.method": operation.method.toUpperCase(),
+          "plugin.openapi.path_template": operation.pathTemplate,
+          "plugin.openapi.base_url": effectiveBaseUrl,
+        },
+      }),
+    );
+  });
 };
 
 // ---------------------------------------------------------------------------

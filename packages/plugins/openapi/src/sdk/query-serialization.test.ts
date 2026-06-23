@@ -1,10 +1,10 @@
 import { expect, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { createServer, type Server } from "node:http";
 
 import { invokeWithLayer } from "./invoke";
-import { OperationBinding, OperationParameter, ServerInfo } from "./types";
+import { OperationBinding, OperationParameter, ServerInfo, ServerVariable } from "./types";
 
 const withServer = <A>(
   f: (input: { readonly baseUrl: string; readonly requests: string[] }) => Promise<A>,
@@ -215,6 +215,87 @@ it.effect("falls back to the base URL for bindings persisted without servers", (
 
       await Effect.runPromise(
         invokeWithLayer(operation, {}, baseUrl, {}, {}, FetchHttpClient.layer),
+      );
+
+      expect(new URL(requests[0]!, "http://executor.test").pathname).toBe("/ping");
+    }),
+  ),
+);
+
+it.effect("rejects server variable overrides that move an unbounded request origin", () =>
+  Effect.gen(function* () {
+    const operation = OperationBinding.make({
+      method: "get",
+      servers: [
+        ServerInfo.make({
+          url: "https://{host}/api",
+          description: Option.none(),
+          variables: Option.some({
+            host: ServerVariable.make({
+              default: "api.example.com",
+              enum: Option.none(),
+              description: Option.none(),
+            }),
+          }),
+        }),
+      ],
+      pathTemplate: "/ping",
+      requestBody: Option.none(),
+      responseBody: Option.none(),
+      parameters: [],
+    });
+
+    const exit = yield* invokeWithLayer(
+      operation,
+      { server: { variables: { host: "169.254.169.254" } } },
+      "",
+      {},
+      {},
+      FetchHttpClient.layer,
+    ).pipe(Effect.exit);
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    const text = Exit.match(exit, {
+      onFailure: (cause) => Cause.pretty(cause),
+      onSuccess: () => "",
+    });
+    expect(text).toMatch(/cannot change request origin|host/i);
+  }),
+);
+
+it.effect("allows server variable origin changes when the value is enum-bounded", () =>
+  Effect.promise(() =>
+    withServer(async ({ baseUrl, requests }) => {
+      const operation = OperationBinding.make({
+        method: "get",
+        servers: [
+          ServerInfo.make({
+            url: "{origin}",
+            description: Option.none(),
+            variables: Option.some({
+              origin: ServerVariable.make({
+                default: "https://api.example.com",
+                enum: Option.some(["https://api.example.com", baseUrl]),
+                description: Option.none(),
+              }),
+            }),
+          }),
+        ],
+        pathTemplate: "/ping",
+        requestBody: Option.none(),
+        responseBody: Option.none(),
+        parameters: [],
+      });
+
+      await Effect.runPromise(
+        invokeWithLayer(
+          operation,
+          { server: { variables: { origin: baseUrl } } },
+          "",
+          {},
+          {},
+          FetchHttpClient.layer,
+        ),
       );
 
       expect(new URL(requests[0]!, "http://executor.test").pathname).toBe("/ping");
