@@ -439,9 +439,8 @@ describe("mcpPlugin", () => {
   it.effect("produces stdio MCP tools under the default org connection", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* Effect.acquireRelease(
-          Effect.sync(makeStdioMcpFixture),
-          ({ dir }) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
+        const fixture = yield* Effect.acquireRelease(Effect.sync(makeStdioMcpFixture), ({ dir }) =>
+          Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
         );
         const executor = yield* createExecutor(
           makeTestConfig({
