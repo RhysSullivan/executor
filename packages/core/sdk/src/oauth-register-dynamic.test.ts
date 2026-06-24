@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 
 import {
   AuthTemplateSlug,
@@ -8,6 +8,7 @@ import {
   OAuthClientSlug,
   ToolName,
 } from "./ids";
+import { OAuthRegisterDynamicError } from "./oauth-client";
 import { definePlugin } from "./plugin";
 import { makeTestWorkspaceHarness, memoryCredentialsPlugin } from "./test-config";
 import { serveOAuthTestServer } from "./testing/oauth-test-server";
@@ -177,8 +178,10 @@ describe("oauth.registerDynamicClient", () => {
             originIntegration: INTEG,
           }),
         );
-        expect(error._tag).toBe("OAuthRegisterDynamicError");
-        const message = (error as { readonly message: string }).message;
+        // Predicate guard narrows the union so `.message` reads off a typed failure.
+        expect(Predicate.isTagged("OAuthRegisterDynamicError")(error)).toBe(true);
+        const registerError = error as OAuthRegisterDynamicError;
+        const message = registerError.message;
         // Names the loopback-only requirement, the localhost fix, and the URI.
         expect(message).toContain("loopback");
         expect(message).toContain("http://localhost");
@@ -218,8 +221,9 @@ describe("oauth.registerDynamicClient", () => {
               originIntegration: INTEG,
             }),
           );
-          expect(error._tag).toBe("OAuthRegisterDynamicError");
-          const message = (error as { readonly message: string }).message;
+          expect(Predicate.isTagged("OAuthRegisterDynamicError")(error)).toBe(true);
+          const registerError = error as OAuthRegisterDynamicError;
+          const message = registerError.message;
           expect(message).toContain("Dynamic Client Registration failed: invalid_redirect_uri");
           expect(message).not.toContain("Automatic OAuth setup failed");
         }),

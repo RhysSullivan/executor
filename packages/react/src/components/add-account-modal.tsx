@@ -454,15 +454,23 @@ type DcrOutcome =
   | { readonly kind: "started" }
   | {
       readonly kind: "fallback";
-      readonly reason: "probe-failed" | "no-registration-endpoint";
+      readonly reason: "probe-failed" | "no-registration-endpoint" | "registration-failed";
+      /** A specific, user-facing reason to surface instead of the generic
+       *  "register an app" copy (e.g. a server that rejects the DCR redirect
+       *  URI). Absent when the fallback carries no actionable detail. */
+      readonly message?: string;
     };
 
 type RunDcrConnectDeps = {
   /** Probe the discovery URL → resolved endpoints + (maybe) a registration
    *  endpoint. Resolves to null when the probe fails. */
   readonly probe: (url: string) => Promise<DcrProbeResult | null>;
-  /** Register a DCR client → the minted client slug, or null on failure. */
-  readonly register: (args: DcrRegisterArgs) => Promise<OAuthClientSlug | null>;
+  /** Register a DCR client → the minted client slug, `{ error }` with a
+   *  user-facing message when the server rejects registration, or null on an
+   *  unexplained failure. */
+  readonly register: (
+    args: DcrRegisterArgs,
+  ) => Promise<OAuthClientSlug | { readonly error: string } | null>;
   /** Start the OAuth flow with the minted client (popup / inline). */
   readonly start: (args: DcrStartArgs) => void;
 };
@@ -486,8 +494,9 @@ type RunDcrConnectInput = {
  *
  * - Probe failure → `{ kind: "fallback", reason: "probe-failed" }` (caller shows BYO).
  * - No registration endpoint → `{ kind: "fallback", reason: "no-registration-endpoint" }`.
- * - Register failure → throws via the injected `register` rejecting; the caller
- *   treats a thrown/rejected register as fallback (kept out of the happy path).
+ * - Register rejected with a message → `{ kind: "fallback", reason: "registration-failed", message }`
+ *   so the caller can show why (e.g. a redirect-URI rejection) over the generic copy.
+ * - Register failed without detail (null) → `{ kind: "fallback", reason: "registration-failed" }`.
  * - Success → registers, calls `start`, returns `{ kind: "started" }`.
  */
 export async function runDcrConnect(
@@ -517,7 +526,12 @@ export async function runDcrConnect(
     redirectUri: input.redirectUri,
     originIntegration: input.integration,
   });
-  if (minted === null) return { kind: "fallback", reason: "probe-failed" };
+  if (minted === null) return { kind: "fallback", reason: "registration-failed" };
+  // OAuthClientSlug is a branded string; an object return carries the failure
+  // message (e.g. the server rejected the redirect URI) for the BYO fallback.
+  if (typeof minted === "object") {
+    return { kind: "fallback", reason: "registration-failed", message: minted.error };
+  }
   deps.start({ client: minted, owner: input.owner });
   return { kind: "started" };
 }
@@ -1102,7 +1116,9 @@ export function AddAccountModal(props: {
           if (Exit.isFailure(exit)) return null;
           return exit.value;
         },
-        register: async (args: DcrRegisterArgs): Promise<OAuthClientSlug | null> => {
+        register: async (
+          args: DcrRegisterArgs,
+        ): Promise<OAuthClientSlug | { readonly error: string } | null> => {
           const exit = await doRegisterDynamic({
             payload: {
               owner: args.owner,
@@ -1119,7 +1135,11 @@ export function AddAccountModal(props: {
             },
             reactivityKeys: oauthClientWriteKeys,
           });
-          if (Exit.isFailure(exit)) return null;
+          if (Exit.isFailure(exit)) {
+            return {
+              error: messageFromExit(exit, "Automatic setup unavailable. Register an app instead."),
+            };
+          }
           return exit.value.client;
         },
         start: (args: DcrStartArgs): void => {
@@ -1164,7 +1184,7 @@ export function AddAccountModal(props: {
     });
     if (outcome.kind === "fallback") {
       setDcrFailed(true);
-      toast.error("Automatic setup unavailable — register an app");
+      toast.error(outcome.message ?? "Automatic setup unavailable. Register an app instead.");
     }
   };
 

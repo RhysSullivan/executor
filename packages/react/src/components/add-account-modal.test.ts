@@ -371,7 +371,41 @@ describe("runDcrConnect", () => {
         integration: TEST_INTEGRATION,
       },
     );
-    expect(outcome.kind).toBe("fallback");
+    expect(outcome).toEqual({ kind: "fallback", reason: "registration-failed" });
     expect(calls).toEqual(["register"]);
+  });
+
+  it("threads the register failure message into the fallback (registration-failed)", async () => {
+    const message =
+      "Automatic OAuth setup failed: this server only approves loopback redirect URLs " +
+      "(http://localhost or http://127.0.0.1) for automatic registration, but Executor is " +
+      "using https://app.example.com/api/oauth/callback. Register an OAuth app manually with " +
+      "that redirect URL approved by the server, or run Executor on http://localhost.";
+    let started = false;
+    const outcome = await runDcrConnect(
+      {
+        probe: (): Promise<ProbeResult | null> =>
+          Promise.resolve({
+            authorizationUrl: "https://auth.example.com/authorize",
+            tokenUrl: "https://auth.example.com/token",
+            registrationEndpoint: "https://auth.example.com/register",
+          }),
+        register: (): Promise<{ readonly error: string }> => Promise.resolve({ error: message }),
+        start: (): void => {
+          started = true;
+        },
+      },
+      {
+        discoveryUrl: "https://mcp.example.com/mcp",
+        owner: "user",
+        integrationName: "App",
+        existingSlugs: [],
+        integration: TEST_INTEGRATION,
+      },
+    );
+    // The redirect-URI rejection reaches the caller verbatim so the BYO fallback
+    // can show why instead of the generic copy, and the OAuth start is skipped.
+    expect(outcome).toEqual({ kind: "fallback", reason: "registration-failed", message });
+    expect(started).toBe(false);
   });
 });

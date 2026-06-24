@@ -504,14 +504,15 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
           // Executor registers its browser origin, so any hosted, tailnet, or
           // LAN origin trips `invalid_redirect_uri`. Turn that opaque RFC code
           // into guidance the user can act on instead of the raw error.
+          // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: OAuthDiscoveryError carries a typed `message`
+          const rawMessage = cause.message;
           const message =
             cause.error === "invalid_redirect_uri" && !isLoopbackHttpUrl(flowRedirectUri)
               ? `Automatic OAuth setup failed: this server only approves loopback redirect ` +
                 `URLs (http://localhost or http://127.0.0.1) for automatic registration, but ` +
                 `Executor is using ${flowRedirectUri}. Register an OAuth app manually with that ` +
                 `redirect URL approved by the server, or run Executor on http://localhost.`
-              : `Dynamic Client Registration failed: ${cause.message}`;
-          // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: OAuthDiscoveryError carries a typed `message`/`error`
+              : `Dynamic Client Registration failed: ${rawMessage}`;
           return new OAuthRegisterDynamicError({ message });
         }),
       );
