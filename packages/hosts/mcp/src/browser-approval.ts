@@ -54,9 +54,10 @@ export const readElicitationMode = (request: Request): McpElicitationMode => {
 /**
  * Read whether the session runs in code mode off an MCP request's `?codemode=`
  * query. Code mode (the default) exposes a single `execute` tool the agent
- * drives with TypeScript; `?codemode=false` selects transparent mode, where
- * every available tool is registered as a directly-callable MCP tool. Only the
- * literal value `false` turns code mode off; anything else keeps the default.
+ * drives with TypeScript; `?codemode=false` selects non-code mode, where the
+ * agent discovers and runs tools through the `search` and `invoke` meta-tools.
+ * Only the literal value `false` turns code mode off; anything else keeps the
+ * default.
  */
 export const readCodeMode = (request: Request): boolean => {
   const url = new URL(request.url);

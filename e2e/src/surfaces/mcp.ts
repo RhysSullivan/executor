@@ -163,7 +163,7 @@ export interface McpSurface {
     options?: {
       readonly elicitationMode?: McpElicitationMode;
       /** Pass `false` to add `?codemode=false`, switching the session into
-       *  transparent mode (every tool registered directly instead of behind the
+       *  non-code mode (the `search` and `invoke` meta-tools instead of the
        *  single `execute` tool). Omitted/`true` keeps the default code mode. */
       readonly codeMode?: boolean;
     },
@@ -276,8 +276,8 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
     const serverName = `${target.name}-${randomUUID().slice(0, 8)}`;
     // Session config rides query params on the MCP endpoint, per ecosystem
     // convention: `?elicitation_mode=` (a paused execution yields an approvalUrl
-    // instead of letting the model resume inline) and `?codemode=false` (every
-    // tool registered directly instead of behind the single `execute` tool).
+    // instead of letting the model resume inline) and `?codemode=false` (the
+    // `search`/`invoke` meta-tools instead of the single `execute` tool).
     const sessionUrl = (() => {
       const url = new URL(target.mcpUrl);
       if (options?.elicitationMode) {

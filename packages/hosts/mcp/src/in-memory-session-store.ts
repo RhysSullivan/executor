@@ -70,7 +70,7 @@ export interface McpBuildServerOptions {
   /**
    * Whether the session runs in code mode (the single `execute` tool the agent
    * drives with TypeScript). Defaults to `true`; `?codemode=false` selects
-   * transparent mode, where every available tool is registered directly.
+   * non-code mode, with the `search` and `invoke` meta-tools.
    */
   readonly codeMode?: boolean;
 }

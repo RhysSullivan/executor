@@ -42,22 +42,16 @@ export type PausedExecution = {
   readonly elicitationContext: ElicitationContext;
 };
 
-/** One directly-callable tool, as enumerated for non-code-mode MCP. The
- *  `name` is the sandbox-callable path (`<integration>.<owner>.<connection>.<tool>`
- *  or a static fqid), which doubles as the wire tool name clients call back
- *  with. `inputSchema` is self-contained JSON Schema (shared `$defs` already
- *  inlined by `tools.list({ includeSchemas: true })`). */
-export type ToolListing = {
+/** One ranked hit from the non-code-mode `search` tool. `name` is the
+ *  sandbox-callable path (`<integration>.<owner>.<connection>.<tool>` or a
+ *  static fqid), which doubles as the wire name a client passes to `invoke`.
+ *  `inputSchema` is self-contained JSON Schema so the hit can be called
+ *  directly without a second round-trip. */
+export type ToolSearchResult = {
   readonly name: string;
   readonly description?: string;
   readonly inputSchema: unknown;
 };
-
-/** One ranked search hit for the non-code-mode `search` tool: a directly
- *  invocable `name` plus enough schema to call it. Same shape as a
- *  {@link ToolListing}, returned for only the matched page rather than the
- *  whole catalog. */
-export type ToolSearchResult = ToolListing;
 
 /** A page of {@link ToolSearchResult}s. `total` is the match count before
  *  pagination so the caller can tell it was truncated; `nextOffset` is the
