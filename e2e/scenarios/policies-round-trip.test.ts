@@ -69,6 +69,11 @@ scenario(
           // The form's action select defaults to Require approval, submit
           // the form as-is to also pin that default.
           await page.getByRole("button", { name: "Add policy", exact: true }).click();
+          // Settle the POST before the next step opens the badge or overflow
+          // dropdown, per the e2e style guide. The optimistic render lands
+          // the row immediately, but Radix's pointer listeners on the badge
+          // and overflow triggers only bind on the post-confirm re-render.
+          await page.waitForLoadState("networkidle");
         });
 
         await step("The new row appears with the pattern and Require approval badge", async () => {

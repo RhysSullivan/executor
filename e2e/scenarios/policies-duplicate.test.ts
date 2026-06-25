@@ -70,6 +70,13 @@ scenario(
           await page.getByRole("option", { name: "Block", exact: true }).click();
           await page.getByRole("button", { name: "Add policy", exact: true }).click();
           await row(originalPattern).waitFor();
+          // Settle the POST before the next step opens a menu, per the e2e
+          // style guide ("settle the network before opening menus"). The
+          // optimistic render attaches the row immediately, but Radix's
+          // pointer listeners on the overflow trigger only bind cleanly on
+          // the post-confirm re-render. Without this wait, a fast hover+click
+          // can land on a stale trigger and the dropdown silently no-ops.
+          await page.waitForLoadState("networkidle");
         });
 
         await step("Open the row's overflow menu and click Duplicate", async () => {
