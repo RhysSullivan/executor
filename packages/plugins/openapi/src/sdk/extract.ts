@@ -328,13 +328,27 @@ export const buildInputSchema = (
 
   if (requestBody) {
     properties.body = Option.getOrElse(requestBody.schema, () => ({ type: "object" }));
-    if (requestBody.required) required.push("body");
 
     // When the spec declares multiple media types for this requestBody,
     // expose `contentType` so the model can pick. Default = first declared.
     // `body` schema tracks the default; the model is responsible for
     // supplying a body shape that matches whichever contentType it picks.
     const contents = Option.getOrUndefined(requestBody.contents);
+    const acceptsOctetStream =
+      requestBody.contentType.split(";")[0]?.trim().toLowerCase() === "application/octet-stream" ||
+      contents?.some(
+        (content) =>
+          content.contentType.split(";")[0]?.trim().toLowerCase() === "application/octet-stream",
+      ) === true;
+    if (acceptsOctetStream) {
+      properties.bodyBase64 = {
+        type: "string",
+        contentEncoding: "base64",
+        description:
+          "Base64-encoded bytes for application/octet-stream request bodies. When contentType is omitted, this selects application/octet-stream.",
+      };
+    }
+    if (requestBody.required && !acceptsOctetStream) required.push("body");
     if (contents && contents.length > 1) {
       properties.contentType = {
         type: "string",

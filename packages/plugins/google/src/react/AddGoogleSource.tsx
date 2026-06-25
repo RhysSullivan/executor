@@ -20,7 +20,12 @@ import { OpenApiSourceDetailsFields } from "@executor-js/plugin-openapi/react";
 
 import { addGoogleBundle } from "./atoms";
 import { GoogleProductPicker } from "./GoogleProductPicker";
-import { googleOpenApiPresets, type GoogleOpenApiPreset } from "../sdk/presets";
+import {
+  GOOGLE_PHOTOS_PRESET_ID,
+  googleOpenApiPresets,
+  googlePhotosPresetIds,
+  type GoogleOpenApiPreset,
+} from "../sdk/presets";
 
 const GOOGLE_BUNDLE_FAVICON = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
 
@@ -43,10 +48,12 @@ const googleBundleUrls = (
 export default function AddGoogleSource(props: {
   onComplete: (slug?: string) => void;
   onCancel: () => void;
+  initialPreset?: string;
   initialNamespace?: string;
 }) {
+  const isGooglePhotosPreset = props.initialPreset === GOOGLE_PHOTOS_PRESET_ID;
   const [selectedPresetIds, setSelectedPresetIds] = useState<ReadonlySet<string>>(
-    googleBundleDefaultPresetIds,
+    isGooglePhotosPreset ? new Set(googlePhotosPresetIds) : googleBundleDefaultPresetIds,
   );
   const [customDiscoveryUrls, setCustomDiscoveryUrls] = useState<readonly string[]>([]);
   const [baseUrl, setBaseUrl] = useState("");
@@ -55,8 +62,9 @@ export default function AddGoogleSource(props: {
   const [addError, setAddError] = useState<string | null>(null);
 
   const identity = useIntegrationIdentity({
-    fallbackName: "Google",
-    fallbackNamespace: props.initialNamespace ?? "google",
+    fallbackName: isGooglePhotosPreset ? "Google Photos" : "Google",
+    fallbackNamespace:
+      props.initialNamespace ?? (isGooglePhotosPreset ? "google_photos" : "google"),
   });
 
   const bundleDiscoveryUrls = useMemo(
@@ -87,9 +95,15 @@ export default function AddGoogleSource(props: {
 
   const doAdd = useAtomSet(addGoogleBundle, { mode: "promiseExit" });
 
-  const resolvedSourceId = slugifyNamespace(identity.namespace) || "google";
-  const resolvedDisplayName = identity.name.trim() || "Google";
-  const resolvedDescription = descriptionDraft ?? "Google APIs";
+  const resolvedSourceId =
+    slugifyNamespace(identity.namespace) || (isGooglePhotosPreset ? "google_photos" : "google");
+  const resolvedDisplayName =
+    identity.name.trim() || (isGooglePhotosPreset ? "Google Photos" : "Google");
+  const resolvedDescription =
+    descriptionDraft ??
+    (isGooglePhotosPreset
+      ? "Google Photos albums, uploads, app-created media, and selected picker media."
+      : "Google APIs");
   const slugAlreadyExists = useSlugAlreadyExists(resolvedSourceId);
   const canAdd = bundleDiscoveryUrls.length > 0 && !slugAlreadyExists;
 

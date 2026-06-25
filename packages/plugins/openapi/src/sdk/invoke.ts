@@ -272,6 +272,21 @@ const bytesFromBase64Prefix = (base64: string): Uint8Array => {
 const sniffMimeTypeFromBase64 = (base64: string): string | null =>
   sniffMimeType(bytesFromBase64Prefix(base64));
 
+const base64ToUint8Array = (value: string): Uint8Array | null => {
+  let binary = "";
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: atob throws for invalid base64; invalid shapes are treated as non-byte input
+  try {
+    binary = atob(normalizeBase64(value, "base64"));
+  } catch {
+    return null;
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
 const toUint8Array = (value: unknown): Uint8Array | null => {
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
@@ -281,6 +296,10 @@ const toUint8Array = (value: unknown): Uint8Array | null => {
   }
   if (Array.isArray(value) && value.every((v) => typeof v === "number")) {
     return new Uint8Array(value as readonly number[]);
+  }
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const encoded = (value as Record<string, unknown>).bodyBase64;
+    if (typeof encoded === "string") return base64ToUint8Array(encoded);
   }
   return null;
 };
@@ -663,17 +682,22 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 
   if (Option.isSome(operation.requestBody)) {
     const rb = operation.requestBody.value;
-    const bodyValue = args.body ?? args.input;
+    const bodyBase64 =
+      typeof args.bodyBase64 === "string" ? base64ToUint8Array(args.bodyBase64) : null;
+    const bodyValue = bodyBase64 ?? args.body ?? args.input;
     if (bodyValue !== undefined) {
       // Resolve which declared media type to use. When the spec declares
       // multiple, the caller can override via `args.contentType`; otherwise
       // we use the first-declared (spec author's preferred ordering).
       const contentsOpt = Option.getOrUndefined(rb.contents);
       const requestedCt = typeof args.contentType === "string" ? args.contentType : undefined;
+      const octetStreamContent = contentsOpt?.find((c) => isOctetStream(c.contentType));
       const selected: MediaBinding | undefined =
         contentsOpt && requestedCt
           ? contentsOpt.find((c) => c.contentType === requestedCt)
-          : undefined;
+          : bodyBase64 && octetStreamContent
+            ? octetStreamContent
+            : undefined;
       const chosenCt = selected?.contentType ?? rb.contentType;
       const chosenEncoding = selected
         ? Option.getOrUndefined(selected.encoding)

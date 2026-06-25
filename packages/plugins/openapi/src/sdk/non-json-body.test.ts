@@ -259,6 +259,25 @@ describe("OpenAPI non-JSON request body dispatch", () => {
     }),
   );
 
+  it.effect("application/octet-stream: bodyBase64 passes through as bytes", () =>
+    Effect.gen(function* () {
+      const { server, captured } = yield* startEchoServer({
+        payload: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "bin_b64" });
+
+      yield* executor.execute(conn.address("body.submit"), {
+        bodyBase64: "3q2+7w==",
+      });
+
+      expect(captured.contentType).toBe("application/octet-stream");
+      expect(Array.from(captured.body)).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    }),
+  );
+
   it.effect(
     "format: byte response: Gmail-style image attachment data is exposed as a file artifact",
     () =>
@@ -754,6 +773,33 @@ describe("OpenAPI non-JSON request body dispatch", () => {
     }),
   );
 
+  it.effect("multi-content: bodyBase64 selects octet-stream without explicit contentType", () =>
+    Effect.gen(function* () {
+      const { server, captured } = yield* startEchoServer({
+        payload: multiContentPayload,
+        transformSpec: replaceRequestBodyContent("/submit", "post", {
+          "application/json": {
+            schema: { type: "object" },
+          },
+          "application/octet-stream": {
+            schema: { type: "string", format: "binary" },
+          },
+        }),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "mc_b64" });
+
+      yield* executor.execute(conn.address("body.submit"), {
+        bodyBase64: "3q2+7w==",
+      });
+
+      expect(captured.contentType).toBe("application/octet-stream");
+      expect(Array.from(captured.body)).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    }),
+  );
+
   it.effect("multi-content: tool input schema exposes contentType enum", () =>
     Effect.gen(function* () {
       const { server } = yield* startEchoServer({
@@ -780,6 +826,26 @@ describe("OpenAPI non-JSON request body dispatch", () => {
         "application/json",
       ]);
       expect(schema.properties?.contentType?.default).toBe("multipart/form-data");
+    }),
+  );
+
+  it.effect("octet-stream: tool input schema exposes bodyBase64", () =>
+    Effect.gen(function* () {
+      const { server } = yield* startEchoServer({
+        payload: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+      });
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "bin_schema" });
+
+      const view = yield* executor.tools.schema(conn.address("body.submit"));
+      expect(view).not.toBeNull();
+      const schema = view!.inputSchema as {
+        properties?: {
+          bodyBase64?: { contentEncoding?: string };
+        };
+      };
+      expect(schema.properties?.bodyBase64?.contentEncoding).toBe("base64");
     }),
   );
 

@@ -36,7 +36,12 @@ import {
   normalizeGoogleDiscoveryUrl,
 } from "./discovery";
 import { decodeGoogleIntegrationConfig, type GoogleIntegrationConfig } from "./config";
-import { googleOpenApiBundlePreset } from "./presets";
+import {
+  googleOAuthConsentScopesForPreset,
+  googleOpenApiBundlePreset,
+  googlePhotosOpenApiPresets,
+  googlePhotosPresetIds,
+} from "./presets";
 
 export interface GoogleBundleConfig {
   readonly urls: readonly string[];
@@ -68,6 +73,23 @@ export interface GooglePluginOptions {
 
 const DEFAULT_GOOGLE_SLUG = "google";
 
+const googlePhotosBundleUrls = new Set(
+  googlePhotosOpenApiPresets.flatMap((preset) =>
+    preset.url ? [normalizeGoogleDiscoveryUrl(preset.url) ?? preset.url] : [],
+  ),
+);
+
+const googlePhotosBundleConsentScopes = (
+  urls: readonly string[],
+): readonly string[] | undefined => {
+  const normalized = new Set(urls);
+  if (normalized.size !== googlePhotosBundleUrls.size) return undefined;
+  for (const url of googlePhotosBundleUrls) {
+    if (!normalized.has(url)) return undefined;
+  }
+  return googlePhotosPresetIds.flatMap((presetId) => googleOAuthConsentScopesForPreset(presetId));
+};
+
 const fetchGoogleBundleConversion = (
   urls: readonly string[],
   httpClientLayer: Layer.Layer<HttpClient.HttpClient, never, never>,
@@ -80,7 +102,15 @@ const fetchGoogleBundleConversion = (
         Effect.map((documentText) => ({ discoveryUrl: url, documentText })),
       ),
     { concurrency: 4 },
-  ).pipe(Effect.flatMap((documents) => convertGoogleDiscoveryBundleToOpenApi({ documents })));
+  ).pipe(
+    Effect.flatMap((documents) => {
+      const consentScopes = googlePhotosBundleConsentScopes(urls);
+      return convertGoogleDiscoveryBundleToOpenApi({
+        documents,
+        ...(consentScopes ? { consentScopes } : {}),
+      });
+    }),
+  );
 
 const uniqueUrls = (urls: readonly string[]): readonly string[] => [
   ...new Set(urls.flatMap((url) => normalizeGoogleDiscoveryUrl(url) ?? [])),
