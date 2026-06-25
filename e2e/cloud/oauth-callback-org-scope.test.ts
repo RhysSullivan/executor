@@ -8,12 +8,10 @@ import { randomBytes } from "node:crypto";
 
 import { expect } from "@effect/vitest";
 import { Effect } from "effect";
+import type { Page } from "playwright";
 import { composePluginApi } from "@executor-js/api/server";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 import {
-  AuthTemplateSlug,
-  ConnectionName,
-  EXECUTOR_ORG_SELECTOR_HEADER,
   IntegrationSlug,
   OAUTH_CALLBACK_ORG_QUERY_PARAM,
   OAuthClientSlug,
@@ -44,6 +42,68 @@ const cookieValue = (pair: string): string => {
 const cookieOf = (identity: Identity): string => identity.headers?.cookie ?? "";
 
 const originHeaders = (baseUrl: string) => ({ origin: new URL(baseUrl).origin });
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const setWorkosSessionCookie = async (page: Page, baseUrl: string, cookie: string) => {
+  await page.context().addCookies([
+    {
+      name: "wos-session",
+      value: cookieValue(cookie),
+      url: baseUrl,
+    },
+  ]);
+};
+
+const expectOrgShell = async (
+  page: Page,
+  org: { readonly name: string; readonly slug: string },
+) => {
+  await page.waitForURL(
+    (url) => url.pathname === `/${org.slug}` || url.pathname === `/${org.slug}/`,
+    {
+      timeout: 30_000,
+    },
+  );
+  await page.getByRole("button", { name: new RegExp(escapeRegExp(org.name)) }).waitFor();
+  await page.getByRole("heading", { name: "Integrations" }).waitFor();
+};
+
+const installSameWindowOAuthPopup = async (page: Page) => {
+  await page.addInitScript(() => {
+    window.open = () =>
+      ({
+        get closed() {
+          return false;
+        },
+        close() {},
+        focus() {},
+        location: {
+          get href() {
+            return window.location.href;
+          },
+          set href(value: string) {
+            window.location.assign(String(value));
+          },
+        },
+      }) as Window;
+  });
+};
+
+const submitProviderLoginFromPage = async (page: Page): Promise<string> =>
+  fetch(page.url(), {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      authorization: `Basic ${Buffer.from("alice:password").toString("base64")}`,
+    },
+  }).then((response) => {
+    const location = response.headers.get("location");
+    if (response.status !== 302 || !location) {
+      throw new Error(`provider did not return callback location (${response.status})`);
+    }
+    return new URL(location, page.url()).toString();
+  });
 
 const activeOrg = (baseUrl: string, cookie: string) =>
   Effect.promise(async () => {
@@ -130,16 +190,7 @@ scenario(
     );
     expect(orgB.slug, "the test has two distinct org URLs").not.toBe(orgA.slug);
 
-    const scopedToOrgAWithCookieB: Identity = {
-      ...identity,
-      headers: {
-        cookie: sessionB,
-        [EXECUTOR_ORG_SELECTOR_HEADER]: orgA.slug,
-      },
-      cookies: [{ name: "wos-session", value: cookieValue(sessionB) }],
-    };
-
-    const client = yield* makeApiClient(api, scopedToOrgAWithCookieB);
+    const client = yield* makeApiClient(api, identity);
 
     const integration = IntegrationSlug.make(unique("oauthscope"));
     yield* client.openapi.addSpec({
@@ -159,42 +210,42 @@ scenario(
       },
     });
 
-    const started = yield* client.oauth.start({
-      payload: {
-        client: clientSlug,
-        clientOwner: "org",
-        owner: "org",
-        name: ConnectionName.make("main"),
-        integration,
-        template: AuthTemplateSlug.make("oauth"),
-      },
-    });
-    expect(started.status, "oauth.start begins at the provider").toBe("redirect");
-    const authorizationUrl = started.status === "redirect" ? started.authorizationUrl : "";
+    let callback = new URL("http://invalid.example");
+    yield* browser.session(identity, async ({ page, step }) => {
+      await installSameWindowOAuthPopup(page);
 
-    const authorize = yield* Effect.promise(() => fetch(authorizationUrl, { redirect: "manual" }));
-    expect(authorize.status, "the provider asks the user to log in").toBe(302);
-    const consent = yield* Effect.promise(() =>
-      fetch(authorize.headers.get("location") ?? "", {
-        method: "POST",
-        redirect: "manual",
-        headers: {
-          authorization: `Basic ${Buffer.from("alice:password").toString("base64")}`,
-        },
-      }),
-    );
-    expect(consent.status, "provider consent redirects back to Executor").toBe(302);
-    const callback = new URL(consent.headers.get("location") ?? "");
-    const callbackPath = `${callback.pathname}${callback.search}`;
+      await step("Land in the original organization", async () => {
+        await page.goto(`/${orgA.slug}`, { waitUntil: "networkidle" });
+        await expectOrgShell(page, orgA);
+      });
 
-    yield* browser.session(scopedToOrgAWithCookieB, async ({ page, step }) => {
-      await step(
-        "Provider returns to the OAuth callback while the cookie is pinned to org B",
-        async () => {
-          const response = await page.goto(callbackPath, { waitUntil: "networkidle" });
-          expect(response?.status(), "the callback renders its popup result page").toBe(200);
-        },
-      );
+      await step("The browser session is switched to another organization", async () => {
+        await setWorkosSessionCookie(page, target.baseUrl, sessionB);
+        await page.goto(`/${orgB.slug}`, { waitUntil: "networkidle" });
+        await expectOrgShell(page, orgB);
+      });
+
+      await step("Start OAuth from the original organization's add-connection flow", async () => {
+        await page.goto(`/${orgA.slug}/integrations/${String(integration)}?addAccount=1`, {
+          waitUntil: "networkidle",
+        });
+        await page.getByRole("heading", { name: /Add connection/ }).waitFor({
+          timeout: 30_000,
+        });
+        await page.getByRole("button", { name: "Connect with OAuth" }).click();
+        await page.waitForURL(
+          (url) => url.origin === new URL(oauth.issuerUrl).origin && url.pathname === "/login",
+          { timeout: 30_000 },
+        );
+        await page.getByText("OAuth test login").waitFor();
+      });
+
+      await step("The provider returns to the OAuth callback", async () => {
+        const callbackUrl = await submitProviderLoginFromPage(page);
+        callback = new URL(callbackUrl);
+        const response = await page.goto(callbackUrl, { waitUntil: "networkidle" });
+        expect(response?.status(), "the callback renders its popup result page").toBe(200);
+      });
 
       const body = (await page.locator("body").textContent())?.trim() ?? "";
       expect(
