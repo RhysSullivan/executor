@@ -18,7 +18,7 @@
 import { AuthTemplateSlug } from "@executor-js/sdk/shared";
 import type { AuthMethodDescriptor } from "@executor-js/sdk/shared";
 
-export type Carrier = "header" | "query";
+export type Carrier = "header" | "query" | "env";
 
 export interface Placement {
   readonly carrier: Carrier;
@@ -87,6 +87,9 @@ export function placementLabel(placement: Placement): string {
   if (placement.carrier === "header") {
     return `${placement.name || "Authorization"} header`;
   }
+  if (placement.carrier === "env") {
+    return `${placement.name || "TOKEN"} env var`;
+  }
   return `${placement.name || "api_key"} query param`;
 }
 
@@ -100,7 +103,9 @@ export function PlacementLine(props: { readonly placement: Placement; readonly m
   const lead =
     placement.carrier === "header"
       ? `${placement.name || "Authorization"}: `
-      : `?${placement.name || "api_key"}=`;
+      : placement.carrier === "env"
+        ? `${placement.name || "TOKEN"}=`
+        : `?${placement.name || "api_key"}=`;
   return (
     <span className="inline-flex items-center font-mono text-xs text-muted-foreground">
       {lead}

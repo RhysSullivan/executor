@@ -50,13 +50,16 @@ export default function McpAccountsPanel(props: {
   const remote = config !== null && config.transport === "remote" ? config : null;
 
   const existingTemplate = useMemo<readonly McpAuthMethod[]>(
-    () => remote?.authenticationTemplate ?? [],
-    [remote],
+    () => config?.authenticationTemplate ?? [],
+    [config],
   );
 
+  // Stdio servers declare a `stdio_env` / `none` method too, so their
+  // auto-created connection and its env credentials surface here. The endpoint
+  // only feeds remote oauth methods' probe URL; stdio has none.
   const methods = useMemo<readonly AuthMethod[]>(
-    () => (remote ? authMethodsFromConfig(existingTemplate, remote.endpoint) : []),
-    [existingTemplate, remote],
+    () => (config ? authMethodsFromConfig(existingTemplate, remote?.endpoint ?? "") : []),
+    [existingTemplate, config, remote],
   );
 
   const configure = useCallback<ConfigureAuthMethods<McpAuthMethod>>(

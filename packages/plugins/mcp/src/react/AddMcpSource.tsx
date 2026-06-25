@@ -18,7 +18,7 @@ import {
 import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Input } from "@executor-js/react/components/input";
 import { Spinner } from "@executor-js/react/components/spinner";
-import { Textarea } from "@executor-js/react/components/textarea";
+import { TagInput } from "@executor-js/react/components/tag-input";
 import {
   integrationDisplayNameFromUrl,
   slugifyNamespace,
@@ -47,14 +47,6 @@ import { mcpPresets, type McpPreset } from "../sdk/presets";
 // 401 without OAuth → a bearer-header row; open server → a no-auth row) and
 // the user can add alternate methods (e.g. an API key alongside OAuth, or a
 // declared method on a server that advertises none).
-
-const STDIO_ENV_ESCAPE_REPLACEMENTS: Readonly<Record<string, string>> = {
-  "\\": "\\",
-  n: "\n",
-  r: "\r",
-  t: "\t",
-  '"': '"',
-};
 
 // ---------------------------------------------------------------------------
 // Preset lookup
@@ -180,7 +172,7 @@ export default function AddMcpSource(props: {
   const [stdioArgs, setStdioArgs] = useState(
     isStdioPreset && preset.args ? preset.args.join(" ") : "",
   );
-  const [stdioEnv, setStdioEnv] = useState("");
+  const [stdioEnvVars, setStdioEnvVars] = useState<string[]>([]);
   const stdioIdentity = useIntegrationIdentity({
     fallbackName: isStdioPreset ? preset.name : stdioCommand,
   });
@@ -352,36 +344,6 @@ export default function AddMcpSource(props: {
     return args;
   };
 
-  const parseStdioEnvValue = (raw: string): string => {
-    const value = raw.trim();
-    if (value.length < 2) return value;
-
-    const quote = value[0];
-    if ((quote !== '"' && quote !== "'") || value[value.length - 1] !== quote) {
-      return value;
-    }
-
-    const inner = value.slice(1, -1);
-    if (quote === "'") return inner;
-
-    return inner.replace(
-      /\\([\\nrt"])/g,
-      (_, escaped: string) => STDIO_ENV_ESCAPE_REPLACEMENTS[escaped] ?? escaped,
-    );
-  };
-
-  const parseStdioEnv = (raw: string): Record<string, string> | undefined => {
-    if (!raw.trim()) return undefined;
-    const env: Record<string, string> = {};
-    for (const line of raw.split("\n")) {
-      const eq = line.indexOf("=");
-      if (eq > 0) {
-        env[line.slice(0, eq).trim()] = parseStdioEnvValue(line.slice(eq + 1));
-      }
-    }
-    return Object.keys(env).length > 0 ? env : undefined;
-  };
-
   const handleAddStdio = useCallback(async () => {
     const cmd = stdioCommand.trim();
     if (!cmd) return;
@@ -396,7 +358,7 @@ export default function AddMcpSource(props: {
         ...(slug ? { slug } : {}),
         command: cmd,
         args: parseStdioArgs(stdioArgs),
-        env: parseStdioEnv(stdioEnv),
+        envVars: stdioEnvVars.length > 0 ? stdioEnvVars : undefined,
       },
       reactivityKeys: integrationWriteKeys,
     });
@@ -406,7 +368,7 @@ export default function AddMcpSource(props: {
       return;
     }
     props.onComplete(exit.value.slug);
-  }, [stdioCommand, stdioArgs, stdioEnv, stdioIdentity, doAddServer, props]);
+  }, [stdioCommand, stdioArgs, stdioEnvVars, stdioIdentity, doAddServer, props]);
 
   // ---- Render ----
 
@@ -548,15 +510,12 @@ export default function AddMcpSource(props: {
 
               <CardStackEntryField
                 label="Environment variables"
-                description="- One per line, KEY=value format."
+                description="- Names only; secret values are entered when you connect."
               >
-                <Textarea
-                  value={stdioEnv}
-                  onChange={(e) => setStdioEnv((e.target as HTMLTextAreaElement).value)}
-                  placeholder={"KEY=value\nANOTHER=value"}
-                  rows={3}
-                  maxRows={10}
-                  className="font-mono text-sm"
+                <TagInput
+                  values={stdioEnvVars}
+                  onChange={setStdioEnvVars}
+                  placeholder="Add an env var, e.g. GITHUB_TOKEN"
                 />
               </CardStackEntryField>
             </CardStackContent>

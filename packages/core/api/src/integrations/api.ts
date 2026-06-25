@@ -31,7 +31,7 @@ const IntegrationParams = { slug: IntegrationSlug };
 /** Where a credential value is carried — mirrors the SDK's
  *  `AuthPlacementDescriptor`. */
 const PlacementDescriptor = Schema.Struct({
-  carrier: Schema.Literals(["header", "query"]),
+  carrier: Schema.Literals(["header", "query", "env"]),
   name: Schema.String,
   prefix: Schema.String,
   /** Input variable this placement renders from (absent ⇒ `token`). Without

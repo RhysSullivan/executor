@@ -36,6 +36,7 @@ const toServerInput = (
       description?: string;
       command: string;
       args?: readonly string[];
+      envVars?: readonly string[];
       env?: Record<string, string>;
       cwd?: string;
       slug?: string;
@@ -46,6 +47,7 @@ const toServerInput = (
       description: p.description,
       command: p.command,
       args: p.args ? [...p.args] : undefined,
+      envVars: p.envVars ? [...p.envVars] : undefined,
       env: p.env,
       cwd: p.cwd,
       slug: p.slug,
