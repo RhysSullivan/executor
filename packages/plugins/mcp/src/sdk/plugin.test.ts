@@ -475,6 +475,55 @@ describe("mcpPlugin", () => {
     ),
   );
 
+  it.effect(
+    "backfills a default connection for existing stdio MCP servers with no connections",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fixture = yield* Effect.acquireRelease(
+            Effect.sync(makeStdioMcpFixture),
+            ({ dir }) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
+          );
+          const executor = yield* createExecutor(
+            makeTestConfig({
+              plugins: [
+                memoryCredentialsPlugin(),
+                mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+              ] as const,
+            }),
+          );
+          const integration = IntegrationSlug.make("stdio_backfill");
+
+          yield* executor.mcp.addServer({
+            transport: "stdio",
+            name: "Stdio MCP Backfill",
+            command: fixture.command,
+            args: fixture.args,
+            slug: String(integration),
+          });
+          yield* executor.connections.remove({
+            owner: "org",
+            integration,
+            name: ConnectionName.make("default"),
+          });
+
+          expect(yield* executor.connections.list({ integration })).toHaveLength(0);
+          yield* executor.mcp.getServer(String(integration));
+
+          const connections = yield* executor.connections.list({ integration });
+          const tools = (yield* executor.tools.list()).filter(
+            (tool) => String(tool.integration) === String(integration),
+          );
+
+          expect(connections).toHaveLength(1);
+          expect(connections[0]?.address).toBe("tools.stdio_backfill.org.default");
+          expect(tools.map((tool) => String(tool.address))).toEqual([
+            "tools.stdio_backfill.org.default.hello",
+          ]);
+        }),
+      ),
+  );
+
   it.effect("removing an MCP server removes the OAuth client used by its connection", () =>
     Effect.scoped(
       Effect.gen(function* () {

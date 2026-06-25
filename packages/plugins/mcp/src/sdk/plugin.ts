@@ -752,6 +752,57 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           }),
         );
 
+      const defaultStdioConnectionRef = (integration: IntegrationSlug) => ({
+        owner: "org" as const,
+        name: DEFAULT_STDIO_CONNECTION_NAME,
+        integration,
+      });
+
+      const defaultStdioConnectionFailure = (message: string) =>
+        new McpConnectionError({
+          transport: "stdio",
+          message: `Failed creating the default stdio MCP connection: ${message}`,
+        });
+
+      const refreshDefaultStdioConnection = (integration: IntegrationSlug) =>
+        ctx.connections.refresh(defaultStdioConnectionRef(integration)).pipe(
+          Effect.asVoid,
+          Effect.catchTags({
+            ConnectionNotFoundError: (error) =>
+              Effect.fail(defaultStdioConnectionFailure(error.message)),
+            IntegrationNotFoundError: (error) =>
+              Effect.fail(defaultStdioConnectionFailure(error.message)),
+          }),
+        );
+
+      const ensureDefaultStdioConnection = (integration: IntegrationSlug, slug: string) =>
+        Effect.gen(function* () {
+          const connections = yield* ctx.connections.list({ integration });
+          if (connections.length > 0) return;
+
+          yield* ctx.connections
+            .create({
+              ...defaultStdioConnectionRef(integration),
+              template: NO_AUTH_TEMPLATE,
+              values: {},
+            })
+            .pipe(
+              Effect.asVoid,
+              Effect.catchTags({
+                CredentialProviderNotRegisteredError: (error) =>
+                  Effect.fail(defaultStdioConnectionFailure(error.message)),
+                IntegrationNotFoundError: (error) =>
+                  Effect.fail(defaultStdioConnectionFailure(error.message)),
+                InvalidConnectionInputError: (error) =>
+                  Effect.fail(defaultStdioConnectionFailure(error.message)),
+                UniqueViolationError: () => refreshDefaultStdioConnection(integration),
+              }),
+              Effect.withSpan("mcp.plugin.ensure_stdio_default_connection", {
+                attributes: { "mcp.integration.slug": slug },
+              }),
+            );
+        });
+
       const addServer = (input: McpServerInput) =>
         Effect.gen(function* () {
           const slug = normalizeSlug(input);
@@ -785,49 +836,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             );
 
           if (config.transport === "stdio") {
-            yield* ctx.connections
-              .create({
-                owner: "org",
-                name: DEFAULT_STDIO_CONNECTION_NAME,
-                integration,
-                template: NO_AUTH_TEMPLATE,
-                values: {},
-              })
-              .pipe(
-                Effect.catchTags({
-                  CredentialProviderNotRegisteredError: (error) =>
-                    Effect.fail(
-                      new McpConnectionError({
-                        transport: "stdio",
-                        message: `Failed creating the default stdio MCP connection: ${error.message}`,
-                      }),
-                    ),
-                  IntegrationNotFoundError: (error) =>
-                    Effect.fail(
-                      new McpConnectionError({
-                        transport: "stdio",
-                        message: `Failed creating the default stdio MCP connection: ${error.message}`,
-                      }),
-                    ),
-                  InvalidConnectionInputError: (error) =>
-                    Effect.fail(
-                      new McpConnectionError({
-                        transport: "stdio",
-                        message: `Failed creating the default stdio MCP connection: ${error.message}`,
-                      }),
-                    ),
-                  UniqueViolationError: () =>
-                    Effect.fail(
-                      new McpConnectionError({
-                        transport: "stdio",
-                        message: `Failed creating the default stdio MCP connection: a default connection already exists for ${slug}. Refresh the connection or remove and re-add the MCP server.`,
-                      }),
-                    ),
-                }),
-                Effect.withSpan("mcp.plugin.create_stdio_default_connection", {
-                  attributes: { "mcp.integration.slug": slug },
-                }),
-              );
+            yield* ensureDefaultStdioConnection(integration, slug);
           }
 
           return { slug };
@@ -916,14 +925,28 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         );
 
       const getServer = (slug: string) =>
-        ctx.core.integrations.get(slugFrom(slug)).pipe(
+        Effect.gen(function* () {
+          const integration = slugFrom(slug);
+          const record = yield* ctx.core.integrations.get(integration);
+          const config = record ? parseMcpIntegrationConfig(record.config) : null;
+          if (config?.transport === "stdio") {
+            yield* ensureDefaultStdioConnection(integration, slug);
+          }
+          return record;
+        }).pipe(
           Effect.withSpan("mcp.plugin.get_server", {
             attributes: { "mcp.integration.slug": slug },
           }),
         );
 
       const configureServer = (slug: string, config: McpIntegrationConfigType) =>
-        ctx.core.integrations.update(slugFrom(slug), { config }).pipe(
+        Effect.gen(function* () {
+          const integration = slugFrom(slug);
+          yield* ctx.core.integrations.update(integration, { config });
+          if (config.transport === "stdio") {
+            yield* ensureDefaultStdioConnection(integration, slug);
+          }
+        }).pipe(
           Effect.withSpan("mcp.plugin.configure_server", {
             attributes: { "mcp.integration.slug": slug },
           }),
