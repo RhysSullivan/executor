@@ -89,6 +89,11 @@ const apiKeyTemplate = [
   },
 ] as const;
 
+// The approval-gated core tool used by the pause+resume scenario below. It
+// gates on its own `requiresApproval` annotation (no policy needed), so a direct
+// transparent-mode call pauses, and resuming it exercises the resume formatter.
+const POLICY_CREATE_TOOL = "executor.coreTools.policies.create";
+
 scenario(
   "MCP · ?codemode=false dumps every tool directly instead of `execute`",
   { timeout: 120_000 },
@@ -207,6 +212,82 @@ scenario(
             .remove({ params: { policyId: policy.id }, payload: { owner: "org" } })
             .pipe(Effect.ignore),
         );
+      }),
+      cleanup,
+    );
+  }),
+);
+
+// Result-shape parity across the pause boundary. A transparent-mode tool that
+// pauses for approval and then resumes must return the SAME shape it would have
+// returned without pausing: the tool's own result, unwrapped from the
+// `ToolResult` envelope. The `resume` machinery is shared with code mode, where a
+// completion is an `execute` envelope (`{ status, result, logs }`); a regression
+// here formatted the resumed direct-tool result that same way, so a transparent
+// client got the code-mode envelope instead of the policy fields. This drives the
+// approval-gated `policies.create` through pause -> approve -> resume and asserts
+// the resumed structured content is the policy itself.
+scenario(
+  "MCP · ?codemode=false keeps the unwrapped tool result across an approval pause+resume",
+  { timeout: 120_000 },
+  Effect.gen(function* () {
+    const target = yield* Target;
+    const { client } = yield* Api;
+    const mcp = yield* Mcp;
+    const identity = yield* target.newIdentity();
+    const apiClient = yield* client(api, identity);
+
+    // Unique, non-matching pattern: the rule the gated tool creates is inert and
+    // cannot gate any other scenario's tools. Removed in the finalizer.
+    const nonce = randomBytes(4).toString("hex");
+    const pattern = `codemode-resume-${nonce}.gate`;
+
+    const cleanup = apiClient.policies.list().pipe(
+      Effect.flatMap((list) =>
+        Effect.forEach(
+          list.filter((p) => p.pattern === pattern),
+          (p) =>
+            apiClient.policies
+              .remove({ params: { policyId: p.id }, payload: { owner: "org" } })
+              .pipe(Effect.ignore),
+        ),
+      ),
+      Effect.ignore,
+    );
+
+    yield* Effect.ensuring(
+      Effect.gen(function* () {
+        const transparent = mcp.session(identity, { codeMode: false });
+        yield* transparent.listTools();
+
+        // Direct by-name call to the approval-gated tool. No policy is in play, so
+        // the only thing that can pause it is its own `requiresApproval`
+        // annotation. The paused result carries the executionId to resume.
+        const paused = yield* transparent.call(POLICY_CREATE_TOOL, {
+          owner: "org",
+          pattern,
+          action: "block",
+        });
+        expect(paused.text, "the gated tool paused for approval").toContain("Execution paused");
+        expect(paused.text, "the paused result carries an executionId").toContain("executionId:");
+
+        // Approve and resume.
+        const resumed = yield* transparent.approvePaused(paused.text);
+        expect(resumed.ok, "the resumed call completed without error").toBe(true);
+
+        const structured = (resumed.raw as { structuredContent?: Record<string, unknown> })
+          .structuredContent;
+        // Fixed shape: the tool's own result, so the policy fields sit at the top
+        // level. Buggy shape: the code-mode `execute` envelope, where the policy
+        // would be nested under `result` and `pattern` absent at the top level.
+        expect(
+          structured?.pattern,
+          "the resumed result is the unwrapped tool result (policy fields at the top level)",
+        ).toBe(pattern);
+        expect(
+          structured?.result,
+          "the code-mode execute envelope (status/result/logs) is not used in transparent mode",
+        ).toBeUndefined();
       }),
       cleanup,
     );

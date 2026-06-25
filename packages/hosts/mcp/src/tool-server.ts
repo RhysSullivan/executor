@@ -705,6 +705,16 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         }),
       );
 
+    // `resume` is shared by both modes, but a paused execution can only have
+    // originated from the tool that this session registered: `execute` in code
+    // mode, a direct single-tool invoke in transparent mode. Format the resumed
+    // completion the same way that origin tool formats a non-paused completion,
+    // so a tool returns an identically-shaped result whether or not it paused.
+    // In transparent mode that means unwrapping the `ToolResult` envelope (so
+    // `data` renders natively and a failed `ToolResult` carries `isError`)
+    // rather than emitting the code-mode `execute` envelope.
+    const formatResumeCompletion = codeMode ? toMcpResult : toNonCodeMcpResult;
+
     const resumeExecution = (
       executionId: string,
       action: "accept" | "decline" | "cancel",
@@ -732,7 +742,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
               : undefined,
         });
         return outcome.status === "completed"
-          ? toMcpResult(outcome.result)
+          ? formatResumeCompletion(outcome.result)
           : toMcpPausedResult(formatPausedExecution(outcome.execution));
       }).pipe(
         Effect.withSpan("mcp.host.tool.resume", {
@@ -795,7 +805,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           return missingExecutionResult(executionId);
         }
         return outcome.status === "completed"
-          ? toMcpResult(outcome.result)
+          ? formatResumeCompletion(outcome.result)
           : yield* requireUserResumeApproval(outcome.execution.id);
       }).pipe(
         Effect.withSpan("mcp.host.tool.resume.browser_approval", {
