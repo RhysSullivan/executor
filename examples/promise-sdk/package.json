@@ -16,6 +16,6 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "typescript": "latest"
+    "typescript": "7.0.1-rc"
   }
 }

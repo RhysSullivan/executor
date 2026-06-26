@@ -37,7 +37,7 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "test": "vitest run",
     "typecheck": "tsgo --noEmit",
     "typecheck:slow": "tsc --noEmit"

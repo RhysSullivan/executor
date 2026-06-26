@@ -1,4 +1,8 @@
-import * as ts from "typescript";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 export type OutputTypeScriptContract = {
   readonly outputTypeScript?: string;
@@ -11,6 +15,18 @@ export type TypeCheckOutputTypeScriptOptions = {
   readonly typeName?: string;
   readonly valueName?: string;
 };
+
+// TypeScript 7 (the native compiler) removed the classic `require("typescript")`
+// JS API, so we type-check the synthesized snippet by invoking the native `tsgo`
+// binary against a throwaway file. The binary is resolved through the
+// `@typescript/native-preview` shim, which locates the right platform build.
+const resolveTsgoShim = (): string => {
+  const require = createRequire(import.meta.url);
+  const packageJson = require.resolve("@typescript/native-preview/package.json");
+  return path.join(path.dirname(packageJson), "bin", "tsgo.js");
+};
+
+const ERROR_LINE = /: error TS\d+:/;
 
 export const typeCheckOutputTypeScript = (
   contract: OutputTypeScriptContract | null | undefined,
@@ -33,34 +49,32 @@ export const typeCheckOutputTypeScript = (
     options.consumerSource ?? `${valueName};`,
   ].join("\n");
 
-  const compilerOptions: ts.CompilerOptions = {
-    module: ts.ModuleKind.ESNext,
-    noEmit: true,
-    skipLibCheck: true,
-    strict: true,
-    target: ts.ScriptTarget.ES2022,
-  };
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile.bind(host);
-  const originalReadFile = host.readFile.bind(host);
-  const originalFileExists = host.fileExists.bind(host);
-
-  host.getSourceFile = (candidate, languageVersion, onError, shouldCreateNewSourceFile) => {
-    if (candidate === fileName) {
-      return ts.createSourceFile(candidate, source, languageVersion, true);
-    }
-    return originalGetSourceFile(candidate, languageVersion, onError, shouldCreateNewSourceFile);
-  };
-  host.readFile = (candidate) => (candidate === fileName ? source : originalReadFile(candidate));
-  host.fileExists = (candidate) => candidate === fileName || originalFileExists(candidate);
-
-  const program = ts.createProgram([fileName], compilerOptions, host);
-  return ts.getPreEmitDiagnostics(program).map((diagnostic) => {
-    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
-    if (!diagnostic.file || diagnostic.start === undefined) {
-      return message;
-    }
-    const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-    return `${diagnostic.file.fileName}:${position.line + 1}:${position.character + 1} ${message}`;
-  });
+  const dir = mkdtempSync(path.join(tmpdir(), "tool-output-contract-"));
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: sync test helper that spawns the native tsgo compiler over a throwaway temp dir; the finally guarantees temp-dir cleanup, no Effect runtime in scope
+  try {
+    writeFileSync(path.join(dir, fileName), source);
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolveTsgoShim(),
+        "--noEmit",
+        "--strict",
+        "--skipLibCheck",
+        "--target",
+        "es2022",
+        "--module",
+        "esnext",
+        "--pretty",
+        "false",
+        fileName,
+      ],
+      { cwd: dir, encoding: "utf8" },
+    );
+    return `${result.stdout ?? ""}\n${result.stderr ?? ""}`
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => ERROR_LINE.test(line));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 };

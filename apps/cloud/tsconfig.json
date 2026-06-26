@@ -8,7 +8,7 @@
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types"],
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "../..",
     "declaration": false,
     "declarationMap": false,
     "sourceMap": true,

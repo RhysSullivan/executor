@@ -1,0 +1,26 @@
+diff --git a/dist/index.js b/dist/index.js
+index eff27819d14d659a39c50e6cf51516e11648d20b..e95a8a1c2f3a6385690435bb64ade92add7a7526 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1024,7 +1024,7 @@ var terserPlugin = ({
+ // src/tsc.ts
+ 
+ 
+-var _typescript = require('typescript'); var _typescript2 = _interopRequireDefault(_typescript);
++var _typescript; try { _typescript = require('typescript'); } catch (e) { _typescript = {}; } var _typescript2 = _interopRequireDefault(_typescript);
+ var logger = _chunkVGC3FXLUjs.createLogger.call(void 0, );
+ var AliasPool = (_class = class {constructor() { _class.prototype.__init.call(this); }
+   __init() {this.seen = /* @__PURE__ */ new Set()}
+diff --git a/dist/rollup.js b/dist/rollup.js
+index e128b61b9558318b9f86dc11d72c31f09a8eb7db..84033d81096d1d9242c63c5de05c4b4af2a5c842 100644
+--- a/dist/rollup.js
++++ b/dist/rollup.js
+@@ -6465,7 +6465,7 @@ export { ${[...exportedNames].join(", ")} };
+ // src/rollup.ts
+ var _worker_threads = require('worker_threads');
+ var _path = require('path'); var _path2 = _interopRequireDefault(_path);
+-var _typescript = require('typescript'); var _typescript2 = _interopRequireDefault(_typescript);
++var _typescript; try { _typescript = require('typescript'); } catch (e) { _typescript = {}; } var _typescript2 = _interopRequireDefault(_typescript);
+ 
+ // node_modules/.pnpm/@rollup+pluginutils@5.3.0_rollup@4.53.2/node_modules/@rollup/pluginutils/dist/es/index.js
+ 
