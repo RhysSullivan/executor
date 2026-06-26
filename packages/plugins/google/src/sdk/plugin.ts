@@ -41,7 +41,6 @@ import {
   googleOpenApiBundlePreset,
   googlePhotosOpenApiBundlePreset,
   googlePhotosOpenApiPresets,
-  googlePhotosPresetIds,
 } from "./presets";
 
 export interface GoogleBundleConfig {
@@ -74,9 +73,9 @@ export interface GooglePluginOptions {
 
 const DEFAULT_GOOGLE_SLUG = "google";
 
-const googlePhotosBundleUrls = new Set(
+const googlePhotosBundlePresetIdByUrl = new Map(
   googlePhotosOpenApiPresets.flatMap((preset) =>
-    preset.url ? [normalizeGoogleDiscoveryUrl(preset.url) ?? preset.url] : [],
+    preset.url ? [[normalizeGoogleDiscoveryUrl(preset.url) ?? preset.url, preset.id] as const] : [],
   ),
 );
 
@@ -84,10 +83,12 @@ const googlePhotosBundleConsentScopes = (
   urls: readonly string[],
 ): readonly string[] | undefined => {
   const normalized = new Set(urls);
-  for (const url of googlePhotosBundleUrls) {
-    if (!normalized.has(url)) return undefined;
-  }
-  return googlePhotosPresetIds.flatMap((presetId) => googleOAuthConsentScopesForPreset(presetId));
+  const presetIds = [...googlePhotosBundlePresetIdByUrl.entries()].flatMap(([url, presetId]) =>
+    normalized.has(url) ? [presetId] : [],
+  );
+  return presetIds.length > 0
+    ? presetIds.flatMap((presetId) => googleOAuthConsentScopesForPreset(presetId))
+    : undefined;
 };
 
 const fetchGoogleBundleConversion = (
