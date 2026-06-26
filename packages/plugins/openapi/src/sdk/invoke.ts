@@ -782,11 +782,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
         binaryBody?.ok === true && !octetStreamContent && isOctetStream(rb.contentType)
           ? rb.contentType
           : (selected?.contentType ?? rb.contentType);
-      if (
-        isOctetStream(chosenCt) &&
-        typeof bodyValue !== "string" &&
-        toUint8Array(bodyValue) === null
-      ) {
+      if (isOctetStream(chosenCt) && toUint8Array(bodyValue) === null) {
         return yield* new OpenApiInvocationError({
           message: "application/octet-stream request body must be bytes; provide `bodyBase64`",
           statusCode: Option.none(),
