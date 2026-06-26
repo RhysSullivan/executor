@@ -13,6 +13,7 @@ import { CodeExecutionError } from "@executor-js/codemode-core";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor-js/codemode-core";
 
 import {
+  pathToAddress,
   defaultToolDiscoveryProvider,
   makeExecutorToolInvoker,
   listExecutorSources,
@@ -40,6 +41,33 @@ export type PausedExecution = {
   readonly id: string;
   readonly elicitationContext: ElicitationContext;
 };
+
+/** One ranked hit from the non-code-mode `search` tool. `name` is the
+ *  sandbox-callable path (`<integration>.<owner>.<connection>.<tool>` or a
+ *  static fqid), which doubles as the wire name a client passes to `invoke`.
+ *  `inputSchema` is self-contained JSON Schema so the hit can be called
+ *  directly without a second round-trip. */
+export type ToolSearchResult = {
+  readonly name: string;
+  readonly description?: string;
+  readonly inputSchema: unknown;
+};
+
+/** A page of {@link ToolSearchResult}s. `total` is the match count before
+ *  pagination so the caller can tell it was truncated; `nextOffset` is the
+ *  offset to pass back for the next page, or null at the end. */
+export type ToolSearchPage = {
+  readonly items: readonly ToolSearchResult[];
+  readonly total: number;
+  readonly hasMore: boolean;
+  readonly nextOffset: number | null;
+};
+
+/** Default and ceiling for `search` page size. Search returns each hit's full
+ *  self-contained schema, so the page is bounded to keep the response small
+ *  even when the catalog has tens of thousands of tools. */
+export const DEFAULT_SEARCH_LIMIT = 10;
+export const MAX_SEARCH_LIMIT = 25;
 
 /** Internal representation with Effect runtime state for pause/resume. */
 type InternalPausedExecution<E> = PausedExecution & {
@@ -209,6 +237,39 @@ const readOptionalOffset = (value: unknown, toolName: string): number | Executio
 
   return Math.floor(value);
 };
+
+/** Pull a human-readable message off an engine-level invoke failure (always an
+ *  `ExecutionToolError` once the base invoker has mapped expected failures into
+ *  the success channel), falling back to a string render. */
+// oxlint-disable executor/no-unknown-error-message -- boundary: SandboxToolInvoker.invoke declares an `unknown` error channel (kernel contract); the tag guard narrows it to ExecutionToolError before rendering, with a String() fallback for the impossible-defect case
+const toolErrorMessage = (error: unknown): string =>
+  Predicate.isTagged(error, "ExecutionToolError") &&
+  "message" in error &&
+  typeof error.message === "string"
+    ? error.message
+    : String(error);
+// oxlint-enable executor/no-unknown-error-message
+
+/**
+ * Invoke a single tool through the base invoker and normalize the outcome into
+ * an `ExecuteResult`. The base invoker already routes expected tool failures
+ * (HTTP errors, auth walls, not-found, bad args) into the success channel as a
+ * `ToolResult` envelope; only engine-level failures (user-declined approval,
+ * opaque defects) reach the error channel, and those become `result.error`.
+ * Shared by the native and pause-mode non-code-mode paths so both render the
+ * same way.
+ */
+const invokeToolAsExecuteResult = (
+  invoker: SandboxToolInvoker,
+  name: string,
+  args: unknown,
+): Effect.Effect<ExecuteResult, never> =>
+  invoker.invoke({ path: name, args }).pipe(
+    Effect.map((result): ExecuteResult => ({ result })),
+    Effect.catch((error: unknown) =>
+      Effect.succeed<ExecuteResult>({ result: undefined, error: toolErrorMessage(error) }),
+    ),
+  );
 
 const makeFullInvoker = (
   executor: Executor,
@@ -392,6 +453,34 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
    * Get the dynamic tool description (workflow + namespaces).
    */
   readonly getDescription: Effect.Effect<string>;
+
+  /**
+   * Ranked, paginated tool search backing the non-code-mode `search` tool.
+   * Returns only the matched page (each hit with its self-contained input
+   * schema), so it scales to catalogs far too large to enumerate in one
+   * `listTools`. The lazy-loading counterpart to {@link listTools}.
+   */
+  readonly searchTools: (input: {
+    readonly query: string;
+    readonly limit?: number;
+    readonly offset?: number;
+  }) => Effect.Effect<ToolSearchPage>;
+
+  /**
+   * Invoke a single tool by its wire name with elicitation handled inline by
+   * the provided handler. The non-code-mode counterpart to {@link execute}.
+   */
+  readonly invokeTool: (
+    name: string,
+    args: unknown,
+    options: { readonly onElicitation: ElicitationHandler },
+  ) => Effect.Effect<ExecuteResult, E>;
+
+  /**
+   * Invoke a single tool by its wire name, intercepting an approval gate as a
+   * pause point. The non-code-mode counterpart to {@link executeWithPause}.
+   */
+  readonly invokeToolWithPause: (name: string, args: unknown) => Effect.Effect<ExecutionResult, E>;
 };
 
 export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecutionError>(
@@ -450,83 +539,108 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
     );
 
   /**
-   * Start an execution in pause/resume mode.
+   * Run a sandbox workload in pause/resume mode, generic over what the
+   * workload is: code-mode `codeExecutor.execute`, or a single non-code-mode
+   * tool invoke. The caller builds its own invoker from the supplied
+   * `onElicitation` handler (the full discover/describe invoker for code mode,
+   * the bare invoker for a single tool) so the pause/queue/cleanup machinery
+   * stays shared and identical.
    *
-   * The sandbox is forked as a daemon because paused executions can outlive the
-   * caller scope that returned the first pause, such as an HTTP request handler.
+   * The workload is forked as a daemon because paused executions can outlive
+   * the caller scope that returned the first pause, such as an HTTP request
+   * handler.
    */
-  const startPausableExecution = Effect.fn("mcp.execute")(function* (code: string) {
-    yield* Effect.annotateCurrentSpan({
-      "mcp.execute.mode": "pausable",
-      "mcp.execute.code_length": code.length,
-    });
+  const runWithPause = (
+    run: (onElicitation: ElicitationHandler) => Effect.Effect<ExecuteResult, E>,
+    attributes: Record<string, string | number | boolean>,
+  ): Effect.Effect<ExecutionResult, E> =>
+    Effect.gen(function* () {
+      // Queue preserves pauses that arrive before the previous approval has
+      // returned to the caller, which can happen with concurrent tool calls.
+      const pauseQueue = yield* Queue.unbounded<InternalPausedExecution<E>>();
 
-    // Queue preserves pauses that arrive before the previous approval has
-    // returned to the caller, which can happen with concurrent tool calls.
-    const pauseQueue = yield* Queue.unbounded<InternalPausedExecution<E>>();
+      // Will be set once the fiber is forked.
+      let fiber: Fiber.Fiber<ExecuteResult, E>;
 
-    // Will be set once the fiber is forked.
-    let fiber: Fiber.Fiber<ExecuteResult, E>;
+      const elicitationHandler: ElicitationHandler = (ctx) =>
+        Effect.gen(function* () {
+          const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
+          // Globally unique — engine instances are rebuilt on host restarts
+          // (Durable Object cold restores, redeploys), so a counter would
+          // re-mint the same ids and let a stale client resume bind to a
+          // different execution's pause.
+          const id = `exec_${crypto.randomUUID()}`;
 
-    const elicitationHandler: ElicitationHandler = (ctx) =>
-      Effect.gen(function* () {
-        const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
-        // Globally unique — engine instances are rebuilt on host restarts
-        // (Durable Object cold restores, redeploys), so a counter would
-        // re-mint the same ids and let a stale client resume bind to a
-        // different execution's pause.
-        const id = `exec_${crypto.randomUUID()}`;
+          const paused: InternalPausedExecution<E> = {
+            id,
+            elicitationContext: ctx,
+            response: responseDeferred,
+            fiber: fiber!,
+            pauseQueue,
+          };
+          pausedExecutions.set(id, paused);
 
-        const paused: InternalPausedExecution<E> = {
-          id,
-          elicitationContext: ctx,
-          response: responseDeferred,
-          fiber: fiber!,
-          pauseQueue,
-        };
-        pausedExecutions.set(id, paused);
+          yield* Queue.offer(pauseQueue, paused);
 
-        yield* Queue.offer(pauseQueue, paused);
+          // Suspend until resume() completes responseDeferred.
+          return yield* Deferred.await(responseDeferred);
+        });
 
-        // Suspend until resume() completes responseDeferred.
-        return yield* Deferred.await(responseDeferred);
-      });
+      fiber = yield* Effect.forkDetach(run(elicitationHandler));
 
-    const invoker = makeFullInvoker(
-      executor,
-      { onElicitation: elicitationHandler },
-      toolDiscoveryProvider,
-    );
-    fiber = yield* Effect.forkDetach(
-      codeExecutor.execute(code, invoker).pipe(Effect.withSpan("executor.code.exec")),
-    );
-
-    // When the fiber settles on its own (sandbox timeout, failure) while
-    // pauses are still outstanding, drop them: getPausedExecution must not
-    // report a pause whose fiber can no longer consume a response, and the
-    // map must not grow forever. A resume retry still finds the terminal
-    // outcome via the settled-outcome cache.
-    const sandboxFiber = fiber;
-    yield* Effect.forkDetach(
-      Fiber.await(sandboxFiber).pipe(
-        Effect.flatMap((exit) =>
-          Effect.sync(() => {
-            const outcome = Exit.map(
-              exit,
-              (result): ExecutionResult => ({ status: "completed", result }),
-            );
-            for (const [id, paused] of pausedExecutions) {
-              if (paused.fiber !== sandboxFiber) continue;
-              pausedExecutions.delete(id);
-              recordSettledOutcome(id, outcome);
-            }
-          }),
+      // When the fiber settles on its own (sandbox timeout, failure) while
+      // pauses are still outstanding, drop them: getPausedExecution must not
+      // report a pause whose fiber can no longer consume a response, and the
+      // map must not grow forever. A resume retry still finds the terminal
+      // outcome via the settled-outcome cache.
+      const sandboxFiber = fiber;
+      yield* Effect.forkDetach(
+        Fiber.await(sandboxFiber).pipe(
+          Effect.flatMap((exit) =>
+            Effect.sync(() => {
+              const outcome = Exit.map(
+                exit,
+                (result): ExecutionResult => ({ status: "completed", result }),
+              );
+              for (const [id, paused] of pausedExecutions) {
+                if (paused.fiber !== sandboxFiber) continue;
+                pausedExecutions.delete(id);
+                recordSettledOutcome(id, outcome);
+              }
+            }),
+          ),
         ),
-      ),
+      );
+
+      return (yield* awaitCompletionOrPause(fiber, pauseQueue)) as ExecutionResult;
+    }).pipe(Effect.withSpan("mcp.execute", { attributes }));
+
+  /** Code-mode pause/resume: run the dynamic worker over the full invoker. */
+  const startPausableExecution = (code: string): Effect.Effect<ExecutionResult, E> =>
+    runWithPause(
+      (onElicitation) =>
+        codeExecutor
+          .execute(code, makeFullInvoker(executor, { onElicitation }, toolDiscoveryProvider))
+          .pipe(Effect.withSpan("executor.code.exec")),
+      { "mcp.execute.mode": "pausable", "mcp.execute.code_length": code.length },
     );
 
-    return (yield* awaitCompletionOrPause(fiber, pauseQueue)) as ExecutionResult;
-  });
+  /**
+   * Non-code-mode pause/resume: invoke a single tool by its wire name. The
+   * tool's `ToolResult` envelope (or an engine-level error) is carried back as
+   * an `ExecuteResult` so the host renders it the same way it renders a
+   * code-mode result. Approval-gated tools pause through the same machinery.
+   */
+  const invokeToolWithPause = (name: string, args: unknown): Effect.Effect<ExecutionResult, E> =>
+    runWithPause(
+      (onElicitation) =>
+        invokeToolAsExecuteResult(
+          makeExecutorToolInvoker(executor, { invokeOptions: { onElicitation } }),
+          name,
+          args,
+        ),
+      { "mcp.execute.mode": "pausable_tool", "mcp.tool.name": name },
+    );
 
   /**
    * Resume a paused execution. Completes the response Deferred to unblock the
@@ -602,6 +716,73 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
     return yield* codeExecutor.execute(code, invoker).pipe(Effect.withSpan("executor.code.exec"));
   });
 
+  /**
+   * Non-code-mode inline path: invoke a single tool with elicitation handled
+   * inline by the provided handler (host with native elicitation support).
+   * Mirrors {@link runInlineExecution} for a single tool instead of code.
+   */
+  const invokeToolInline = Effect.fn("mcp.execute")(function* (
+    name: string,
+    args: unknown,
+    options: { readonly onElicitation: ElicitationHandler },
+  ) {
+    yield* Effect.annotateCurrentSpan({
+      "mcp.execute.mode": "inline_tool",
+      "mcp.tool.name": name,
+    });
+    return yield* invokeToolAsExecuteResult(
+      makeExecutorToolInvoker(executor, {
+        invokeOptions: { onElicitation: options.onElicitation },
+      }),
+      name,
+      args,
+    );
+  });
+
+  /**
+   * Ranked, paginated search over the catalog. Reuses the same discovery
+   * provider the code-mode `tools.search()` uses (one consistent ranking),
+   * then enriches the matched page with each hit's self-contained input
+   * schema so a client can invoke directly without a second round-trip. The
+   * page is bounded by {@link MAX_SEARCH_LIMIT}, so the response stays small no
+   * matter how large the catalog is. Storage failures die for the same reason
+   * as {@link listTools}.
+   */
+  const searchTools = (input: {
+    readonly query: string;
+    readonly limit?: number;
+    readonly offset?: number;
+  }): Effect.Effect<ToolSearchPage> =>
+    Effect.gen(function* () {
+      const limit = Math.min(Math.max(input.limit ?? DEFAULT_SEARCH_LIMIT, 1), MAX_SEARCH_LIMIT);
+      const offset = Math.max(input.offset ?? 0, 0);
+      const page = yield* toolDiscoveryProvider.searchTools({
+        executor,
+        query: input.query,
+        limit,
+        offset,
+      });
+      const items = yield* Effect.forEach(
+        page.items,
+        (hit) =>
+          executor.tools.schema(pathToAddress(hit.path)).pipe(
+            Effect.map(
+              (schema): ToolSearchResult => ({
+                name: hit.path,
+                description: hit.description,
+                inputSchema: schema?.inputSchema ?? { type: "object" },
+              }),
+            ),
+          ),
+        { concurrency: "unbounded" },
+      );
+      return { items, total: page.total, hasMore: page.hasMore, nextOffset: page.nextOffset };
+    }).pipe(
+      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: ExecutionEngine.searchTools exposes no error channel; a catalog read the search surface can't recover from dies rather than forcing every caller to thread a typed error
+      Effect.orDie,
+      Effect.withSpan("mcp.search_tools", { attributes: { "mcp.search.query": input.query } }),
+    );
+
   return {
     execute: runInlineExecution,
     executeWithPause: startPausableExecution,
@@ -609,5 +790,8 @@ export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecu
     getPausedExecution: (executionId) =>
       Effect.sync(() => pausedExecutions.get(executionId) ?? null),
     getDescription: buildExecuteDescription(executor),
+    searchTools,
+    invokeTool: invokeToolInline,
+    invokeToolWithPause,
   };
 };

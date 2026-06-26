@@ -56,7 +56,7 @@ const ADDRESS_PREFIX = "tools.";
  * namespaces) are addressed by their fqid with no prefix; the executor resolves
  * those from its static map directly, so leave them untouched.
  */
-const pathToAddress = (path: string): ToolAddress => {
+export const pathToAddress = (path: string): ToolAddress => {
   if (path.startsWith(ADDRESS_PREFIX)) return ToolAddress.make(path);
   if (parseToolAddress(`${ADDRESS_PREFIX}${path}`)) {
     return ToolAddress.make(`${ADDRESS_PREFIX}${path}`);
@@ -66,7 +66,7 @@ const pathToAddress = (path: string): ToolAddress => {
 
 /** Strip the proxy-root `tools.` prefix from a full address so it becomes the
  *  sandbox-callable path the model writes after `tools.`. */
-const addressToPath = (address: string): string =>
+export const addressToPath = (address: string): string =>
   address.startsWith(ADDRESS_PREFIX) ? address.slice(ADDRESS_PREFIX.length) : address;
 
 type DescribedTool = {
