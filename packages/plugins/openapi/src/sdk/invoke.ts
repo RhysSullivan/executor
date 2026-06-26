@@ -272,6 +272,8 @@ const bytesFromBase64Prefix = (base64: string): Uint8Array => {
 const sniffMimeTypeFromBase64 = (base64: string): string | null =>
   sniffMimeType(bytesFromBase64Prefix(base64));
 
+type DecodedBase64Body = { readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false };
+
 const base64ToUint8Array = (value: string): Uint8Array | null => {
   let binary = "";
   // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: atob throws for invalid base64; invalid shapes are treated as non-byte input
@@ -285,6 +287,11 @@ const base64ToUint8Array = (value: string): Uint8Array | null => {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+};
+
+const decodeBase64Body = (value: string): DecodedBase64Body => {
+  const bytes = base64ToUint8Array(value);
+  return bytes ? { ok: true, bytes } : { ok: false };
 };
 
 const toUint8Array = (value: unknown): Uint8Array | null => {
@@ -682,23 +689,63 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 
   if (Option.isSome(operation.requestBody)) {
     const rb = operation.requestBody.value;
+    const contentsOpt = Option.getOrUndefined(rb.contents);
+    const requestedCt = typeof args.contentType === "string" ? args.contentType : undefined;
+    const octetStreamContent = contentsOpt?.find((c) => isOctetStream(c.contentType));
+    const bodyAcceptsOctetStream = Boolean(octetStreamContent) || isOctetStream(rb.contentType);
+    const hasBodyBase64 = Object.prototype.hasOwnProperty.call(args, "bodyBase64");
+    const bodyBase64Raw = args.bodyBase64;
     const bodyBase64 =
-      typeof args.bodyBase64 === "string" ? base64ToUint8Array(args.bodyBase64) : null;
-    const bodyValue = bodyBase64 ?? args.body ?? args.input;
+      typeof bodyBase64Raw === "string" ? decodeBase64Body(bodyBase64Raw) : undefined;
+
+    if (hasBodyBase64 && typeof bodyBase64Raw !== "string") {
+      return yield* new OpenApiInvocationError({
+        message: "`bodyBase64` must be a base64 string",
+        statusCode: Option.none(),
+      });
+    }
+    if (bodyBase64?.ok === false) {
+      return yield* new OpenApiInvocationError({
+        message: "`bodyBase64` is not valid base64",
+        statusCode: Option.none(),
+      });
+    }
+    if (bodyBase64?.ok === true && !bodyAcceptsOctetStream) {
+      return yield* new OpenApiInvocationError({
+        message: "`bodyBase64` requires an application/octet-stream request body",
+        statusCode: Option.none(),
+      });
+    }
+    if (bodyBase64?.ok === true && requestedCt && !isOctetStream(requestedCt)) {
+      return yield* new OpenApiInvocationError({
+        message: "`bodyBase64` requires an application/octet-stream contentType",
+        statusCode: Option.none(),
+      });
+    }
+
+    const bodyValue = bodyBase64?.ok === true ? bodyBase64.bytes : (args.body ?? args.input);
+    if (rb.required && bodyValue === undefined) {
+      return yield* new OpenApiInvocationError({
+        message: bodyAcceptsOctetStream
+          ? "Missing required request body: provide `bodyBase64`"
+          : "Missing required request body",
+        statusCode: Option.none(),
+      });
+    }
     if (bodyValue !== undefined) {
       // Resolve which declared media type to use. When the spec declares
       // multiple, the caller can override via `args.contentType`; otherwise
       // we use the first-declared (spec author's preferred ordering).
-      const contentsOpt = Option.getOrUndefined(rb.contents);
-      const requestedCt = typeof args.contentType === "string" ? args.contentType : undefined;
-      const octetStreamContent = contentsOpt?.find((c) => isOctetStream(c.contentType));
       const selected: MediaBinding | undefined =
-        contentsOpt && requestedCt
-          ? contentsOpt.find((c) => c.contentType === requestedCt)
-          : bodyBase64 && octetStreamContent
-            ? octetStreamContent
+        bodyBase64?.ok === true && octetStreamContent
+          ? octetStreamContent
+          : contentsOpt && requestedCt
+            ? contentsOpt.find((c) => c.contentType === requestedCt)
             : undefined;
-      const chosenCt = selected?.contentType ?? rb.contentType;
+      const chosenCt =
+        bodyBase64?.ok === true && !octetStreamContent && isOctetStream(rb.contentType)
+          ? rb.contentType
+          : (selected?.contentType ?? rb.contentType);
       const chosenEncoding = selected
         ? Option.getOrUndefined(selected.encoding)
         : contentsOpt && contentsOpt[0]

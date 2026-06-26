@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Exit, Schema } from "effect";
 import { FetchHttpClient, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import {
   HttpApi,
@@ -275,6 +275,48 @@ describe("OpenAPI non-JSON request body dispatch", () => {
 
       expect(captured.contentType).toBe("application/octet-stream");
       expect(Array.from(captured.body)).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    }),
+  );
+
+  it.effect("application/octet-stream: invalid bodyBase64 fails before dispatch", () =>
+    Effect.gen(function* () {
+      const { server, captured } = yield* startEchoServer({
+        payload: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "bin_b64_bad" });
+
+      const exit = yield* executor
+        .execute(conn.address("body.submit"), {
+          bodyBase64: "@@",
+        })
+        .pipe(Effect.exit);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(captured.contentType).toBe("");
+      expect(captured.body.length).toBe(0);
+    }),
+  );
+
+  it.effect("application/octet-stream: required body fails before dispatch when missing", () =>
+    Effect.gen(function* () {
+      const { server, captured } = yield* startEchoServer({
+        payload: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+
+      const conn = yield* addOpenApiTestConnection(executor, server, {
+        slug: "bin_b64_missing",
+      });
+
+      const exit = yield* executor.execute(conn.address("body.submit"), {}).pipe(Effect.exit);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(captured.contentType).toBe("");
+      expect(captured.body.length).toBe(0);
     }),
   );
 
@@ -800,6 +842,67 @@ describe("OpenAPI non-JSON request body dispatch", () => {
     }),
   );
 
+  it.effect("multi-content: bodyBase64 rejects a non-octet contentType", () =>
+    Effect.gen(function* () {
+      const { server, captured } = yield* startEchoServer({
+        payload: multiContentPayload,
+        transformSpec: replaceRequestBodyContent("/submit", "post", {
+          "application/json": {
+            schema: { type: "object" },
+          },
+          "application/octet-stream": {
+            schema: { type: "string", format: "binary" },
+          },
+        }),
+      });
+
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "mc_b64_bad_ct" });
+
+      const exit = yield* executor
+        .execute(conn.address("body.submit"), {
+          contentType: "application/json",
+          bodyBase64: "3q2+7w==",
+        })
+        .pipe(Effect.exit);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(captured.contentType).toBe("");
+      expect(captured.body.length).toBe(0);
+    }),
+  );
+
+  it.effect("multi-content: required schema accepts body or bodyBase64", () =>
+    Effect.gen(function* () {
+      const { server } = yield* startEchoServer({
+        payload: multiContentPayload,
+        transformSpec: replaceRequestBodyContent("/submit", "post", {
+          "application/json": {
+            schema: { type: "object" },
+          },
+          "application/octet-stream": {
+            schema: { type: "string", format: "binary" },
+          },
+        }),
+      });
+      const executor = yield* createExecutor(makeTestConfig({ plugins: testPlugins() }));
+
+      const conn = yield* addOpenApiTestConnection(executor, server, { slug: "mc_b64_schema" });
+
+      const view = yield* executor.tools.schema(conn.address("body.submit"));
+      expect(view).not.toBeNull();
+      const schema = view!.inputSchema as {
+        anyOf?: readonly { readonly required?: readonly string[] }[];
+        properties?: {
+          bodyBase64?: { contentEncoding?: string };
+        };
+      };
+      expect(schema.anyOf).toEqual([{ required: ["body"] }, { required: ["bodyBase64"] }]);
+      expect(schema.properties?.bodyBase64?.contentEncoding).toBe("base64");
+    }),
+  );
+
   it.effect("multi-content: tool input schema exposes contentType enum", () =>
     Effect.gen(function* () {
       const { server } = yield* startEchoServer({
@@ -841,10 +944,13 @@ describe("OpenAPI non-JSON request body dispatch", () => {
       const view = yield* executor.tools.schema(conn.address("body.submit"));
       expect(view).not.toBeNull();
       const schema = view!.inputSchema as {
+        required?: string[];
         properties?: {
           bodyBase64?: { contentEncoding?: string };
         };
       };
+      expect(schema.required).toContain("bodyBase64");
+      expect(schema.required).not.toContain("body");
       expect(schema.properties?.bodyBase64?.contentEncoding).toBe("base64");
     }),
   );

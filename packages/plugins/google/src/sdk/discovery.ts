@@ -677,9 +677,13 @@ const buildDiscoveryOperation = (input: {
 
 const GOOGLE_OAUTH_SECURITY_SCHEME = "googleOAuth2";
 const GOOGLE_PHOTOS_LIBRARY_SERVICE = "photoslibrary";
+const GOOGLE_PHOTOS_PICKER_SERVICE = "photospicker";
 const GOOGLE_PHOTOS_APPENDONLY_SCOPE = "https://www.googleapis.com/auth/photoslibrary.appendonly";
 const GOOGLE_PHOTOS_UPLOAD_TOOL_PATH = "photoslibrary.mediaItems.upload";
 const GOOGLE_PHOTOS_UPLOAD_PATH = "/uploads";
+
+const isGooglePhotosService = (service: string): boolean =>
+  service === GOOGLE_PHOTOS_LIBRARY_SERVICE || service === GOOGLE_PHOTOS_PICKER_SERVICE;
 
 /** The v2 oauth auth template for a Google-discovery integration. The spec
  *  itself carries the matching `securitySchemes.googleOAuth2` entry; this is the
@@ -919,8 +923,11 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
   for (const info of infos) {
     const schemaPrefix = schemaComponentPart(`${info.service}_${info.version}`);
     const schemaNameForRef = (name: string) => `${schemaPrefix}_${schemaComponentPart(name)}`;
+    const scopeDescriptions = discoveryScopes(info.document);
+    const filterPhotosScopes = consentScopeSet !== null && isGooglePhotosService(info.service);
 
-    for (const [scope, description] of Object.entries(discoveryScopes(info.document))) {
+    for (const [scope, description] of Object.entries(scopeDescriptions)) {
+      if (filterPhotosScopes && !consentScopeSet.has(scope)) continue;
       rawScopes[scope] ??= description;
     }
 
@@ -933,10 +940,10 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
       const rawPathTemplate = Option.getOrUndefined(method.path);
       if (!methodId || !rawPathTemplate || !method.httpMethod) continue;
       const methodScopes = method.scopes ?? [];
-      const oauthScopes = consentScopeSet
+      const oauthScopes = filterPhotosScopes
         ? methodScopes.filter((scope) => consentScopeSet.has(scope))
         : methodScopes;
-      if (consentScopeSet && methodScopes.length > 0 && oauthScopes.length === 0) continue;
+      if (filterPhotosScopes && methodScopes.length > 0 && oauthScopes.length === 0) continue;
 
       const toolPath = methodId;
       const wirePath = rawPathTemplate.startsWith("/") ? rawPathTemplate : `/${rawPathTemplate}`;
@@ -972,9 +979,7 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
     }
   }
 
-  const scopes = input.consentScopes
-    ? Object.fromEntries(input.consentScopes.map((scope) => [scope, rawScopes[scope] ?? ""]))
-    : compactDiscoveryScopeMap(rawScopes);
+  const scopes = compactDiscoveryScopeMap(rawScopes);
   const authenticationTemplate = googleOauthTemplate(scopes);
   const spec: OpenApiDocument = {
     openapi: "3.1.0",

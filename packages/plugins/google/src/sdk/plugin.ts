@@ -39,6 +39,7 @@ import { decodeGoogleIntegrationConfig, type GoogleIntegrationConfig } from "./c
 import {
   googleOAuthConsentScopesForPreset,
   googleOpenApiBundlePreset,
+  googlePhotosOpenApiBundlePreset,
   googlePhotosOpenApiPresets,
   googlePhotosPresetIds,
 } from "./presets";
@@ -83,7 +84,6 @@ const googlePhotosBundleConsentScopes = (
   urls: readonly string[],
 ): readonly string[] | undefined => {
   const normalized = new Set(urls);
-  if (normalized.size !== googlePhotosBundleUrls.size) return undefined;
   for (const url of googlePhotosBundleUrls) {
     if (!normalized.has(url)) return undefined;
   }
@@ -322,7 +322,7 @@ export type GooglePluginExtension = ReturnType<typeof makeGooglePluginExtension>
 export const googlePlugin = definePlugin((options?: GooglePluginOptions) => ({
   id: "google" as const,
   packageName: "@executor-js/plugin-google",
-  integrationPresets: [googleOpenApiBundlePreset],
+  integrationPresets: [googleOpenApiBundlePreset, googlePhotosOpenApiBundlePreset],
   storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
   extension: (ctx: PluginCtx<OpenapiStore>) => makeGooglePluginExtension(options, ctx),
