@@ -545,6 +545,11 @@ export function Shell() {
 
       {/* Main content */}
       <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
+        {/* Desktop (macOS frameless) draggable title-bar strip. Gives the main
+            area the same native window drag + double-click-to-zoom as the
+            sidebar header; hidden everywhere else via CSS. */}
+        <div className="desktop-macos-main-titlebar" />
+
         {/* Mobile top bar */}
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 md:hidden">
           <Button
