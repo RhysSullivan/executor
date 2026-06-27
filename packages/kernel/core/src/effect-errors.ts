@@ -19,3 +19,20 @@ export class CodeExecutionError extends Data.TaggedError("CodeExecutionError")<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}
+
+/**
+ * Raised when user code fails to compile before it ever runs: a genuine
+ * syntax/parse error (smart quotes from a copy-paste, an unbalanced
+ * brace, `const = 5`) caught while stripping TypeScript ahead of the
+ * JS-only sandbox. Unlike `CodeExecutionError` this is the user's
+ * mistake, not a sandbox defect, so runtimes surface its `message`
+ * through the descriptive `ExecuteResult.error` channel instead of
+ * collapsing it to an opaque internal-error string. The original parser
+ * message (e.g. "Unexpected token (1:54)") is carried verbatim so the
+ * model can see and fix it.
+ */
+export class CodeCompilationError extends Data.TaggedError("CodeCompilationError")<{
+  readonly runtime: string;
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}

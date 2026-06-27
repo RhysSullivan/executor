@@ -271,6 +271,40 @@ describe("makeDynamicWorkerExecutor", () => {
     expect(result.error).toBe("Internal tool error");
   });
 
+  it("surfaces a syntax error with the parser's descriptive message, not an opaque generic", async () => {
+    const executor = makeDynamicWorkerExecutor({ loader });
+    const invoker = makeInvoker(() => null);
+
+    // A genuine parse error: `const` with no binding name. Before the fix
+    // this threw in stripTypeScript, became a DynamicWorkerExecutionError
+    // on the failure channel, and the host collapsed it to the opaque
+    // "Internal tool error". The model needs the real reason to self-correct.
+    const result = await Effect.runPromise(
+      executor.execute("async () => { const = 5; return 1; }", invoker),
+    );
+
+    expect(result.result).toBeNull();
+    expect(result.error).toBeDefined();
+    expect(result.error).not.toBe("Internal tool error");
+    expect(result.error).not.toContain("Internal tool error");
+    expect(result.error?.toLowerCase()).toContain("unexpected");
+  });
+
+  it("surfaces smart-quote paste errors descriptively", async () => {
+    const executor = makeDynamicWorkerExecutor({ loader });
+    const invoker = makeInvoker(() => null);
+
+    // Curly quotes from a copy-paste are the most common real-world cause:
+    // the snippet looks fine to a human but is invalid JavaScript.
+    const result = await Effect.runPromise(
+      executor.execute("async () => { return “hello”; }", invoker),
+    );
+
+    expect(result.result).toBeNull();
+    expect(result.error).toBeDefined();
+    expect(result.error).not.toBe("Internal tool error");
+  });
+
   it("preserves public ExecutionToolError messages across the worker bridge", async () => {
     const executor = makeDynamicWorkerExecutor({ loader });
     const invoker = {

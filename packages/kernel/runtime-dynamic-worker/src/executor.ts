@@ -14,6 +14,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
 import {
+  CodeCompilationError,
   recoverExecutionBody,
   stripTypeScript,
   type CodeExecutor,
@@ -160,6 +161,23 @@ const renderTransportMessage = (value: unknown): string => {
 
   return String(value);
 };
+
+/**
+ * Does this worker-startup rejection describe a compile error in the
+ * user's own code rather than a sandbox/infra defect? Not all syntax
+ * errors are caught while stripping TypeScript: smart quotes from a
+ * paste, an unbalanced brace, and other plain-JS parse errors slip past
+ * sucrase and only fail when workerd compiles the generated module,
+ * surfacing here as "Failed to start Worker: Uncaught SyntaxError: ...".
+ * That is still the user's mistake, so we route it to the descriptive
+ * error channel (alongside the strip-time path) instead of collapsing it
+ * to an opaque internal error. The check is deliberately narrow: a
+ * genuine SyntaxError thrown at runtime by user code (e.g. JSON.parse)
+ * never reaches this catch, since the sandbox reports those through its
+ * own result envelope, not as a worker-startup failure.
+ */
+const isWorkerCompileErrorMessage = (message: string): boolean =>
+  message.includes("Failed to start Worker") || message.includes("SyntaxError");
 
 export const serializeWorkerCause = (cause: Cause.Cause<unknown>): SerializedWorkerError => {
   const failures = cause.reasons
@@ -433,36 +451,51 @@ const startDynamicWorker = (
   options: DynamicWorkerExecutorOptions,
   code: string,
   timeoutMs: number,
-): Effect.Effect<DynamicWorkerEntrypoint, DynamicWorkerExecutionError> =>
-  Effect.try({
-    try: (): DynamicWorkerEntrypoint => {
-      const recoveredBody = recoverExecutionBody(code);
-      // The dynamic Worker isolate only accepts plain JavaScript; TS type
-      // syntax in user code (`: T`, `as T`, generics) would otherwise
-      // surface as "Unexpected token ':'" inside `evaluate()` and bubble
-      // out via DynamicWorkerExecutionError. Stripping here gives the
-      // model a clear syntax-error message at the front door instead.
-      const strippedBody = stripTypeScript(recoveredBody);
-      const executorModule = buildExecutorModule(strippedBody, timeoutMs);
-      const { [ENTRY_MODULE]: _, ...safeModules } = options.modules ?? {};
+): Effect.Effect<DynamicWorkerEntrypoint, DynamicWorkerExecutionError | CodeCompilationError> =>
+  Effect.gen(function* () {
+    // The dynamic Worker isolate only accepts plain JavaScript; TS type
+    // syntax in user code (`: T`, `as T`, generics) would otherwise
+    // surface as "Unexpected token ':'" inside `evaluate()`. Stripping
+    // here means valid TS just works. But this step is also where a
+    // genuine syntax error (smart quotes from a paste, an unbalanced
+    // brace, `const = 5`) first surfaces, with the parser's precise
+    // "Unexpected token (line:col)" message. That is the user's mistake,
+    // not a sandbox defect, so it gets its own `CodeCompilationError`
+    // and flows back through the descriptive `ExecuteResult.error`
+    // channel rather than collapsing to an opaque internal error.
+    const strippedBody = yield* Effect.try({
+      try: () => stripTypeScript(recoverExecutionBody(code)),
+      catch: (cause) =>
+        new CodeCompilationError({
+          runtime: "dynamic-worker",
+          message: renderTransportMessage(serializeWorkerErrorValue(cause)),
+          cause,
+        }),
+    });
 
-      const worker = options.loader.get(`executor-${crypto.randomUUID()}`, () => ({
-        compatibilityDate: "2025-06-01",
-        compatibilityFlags: ["nodejs_compat"],
-        mainModule: ENTRY_MODULE,
-        modules: {
-          ...safeModules,
-          [ENTRY_MODULE]: executorModule,
-        },
-        globalOutbound: options.globalOutbound ?? null,
-      }));
+    return yield* Effect.try({
+      try: (): DynamicWorkerEntrypoint => {
+        const executorModule = buildExecutorModule(strippedBody, timeoutMs);
+        const { [ENTRY_MODULE]: _, ...safeModules } = options.modules ?? {};
 
-      return asDynamicWorkerEntrypoint(worker.getEntrypoint());
-    },
-    catch: (cause) =>
-      new DynamicWorkerExecutionError({
-        message: renderTransportMessage(serializeWorkerErrorValue(cause)),
-      }),
+        const worker = options.loader.get(`executor-${crypto.randomUUID()}`, () => ({
+          compatibilityDate: "2025-06-01",
+          compatibilityFlags: ["nodejs_compat"],
+          mainModule: ENTRY_MODULE,
+          modules: {
+            ...safeModules,
+            [ENTRY_MODULE]: executorModule,
+          },
+          globalOutbound: options.globalOutbound ?? null,
+        }));
+
+        return asDynamicWorkerEntrypoint(worker.getEntrypoint());
+      },
+      catch: (cause) =>
+        new DynamicWorkerExecutionError({
+          message: renderTransportMessage(serializeWorkerErrorValue(cause)),
+        }),
+    });
   }).pipe(
     Effect.withSpan("executor.runtime.startup", {
       attributes: {
@@ -478,7 +511,7 @@ const evaluate = (
   options: DynamicWorkerExecutorOptions,
   code: string,
   toolInvoker: SandboxToolInvoker,
-): Effect.Effect<ExecuteResult, DynamicWorkerExecutionError> => {
+): Effect.Effect<ExecuteResult, DynamicWorkerExecutionError | CodeCompilationError> => {
   const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
   return Effect.gen(function* () {
@@ -487,10 +520,15 @@ const evaluate = (
     const entrypoint = yield* startDynamicWorker(options, code, timeoutMs);
     const response = yield* Effect.tryPromise({
       try: () => entrypoint.evaluate(dispatcher),
-      catch: (cause) =>
-        new DynamicWorkerExecutionError({
-          message: renderTransportMessage(serializeWorkerErrorValue(cause)),
-        }),
+      catch: (cause) => {
+        const message = renderTransportMessage(serializeWorkerErrorValue(cause));
+        // A module that fails to compile at worker startup is the user's
+        // own syntax error (one that escaped the strip step), not a
+        // sandbox defect: surface it descriptively rather than opaquely.
+        return isWorkerCompileErrorMessage(message)
+          ? new CodeCompilationError({ runtime: "dynamic-worker", message, cause })
+          : new DynamicWorkerExecutionError({ message });
+      },
     }).pipe(
       Effect.withSpan("executor.runtime.evaluate", {
         attributes: { "executor.runtime": "dynamic-worker" },
@@ -517,6 +555,14 @@ const runInDynamicWorker = (
   toolInvoker: SandboxToolInvoker,
 ): Effect.Effect<ExecuteResult, DynamicWorkerExecutionError> =>
   evaluate(options, code, toolInvoker).pipe(
+    // A compile error is the user's own syntax mistake, not a sandbox
+    // defect. Fold it into the success channel as a descriptive
+    // `ExecuteResult.error` so the precise parser message reaches the
+    // model, exactly as a thrown runtime error does, instead of being
+    // collapsed to an opaque internal error by the host failure path.
+    Effect.catchTag("CodeCompilationError", (error) =>
+      Effect.succeed({ result: null, error: error.message } satisfies ExecuteResult),
+    ),
     Effect.withSpan("executor.code.exec.dynamic_worker", {
       attributes: { "executor.runtime": "dynamic-worker" },
     }),
