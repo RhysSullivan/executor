@@ -15,6 +15,14 @@
     "./in-memory-session-store": {
       "types": "./src/in-memory-session-store.ts",
       "default": "./src/in-memory-session-store.ts"
+    },
+    "./browser-approval": {
+      "types": "./src/browser-approval.ts",
+      "default": "./src/browser-approval.ts"
+    },
+    "./browser-approval-store": {
+      "types": "./src/browser-approval-store.ts",
+      "default": "./src/browser-approval-store.ts"
     }
   },
   "scripts": {

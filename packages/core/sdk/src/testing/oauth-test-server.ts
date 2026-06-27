@@ -51,6 +51,7 @@ export interface OAuthTestServerOptions {
   readonly defaultClientSecret?: string;
   readonly clients?: Readonly<Record<string, string | null>>;
   readonly scopes?: readonly string[];
+  readonly omitTokenResponseScopes?: readonly string[];
   readonly supportRefresh?: boolean;
 }
 
@@ -407,6 +408,14 @@ export const serveOAuthTestServer = (
     };
     const supportRefresh = options.supportRefresh ?? true;
     const scopes = options.scopes ?? defaultScopes;
+    const omittedTokenResponseScopes = new Set(options.omitTokenResponseScopes ?? []);
+    const tokenResponseScope = (scope: string | null): string | undefined => {
+      if (!scope) return undefined;
+      const filtered = scope
+        .split(/\s+/)
+        .filter((item) => item.length > 0 && !omittedTokenResponseScopes.has(item));
+      return filtered.length > 0 ? filtered.join(" ") : undefined;
+    };
     const clients = new Map<string, ClientRecord>();
     const transactions = new Map<string, AuthorizationTransaction>();
     const authorizationCodes = new Map<string, AuthorizationCodeRecord>();
@@ -614,6 +623,7 @@ export const serveOAuthTestServer = (
               scope: record.scope,
               resource: record.resource,
             });
+            const scope = tokenResponseScope(record.scope);
             return jsonResponse(
               200,
               {
@@ -621,7 +631,7 @@ export const serveOAuthTestServer = (
                 refresh_token: refreshToken,
                 token_type: "Bearer",
                 expires_in: 3600,
-                ...(record.scope ? { scope: record.scope } : {}),
+                ...(scope ? { scope } : {}),
               },
               { "cache-control": "no-store" },
             );
@@ -641,6 +651,7 @@ export const serveOAuthTestServer = (
               issuedAccessTokens,
               (tokens) => new Set([...tokens, nextAccessToken]),
             );
+            const scope = tokenResponseScope(record.scope);
             return jsonResponse(
               200,
               {
@@ -648,7 +659,7 @@ export const serveOAuthTestServer = (
                 refresh_token: nextRefreshToken,
                 token_type: "Bearer",
                 expires_in: 3600,
-                ...(record.scope ? { scope: record.scope } : {}),
+                ...(scope ? { scope } : {}),
               },
               { "cache-control": "no-store" },
             );

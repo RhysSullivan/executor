@@ -50,11 +50,19 @@ const stubUsers = Layer.succeed(UserStoreService)({
         getAccount: async (id: string) => ({ id, createdAt }),
         upsertOrganization: async (org: { id: string; name: string }) => ({
           ...org,
+          slug: `org-slug-${org.id}`,
           createdAt,
         }),
         getOrganization: async (id: string) => ({
           id,
           name: `Org ${id}`,
+          slug: `org-slug-${id}`,
+          createdAt,
+        }),
+        getOrganizationBySlug: async (slug: string) => ({
+          id: "org_by_slug",
+          name: `Org ${slug}`,
+          slug,
           createdAt,
         }),
       }),

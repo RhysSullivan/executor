@@ -11,6 +11,7 @@ const config: CloudflareConfig = {
   adminEmails: ["admin@example.com"],
   organizationId: "default",
   organizationName: "Default",
+  organizationSlug: "default",
   secretKey: "x".repeat(32),
   allowLocalNetwork: false,
   webBaseUrl: "https://localhost",

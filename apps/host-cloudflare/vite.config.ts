@@ -4,9 +4,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import { rootRoute } from "@tanstack/virtual-file-routes";
-import { consoleRoutes } from "@executor-js/react/console-routes";
 import executorVitePlugin from "@executor-js/vite-plugin";
+
+import { routes } from "./tsr.routes";
 
 // ---------------------------------------------------------------------------
 // Cloudflare web SPA. The SAME shared @executor-js/react shell + pages as cloud
@@ -53,14 +53,9 @@ export default defineConfig({
       autoCodeSplitting: true,
       routesDirectory: fileURLToPath(new URL("./web/routes", import.meta.url)),
       generatedRouteTree: fileURLToPath(new URL("./web/routeTree.gen.ts", import.meta.url)),
-      // The route tree is composed, not hand-mirrored: the shared console
-      // routes come from @executor-js/react (the package whose shell/pages
-      // link to them); this app only owns its root (the Cloudflare-Access
-      // shell). To add app-specific routes, create web/routes/app and mount
-      // it here with `physical("", "app")` — the directory must exist.
-      virtualRouteConfig: rootRoute("__root.tsx", [
-        ...consoleRoutes({ dir: "../../../../packages/react/src/routes" }),
-      ]),
+      // The route tree definition lives in tsr.routes.ts (shared with
+      // packages/react's routes:gen so a CLI regen matches dev/build).
+      virtualRouteConfig: routes,
     }),
     ...react(),
   ],

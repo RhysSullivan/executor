@@ -1,6 +1,6 @@
 {
   "name": "@executor-js/react",
-  "version": "1.4.30",
+  "version": "1.4.40",
   "private": true,
   "type": "module",
   "exports": {
@@ -19,11 +19,12 @@
     "./lib/auth-placements": "./src/lib/auth-placements.tsx",
     "./lib/integration-add": "./src/lib/integration-add.tsx",
     "./lib/*": "./src/lib/*.ts",
-    "./globals.css": "./src/styles/globals.css"
+    "./globals.css": "./src/styles/globals.css",
+    "./route-tree-gen": "./src/route-tree-gen.ts"
   },
   "scripts": {
     "test": "vitest run",
-    "routes:gen": "tsr generate",
+    "routes:gen": "bun scripts/gen-routes.ts",
     "test:watch": "vitest",
     "typecheck": "tsgo --noEmit",
     "typecheck:slow": "tsc --noEmit",
@@ -64,6 +65,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@tanstack/router-cli": "^1.167.17",
+    "@tanstack/router-generator": "^1.167.17",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "hast-util-to-jsx-runtime": "^2.3.6",

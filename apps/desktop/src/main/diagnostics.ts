@@ -181,6 +181,7 @@ const exportStamp = () =>
 
 const buildManifest = () => {
   const settings = getServerSettings();
+  const executorLogs = join(app.getPath("home"), ".executor", "logs");
   return {
     generated: new Date().toISOString(),
     app: app.getName(),
@@ -195,12 +196,12 @@ const buildManifest = () => {
     paths: {
       userData: app.getPath("userData"),
       logs: dirname(log.transports.file.getFile().path),
+      executorLogs,
       crashDumps: app.getPath("crashDumps"),
     },
-    // Redacted on purpose: the Basic-auth password never leaves the machine.
+    // The bearer token is never included — it stays in auth.json on the machine.
     serverSettings: {
       port: settings.port,
-      requireAuth: settings.requireAuth,
     },
   };
 };
@@ -216,8 +217,10 @@ export const exportDiagnostics = async (): Promise<string> => {
   const { readFile } = await import("node:fs/promises");
 
   const logsDir = dirname(log.transports.file.getFile().path);
+  const executorLogsDir = join(app.getPath("home"), ".executor", "logs");
   const entries: ZipEntry[] = [
     ...collectFiles(logsDir, "logs"),
+    ...collectFiles(executorLogsDir, "executor-logs"),
     ...collectFiles(app.getPath("crashDumps"), "crash-dumps"),
   ];
 

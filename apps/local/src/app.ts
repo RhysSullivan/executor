@@ -11,7 +11,7 @@ import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 
 import { getExecutorBundle, type LocalExecutor } from "./executor";
-import { localIdentityLayer } from "./identity";
+import { makeLocalIdentityLayer } from "./identity";
 import { ErrorCaptureLive } from "./observability";
 
 // ===========================================================================
@@ -79,7 +79,7 @@ export interface LocalApiHandler {
  * (no test-only branches), with `serve.ts`'s `handlers` injection hook as the
  * test seam where a test wants to bypass the boot graph.
  */
-export const makeLocalApiHandler = async (): Promise<LocalApiHandler> => {
+export const makeLocalApiHandler = async (token: string): Promise<LocalApiHandler> => {
   const { executor, plugins } = await getExecutorBundle();
 
   // Build the fixed-execution seam ONCE (one executor + one engine). The same
@@ -88,12 +88,17 @@ export const makeLocalApiHandler = async (): Promise<LocalApiHandler> => {
   // as self-host declares `db: SelfHostDbProvider` and puts the handle in `boot`.
   const fixedExecution = localFixedExecutionLayer(executor);
 
+  // The authoritative identity gate for the typed `/api`: validates the boot
+  // bearer token and resolves the one local Principal. The Bun shell
+  // (`serve.ts`) fast-path-rejects unauthenticated requests with the same token.
+  const identity = makeLocalIdentityLayer(token);
+
   const { toWebHandler } = ExecutorApp.make({
     plugins,
     providers: {
-      // Single-user: always resolves the one local Principal (a real impl, not a
-      // placeholder). Boot-scoped (`RIdentity = never`), captured once.
-      identity: localIdentityLayer,
+      // Single-user: validates the boot bearer token and resolves the one local
+      // Principal. Boot-scoped (`RIdentity = never`), captured once.
+      identity,
       // The ONE boot executor + engine, served directly — local's fixed
       // execution model (no per-request scoped-executor rebuild).
       fixedExecution,
@@ -114,7 +119,7 @@ export const makeLocalApiHandler = async (): Promise<LocalApiHandler> => {
     // The boot-scoped context provideMerge'd under everything: the identity
     // provider (captured once by the fixed-execution middleware) + the fixed
     // execution seam (the one executor + engine + extension map).
-    boot: Layer.merge(localIdentityLayer, fixedExecution),
+    boot: Layer.merge(identity, fixedExecution),
   });
 
   const web = toWebHandler();

@@ -1,5 +1,75 @@
 # @executor-js/config
 
+## 1.5.20
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.20
+
+## 1.5.19
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.19
+
+## 1.5.18
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+
+## 1.5.17
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+
+## 1.5.16
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+
+## 1.5.15
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+
+## 1.5.14
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.14
+
+## 1.5.13
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.13
+
+## 1.5.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.12
+
+## 1.5.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.11
+
 ## 1.5.10
 
 ### Patch Changes

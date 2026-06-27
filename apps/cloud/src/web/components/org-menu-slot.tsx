@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Exit from "effect/Exit";
-import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { trackEvent } from "@executor-js/react/api/analytics";
 import { Button } from "@executor-js/react/components/button";
 import {
@@ -23,7 +21,7 @@ import {
   DropdownMenuSubTrigger,
 } from "@executor-js/react/components/dropdown-menu";
 import { useAuth } from "../auth";
-import { organizationsAtom, switchOrganization } from "../auth";
+import { organizationsAtom } from "../auth";
 import { CreateOrganizationFields, useCreateOrganizationForm } from "./create-organization-form";
 
 // ---------------------------------------------------------------------------
@@ -52,16 +50,15 @@ function CheckIcon() {
 
 function OrganizationSwitcherItems(props: { activeOrganizationId: string | null }) {
   const organizations = useAtomValue(organizationsAtom);
-  const doSwitchOrganization = useAtomSet(switchOrganization, { mode: "promiseExit" });
 
-  const handleSwitch = async (organizationId: string) => {
-    if (organizationId === props.activeOrganizationId) return;
-    const exit = await doSwitchOrganization({
-      payload: { organizationId },
-      reactivityKeys: authWriteKeys,
-    });
-    trackEvent("org_switched", { success: Exit.isSuccess(exit) });
-    if (Exit.isSuccess(exit)) window.location.reload();
+  // Switching orgs is now a pure URL navigation: the session authenticates the
+  // user to ALL their orgs, and the slug in the path scopes every request (the
+  // `x-executor-organization` header). No cookie to rewrite, no server switch
+  // call — just land on the other org's URL root and the whole app re-scopes.
+  const handleSwitch = (organization: { id: string; slug: string }) => {
+    if (organization.id === props.activeOrganizationId) return;
+    trackEvent("org_switched", { success: true });
+    window.location.href = `/${organization.slug}`;
   };
 
   return AsyncResult.match(organizations, {
@@ -72,13 +69,15 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
         <DropdownMenuItem disabled>No organizations</DropdownMenuItem>
       ) : (
         <>
-          {value.organizations.map((organization: { id: string; name: string }) => {
+          {value.organizations.map((organization: { id: string; name: string; slug: string }) => {
             const isActive = organization.id === props.activeOrganizationId;
             return (
               <DropdownMenuItem
                 key={organization.id}
                 disabled={isActive}
-                onClick={() => handleSwitch(organization.id)}
+                onClick={() => {
+                  handleSwitch(organization);
+                }}
                 className="text-xs"
               >
                 <span className="min-w-0 flex-1 truncate">{organization.name}</span>
@@ -102,7 +101,11 @@ export function OrgMenuSlot() {
 
   const form = useCreateOrganizationForm({
     defaultName: suggestedOrganizationName,
-    onSuccess: () => window.location.reload(),
+    // Land on the new org's URL root — a reload would keep the old slug and
+    // the slug gate would switch the session right back.
+    onSuccess: (org) => {
+      window.location.href = `/${org.slug}`;
+    },
   });
 
   if (auth.status !== "authenticated") return null;

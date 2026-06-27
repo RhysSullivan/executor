@@ -33,7 +33,9 @@ const AuthHintSchema = Schema.Struct({
     name: Schema.NullOr(Schema.String),
     avatarUrl: Schema.NullOr(Schema.String),
   }),
-  organization: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
+  organization: Schema.NullOr(
+    Schema.Struct({ id: Schema.String, name: Schema.String, slug: Schema.String }),
+  ),
 });
 
 export type AuthHint = typeof AuthHintSchema.Type;

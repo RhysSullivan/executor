@@ -49,10 +49,15 @@ export const writeLocalServerManifest = (
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     yield* fs.makeDirectory(serverControlDir(path), { recursive: true });
-    yield* fs.writeFileString(
-      localServerManifestPath(path),
-      serializeExecutorLocalServerManifest(manifest),
-    );
+    const manifestPath = localServerManifestPath(path);
+    // The manifest embeds the bearer token; create it owner-only so there's no
+    // window where it exists world-readable (mode applies only on create). The
+    // chmod after covers overwriting a pre-existing world-readable file, where
+    // the create mode is ignored.
+    yield* fs.writeFileString(manifestPath, serializeExecutorLocalServerManifest(manifest), {
+      mode: 0o600,
+    });
+    yield* fs.chmod(manifestPath, 0o600).pipe(Effect.ignore);
   });
 
 export const removeLocalServerManifestIfOwnedBy = (input: {
@@ -69,6 +74,25 @@ export const removeLocalServerManifestIfOwnedBy = (input: {
     const manifest = parseExecutorLocalServerManifest(raw);
     if (manifest?.pid !== input.pid) return;
     yield* fs.remove(manifestPath, { force: true });
+  });
+
+/**
+ * Remove the server manifest unconditionally. Used by an OS-supervised daemon
+ * to reclaim a stale `server.json` left by a previous boot: across a reboot the
+ * recorded pid is meaningless (pids recycle, so it may now belong to an
+ * unrelated process), and launchd/systemd already guarantee a single supervised
+ * instance — so any pre-existing manifest is stale and the supervised daemon
+ * owns it.
+ */
+export const removeLocalServerManifest = (): Effect.Effect<
+  void,
+  PlatformError,
+  FileSystem.FileSystem | Path.Path
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    yield* fs.remove(localServerManifestPath(path), { force: true });
   });
 
 const StartupLockPayload = Schema.Struct({

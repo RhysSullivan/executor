@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Connection, Executor } from "@executor-js/sdk/core";
+import type { Connection, Integration, Executor } from "@executor-js/sdk/core";
 
 /**
  * Builds a tool description dynamically.
@@ -19,9 +19,14 @@ export const buildExecuteDescription = (executor: Executor): Effect.Effect<strin
       Effect.orDie,
       Effect.withSpan("executor.connections.list"),
     );
+    const integrations: readonly Integration[] = yield* executor.integrations.list().pipe(
+      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: same getDescription error-channel constraint as connections.list above
+      Effect.orDie,
+      Effect.withSpan("executor.integrations.list"),
+    );
 
     const description = yield* Effect.sync(() =>
-      formatDescription(connections.map((connection) => connectionPath(connection))),
+      formatDescription(connections.map((connection) => connectionEntry(connection, integrations))),
     ).pipe(
       Effect.withSpan("schema.compile.description", {
         attributes: { "executor.connection_count": connections.length },
@@ -53,7 +58,44 @@ const connectionPath = (connection: Connection): string => {
   return address.startsWith("tools.") ? address.slice("tools.".length) : address;
 };
 
-const formatDescription = (connectionPrefixes: readonly string[]): string => {
+/** One inventory line: the callable prefix plus the best available context.
+ *  Connection description wins (the user wrote it about THIS credential);
+ *  otherwise the integration description, unless it is just the slug again. */
+interface ConnectionInventoryEntry {
+  readonly prefix: string;
+  readonly description?: string;
+}
+
+const inventoryNote = (
+  text: string | null | undefined,
+  identityEchoes: readonly string[],
+): string | undefined => {
+  const firstLine = (text ?? "").split("\n", 1)[0]!.trim();
+  if (firstLine.length === 0) return undefined;
+  // A description that just restates the slug or display name carries no
+  // information beyond identity — drop it from the inventory line.
+  if (identityEchoes.some((echo) => firstLine.toLowerCase() === echo.toLowerCase())) {
+    return undefined;
+  }
+  return firstLine.length > 140 ? `${firstLine.slice(0, 139)}…` : firstLine;
+};
+
+const connectionEntry = (
+  connection: Connection,
+  integrations: readonly Integration[],
+): ConnectionInventoryEntry => {
+  const slug = String(connection.integration);
+  const integration = integrations.find((candidate) => String(candidate.slug) === slug);
+  const identityEchoes = [slug, ...(integration ? [integration.name] : [])];
+  return {
+    prefix: connectionPath(connection),
+    description:
+      inventoryNote(connection.description, identityEchoes) ??
+      inventoryNote(integration?.description, identityEchoes),
+  };
+};
+
+const formatDescription = (connectionEntries: readonly ConnectionInventoryEntry[]): string => {
   const lines: string[] = [
     "Execute TypeScript in a sandboxed runtime with access to configured API tools.",
     "",
@@ -73,6 +115,12 @@ const formatDescription = (connectionPrefixes: readonly string[]): string => {
     "- `tools.executor.coreTools.connections.list({})` returns saved connections with `{ address, integration, owner, name, ... }`. The `address` field includes the leading `tools.` root.",
     "- Tool calls return a value union: `{ ok: true, data }` for success or `{ ok: false, error: { code, message, status?, details?, retryable? } }` for expected tool/domain failures. Branch on `result.ok`.",
     "- `data` is the upstream payload itself. HTTP-backed tools (OpenAPI) also set `http: { status, headers }` beside `data` — read `result.http?.headers` for pagination (Link) or rate-limit headers.",
+    "- Use `emit(value)` to append user-visible output and return `undefined`. Plain values become MCP text content. MCP content blocks are forwarded as-is. `ToolFile` values are rendered by MIME. Emitted output goes to the user, not back to you; the result envelope reports an `emitted` count so you can confirm it landed, but to read a value yourself, `return` it.",
+    '- File-returning tools may return `ToolFile` values: `{ _tag: "ToolFile", name?, mimeType, encoding: "base64", data, byteLength }`. Emit any attachment with `emit(result.data)`.',
+    '- To emit MCP-native content directly, pass an MCP content block to `emit(...)`, such as `{ type: "image", data, mimeType }`, `{ type: "audio", data, mimeType }`, `{ type: "text", text }`, `{ type: "resource", resource }`, or `{ type: "resource_link", uri, name, ... }`.',
+    "- `emit(ToolFile)` is MIME-based: `image/*` becomes MCP image content, `audio/*` becomes MCP audio content, text-like files become decoded text, and other binary files become embedded MCP resources.",
+    "- `return` is only for ordinary structured data. Returning a `ToolFile`, a `ToolResult`, an MCP content block, or a bare base64 string does not emit content to the MCP client.",
+    "- Some providers, including Gmail, return attachment bytes without a public URL. To send that attachment to another API from code, decode `ToolFile.data` from base64 and pass the bytes to that API's upload/file input.",
     "- If `tools.search()` returns `hasMore: true` and you didn't find what you need, fetch the next page: `tools.search({ query, offset: nextOffset, limit })`.",
     "- Always use the full address when calling tools: `tools.<integration>.<owner>.<connection>.<tool>(args)`. The `path` returned by `tools.search()` / `tools.describe.tool()` is already the exact path under `tools` — call `tools[path]` rather than guessing segments.",
     "- The `tools` object is a lazy proxy — `Object.keys(tools)` won't work. Use `tools.search()` or `tools.executor.coreTools.connections.list({})` instead.",
@@ -84,17 +132,23 @@ const formatDescription = (connectionPrefixes: readonly string[]): string => {
     "- TypeScript type syntax (`: T`, `as T`, generics, interfaces, type aliases) is stripped before execution — feel free to write idiomatic TypeScript using the shapes from `tools.describe.tool()`. Decorators and `enum` are not supported.",
   ];
 
-  if (connectionPrefixes.length > 0) {
+  if (connectionEntries.length > 0) {
     lines.push("");
     lines.push("## Available connection prefixes");
     lines.push("");
     lines.push("These are paths under `tools.`; append the final tool segment.");
-    const sorted = [...connectionPrefixes].sort((a, b) => a.localeCompare(b)).slice(0, 50);
-    for (const prefix of sorted) {
-      lines.push(`- \`${prefix}\``);
+    const sorted = [...connectionEntries]
+      .sort((a, b) => a.prefix.localeCompare(b.prefix))
+      .slice(0, 50);
+    for (const entry of sorted) {
+      lines.push(
+        entry.description
+          ? `- \`${entry.prefix}\` — ${entry.description}`
+          : `- \`${entry.prefix}\``,
+      );
     }
-    if (connectionPrefixes.length > sorted.length) {
-      lines.push(`- ... ${connectionPrefixes.length - sorted.length} more`);
+    if (connectionEntries.length > sorted.length) {
+      lines.push(`- ... ${connectionEntries.length - sorted.length} more`);
     }
   }
 

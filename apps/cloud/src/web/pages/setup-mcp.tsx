@@ -21,7 +21,14 @@ import { useAuth } from "../auth";
 export const SetupMcpPage = () => {
   const navigate = useNavigate();
   const auth = useAuth();
-  const organizationId = auth.status === "authenticated" ? (auth.organization?.id ?? null) : null;
+  const organizationSlug =
+    auth.status === "authenticated" ? (auth.organization?.slug ?? null) : null;
+  // Land DIRECTLY on the org's canonical URL. Navigating to the bare
+  // `/{-$orgSlug}` would mount the shell at `/`, then OrgSlugGate would fire a
+  // SECOND navigation to canonicalize `/` → `/<slug>` — that double hop is the
+  // window where the shell paints over this still-mounted onboarding page.
+  const goToApp = () =>
+    navigate({ to: "/{-$orgSlug}", params: { orgSlug: organizationSlug ?? undefined } });
   const [origin, setOrigin] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [elicitationMode, setElicitationMode] = useState<McpElicitationMode>("model");
@@ -35,7 +42,7 @@ export const SetupMcpPage = () => {
         origin,
         desktop: null,
         elicitationMode,
-        organizationId,
+        organizationSlug,
       })
     : "";
   const command = origin
@@ -44,7 +51,7 @@ export const SetupMcpPage = () => {
         isDev: false,
         origin,
         elicitationMode,
-        organizationId,
+        organizationSlug,
       })
     : "";
 
@@ -149,7 +156,7 @@ export const SetupMcpPage = () => {
             type="button"
             onClick={() => {
               trackEvent("setup_mcp_skipped");
-              void navigate({ to: "/" });
+              void goToApp();
             }}
             className="text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
@@ -159,7 +166,7 @@ export const SetupMcpPage = () => {
             size="sm"
             onClick={() => {
               trackEvent("setup_mcp_completed");
-              void navigate({ to: "/" });
+              void goToApp();
             }}
           >
             Continue to app

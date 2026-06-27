@@ -29,7 +29,7 @@ import { orgDomainsAtom, getDomainVerificationLink, deleteDomain } from "../../w
 // These are cloud additions, not a fork of the shared page.
 // ---------------------------------------------------------------------------
 
-export const Route = createFileRoute("/org")({
+export const Route = createFileRoute("/{-$orgSlug}/org")({
   component: OrgPage,
 });
 
@@ -103,7 +103,7 @@ function DomainsSection() {
           <p className="text-sm text-muted-foreground">
             Join by domain is available on the Team plan.
           </p>
-          <Link to="/billing/plans">
+          <Link to="/{-$orgSlug}/billing/plans">
             <Button size="sm" variant="outline">
               Upgrade
             </Button>

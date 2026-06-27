@@ -1,6 +1,6 @@
 {
   "name": "@executor-js/cloud",
-  "version": "1.4.28",
+  "version": "1.4.38",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,14 +12,14 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:studio:prod": "op run --env-file=.env.production -- bun --bun ../../node_modules/.bun/node_modules/drizzle-kit/bin.cjs studio",
-    "db:migrate:prod": "op run --env-file=.env.production -- bun --bun ../../node_modules/.bun/node_modules/drizzle-kit/bin.cjs migrate",
+    "db:migrate:prod": "op run --env-file=.env.production -- bun run scripts/migrate.ts --bucket executor-cloud-blobs",
     "db:migrate-auth:prod": "op run --env-file=.env.production -- bun run scripts/migrate-auth-configs.ts",
     "db:migrate-auth:dev": "op run --env-file=.env.op -- bun run scripts/migrate-auth-configs.ts",
     "db:repartition-vault:prod": "op run --env-file=.env.production -- bun run scripts/repartition-vault-metadata.ts",
     "db:repartition-vault:dev": "op run --env-file=.env.op -- bun run scripts/repartition-vault-metadata.ts",
     "db:migrate-specs:prod": "op run --env-file=.env.production -- bun run scripts/migrate-specs-to-blobs.ts",
     "db:migrate-specs:dev": "op run --env-file=.env.op -- bun run scripts/migrate-specs-to-blobs.ts",
-    "db:migrate:dev": "op run --env-file=.env.op -- bun --bun ../../node_modules/.bun/node_modules/drizzle-kit/bin.cjs migrate",
+    "db:migrate:dev": "op run --env-file=.env.op -- bun run scripts/migrate.ts",
     "build": "node scripts/build.mjs",
     "preview": "vite preview",
     "deploy": "op run --env-file=.env.production -- bash -lc 'bun run build && wrangler deploy -c dist/server/wrangler.json'",
@@ -27,7 +27,10 @@
     "typecheck": "tsgo --noEmit",
     "test": "node ../../node_modules/vitest/vitest.mjs run",
     "test:watch": "node ../../node_modules/vitest/vitest.mjs",
-    "typecheck:slow": "tsc --noEmit"
+    "typecheck:slow": "tsc --noEmit",
+    "db:backfill-org-slugs:prod": "op run --env-file=.env.production -- bun run scripts/backfill-org-slugs.ts",
+    "db:backfill-org-slugs:dev": "op run --env-file=.env.op -- bun run scripts/backfill-org-slugs.ts",
+    "routes:gen": "bun scripts/gen-routes.ts"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.31.1",
@@ -38,9 +41,12 @@
     "@executor-js/execution": "workspace:*",
     "@executor-js/fumadb": "workspace:*",
     "@executor-js/host-mcp": "workspace:*",
+    "@executor-js/plugin-google": "workspace:*",
     "@executor-js/plugin-graphql": "workspace:*",
     "@executor-js/plugin-mcp": "workspace:*",
+    "@executor-js/plugin-microsoft": "workspace:*",
     "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/plugin-toolkits": "workspace:*",
     "@executor-js/plugin-workos-vault": "workspace:*",
     "@executor-js/react": "workspace:*",
     "@executor-js/runtime-dynamic-worker": "workspace:*",
@@ -73,6 +79,7 @@
     "sonner": "^2.0.7"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.15.0",
     "@cloudflare/workers-types": "^4.20250620.0",
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",

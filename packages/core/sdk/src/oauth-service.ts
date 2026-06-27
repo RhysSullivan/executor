@@ -64,10 +64,11 @@ import {
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
   exchangeClientCredentials,
+  rebindTokenEndpointHostToCallbackDomain,
   type OAuth2TokenResponse,
   type OAuthEndpointUrlPolicy,
 } from "./oauth-helpers";
-import { OAUTH2_SESSION_TTL_MS } from "./oauth";
+import { OAUTH2_SESSION_TTL_MS, encodeOAuthCallbackState } from "./oauth";
 
 /** Connection-minting input for the OAuth flow — extends a connection create
  *  with the OAuth lifecycle fields (client slug, refresh material, expiry,
@@ -88,6 +89,10 @@ export interface MintOAuthConnectionInput {
   readonly refreshItemId: string | null;
   readonly expiresAt: number | null;
   readonly oauthScope: string | null;
+  /** Per-connection override for the token endpoint, persisted only when the
+   *  code was redeemed at a region other than the client's configured token
+   *  host (Datadog multi-site). Null means refresh uses the client's token URL. */
+  readonly oauthTokenUrl?: string | null;
 }
 
 /** The OAuth scope policy for a `(integration, template)`. Either the
@@ -134,6 +139,7 @@ export interface OAuthServiceDeps {
     template: AuthTemplateSlug,
   ) => Effect.Effect<OAuthScopePolicy, StorageFailure>;
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
+  readonly fetch?: typeof globalThis.fetch;
   readonly endpointUrlPolicy?: OAuthEndpointUrlPolicy;
   /**
    * The OAuth callback URL (`${webBaseUrl}${mountPrefix}/oauth/callback`) the host
@@ -149,6 +155,8 @@ export interface OAuthServiceDeps {
    * that serve OAuth MUST derive this from the request origin / web base URL.
    */
   readonly redirectUri: string | null;
+  /** URL selected organization slug to round-trip through OAuth `state`. */
+  readonly callbackStateOrgSlug?: string | null;
 }
 
 type LooseDb = {
@@ -170,6 +178,19 @@ const refreshItemIdFor = (accessId: string): string => `${accessId}:refresh`;
 
 /** Order-preserving de-duplication of a scope list. */
 const dedupeScopes = (scopes: readonly string[]): readonly string[] => [...new Set(scopes)];
+
+const recordedOAuthScope = (
+  token: OAuth2TokenResponse,
+  requestedScopes: readonly string[],
+): string | null => {
+  if (token.scope == null) return requestedScopes.join(" ") || null;
+
+  const granted = token.scope.split(/\s+/).filter(Boolean);
+  const coveredByRefreshToken =
+    token.refresh_token && requestedScopes.includes("offline_access") ? ["offline_access"] : [];
+  const recorded = dedupeScopes([...granted, ...coveredByRefreshToken]);
+  return recorded.join(" ") || null;
+};
 
 const decodeJsonPayload = Schema.decodeUnknownOption(Schema.UnknownFromJsonString);
 
@@ -328,6 +349,7 @@ const validateClientEndpoints = (
 
 export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
   const httpClientLayer = deps.httpClientLayer ?? FetchHttpClient.layer;
+  const fetch = deps.fetch;
   // EXPLICIT — no localhost default. `null` means this executor has no OAuth
   // callback; redirect-requiring flows fail loudly via `requireRedirectUri`.
   const redirectUri = deps.redirectUri;
@@ -745,6 +767,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
           scopes: requestedScopes,
           resource: client.resource ?? undefined,
           endpointUrlPolicy: deps.endpointUrlPolicy,
+          fetch,
         }).pipe(
           Effect.mapError(
             (cause) =>
@@ -760,6 +783,8 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
           token,
           requestedScopes,
           input.clientOwner,
+          // client_credentials has no callback, so no regional rebind applies.
+          null,
         ).pipe(
           Effect.mapError(
             (cause) =>
@@ -786,6 +811,10 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
       const verifier = createPkceCodeVerifier();
       const challenge = yield* Effect.promise(() => createPkceCodeChallenge(verifier));
       const state = OAuthState.make(createOAuthState());
+      const providerState = encodeOAuthCallbackState({
+        state: String(state),
+        orgSlug: deps.callbackStateOrgSlug,
+      });
 
       const now = new Date();
       const expiresAt = Date.now() + OAUTH2_SESSION_TTL_MS;
@@ -819,7 +848,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
             clientId: client.clientId,
             redirectUrl: flowRedirectUri,
             scopes: requestedScopes,
-            state: String(state),
+            state: providerState,
             codeChallenge: challenge,
             resource: client.resource ?? undefined,
             // Provider quirks (Google: access_type=offline + prompt=consent) —
@@ -901,8 +930,18 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         });
       }
 
+      // Some authorization servers (Datadog) advertise one region's token
+      // endpoint in static metadata but issue codes that only redeem at the
+      // org's actual region, signalled back on the callback as `domain`/`site`.
+      // Rebind the token host to that region when it is a sibling subdomain of
+      // the configured host; otherwise this is a no-op.
+      const tokenUrl = rebindTokenEndpointHostToCallbackDomain(
+        client.tokenUrl,
+        input.callbackDomain,
+      );
+
       const token = yield* exchangeAuthorizationCode({
-        tokenUrl: client.tokenUrl,
+        tokenUrl,
         clientId: client.clientId,
         clientSecret: client.clientSecret,
         redirectUrl: session.redirectUrl,
@@ -910,6 +949,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         code: input.code,
         resource: client.resource ?? undefined,
         endpointUrlPolicy: deps.endpointUrlPolicy,
+        fetch,
       }).pipe(
         Effect.mapError(
           (cause) =>
@@ -935,6 +975,9 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         // on the session. Empty only for a corrupt/legacy session with no payload.
         session.requestedScopes ?? [],
         session.clientOwner,
+        // Persist the regional token endpoint ONLY when it differs from the
+        // client's configured one, so refresh redeems against the same region.
+        tokenUrl === client.tokenUrl ? null : tokenUrl,
       ).pipe(
         Effect.mapError(
           (cause) =>
@@ -971,6 +1014,9 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
     requestedScopes: readonly string[],
     /** The owner of `client` — persisted so refresh loads it by explicit owner. */
     clientOwner: Owner,
+    /** Regional token endpoint override to persist when the code was redeemed
+     *  off the client's configured host; null to use the client's token URL. */
+    oauthTokenUrl: string | null,
   ): Effect.Effect<Connection, StorageFailure> =>
     Effect.gen(function* () {
       const provider = deps.defaultWritableProvider();
@@ -1002,12 +1048,12 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         oauthClientOwner: clientOwner,
         refreshItemId,
         expiresAt: expiresAtFrom(token),
-        // Benign fallback (kept by design): record the granted scope the AS
-        // echoed back; when it omits `scope` (some servers do), fall back to the
-        // scopes we requested (the integration's declared or discovered scopes).
-        // This only affects the recorded scope label, not what the token can do,
-        // so a guess here masks no misconfiguration.
-        oauthScope: token.scope ?? (requestedScopes.join(" ") || null),
+        // Record the granted scope the AS echoed back. Some providers, including
+        // Microsoft, issue a refresh token for `offline_access` but omit that
+        // non-resource scope from the token `scope` string, so preserve it when
+        // the refresh token proves it was granted.
+        oauthScope: recordedOAuthScope(token, requestedScopes),
+        oauthTokenUrl,
       });
     });
 

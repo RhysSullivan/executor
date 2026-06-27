@@ -6,7 +6,12 @@ import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/sp
 import type { StorageFailure } from "./fuma-runtime";
 
 import type { PluginBlobStore } from "./blob";
-import type { Connection, ConnectionRef, CreateConnectionInput } from "./connection";
+import type {
+  Connection,
+  ConnectionRef,
+  CreateConnectionInput,
+  UpdateConnectionInput,
+} from "./connection";
 import type {
   AuthMethodDescriptor,
   Integration,
@@ -43,6 +48,7 @@ import type { CredentialProvider, ProviderEntry } from "./provider";
 import type { PluginStorageConfig, PluginStorageFacade } from "./plugin-storage";
 import type {
   CreateToolPolicyInput,
+  EffectivePolicy,
   RemoveToolPolicyInput,
   ToolPolicy,
   UpdateToolPolicyInput,
@@ -84,6 +90,30 @@ export type Elicit = (
 ) => Effect.Effect<ElicitationResponse, ElicitationDeclinedError>;
 
 // ---------------------------------------------------------------------------
+// Active tool-policy provider.
+//
+// Normal executors resolve policies from core's owner-scoped `tool_policy`
+// table. A plugin may opt one executor instance into a different rule source
+// (for example, a toolkit-specific policy set). Core still owns enforcement;
+// the plugin owns where those policy-shaped rows are stored.
+// ---------------------------------------------------------------------------
+
+export interface ToolPolicyProviderRule {
+  readonly id: string;
+  readonly pattern: string;
+  readonly action: ToolPolicy["action"];
+  readonly position: string;
+}
+
+export interface ToolPolicyProvider {
+  readonly list: () => Effect.Effect<readonly ToolPolicyProviderRule[], StorageFailure>;
+  readonly resolve?: (input: {
+    readonly toolId: string;
+    readonly defaultRequiresApproval?: boolean;
+  }) => Effect.Effect<EffectivePolicy, StorageFailure>;
+}
+
+// ---------------------------------------------------------------------------
 // IntegrationRecord — the catalog row a plugin reads back (its own opaque
 // `config` included). Returned by `ctx.core.integrations.get`.
 // ---------------------------------------------------------------------------
@@ -111,7 +141,11 @@ export interface PluginCtx<TStore = unknown> {
       readonly register: (input: RegisterIntegrationInput) => Effect.Effect<void, StorageFailure>;
       readonly update: (
         slug: IntegrationSlug,
-        patch: { readonly description?: string; readonly config?: IntegrationConfig },
+        patch: {
+          readonly name?: string;
+          readonly description?: string;
+          readonly config?: IntegrationConfig;
+        },
       ) => Effect.Effect<void, StorageFailure>;
       readonly list: () => Effect.Effect<readonly Integration[], StorageFailure>;
       readonly get: (
@@ -151,6 +185,11 @@ export interface PluginCtx<TStore = unknown> {
       readonly owner?: Owner;
     }) => Effect.Effect<readonly Connection[], StorageFailure>;
     readonly get: (ref: ConnectionRef) => Effect.Effect<Connection | null, StorageFailure>;
+    /** Edit user-curated metadata (description, identityLabel). */
+    readonly update: (
+      ref: ConnectionRef,
+      input: UpdateConnectionInput,
+    ) => Effect.Effect<Connection, ConnectionNotFoundError | StorageFailure>;
     readonly remove: (
       ref: ConnectionRef,
     ) => Effect.Effect<void, ConnectionNotFoundError | StorageFailure>;
@@ -197,6 +236,7 @@ export interface ResolveToolsInput<TStore = unknown> {
    *  facades (e.g. a content-addressed spec blob) instead of inlining them
    *  in `config`. */
   readonly storage: TStore;
+  readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient>;
   /** The connection whose tools are being resolved. */
   readonly connection: ConnectionRef;
   /** Which of the integration's declared auth methods the connection binds
@@ -442,6 +482,13 @@ export interface PluginSpec<
 
   /** Service tag the plugin's `handlers` layer requires. */
   readonly extensionService?: TExtensionService;
+
+  /** Optional active policy source for this executor instance. At most one
+   *  loaded plugin may return a provider. When absent, core uses the normal
+   *  owner-scoped tool policies. */
+  readonly toolPolicyProvider?: (
+    ctx: PluginCtx<TStore>,
+  ) => ToolPolicyProvider | null | Effect.Effect<ToolPolicyProvider | null, StorageFailure>;
 
   /** Produce a connection's tools (and shared $defs). The v2 successor to
    *  registering per-source tools — called by the executor at connection

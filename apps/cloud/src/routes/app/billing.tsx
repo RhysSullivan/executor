@@ -6,13 +6,13 @@ import { Badge } from "@executor-js/react/components/badge";
 
 type Plan = NonNullable<ReturnType<typeof useListPlans>["data"]>[number];
 
-export const Route = createFileRoute("/billing")({
+export const Route = createFileRoute("/{-$orgSlug}/billing")({
   component: BillingPage,
 });
 
 const PLAN_TAGLINES: Record<string, string> = {
   free: "Free for up to 3 members",
-  team: "$49 per organization",
+  team: "$150 per organization",
   enterprise: "Custom enterprise agreement",
 };
 
@@ -104,7 +104,7 @@ function BillingPage() {
               </Button>
             )}
             <Link
-              to="/billing/plans"
+              to="/{-$orgSlug}/billing/plans"
               onClick={() => trackEvent("billing_manage_opened")}
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >

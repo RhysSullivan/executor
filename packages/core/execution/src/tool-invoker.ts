@@ -9,6 +9,7 @@ import type {
   ToolSchemaView,
 } from "@executor-js/sdk/core";
 import {
+  annotateToolResultOutcome,
   authToolFailure,
   isToolResult,
   ToolResult,
@@ -26,6 +27,8 @@ const TOOL_ERROR_TYPESCRIPT =
 // so callers can read pagination/rate-limit headers without the payload
 // being wrapped in an envelope.
 const TOOL_HTTP_META_TYPESCRIPT = "{ status: number; headers: { [k: string]: string; } }";
+const TOOL_FILE_TYPESCRIPT =
+  '{ _tag: "ToolFile"; name?: string; mimeType: string; encoding: "base64"; data: string; byteLength: number; }';
 
 const wrapOutputTypeScript = (outputTypeScript?: string): string =>
   `{ ok: true; data: ${outputTypeScript ?? "unknown"}; http?: ToolHttpMeta } | { ok: false; error: ToolError }`;
@@ -36,6 +39,7 @@ const withToolResultDefinitions = (
   ...(definitions ?? {}),
   ToolError: TOOL_ERROR_TYPESCRIPT,
   ToolHttpMeta: TOOL_HTTP_META_TYPESCRIPT,
+  ToolFile: TOOL_FILE_TYPESCRIPT,
 });
 
 const ADDRESS_PREFIX = "tools.";
@@ -110,7 +114,7 @@ const BUILTIN_TOOL_DESCRIPTIONS: ReadonlyMap<string, DescribedTool> = new Map<
         "{ items: ExecutorSourceListItem[]; total: number; hasMore: boolean; nextOffset: number | null; }",
       typeScriptDefinitions: {
         ExecutorSourceListItem:
-          "{ id: string; name: string; kind: string; canRemove?: boolean; canRefresh?: boolean; toolCount: number; }",
+          "{ id: string; name: string; description?: string; kind: string; canRemove?: boolean; canRefresh?: boolean; toolCount: number; }",
       },
     },
   ],
@@ -282,6 +286,10 @@ export const makeExecutorToolInvoker = (
     // raw success value and wrapped — keeps the sandbox-facing contract
     // uniform without forcing every tiny test plugin to import
     // `ToolResult.ok`.
+    // Expected failures resolve through the success channel, so without the
+    // outcome annotation the dispatch span reads as healthy even when the
+    // caller hit an upstream error or auth wall.
+    yield* annotateToolResultOutcome(result);
     if (isToolResult(result)) {
       return result;
     }
@@ -315,6 +323,7 @@ export type ToolDiscoveryResult = {
 export type ExecutorSourceListItem = {
   readonly id: string;
   readonly name: string;
+  readonly description?: string;
   readonly kind: string;
   readonly canRemove?: boolean;
   readonly canRefresh?: boolean;
@@ -677,6 +686,14 @@ export const listExecutorSources = Effect.fn("executor.sources.list")(function* 
         ({
           id: String(integration.slug),
           name: String(integration.slug),
+          // The integration's catalog description — user-editable context the
+          // agent can use to pick a source. Omitted when it just repeats the
+          // slug or display name (no information beyond identity).
+          ...(integration.description &&
+          integration.description.toLowerCase() !== String(integration.slug).toLowerCase() &&
+          integration.description.toLowerCase() !== integration.name.toLowerCase()
+            ? { description: integration.description }
+            : {}),
           kind: integration.kind,
           canRemove: integration.canRemove,
           canRefresh: integration.canRefresh,

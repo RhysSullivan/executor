@@ -135,6 +135,22 @@ export const OperationRequestBody = Schema.Struct({
 });
 export type OperationRequestBody = typeof OperationRequestBody.Type;
 
+export const OperationFileHint = Schema.Struct({
+  kind: Schema.Literals(["binaryResponse", "byteField"]),
+  mimeType: Schema.OptionFromOptional(Schema.String),
+  dataField: Schema.OptionFromOptional(Schema.String),
+  sizeField: Schema.OptionFromOptional(Schema.String),
+  encoding: Schema.OptionFromOptional(Schema.Literals(["base64", "base64url"])),
+});
+export type OperationFileHint = typeof OperationFileHint.Type;
+
+export const OperationResponseBody = Schema.Struct({
+  contentType: Schema.String,
+  schema: Schema.OptionFromOptional(Schema.Unknown),
+  fileHint: Schema.OptionFromOptional(OperationFileHint),
+});
+export type OperationResponseBody = typeof OperationResponseBody.Type;
+
 export const ServerVariable = Schema.Struct({
   default: Schema.String,
   enum: Schema.OptionFromOptional(Schema.Array(Schema.String)),
@@ -160,6 +176,7 @@ export const ExtractedOperation = Schema.Struct({
   tags: Schema.Array(Schema.String),
   parameters: Schema.Array(OperationParameter),
   requestBody: Schema.OptionFromOptional(OperationRequestBody),
+  responseBody: Schema.OptionFromOptional(OperationResponseBody),
   inputSchema: Schema.OptionFromOptional(Schema.Unknown),
   outputSchema: Schema.OptionFromOptional(Schema.Unknown),
   deprecated: Schema.Boolean,
@@ -168,6 +185,8 @@ export type ExtractedOperation = typeof ExtractedOperation.Type;
 
 export const ExtractionResult = Schema.Struct({
   title: Schema.OptionFromOptional(Schema.String),
+  /** The spec's `info.description` — the author's own summary of the API. */
+  description: Schema.OptionFromOptional(Schema.String),
   version: Schema.OptionFromOptional(Schema.String),
   servers: Schema.Array(ServerInfo),
   operations: Schema.Array(ExtractedOperation),
@@ -184,6 +203,7 @@ export const OperationBinding = Schema.Struct({
   pathTemplate: Schema.String,
   parameters: Schema.Array(OperationParameter),
   requestBody: Schema.OptionFromOptional(OperationRequestBody),
+  responseBody: Schema.OptionFromOptional(OperationResponseBody),
 });
 export type OperationBinding = typeof OperationBinding.Type;
 

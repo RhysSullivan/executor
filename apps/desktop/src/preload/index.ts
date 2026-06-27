@@ -6,6 +6,14 @@ const api = {
   getServerConnection(): Promise<DesktopServerConnection | null> {
     return ipcRenderer.invoke("executor:server:connection");
   },
+  /**
+   * Read the bearer token for the running sidecar. Only used to build the
+   * "Connect an agent" install command, which an external agent runs and so
+   * needs the token in plaintext. Returns null when no sidecar is up.
+   */
+  getServerAuthToken(): Promise<string | null> {
+    return ipcRenderer.invoke("executor:server:auth-token");
+  },
   /** Read the desktop-persisted server profile payload. */
   getServerProfiles(): Promise<string | null> {
     return ipcRenderer.invoke("executor:server-profiles:get");
@@ -14,7 +22,7 @@ const api = {
   setServerProfiles(value: string): Promise<void> {
     return ipcRenderer.invoke("executor:server-profiles:set", value);
   },
-  /** Read the persisted server settings (port, requireAuth, password). */
+  /** Read the persisted server settings (currently just the port). */
   getSettings(): Promise<DesktopServerSettings> {
     return ipcRenderer.invoke("executor:settings:get");
   },
@@ -22,9 +30,13 @@ const api = {
   updateSettings(patch: Partial<DesktopServerSettings>): Promise<DesktopServerSettings> {
     return ipcRenderer.invoke("executor:settings:update", patch);
   },
-  /** Regenerate the random Basic-auth password. Returns the new settings. */
-  regeneratePassword(): Promise<DesktopServerSettings> {
-    return ipcRenderer.invoke("executor:settings:regenerate-password");
+  /**
+   * Rotate the local bearer token and restart the sidecar so it takes effect.
+   * Returns the refreshed connection. AI-client MCP configs must be re-issued
+   * with the new token afterwards.
+   */
+  rotateToken(): Promise<DesktopServerConnection> {
+    return ipcRenderer.invoke("executor:server:rotate-token");
   },
   /**
    * Stop + restart the sidecar so settings changes take effect.

@@ -12,6 +12,7 @@ import {
   openApiSpecBlobDataMigration,
 } from "@executor-js/plugin-openapi";
 import { graphqlIntrospectionBlobDataMigration } from "@executor-js/plugin-graphql";
+import { googleOpenApiOwnershipDataMigration } from "@executor-js/plugin-google";
 
 import { authConfigTransforms } from "./auth-config-migration";
 import { LOCAL_V1_V2_LEDGER_NAME } from "./v1-v2-migration";
@@ -36,4 +37,5 @@ export const localDataMigrations: readonly SqliteDataMigration[] = [
   // migrate-specs-to-blobs script.
   openApiSpecBlobDataMigration,
   graphqlIntrospectionBlobDataMigration,
+  googleOpenApiOwnershipDataMigration,
 ];

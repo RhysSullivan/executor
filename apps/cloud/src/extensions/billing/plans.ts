@@ -1,6 +1,8 @@
-import { enterprise, team } from "../../../autumn.config";
-
-export const PAID_AUTUMN_PLAN_IDS = new Set([team.id, enterprise.id]);
+// Paid plan IDs, mirroring the Autumn plan definitions in the repo-root
+// `autumn.config.ts` (the deploy-time source synced via `atmn`). These IDs are
+// stable, so we keep them as literals here rather than importing the config
+// across the app boundary.
+export const PAID_AUTUMN_PLAN_IDS = new Set(["team", "enterprise"]);
 
 export const ACTIVE_AUTUMN_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 

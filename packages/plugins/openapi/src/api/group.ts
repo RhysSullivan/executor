@@ -4,11 +4,12 @@ import { ApiKeyAuthMethod, ApiKeyAuthTemplate } from "@executor-js/sdk/http-auth
 import {
   InternalError,
   IntegrationAlreadyExistsError,
+  IntegrationNotFoundError,
   IntegrationSlug,
 } from "@executor-js/sdk/shared";
 
 import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
-import { SpecPreview } from "../sdk/preview";
+import { SpecPreviewSummary } from "../sdk/preview";
 
 // ---------------------------------------------------------------------------
 // Errors — the plugin-domain tagged errors flow directly to clients
@@ -26,6 +27,16 @@ const DomainErrors = [
   IntegrationAlreadyExistsError,
 ] as const;
 
+const IntegrationNotFound = IntegrationNotFoundError.annotate({ httpApiStatus: 404 });
+
+const UpdateSpecErrors = [
+  InternalError,
+  OpenApiParseError,
+  OpenApiExtractionError,
+  OpenApiOAuthError,
+  IntegrationNotFound,
+] as const;
+
 const SlugParams = {
   slug: Schema.String,
 };
@@ -37,14 +48,6 @@ const SlugParams = {
 const OpenApiSpecInputPayload = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("url"), url: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("blob"), value: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("googleDiscovery"),
-    url: Schema.String,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("googleDiscoveryBundle"),
-    urls: Schema.Array(Schema.String),
-  }),
 ]);
 
 const OAuthTemplatePayload = Schema.Struct({
@@ -64,6 +67,7 @@ const AuthenticationResponse = Schema.Union([OAuthTemplatePayload, ApiKeyAuthMet
 const AddSpecPayload = Schema.Struct({
   spec: OpenApiSpecInputPayload,
   slug: Schema.String,
+  name: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
@@ -92,6 +96,21 @@ const AddSpecResponse = Schema.Struct({
   toolCount: Schema.Number,
 });
 
+// Update the spec in place. Body optional fields only: an empty payload means
+// "re-fetch from the stored source URL".
+const UpdateSpecPayload = Schema.Struct({
+  spec: Schema.optional(OpenApiSpecInputPayload),
+});
+
+const UpdateSpecResponse = Schema.Struct({
+  slug: IntegrationSlug,
+  toolCount: Schema.Number,
+  /** Tool names new in this spec version (same diff for every connection). */
+  addedTools: Schema.Array(Schema.String),
+  /** Tool names the new spec no longer defines. */
+  removedTools: Schema.Array(Schema.String),
+});
+
 const IntegrationView = Schema.Struct({
   slug: IntegrationSlug,
   description: Schema.String,
@@ -107,7 +126,6 @@ const IntegrationView = Schema.Struct({
 // store, and no client reads it (the configure UI only touches the template).
 const OpenApiConfigView = Schema.Struct({
   sourceUrl: Schema.optional(Schema.String),
-  googleDiscoveryUrls: Schema.optional(Schema.Array(Schema.String)),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
@@ -128,7 +146,7 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
   .add(
     HttpApiEndpoint.post("previewSpec", "/openapi/preview", {
       payload: PreviewSpecPayload,
-      success: SpecPreview,
+      success: SpecPreviewSummary,
       error: DomainErrors,
     }),
   )
@@ -159,6 +177,14 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
       payload: ConfigurePayload,
       success: ConfigureResponse,
       error: DomainErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("updateSpec", "/openapi/integrations/:slug/spec", {
+      params: SlugParams,
+      payload: UpdateSpecPayload,
+      success: UpdateSpecResponse,
+      error: UpdateSpecErrors,
     }),
   )
   .add(

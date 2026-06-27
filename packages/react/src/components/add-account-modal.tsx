@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
@@ -48,7 +48,11 @@ import {
 } from "../plugins/use-effective-oauth-client";
 import { cn } from "../lib/utils";
 import { buildUsageMap, connectionsUsingClient } from "../lib/oauth-client-usage";
-import { OAuthClientForm, registrationScopes } from "./oauth-client-form";
+import {
+  OAuthClientForm,
+  registrationScopes,
+  type OAuthClientFormPrefill,
+} from "./oauth-client-form";
 import { RemoveOAuthAppDialog } from "./remove-oauth-app-dialog";
 import { AddCustomMethodForm, type CreateCustomMethod } from "./add-custom-method-modal";
 import { PlacementLine, type AuthMethod } from "../lib/auth-placements";
@@ -150,17 +154,48 @@ function PasteCredentialInputs(props: {
   readonly values: Readonly<Record<string, string>>;
   readonly onChange: (values: Record<string, string>) => void;
 }) {
+  if (!props.singleInput) {
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {props.inputs.map((input) => (
+          <div key={input.variable} className="min-w-0 space-y-1.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <Label
+                htmlFor={`credential-input-${input.variable}`}
+                className="min-w-0 truncate font-mono text-xs font-medium text-muted-foreground"
+              >
+                {input.label}
+              </Label>
+            </div>
+            <Input
+              id={`credential-input-${input.variable}`}
+              type="password"
+              autoComplete="new-password"
+              placeholder={`paste ${input.label}`}
+              value={props.values[input.variable] ?? ""}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                props.onChange({
+                  ...props.values,
+                  [input.variable]: e.target.value,
+                })
+              }
+              className="h-9 font-mono text-sm"
+              data-ph-block
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       {props.inputs.map((input) => (
         <div key={input.variable} className="space-y-1">
-          {!props.singleInput && (
-            <Label className="text-xs text-muted-foreground">{input.label}</Label>
-          )}
           <Input
             type="password"
             autoComplete="new-password"
-            placeholder={props.singleInput ? "paste the value / token" : `paste ${input.label}`}
+            placeholder="paste the value / token"
             value={props.values[input.variable] ?? ""}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               props.onChange({
@@ -485,6 +520,11 @@ type RunDcrConnectInput = {
   readonly integration: IntegrationSlug;
 };
 
+export const dcrClientNameForIntegration = (integrationName: string): string => {
+  const trimmed = integrationName.trim();
+  return trimmed.length > 0 ? `Executor for ${trimmed}` : "Executor";
+};
+
 /**
  * Run the transparent DCR connect sequence: probe → register → start.
  *
@@ -513,7 +553,7 @@ export async function runDcrConnect(
     resource: probe.resource ?? input.discoveryUrl,
     scopes,
     tokenEndpointAuthMethodsSupported: probe.tokenEndpointAuthMethodsSupported,
-    clientName: input.integrationName,
+    clientName: dcrClientNameForIntegration(input.integrationName),
     redirectUri: input.redirectUri,
     originIntegration: input.integration,
   });
@@ -588,7 +628,7 @@ function OAuthAppRadioRow(props: {
   );
 }
 
-export function AddAccountModal(props: {
+interface AddAccountModalProps {
   readonly integration: IntegrationSlug;
   readonly integrationName: string;
   readonly methods: readonly AuthMethod[];
@@ -601,7 +641,20 @@ export function AddAccountModal(props: {
    *  plugin whose auth is fixed (MCP) omits this, hiding the row. */
   readonly createCustomMethod?: CreateCustomMethod;
   readonly removeCustomMethod?: (method: AuthMethod) => Promise<boolean>;
-}) {
+}
+
+/** The add-connection modal is self-contained: every transient bit of state
+ *  (form fields, the in-flight OAuth popup flow) lives in `AddAccountModalView`,
+ *  so closing the modal genuinely unmounts that view and React destroys all of
+ *  it, never hand-reset. Unmounting also runs `useOAuthPopupFlow`'s cleanup,
+ *  which cancels a dangling server OAuth session. That is why abandoning an
+ *  OAuth popup can't wedge a later open: the stuck flow died with its instance.
+ *  The parent owns only open/route intent (deep links, the reconnect handoff). */
+export function AddAccountModal(props: AddAccountModalProps) {
+  return props.open ? <AddAccountModalView {...props} /> : null;
+}
+
+function AddAccountModalView(props: AddAccountModalProps) {
   const {
     integration,
     integrationName,
@@ -736,6 +789,43 @@ export function AddAccountModal(props: {
     setMethodId(initialMethod?.id ?? allMethods[0]!.id);
   }, [allMethods, initialState?.template, methodId]);
 
+  // Non-secret prefill carried by an `oauth.clients.createHandoff` deep link.
+  // The agent fills in the endpoints/grant/client id it discovered; the client
+  // secret is deliberately absent and is typed by the human in the form below.
+  const oauthClientHandoff = initialState?.oauthClient;
+  const oauthHandoffPrefill = useMemo<OAuthClientFormPrefill | undefined>(() => {
+    if (!oauthClientHandoff) return undefined;
+    const grant =
+      oauthClientHandoff.grant === "authorization_code" ||
+      oauthClientHandoff.grant === "client_credentials"
+        ? oauthClientHandoff.grant
+        : undefined;
+    return {
+      ...(oauthClientHandoff.authorizationUrl
+        ? { authorizationUrl: oauthClientHandoff.authorizationUrl }
+        : {}),
+      ...(oauthClientHandoff.tokenUrl ? { tokenUrl: oauthClientHandoff.tokenUrl } : {}),
+      ...(oauthClientHandoff.resource ? { resource: oauthClientHandoff.resource } : {}),
+      ...(grant ? { grant } : {}),
+      ...(oauthClientHandoff.clientId ? { clientId: oauthClientHandoff.clientId } : {}),
+    };
+  }, [oauthClientHandoff]);
+
+  // Jump straight into the Register-OAuth-app sub-view when the agent handed off
+  // an OAuth-app registration. Fire once per handoff key (tracked by ref) so the
+  // user can cancel back out without it springing open again; retries on later
+  // renders only while the methods list is still empty.
+  const oauthHandoffOpenedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialState?.oauthClient) return;
+    if (oauthHandoffOpenedKey.current === initialState.key) return;
+    const oauthMethod = allMethods.find((m: AuthMethod) => m.kind === "oauth");
+    if (!oauthMethod) return;
+    oauthHandoffOpenedKey.current = initialState.key;
+    setMethodId(oauthMethod.id);
+    setRegisteringOAuthClient(true);
+  }, [initialState, allMethods]);
+
   const isOAuth = method?.kind === "oauth";
   const isNoAuth = method?.kind === "none";
   // The distinct credential inputs the selected method needs — one per variable
@@ -826,28 +916,6 @@ export function AddAccountModal(props: {
   const showSavedToPicker = !oauthRegistering && savedToOptions.length > 1;
   const callableName = connectionNameFrom(label, savedToOwner, integrationName, organizationId);
 
-  const reset = () => {
-    setMethodId(methods[0]?.id ?? "");
-    setValues({});
-    setCredentialOrigin("paste");
-    setOnePasswordItemId("");
-    setLabel("");
-    setOwner(defaultOwner);
-    setSubmitting(false);
-    setPickedApp(null);
-    setRegisteringOAuthClient(false);
-    setCcBusy(false);
-    setDcrBusy(false);
-    setDcrFailed(false);
-    setOAuthFallbackProbe(null);
-    setShowOtherApps(false);
-    setEditingClient(null);
-    setRemovingClient(null);
-    setCreatedMethods([]);
-    setRemovedMethodIds(new Set());
-    setAddingMethod(false);
-  };
-
   // Build the picker row's Edit/Remove menu for an app, but only once its full
   // summary has loaded (the picker option lacks endpoints/resource). Until then
   // the row shows no actions menu rather than a broken one.
@@ -927,10 +995,10 @@ export function AddAccountModal(props: {
     }
   };
 
-  const close = () => {
-    onOpenChange(false);
-    reset();
-  };
+  // Just ask the parent to close. Reopening remounts this whole component (see
+  // AddAccountModal), so there is nothing to hand-reset: the form fields and the
+  // OAuth popup flow's busy state die with this instance.
+  const close = () => onOpenChange(false);
 
   const credentialPayloadOrigin = createCredentialPayloadOrigin({
     origin: credentialOrigin,
@@ -1145,13 +1213,7 @@ export function AddAccountModal(props: {
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next: boolean) => {
-        if (!next) close();
-        else onOpenChange(true);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
           "max-h-[85vh] overflow-x-hidden overflow-y-auto",
@@ -1220,9 +1282,18 @@ export function AddAccountModal(props: {
                 )}
                 prefill={{
                   authorizationUrl:
-                    method.oauth?.authorizationUrl ?? oauthFallbackProbe?.authorizationUrl,
-                  tokenUrl: method.oauth?.tokenUrl ?? oauthFallbackProbe?.tokenUrl,
-                  resource: oauthFallbackProbe?.resource ?? method.oauth?.discoveryUrl ?? null,
+                    oauthHandoffPrefill?.authorizationUrl ??
+                    method.oauth?.authorizationUrl ??
+                    oauthFallbackProbe?.authorizationUrl,
+                  tokenUrl:
+                    oauthHandoffPrefill?.tokenUrl ??
+                    method.oauth?.tokenUrl ??
+                    oauthFallbackProbe?.tokenUrl,
+                  resource:
+                    oauthHandoffPrefill?.resource ??
+                    oauthFallbackProbe?.resource ??
+                    method.oauth?.discoveryUrl ??
+                    null,
                   scopes: method.oauth?.scopes,
                   discoveredScopes: oauthFallbackProbe?.scopesSupported,
                   registrationEndpoint:
@@ -1231,7 +1302,16 @@ export function AddAccountModal(props: {
                     undefined,
                   tokenEndpointAuthMethodsSupported:
                     oauthFallbackProbe?.tokenEndpointAuthMethodsSupported,
+                  ...(oauthHandoffPrefill?.grant ? { grant: oauthHandoffPrefill.grant } : {}),
+                  ...(oauthHandoffPrefill?.clientId
+                    ? { clientId: oauthHandoffPrefill.clientId }
+                    : {}),
                 }}
+                fixedSlug={
+                  oauthClientHandoff?.slug != null && oauthClientHandoff.slug.length > 0
+                    ? OAuthClientSlug.make(oauthClientHandoff.slug)
+                    : undefined
+                }
                 onCreated={(result: { readonly owner: Owner; readonly slug: OAuthClientSlug }) => {
                   setPickedApp(String(result.slug));
                   setRegisteringOAuthClient(false);
@@ -1336,7 +1416,7 @@ export function AddAccountModal(props: {
                       value={methodId}
                       className="mt-0 min-w-0 space-y-5 rounded-md border border-border/60 bg-muted/15 p-4"
                     >
-                      {method?.placements && method.placements.length > 0 ? (
+                      {method?.placements && method.placements.length > 0 && singleInput ? (
                         <div className="flex flex-wrap gap-x-3.5 gap-y-1">
                           {method.placements.map((placement, i: number) => (
                             <PlacementLine key={i} placement={placement} />

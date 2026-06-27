@@ -42,7 +42,7 @@ const bearerToken = (headers: Headers): string | undefined => {
 export const betterAuthIdentityLayer: Layer.Layer<IdentityProvider, never, BetterAuth> =
   Layer.effect(IdentityProvider)(
     Effect.gen(function* () {
-      const { auth, organizationId, organizationName } = yield* BetterAuth;
+      const { auth, organizationId, organizationName, organizationSlug } = yield* BetterAuth;
       return IdentityProvider.of({
         authenticate: (request) =>
           Effect.gen(function* () {
@@ -70,6 +70,7 @@ export const betterAuthIdentityLayer: Layer.Layer<IdentityProvider, never, Bette
               accountId: resolved.user.id,
               organizationId: resolvedOrganizationId,
               organizationName,
+              organizationSlug,
               email: resolved.user.email,
               name: resolved.user.name ?? null,
               avatarUrl: resolved.user.image ?? null,

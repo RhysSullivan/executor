@@ -1,5 +1,107 @@
 # @executor-js/plugin-mcp
 
+## 1.5.20
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.20
+  - @executor-js/config@1.5.20
+  - @executor-js/api@1.4.40
+  - @executor-js/react@1.4.40
+
+## 1.5.19
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.19
+  - @executor-js/config@1.5.19
+  - @executor-js/api@1.4.39
+  - @executor-js/react@1.4.39
+
+## 1.5.18
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+  - @executor-js/config@1.5.18
+  - @executor-js/api@1.4.38
+  - @executor-js/react@1.4.38
+
+## 1.5.17
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/config@1.5.17
+  - @executor-js/api@1.4.37
+  - @executor-js/react@1.4.37
+
+## 1.5.16
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+  - @executor-js/config@1.5.16
+  - @executor-js/api@1.4.36
+  - @executor-js/react@1.4.36
+
+## 1.5.15
+
+### Patch Changes
+
+- Surface binary tool results as model-native file outputs across OpenAPI and upstream MCP integrations.
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+  - @executor-js/api@1.4.35
+  - @executor-js/config@1.5.15
+  - @executor-js/react@1.4.35
+
+## 1.5.14
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.14
+  - @executor-js/config@1.5.14
+  - @executor-js/api@1.4.34
+  - @executor-js/react@1.4.34
+
+## 1.5.13
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/api@1.4.33
+  - @executor-js/react@1.4.33
+  - @executor-js/sdk@1.5.13
+  - @executor-js/config@1.5.13
+
+## 1.5.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.12
+  - @executor-js/config@1.5.12
+  - @executor-js/api@1.4.32
+  - @executor-js/react@1.4.32
+
+## 1.5.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.11
+  - @executor-js/config@1.5.11
+  - @executor-js/api@1.4.31
+  - @executor-js/react@1.4.31
+
 ## 1.5.10
 
 ### Patch Changes

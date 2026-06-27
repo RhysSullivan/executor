@@ -1,5 +1,85 @@
 # @executor-js/react
 
+## 1.4.40
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.20
+  - @executor-js/api@1.4.40
+
+## 1.4.39
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.19
+  - @executor-js/api@1.4.39
+
+## 1.4.38
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+  - @executor-js/api@1.4.38
+
+## 1.4.37
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/api@1.4.37
+
+## 1.4.36
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+  - @executor-js/api@1.4.36
+
+## 1.4.35
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+  - @executor-js/api@1.4.35
+
+## 1.4.34
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.14
+  - @executor-js/api@1.4.34
+
+## 1.4.33
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/api@1.4.33
+  - @executor-js/sdk@1.5.13
+
+## 1.4.32
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.12
+  - @executor-js/api@1.4.32
+
+## 1.4.31
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.11
+  - @executor-js/api@1.4.31
+
 ## 1.4.30
 
 ### Patch Changes

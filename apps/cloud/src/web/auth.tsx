@@ -33,7 +33,6 @@ export const organizationsAtom = Atom.refreshOnWindowFocus(
   }),
 );
 
-export const switchOrganization = CloudApiClient.mutation("cloudAuth", "switchOrganization");
 export const createOrganization = CloudApiClient.mutation("cloudAuth", "createOrganization");
 
 export const pendingInvitationsAtom = CloudApiClient.query("cloudAuth", "pendingInvitations", {

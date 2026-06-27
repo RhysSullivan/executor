@@ -13,6 +13,7 @@ import {
 import { makeR2BlobStore } from "@executor-js/cloudflare/blob-store";
 
 import { CLOUDFLARE_NAMESPACE, CLOUDFLARE_SCHEMA_VERSION } from "../config";
+import { runCloudflareDataMigrations } from "./data-migrations";
 
 // ---------------------------------------------------------------------------
 // D1 DbProvider handle — the CF-native swap for self-host's libSQL handle.
@@ -44,6 +45,7 @@ export const createD1ExecutorDb = async (
   // exposes one. The bring-up is idempotent `CREATE TABLE IF NOT EXISTS`, so run
   // it WITHOUT a transaction by handing the ensure a run-only view of the handle.
   await ensureDrizzleRuntimeSchemaFromTables({ run: (query) => drizzleDb.run(query) }, options);
+  await runCloudflareDataMigrations(db, blobs);
 
   // `interactiveTransactions: false` — D1 rejects interactive transactions, so
   // the fuma adapter runs transaction callbacks directly (auto-commit per

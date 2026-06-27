@@ -3,10 +3,9 @@
 // Playwright browser the e2e suite drives. Idempotent and safe to re-run;
 // each step prints what it is doing.
 //
-// The vendor/ submodules are intentionally NOT initialized: nothing imports
-// from vendor/ at runtime — those forks are consumed as published npm
-// packages (see vendor/README.md). Pass --forks only when deliberately
-// developing a fork.
+// There are no fork submodules: our upstream forks (@executor-js/emulate,
+// @executor-js/mcporter) are consumed purely as published npm packages and
+// developed in their own standalone repos. Nothing to init here.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -18,10 +17,6 @@ const run = (label: string, cmd: string, args: ReadonlyArray<string>) => {
   console.log(`\n[bootstrap] ${label}: ${cmd} ${args.join(" ")}`);
   execFileSync(cmd, [...args], { cwd: repoRoot, stdio: "inherit" });
 };
-
-if (process.argv.includes("--forks")) {
-  run("vendor fork submodules", "git", ["submodule", "update", "--init", "--recursive"]);
-}
 
 // `bun install` runs the workspace prepare hook, which builds
 // @executor-js/vite-plugin and @executor-js/react — the two artifacts the

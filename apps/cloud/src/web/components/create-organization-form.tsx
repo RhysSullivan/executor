@@ -8,7 +8,7 @@ import { Label } from "@executor-js/react/components/label";
 
 import { createOrganization } from "../auth";
 
-type CreatedOrganization = { id: string; name: string };
+type CreatedOrganization = { id: string; name: string; slug: string };
 
 export function useCreateOrganizationForm(options: {
   defaultName?: string;

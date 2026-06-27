@@ -1,6 +1,6 @@
 {
   "name": "@executor-js/e2e",
-  "version": "0.0.7",
+  "version": "0.0.17",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "test:cloud": "vitest run --project cloud",
     "test:selfhost": "vitest run --project selfhost",
     "test:selfhost-docker": "vitest run --project selfhost-docker",
+    "test:cloudflare": "vitest run --project cloudflare",
     "test:watch": "vitest",
     "ports": "bun scripts/ports.ts",
     "summary": "bun scripts/summary.ts",
@@ -20,11 +21,13 @@
   },
   "dependencies": {
     "@executor-js/api": "workspace:*",
-    "@executor-js/emulate": "^0.7.0",
+    "@executor-js/emulate": "^0.7.5",
     "@executor-js/mcporter": "^0.11.4",
     "@executor-js/plugin-graphql": "workspace:*",
     "@executor-js/plugin-mcp": "workspace:*",
+    "@executor-js/plugin-microsoft": "workspace:*",
     "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/plugin-toolkits": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "@kitlangton/terminal-control": "^0.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -42,6 +45,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "graphql": "^16.12.0",
     "iron-webcrypto": "^2.0.0",
     "typescript": "catalog:",
     "vite": "catalog:",

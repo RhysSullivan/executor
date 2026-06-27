@@ -12,7 +12,8 @@
     "deploy:setup": "bash scripts/deploy.sh",
     "vendor-wasm": "bun run scripts/vendor-quickjs-wasm.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "routes:gen": "bun scripts/gen-routes.ts"
   },
   "dependencies": {
     "@effect/atom-react": "catalog:",
@@ -23,9 +24,12 @@
     "@executor-js/fumadb": "workspace:*",
     "@executor-js/host-mcp": "workspace:*",
     "@executor-js/plugin-encrypted-secrets": "workspace:*",
+    "@executor-js/plugin-google": "workspace:*",
     "@executor-js/plugin-graphql": "workspace:*",
     "@executor-js/plugin-mcp": "workspace:*",
+    "@executor-js/plugin-microsoft": "workspace:*",
     "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/plugin-toolkits": "workspace:*",
     "@executor-js/react": "workspace:*",
     "@executor-js/runtime-quickjs": "workspace:*",
     "@executor-js/sdk": "workspace:*",

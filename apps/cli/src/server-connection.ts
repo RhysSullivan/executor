@@ -1,5 +1,4 @@
 import {
-  DEFAULT_EXECUTOR_SERVER_USERNAME,
   normalizeExecutorServerConnection,
   type ExecutorLocalServerManifest,
   type ExecutorServerAuth,
@@ -7,43 +6,15 @@ import {
 } from "@executor-js/sdk/shared";
 import { canAutoStartLocalDaemonForHost } from "./daemon";
 
-const readCliBasicServerAuth = (
-  env: Record<string, string | undefined> = process.env,
-): ExecutorServerAuth | undefined => {
-  const password = env.EXECUTOR_AUTH_PASSWORD;
-  if (!password) return undefined;
-  return {
-    kind: "basic",
-    username: env.EXECUTOR_AUTH_USERNAME ?? DEFAULT_EXECUTOR_SERVER_USERNAME,
-    password,
-  };
-};
-
-const readCliBearerServerAuth = (
+// Bearer is the only credential the CLI derives from the environment: a hosted
+// API key (`EXECUTOR_API_KEY`) or a local/desktop server's bearer token
+// (`EXECUTOR_AUTH_TOKEN`). Local servers publish their token in the manifest, so
+// the env override is mainly for pointing the CLI at a remote instance.
+export const readCliServerAuth = (
   env: Record<string, string | undefined> = process.env,
 ): ExecutorServerAuth | undefined => {
   const token = env.EXECUTOR_API_KEY ?? env.EXECUTOR_AUTH_TOKEN;
-  if (!token) return undefined;
-  return { kind: "bearer", token };
-};
-
-export const readCliServerAuth = (
-  env: Record<string, string | undefined> = process.env,
-): ExecutorServerAuth | undefined => readCliBearerServerAuth(env) ?? readCliBasicServerAuth(env);
-
-const readCliServerAuthForConnection = (
-  connection: ExecutorServerConnection,
-  env: Record<string, string | undefined> = process.env,
-): ExecutorServerAuth | undefined => {
-  const bearer = readCliBearerServerAuth(env);
-  const basic = readCliBasicServerAuth(env);
-  const protocol = new URL(connection.origin).protocol;
-
-  if (protocol === "https:") {
-    return bearer ?? basic;
-  }
-
-  return basic ?? bearer;
+  return token ? { kind: "bearer", token } : undefined;
 };
 
 export const parseCliExecutorServerConnection = (
@@ -55,7 +26,7 @@ export const parseCliExecutorServerConnection = (
   });
   return normalizeExecutorServerConnection({
     ...connection,
-    auth: readCliServerAuthForConnection(connection, env),
+    auth: readCliServerAuth(env),
   });
 };
 
@@ -67,12 +38,16 @@ export const withCliServerAuthFallback = (
     ? connection
     : normalizeExecutorServerConnection({
         ...connection,
-        auth: readCliServerAuthForConnection(connection, env),
+        auth: readCliServerAuth(env),
       });
 
 export const canAutoStartCliServerConnection = (connection: ExecutorServerConnection): boolean => {
   if (connection.kind !== "http") return false;
-  if (connection.auth?.kind === "basic") return false;
+  // A stored credential (basic password, bearer key, or an oauth device-login
+  // token) means the user is targeting an EXISTING authenticated server, never
+  // spawn a local daemon for it, even when it happens to be on http://localhost
+  // (e.g. a hosted server reached over a tunnel, or a local e2e cloud server).
+  if (connection.auth) return false;
   const url = new URL(connection.origin);
   return url.protocol === "http:" && canAutoStartLocalDaemonForHost(url.hostname);
 };

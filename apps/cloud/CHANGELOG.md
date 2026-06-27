@@ -1,5 +1,205 @@
 # @executor-js/cloud
 
+## 1.4.38
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.20
+  - @executor-js/runtime-quickjs@1.5.20
+  - @executor-js/execution@1.5.20
+  - @executor-js/plugin-graphql@1.5.20
+  - @executor-js/plugin-mcp@1.5.20
+  - @executor-js/plugin-openapi@1.5.20
+  - @executor-js/api@1.4.40
+  - @executor-js/vite-plugin@0.0.37
+  - @executor-js/cloudflare@0.0.19
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-google@1.5.19
+  - @executor-js/plugin-microsoft@1.5.19
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.40
+
+## 1.4.37
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.19
+  - @executor-js/runtime-quickjs@1.5.19
+  - @executor-js/execution@1.5.19
+  - @executor-js/plugin-graphql@1.5.19
+  - @executor-js/plugin-mcp@1.5.19
+  - @executor-js/plugin-openapi@1.5.19
+  - @executor-js/api@1.4.39
+  - @executor-js/vite-plugin@0.0.36
+  - @executor-js/cloudflare@0.0.18
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-google@1.5.18
+  - @executor-js/plugin-microsoft@1.5.18
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.39
+
+## 1.4.36
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+  - @executor-js/runtime-quickjs@1.5.18
+  - @executor-js/execution@1.5.18
+  - @executor-js/plugin-graphql@1.5.18
+  - @executor-js/plugin-mcp@1.5.18
+  - @executor-js/plugin-openapi@1.5.18
+  - @executor-js/api@1.4.38
+  - @executor-js/vite-plugin@0.0.35
+  - @executor-js/cloudflare@0.0.17
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-google@1.5.17
+  - @executor-js/plugin-microsoft@1.5.17
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.38
+
+## 1.4.35
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/runtime-quickjs@1.5.17
+  - @executor-js/execution@1.5.17
+  - @executor-js/plugin-graphql@1.5.17
+  - @executor-js/plugin-mcp@1.5.17
+  - @executor-js/plugin-openapi@1.5.17
+  - @executor-js/api@1.4.37
+  - @executor-js/vite-plugin@0.0.34
+  - @executor-js/cloudflare@0.0.16
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-google@1.5.16
+  - @executor-js/plugin-microsoft@1.5.16
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.37
+
+## 1.4.34
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+  - @executor-js/runtime-quickjs@1.5.16
+  - @executor-js/execution@1.5.16
+  - @executor-js/plugin-graphql@1.5.16
+  - @executor-js/plugin-mcp@1.5.16
+  - @executor-js/plugin-openapi@1.5.16
+  - @executor-js/api@1.4.36
+  - @executor-js/vite-plugin@0.0.33
+  - @executor-js/cloudflare@0.0.15
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-google@1.5.15
+  - @executor-js/plugin-microsoft@1.5.15
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.36
+
+## 1.4.33
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+  - @executor-js/plugin-openapi@1.5.15
+  - @executor-js/plugin-mcp@1.5.15
+  - @executor-js/api@1.4.35
+  - @executor-js/execution@1.5.15
+  - @executor-js/vite-plugin@0.0.32
+  - @executor-js/cloudflare@0.0.14
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-graphql@1.5.15
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.35
+  - @executor-js/runtime-quickjs@1.5.15
+
+## 1.4.32
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.14
+  - @executor-js/runtime-quickjs@1.5.14
+  - @executor-js/execution@1.5.14
+  - @executor-js/plugin-graphql@1.5.14
+  - @executor-js/plugin-mcp@1.5.14
+  - @executor-js/plugin-openapi@1.5.14
+  - @executor-js/api@1.4.34
+  - @executor-js/vite-plugin@0.0.31
+  - @executor-js/cloudflare@0.0.13
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.34
+
+## 1.4.31
+
+### Patch Changes
+
+- Updated dependencies [[`8244fee`](https://github.com/RhysSullivan/executor/commit/8244fee567cb2408650fc1fcd1a9e72cedc2f683)]:
+  - @executor-js/execution@1.5.13
+  - @executor-js/api@1.4.33
+  - @executor-js/cloudflare@0.0.12
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-graphql@1.5.13
+  - @executor-js/plugin-mcp@1.5.13
+  - @executor-js/plugin-openapi@1.5.13
+  - @executor-js/react@1.4.33
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/sdk@1.5.13
+  - @executor-js/runtime-quickjs@1.5.13
+  - @executor-js/vite-plugin@0.0.30
+
+## 1.4.30
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.12
+  - @executor-js/runtime-quickjs@1.5.12
+  - @executor-js/execution@1.5.12
+  - @executor-js/plugin-graphql@1.5.12
+  - @executor-js/plugin-mcp@1.5.12
+  - @executor-js/plugin-openapi@1.5.12
+  - @executor-js/api@1.4.32
+  - @executor-js/vite-plugin@0.0.29
+  - @executor-js/cloudflare@0.0.11
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.32
+
+## 1.4.29
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.11
+  - @executor-js/runtime-quickjs@1.5.11
+  - @executor-js/execution@1.5.11
+  - @executor-js/plugin-graphql@1.5.11
+  - @executor-js/plugin-mcp@1.5.11
+  - @executor-js/plugin-openapi@1.5.11
+  - @executor-js/api@1.4.31
+  - @executor-js/vite-plugin@0.0.28
+  - @executor-js/cloudflare@0.0.10
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/runtime-dynamic-worker@1.4.4
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/react@1.4.31
+
 ## 1.4.28
 
 ### Patch Changes

@@ -1,5 +1,92 @@
 # @executor-js/execution
 
+## 1.5.20
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.20
+  - @executor-js/codemode-core@1.5.20
+
+## 1.5.19
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.19
+  - @executor-js/codemode-core@1.5.19
+
+## 1.5.18
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+  - @executor-js/codemode-core@1.5.18
+
+## 1.5.17
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/codemode-core@1.5.17
+
+## 1.5.16
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+  - @executor-js/codemode-core@1.5.16
+
+## 1.5.15
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+  - @executor-js/codemode-core@1.5.15
+
+## 1.5.14
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.14
+  - @executor-js/codemode-core@1.5.14
+
+## 1.5.13
+
+### Patch Changes
+
+- [#976](https://github.com/RhysSullivan/executor/pull/976) [`8244fee`](https://github.com/RhysSullivan/executor/commit/8244fee567cb2408650fc1fcd1a9e72cedc2f683) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Make paused-execution resume reliable: `resume` is now idempotent (a retried
+  resume replays the recorded outcome instead of failing with "No paused
+  execution"), execution ids are globally unique so a rebuilt engine can never
+  re-mint an id a stale client still holds, pauses abandoned by a dead sandbox
+  are dropped and their terminal outcome kept for late resumes, and an expired
+  or lost pause now returns recovery guidance (re-run execute) instead of a bare
+  miss.
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.13
+  - @executor-js/codemode-core@1.5.13
+
+## 1.5.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.12
+  - @executor-js/codemode-core@1.5.12
+
+## 1.5.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.11
+  - @executor-js/codemode-core@1.5.11
+
 ## 1.5.10
 
 ### Patch Changes

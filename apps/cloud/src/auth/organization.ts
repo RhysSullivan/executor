@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
+import { EXECUTOR_ORG_SELECTOR_HEADER } from "@executor-js/sdk/shared";
 
 import { UserStoreService } from "./context";
 import { WorkOSClient } from "./workos";
@@ -28,6 +29,11 @@ import { WorkOSClient } from "./workos";
 // callback flow we just untangled — we mirror lazily the first time an
 // unknown org is read. All other callers just do `getOrganization` and get
 // a self-healing lookup for free.
+//
+// URL slugs are OURS (WorkOS orgs have none) and are minted at the moment a
+// row is inserted — `upsertOrganization` is the single mint point, so the
+// mirror-on-first-read below produces a slugged, routable org without any
+// read-path healing.
 
 export const resolveOrganization = (organizationId: string) =>
   Effect.gen(function* () {
@@ -71,4 +77,45 @@ export const authorizeOrganization = (userId: string, organizationId: string) =>
     if (!active) return null;
 
     return yield* resolveOrganization(organizationId);
+  });
+
+// ---------------------------------------------------------------------------
+// Org SELECTOR — the URL is the scope authority, not the session.
+// ---------------------------------------------------------------------------
+//
+// Org-scoped requests carry the active org in this header, set by the web
+// client from the console URL's slug (the MCP plane carries the same idea in
+// its own `x-executor-mcp-organization`). The selector is a slug (`acme`, the
+// readable URL form) or a WorkOS id (`org_…`, the legacy/token form). It is a
+// SELECTOR, not a trust boundary: `authorizeOrganizationSelector` re-checks
+// live membership, so the worst a forged header does is name an org the caller
+// already belongs to.
+//
+// Why a header and not the session's `org_id`: a browser shares ONE cookie jar
+// across tabs, so a single session-pinned org makes "active org" a
+// browser-global — two tabs can't be in two orgs at once, and switching in one
+// silently re-scopes the other. Scoping per-request from the URL makes each
+// tab independent.
+
+export const ORG_SELECTOR_HEADER = EXECUTOR_ORG_SELECTOR_HEADER;
+
+/** The URL-pinned org selector for a request, or `null` to fall back to the session. */
+export const orgSelectorFromRequest = (request: Request): string | null =>
+  request.headers.get(ORG_SELECTOR_HEADER);
+
+/**
+ * Resolve an org SELECTOR (URL slug or `org_…` id) to the organization the
+ * caller actively belongs to, or `null`. A slug resolves through the local
+ * mirror to its id first; ids pass straight through. Either way membership is
+ * verified live via {@link authorizeOrganization}.
+ */
+export const authorizeOrganizationSelector = (userId: string, selector: string) =>
+  Effect.gen(function* () {
+    if (selector.startsWith("org_")) {
+      return yield* authorizeOrganization(userId, selector);
+    }
+    const users = yield* UserStoreService;
+    const org = yield* users.use((s) => s.getOrganizationBySlug(selector));
+    if (!org) return null;
+    return yield* authorizeOrganization(userId, org.id);
   });

@@ -1,5 +1,150 @@
 # @executor-js/example-all-plugins
 
+## 0.0.38
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.20
+  - @executor-js/plugin-file-secrets@1.5.20
+  - @executor-js/plugin-graphql@1.5.20
+  - @executor-js/plugin-keychain@1.5.20
+  - @executor-js/plugin-mcp@1.5.20
+  - @executor-js/plugin-onepassword@1.5.20
+  - @executor-js/plugin-openapi@1.5.20
+  - @executor-js/plugin-google@1.5.19
+  - @executor-js/plugin-workos-vault@0.0.2
+
+## 0.0.37
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.19
+  - @executor-js/plugin-file-secrets@1.5.19
+  - @executor-js/plugin-graphql@1.5.19
+  - @executor-js/plugin-keychain@1.5.19
+  - @executor-js/plugin-mcp@1.5.19
+  - @executor-js/plugin-onepassword@1.5.19
+  - @executor-js/plugin-openapi@1.5.19
+  - @executor-js/plugin-google@1.5.18
+  - @executor-js/plugin-workos-vault@0.0.2
+
+## 0.0.36
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+  - @executor-js/plugin-file-secrets@1.5.18
+  - @executor-js/plugin-graphql@1.5.18
+  - @executor-js/plugin-keychain@1.5.18
+  - @executor-js/plugin-mcp@1.5.18
+  - @executor-js/plugin-onepassword@1.5.18
+  - @executor-js/plugin-openapi@1.5.18
+  - @executor-js/plugin-google@1.5.17
+  - @executor-js/plugin-workos-vault@0.0.2
+
+## 0.0.35
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/plugin-file-secrets@1.5.17
+  - @executor-js/plugin-graphql@1.5.17
+  - @executor-js/plugin-keychain@1.5.17
+  - @executor-js/plugin-mcp@1.5.17
+  - @executor-js/plugin-onepassword@1.5.17
+  - @executor-js/plugin-openapi@1.5.17
+  - @executor-js/plugin-google@1.5.16
+  - @executor-js/plugin-workos-vault@0.0.2
+
+## 0.0.34
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+  - @executor-js/plugin-file-secrets@1.5.16
+  - @executor-js/plugin-graphql@1.5.16
+  - @executor-js/plugin-keychain@1.5.16
+  - @executor-js/plugin-mcp@1.5.16
+  - @executor-js/plugin-onepassword@1.5.16
+  - @executor-js/plugin-openapi@1.5.16
+  - @executor-js/plugin-google@1.5.15
+  - @executor-js/plugin-workos-vault@0.0.2
+
+## 0.0.33
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+  - @executor-js/plugin-openapi@1.5.15
+  - @executor-js/plugin-mcp@1.5.15
+  - @executor-js/plugin-file-secrets@1.5.15
+  - @executor-js/plugin-graphql@1.5.15
+  - @executor-js/plugin-keychain@1.5.15
+  - @executor-js/plugin-onepassword@1.5.15
+  - @executor-js/plugin-workos-vault@0.0.2
+
+## 0.0.32
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.14
+  - @executor-js/plugin-file-secrets@1.5.14
+  - @executor-js/plugin-graphql@1.5.14
+  - @executor-js/plugin-keychain@1.5.14
+  - @executor-js/plugin-mcp@1.5.14
+  - @executor-js/plugin-onepassword@1.5.14
+  - @executor-js/plugin-openapi@1.5.14
+  - @executor-js/plugin-workos-vault@0.0.2
+
+## 0.0.31
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/plugin-graphql@1.5.13
+  - @executor-js/plugin-mcp@1.5.13
+  - @executor-js/plugin-onepassword@1.5.13
+  - @executor-js/plugin-openapi@1.5.13
+  - @executor-js/plugin-workos-vault@0.0.2
+  - @executor-js/sdk@1.5.13
+  - @executor-js/plugin-file-secrets@1.5.13
+  - @executor-js/plugin-keychain@1.5.13
+
+## 0.0.30
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.12
+  - @executor-js/plugin-file-secrets@1.5.12
+  - @executor-js/plugin-graphql@1.5.12
+  - @executor-js/plugin-keychain@1.5.12
+  - @executor-js/plugin-mcp@1.5.12
+  - @executor-js/plugin-onepassword@1.5.12
+  - @executor-js/plugin-openapi@1.5.12
+  - @executor-js/plugin-workos-vault@0.0.2
+
+## 0.0.29
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.11
+  - @executor-js/plugin-file-secrets@1.5.11
+  - @executor-js/plugin-graphql@1.5.11
+  - @executor-js/plugin-keychain@1.5.11
+  - @executor-js/plugin-mcp@1.5.11
+  - @executor-js/plugin-onepassword@1.5.11
+  - @executor-js/plugin-openapi@1.5.11
+  - @executor-js/plugin-workos-vault@0.0.2
+
 ## 0.0.28
 
 ### Patch Changes

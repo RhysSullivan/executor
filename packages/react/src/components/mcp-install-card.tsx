@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trackEvent } from "../api/analytics";
 import CursorIcon from "@lobehub/icons/es/Cursor/components/Mono";
 import ClaudeIcon from "@lobehub/icons/es/Claude/components/Color";
@@ -10,7 +10,7 @@ import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 import { NativeSelect, NativeSelectOption } from "./native-select";
 import { cn } from "../lib/utils";
-import { useOrganizationId } from "../api/organization-context";
+import { useOrganizationSlug } from "../api/organization-context";
 import {
   getExecutorServerAuthorizationHeader,
   useExecutorServerConnection,
@@ -48,13 +48,15 @@ export const buildMcpHttpEndpoint = (input: {
     readonly port: number;
   } | null;
   readonly elicitationMode?: McpElicitationMode;
-  // Cloud only: pins the URL to `/<org_id>/mcp`. Desktop/local pass nothing and
-  // get the bare `/mcp` path.
-  readonly organizationId?: string | null;
+  // Cloud only: pins the URL to `/<org-slug>/mcp` (the server also accepts the
+  // legacy `/<org_id>/mcp` form). Desktop/local pass nothing and get the bare
+  // `/mcp` path.
+  readonly organizationSlug?: string | null;
 }): string => {
   // The desktop sidecar isn't org-scoped, so the org only applies to the
   // origin/remote forms.
-  const mcpPath = input.organizationId && !input.desktop ? `/${input.organizationId}/mcp` : "/mcp";
+  const mcpPath =
+    input.organizationSlug && !input.desktop ? `/${input.organizationSlug}/mcp` : "/mcp";
   const endpoint = input.desktop
     ? `http://127.0.0.1:${input.desktop.port}${mcpPath}`
     : input.origin
@@ -68,15 +70,6 @@ export const buildMcpHttpEndpoint = (input: {
   return url.toString();
 };
 
-const buildBasicAuthHeader = (password: string): string => {
-  // Renderer-only: every browser/Electron renderer has btoa. SSR doesn't
-  // render this card, so we don't need a Node fallback here.
-  if (typeof globalThis.btoa !== "function") {
-    return `Authorization: Basic executor:${password}`;
-  }
-  return `Authorization: Basic ${globalThis.btoa(`executor:${password}`)}`;
-};
-
 export const buildMcpInstallCommand = (input: {
   readonly mode: TransportMode;
   readonly isDev: boolean;
@@ -84,26 +77,22 @@ export const buildMcpInstallCommand = (input: {
   readonly scopeDir?: string;
   readonly desktop?: {
     readonly port: number;
-    readonly requireAuth: boolean;
-    readonly password: string;
   } | null;
   readonly authorizationHeader?: string | null;
   readonly elicitationMode?: McpElicitationMode;
   readonly devCliCwd?: string;
-  readonly organizationId?: string | null;
+  readonly organizationSlug?: string | null;
 }): string => {
   if (input.mode === "http") {
     const endpoint = buildMcpHttpEndpoint({
       origin: input.origin,
       desktop: input.desktop ? { port: input.desktop.port } : null,
       elicitationMode: input.elicitationMode,
-      organizationId: input.organizationId,
+      organizationSlug: input.organizationSlug,
     });
     const headerFlags: string[] = [];
     if (input.authorizationHeader) {
       headerFlags.push(`--header ${shellQuoteWord(`Authorization: ${input.authorizationHeader}`)}`);
-    } else if (input.desktop?.requireAuth && input.desktop.password) {
-      headerFlags.push(`--header ${shellQuoteWord(buildBasicAuthHeader(input.desktop.password))}`);
     }
     const parts = [
       `npx add-mcp ${shellQuoteWord(endpoint)} --transport http --name executor`,
@@ -130,7 +119,7 @@ export function McpInstallCard(props: { className?: string }) {
   const [mode, setMode] = useState<TransportMode>("http");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [httpElicitationMode, setHttpElicitationMode] = useState<McpElicitationMode>("model");
-  const organizationId = useOrganizationId();
+  const organizationSlug = useOrganizationSlug();
   const serverConnection = useExecutorServerConnection();
   // Desktop hosts ship Electron without putting an `executor` binary on
   // PATH, and the bundled sidecar is locked to the running app. Force the
@@ -139,7 +128,32 @@ export function McpInstallCard(props: { className?: string }) {
     isLocal && serverConnection.kind !== "desktop-sidecar" && !hasDesktopConnectionBridge();
 
   const elicitationMode = mode === "stdio" ? "model" : httpElicitationMode;
-  const authorizationHeader = getExecutorServerAuthorizationHeader(serverConnection);
+
+  // The desktop renderer's connection carries no auth (the main process injects
+  // the bearer at the session layer). For the install command — which an
+  // EXTERNAL agent runs and therefore needs the token in plaintext — fetch it
+  // on demand from the bridge.
+  const [desktopAuthToken, setDesktopAuthToken] = useState<string | null>(null);
+  useEffect(() => {
+    if (serverConnection.kind !== "desktop-sidecar") {
+      setDesktopAuthToken(null);
+      return;
+    }
+    let cancelled = false;
+    void globalThis.window?.executor?.getServerAuthToken?.().then(
+      (token) => {
+        if (!cancelled) setDesktopAuthToken(token);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [serverConnection.kind]);
+
+  const authorizationHeader =
+    getExecutorServerAuthorizationHeader(serverConnection) ??
+    (desktopAuthToken ? `Bearer ${desktopAuthToken}` : null);
 
   const command = buildMcpInstallCommand({
     mode,
@@ -148,7 +162,7 @@ export function McpInstallCard(props: { className?: string }) {
     authorizationHeader,
     elicitationMode,
     devCliCwd,
-    organizationId,
+    organizationSlug,
   });
 
   const subtitle =
@@ -226,7 +240,7 @@ export function McpInstallCard(props: { className?: string }) {
 
   const header = (
     <CardStackHeader
-      className="items-start pt-3 pb-1"
+      className="items-start pt-4 pb-1"
       rightSlot={
         showStdio ? (
           <TabsList>

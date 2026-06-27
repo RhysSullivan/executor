@@ -68,7 +68,6 @@ const servePluginTestApi = () =>
 const specText = () => {
   const spec = makeOpenApiHttpApiTestSourceConfig(TestApi, {}).spec;
   if (spec.kind === "blob") return spec.value;
-  if (spec.kind === "googleDiscoveryBundle") return spec.urls[0] ?? "";
   return spec.url;
 };
 

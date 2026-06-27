@@ -46,10 +46,19 @@ export { useAtomValue, useAtomSet, useAtomMount, useAtomRefresh } from "@effect/
 // alongside the host's own UI.
 // ---------------------------------------------------------------------------
 
+export interface PluginPageProps {
+  /** Plugin-relative route params captured from `PageDecl.path` segments. */
+  readonly params: Readonly<Record<string, string>>;
+  /** The normalized plugin-relative URL path that matched this page. */
+  readonly path: string;
+  /** The plugin id from `/plugins/$pluginId/...`. */
+  readonly pluginId: string;
+}
+
 export interface PageDecl {
   /** Path relative to the plugin's mount point, e.g. `/`, `/edit/$id`. */
   readonly path: string;
-  readonly component: ComponentType;
+  readonly component: ComponentType<PluginPageProps>;
   /** Optional sidebar nav metadata — the host renders these alongside its
    *  own nav links. Omit to register a page without a nav entry. */
   readonly nav?: {
@@ -113,6 +122,31 @@ export interface IntegrationAccountHandoff {
   readonly template?: string;
   /** Non-secret connection label to prefill. */
   readonly label?: string;
+  /** Present when the agent handed off a CONFIDENTIAL OAuth-app registration
+   *  (via `oauth.clients.createHandoff`): the accounts UI opens the
+   *  Register-OAuth-app form pre-filled with these NON-secret fields, and the
+   *  human types the client secret directly into the browser. */
+  readonly oauthClient?: {
+    /** Preselected client slug; when set the form's slug is fixed. */
+    readonly slug?: string;
+    readonly grant?: string;
+    readonly clientId?: string;
+    readonly authorizationUrl?: string;
+    readonly tokenUrl?: string;
+    readonly resource?: string;
+  };
+}
+
+/** Outcome of applying an edit-sheet section's staged change. `summary` is
+ *  toasted on success; `ok: false` keeps the sheet open (the section renders
+ *  its own error inline). */
+export type EditSheetApplyResult =
+  | { readonly ok: true; readonly summary: string | null }
+  | { readonly ok: false };
+
+export interface EditSheetSectionProps {
+  readonly sourceId: string;
+  readonly onPendingChange?: (apply: (() => Promise<EditSheetApplyResult>) | null) => void;
 }
 
 export interface IntegrationPlugin {
@@ -130,10 +164,19 @@ export interface IntegrationPlugin {
     readonly initialPreset?: string;
     readonly initialNamespace?: string;
   }>;
-  readonly edit: ComponentType<{
+  /** Legacy full-page edit surface. No host renders this anymore — plugin
+   *  configuration lives in the integration Edit sheet via `editSheet`. */
+  readonly edit?: ComponentType<{
     readonly sourceId: string;
     readonly onSave: () => void;
   }>;
+  /** Plugin-owned configuration rendered inside the integration's Edit sheet,
+   *  below the shared metadata fields (e.g. the OpenAPI spec-update controls).
+   *  The sheet has ONE Save: the section stages its pending change locally and
+   *  reports it through `onPendingChange` — a thunk that applies the staged
+   *  change. Save runs the metadata update, then the staged apply; a failed
+   *  apply keeps the sheet open with the section showing its own error. */
+  readonly editSheet?: ComponentType<EditSheetSectionProps>;
   readonly summary?: ComponentType<{
     readonly sourceId: string;
     readonly variant?: "badge" | "panel";
@@ -217,11 +260,18 @@ export interface CreatePluginAtomClientOptions {
   /** Optional dynamic Authorization header for hosts whose active
    *  Executor Server Connection requires Basic or Bearer auth. */
   readonly authorizationHeader?: string | null | (() => string | null);
+  /** Optional dynamic request headers supplied by the host shell. */
+  readonly headers?:
+    | Readonly<Record<string, string | null | undefined>>
+    | (() => Readonly<Record<string, string | null | undefined>>);
 }
 
 export interface PluginAtomClientRequestTransformOptions {
   readonly baseUrl?: () => string;
   readonly authorizationHeader?: string | null | (() => string | null);
+  readonly headers?:
+    | Readonly<Record<string, string | null | undefined>>
+    | (() => Readonly<Record<string, string | null | undefined>>);
 }
 
 /** @internal */
@@ -236,6 +286,14 @@ export const applyPluginAtomClientRequestTransform = (
       : options.authorizationHeader;
   if (authorization) {
     next = HttpClientRequest.setHeader(next, "authorization", authorization);
+  }
+  const headers = typeof options.headers === "function" ? options.headers() : options.headers;
+  if (headers) {
+    for (const [name, value] of Object.entries(headers)) {
+      if (value !== undefined && value !== null) {
+        next = HttpClientRequest.setHeader(next, name, value);
+      }
+    }
   }
   return next;
 };
@@ -257,7 +315,7 @@ export const createPluginAtomClient = <
   group: G,
   options: CreatePluginAtomClientOptions = {},
 ) => {
-  const { baseUrl = "/api", authorizationHeader } = options;
+  const { baseUrl = "/api", authorizationHeader, headers } = options;
   const pluginId = group.identifier;
   const bundle = HttpApi.make(`plugin-${pluginId}`).add(group);
   const getBaseUrl = typeof baseUrl === "function" ? baseUrl : null;
@@ -265,8 +323,9 @@ export const createPluginAtomClient = <
   const getAuthorizationHeader =
     typeof authorizationHeader === "function" ? authorizationHeader : null;
   const hasAuthorization = authorizationHeader !== undefined && authorizationHeader !== null;
+  const hasHeaders = headers !== undefined;
   const transformClient =
-    getBaseUrl || hasAuthorization
+    getBaseUrl || hasAuthorization || hasHeaders
       ? HttpClient.mapRequest((request) =>
           applyPluginAtomClientRequestTransform(request, {
             ...(getBaseUrl ? { baseUrl: getBaseUrl } : {}),
@@ -275,6 +334,7 @@ export const createPluginAtomClient = <
               : authorizationHeader !== undefined
                 ? { authorizationHeader }
                 : {}),
+            ...(headers !== undefined ? { headers } : {}),
           }),
         )
       : undefined;

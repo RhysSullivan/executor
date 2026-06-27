@@ -12,6 +12,7 @@ import {
   isOAuthPopupResult as sharedIsOAuthPopupResult,
   type OAuthPopupResult,
 } from "@executor-js/sdk/shared";
+import { getExecutorServerAuthorizationHeader } from "./server-connection";
 
 export { OAUTH_POPUP_MESSAGE_TYPE } from "@executor-js/sdk/shared";
 export type { OAuthPopupResult } from "@executor-js/sdk/shared";
@@ -267,9 +268,14 @@ export const openOAuthSystemBrowser = <TAuth>(
     if (settled) return;
     // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fetch can reject for transient network errors during polling
     try {
+      // The await poll is now gated like the rest of /api — carry the bearer
+      // (standalone web). On desktop the connection has no client-side auth and
+      // the main process injects the header instead.
+      const authorization = getExecutorServerAuthorizationHeader();
       const response = await fetch(`/api/oauth/await/${encodeURIComponent(input.sessionId)}`, {
         signal: controller.signal,
         cache: "no-store",
+        ...(authorization ? { headers: { authorization } } : {}),
       });
       if (!response.ok) return;
       const body = (await response.json()) as unknown;

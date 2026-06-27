@@ -1,6 +1,7 @@
 import { Effect, Match, Option, Schema } from "effect";
 import * as Cause from "effect/Cause";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ContentBlockSchema, type ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import type {
   jsonSchemaValidator,
   JsonSchemaType,
@@ -9,11 +10,13 @@ import type {
 import { Validator } from "@cfworker/json-schema";
 import * as z from "zod/v4";
 
+import { isToolFile } from "@executor-js/sdk";
 import type {
   ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
   ElicitationRequest,
+  ToolFileValue,
 } from "@executor-js/sdk";
 import type * as Tracer from "effect/Tracer";
 import {
@@ -263,16 +266,153 @@ const formatBoundaryError = (err: unknown): { name?: string; message: string; st
 // ---------------------------------------------------------------------------
 
 type McpToolResult = {
-  content: Array<{ type: "text"; text: string }>;
+  content: ContentBlock[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
 
-const toMcpResult = (formatted: ReturnType<typeof formatExecuteResult>): McpToolResult => ({
-  content: [{ type: "text", text: formatted.text }],
-  structuredContent: formatted.structured,
-  isError: formatted.isError || undefined,
-});
+type FormattedExecuteInput = Parameters<typeof formatExecuteResult>[0];
+type ExecuteOutputItem = NonNullable<FormattedExecuteInput["output"]>[number];
+
+const TEXT_FILE_CONTENT_MAX_CHARS = 64_000;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const toolFileName = (file: ToolFileValue): string => file.name ?? "tool-output";
+
+const fileResourceUri = (file: ToolFileValue): string =>
+  `executor-file:///${encodeURIComponent(toolFileName(file))}`;
+
+const normalizedMimeType = (file: ToolFileValue): string =>
+  file.mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+
+const toolFileKind = (file: ToolFileValue): "image" | "audio" | "text" | "resource" => {
+  const mimeType = normalizedMimeType(file);
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType.endsWith("+json") ||
+    mimeType === "application/xml" ||
+    mimeType.endsWith("+xml") ||
+    mimeType === "application/javascript" ||
+    mimeType === "application/x-javascript" ||
+    mimeType === "application/yaml" ||
+    mimeType === "application/x-yaml"
+  ) {
+    return "text";
+  }
+  return "resource";
+};
+
+const bytesFromBase64 = (base64: string): Uint8Array => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
+const decodeTextFile = (file: ToolFileValue): string => {
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(bytesFromBase64(file.data));
+  if (text.length <= TEXT_FILE_CONTENT_MAX_CHARS) return text;
+  return `${text.slice(0, TEXT_FILE_CONTENT_MAX_CHARS)}\n\n[truncated ${
+    text.length - TEXT_FILE_CONTENT_MAX_CHARS
+  } characters]`;
+};
+
+const toolFileContent = (file: ToolFileValue): ContentBlock[] => {
+  const kind = toolFileKind(file);
+  if (kind === "image") {
+    return [{ type: "image", data: file.data, mimeType: file.mimeType }];
+  }
+  if (kind === "audio") {
+    return [{ type: "audio", data: file.data, mimeType: file.mimeType }];
+  }
+  if (kind === "text") {
+    return [{ type: "text", text: decodeTextFile(file) }];
+  }
+  return [
+    {
+      type: "resource",
+      resource: {
+        uri: fileResourceUri(file),
+        mimeType: file.mimeType,
+        blob: file.data,
+      },
+    },
+  ];
+};
+
+const toolFileSummaryLine = (file: ToolFileValue, index?: number): string => {
+  const prefix = index === undefined ? "" : `${index + 1}. `;
+  return `${prefix}${toolFileName(file)} (${file.mimeType}, ${file.byteLength} bytes)`;
+};
+
+const outputFileContent = (file: ToolFileValue): ContentBlock[] => [
+  {
+    type: "text",
+    text: `File output: ${toolFileSummaryLine(file)}`,
+  },
+  ...toolFileContent(file),
+];
+
+const isFileOutputItem = (
+  item: ExecuteOutputItem,
+): item is { readonly type: "file"; readonly file: ToolFileValue } =>
+  isRecord(item) && item.type === "file" && isToolFile(item.file);
+
+const isMcpContentBlock = (value: unknown): value is ContentBlock =>
+  ContentBlockSchema.safeParse(value).success;
+
+const isContentOutputItem = (
+  item: ExecuteOutputItem,
+): item is { readonly type: "content"; readonly content: ContentBlock } =>
+  isRecord(item) && item.type === "content" && isMcpContentBlock(item.content);
+
+const outputItemContent = (item: ExecuteOutputItem): ContentBlock[] => {
+  if (isFileOutputItem(item)) {
+    return outputFileContent(item.file);
+  }
+  if (isContentOutputItem(item)) {
+    return [item.content];
+  }
+  return [{ type: "text", text: "Invalid execution output item omitted." }];
+};
+
+const toMcpOutputResult = (
+  result: FormattedExecuteInput,
+  output: readonly ExecuteOutputItem[],
+): McpToolResult => {
+  const formatted = formatExecuteResult(result);
+  const content = output.flatMap(outputItemContent);
+  const extraText: string[] = [];
+  if (result.error) {
+    extraText.push(formatted.text);
+  } else if (result.logs && result.logs.length > 0) {
+    extraText.push(`Logs:\n${result.logs.join("\n")}`);
+  }
+  content.push(...extraText.map((text): ContentBlock => ({ type: "text", text })));
+
+  return {
+    content,
+    structuredContent: formatted.structured,
+    isError: formatted.isError || undefined,
+  };
+};
+
+const toMcpResult = (result: FormattedExecuteInput): McpToolResult => {
+  if (result.output && result.output.length > 0) return toMcpOutputResult(result, result.output);
+  const formatted = formatExecuteResult(result);
+  return {
+    content: [{ type: "text", text: formatted.text }],
+    structuredContent: formatted.structured,
+    isError: formatted.isError || undefined,
+  };
+};
 
 const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>): McpToolResult => ({
   content: [{ type: "text", text: formatted.text }],
@@ -339,6 +479,29 @@ const toMcpFailureResult = (cause: Cause.Cause<unknown>): McpToolResult => {
     isError: true,
   };
 };
+
+// A paused execution lives in the session runtime's memory: it expires when
+// the user takes too long to answer, and dies early when the runtime is
+// rebuilt (host restart, redeploy). Either way the recovery is the same and
+// the model should be told it, not just handed a miss.
+const missingExecutionResult = (executionId: string): McpToolResult => ({
+  content: [
+    {
+      type: "text" as const,
+      text: [
+        `No paused execution: ${executionId}.`,
+        "The paused execution expired or was lost when its session was restarted — paused executions only stay resumable for a few minutes.",
+        "To recover, run the execute tool again with the original code; if it pauses, a fresh executionId will be issued.",
+      ].join(" "),
+    },
+  ],
+  structuredContent: {
+    status: "execution_not_found",
+    executionId,
+    recovery: "re_execute",
+  },
+  isError: true,
+});
 
 const JsonObjectFromString = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown));
 const decodeJsonObjectString = Schema.decodeUnknownOption(JsonObjectFromString);
@@ -420,7 +583,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           const result = yield* engine.execute(code, {
             onElicitation: makeMcpElicitationHandler(server, debugLog),
           });
-          return toMcpResult(formatExecuteResult(result));
+          return toMcpResult(result);
         }
         const outcome = yield* engine.executeWithPause(code);
         debugLog("execute.paused_flow_result", {
@@ -432,7 +595,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
               : undefined,
         });
         return outcome.status === "completed"
-          ? toMcpResult(formatExecuteResult(outcome.result))
+          ? toMcpResult(outcome.result)
           : elicitationMode.mode === "browser"
             ? yield* requireUserResumeApproval(outcome.execution.id)
             : toMcpPausedResult(formatPausedExecution(outcome.execution));
@@ -460,10 +623,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         const outcome = yield* engine.resume(executionId, { action, content });
         if (!outcome) {
           debugLog("resume.missing_execution", { executionId });
-          return {
-            content: [{ type: "text" as const, text: `No paused execution: ${executionId}` }],
-            isError: true,
-          } satisfies McpToolResult;
+          return missingExecutionResult(executionId);
         }
         debugLog("resume.result", {
           executionId,
@@ -475,7 +635,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
               : undefined,
         });
         return outcome.status === "completed"
-          ? toMcpResult(formatExecuteResult(outcome.result))
+          ? toMcpResult(outcome.result)
           : toMcpPausedResult(formatPausedExecution(outcome.execution));
       }).pipe(
         Effect.withSpan("mcp.host.tool.resume", {
@@ -535,13 +695,10 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
 
         const outcome = yield* engine.resume(executionId, response);
         if (!outcome) {
-          return {
-            content: [{ type: "text" as const, text: `No paused execution: ${executionId}` }],
-            isError: true,
-          } satisfies McpToolResult;
+          return missingExecutionResult(executionId);
         }
         return outcome.status === "completed"
-          ? toMcpResult(formatExecuteResult(outcome.result))
+          ? toMcpResult(outcome.result)
           : yield* requireUserResumeApproval(outcome.execution.id);
       }).pipe(
         Effect.withSpan("mcp.host.tool.resume.browser_approval", {

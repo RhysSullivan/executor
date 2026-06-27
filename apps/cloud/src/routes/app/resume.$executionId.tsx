@@ -15,7 +15,7 @@ const SearchParams = Schema.toStandardSchemaV1(
   }),
 );
 
-export const Route = createFileRoute("/resume/$executionId")({
+export const Route = createFileRoute("/{-$orgSlug}/resume/$executionId")({
   validateSearch: SearchParams,
   component: RouteComponent,
 });

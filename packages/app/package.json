@@ -15,7 +15,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsgo --noEmit",
-    "typecheck:slow": "tsc --noEmit"
+    "typecheck:slow": "tsc --noEmit",
+    "routes:gen": "bun scripts/gen-routes.ts"
   },
   "dependencies": {
     "@effect/atom-react": "catalog:",

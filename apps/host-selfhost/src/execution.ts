@@ -40,7 +40,11 @@ export { makeExecutionStack } from "@executor-js/api/server";
 
 export const SelfHostPluginsProvider: Layer.Layer<PluginsProvider> = Layer.succeed(PluginsProvider)(
   {
-    plugins: () => executorConfig.plugins(),
+    plugins: (context) =>
+      executorConfig.plugins({
+        activeToolkitSlug:
+          context?.mcpResource?.kind === "toolkit" ? context.mcpResource.slug : undefined,
+      }),
   },
 );
 
@@ -49,6 +53,7 @@ export const SelfHostHostConfig: Layer.Layer<HostConfig> = Layer.sync(HostConfig
   return {
     allowLocalNetwork: config.allowLocalNetwork,
     webBaseUrl: config.webBaseUrl,
+    oauthCallbackPath: "/api/oauth/callback",
   };
 });
 

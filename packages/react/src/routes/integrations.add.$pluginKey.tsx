@@ -11,7 +11,7 @@ const SearchParams = Schema.toStandardSchemaV1(
   }),
 );
 
-export const Route = createFileRoute("/integrations/add/$pluginKey")({
+export const Route = createFileRoute("/{-$orgSlug}/integrations/add/$pluginKey")({
   validateSearch: SearchParams,
   component: () => {
     const { pluginKey } = Route.useParams();

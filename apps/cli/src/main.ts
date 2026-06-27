@@ -35,6 +35,25 @@ if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
   setQuickJSModule(mod);
 }
 
+const sentryDsn = process.env.EXECUTOR_SENTRY_DSN;
+if (sentryDsn) {
+  const Sentry = await import("@sentry/bun");
+  Sentry.init({
+    dsn: sentryDsn,
+    release: process.env.EXECUTOR_SENTRY_RELEASE,
+    environment: process.env.EXECUTOR_SENTRY_ENVIRONMENT ?? "production",
+    tracesSampleRate: 0,
+    initialScope: {
+      tags: {
+        process: "daemon",
+        platform: process.platform,
+        arch: process.arch,
+        ...(process.env.EXECUTOR_RUN_ID ? { runId: process.env.EXECUTOR_RUN_ID } : {}),
+      },
+    },
+  });
+}
+
 import { Argument as Args, Command, Flag as Options } from "effect/unstable/cli";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { HttpApiClient } from "effect/unstable/httpapi";
@@ -47,15 +66,29 @@ import * as Cause from "effect/Cause";
 
 import { ExecutorApi } from "@executor-js/api";
 import {
-  DEFAULT_EXECUTOR_SERVER_USERNAME,
   getExecutorServerAuthorizationHeader,
   normalizeExecutorServerConnection,
+  normalizeExecutorServerOrigin,
   type ExecutorLocalServerKind,
   type ExecutorLocalServerManifest,
   type ExecutorServerConnection,
   type ExecutorServerConnectionInput,
 } from "@executor-js/sdk/shared";
-import { startServer, runMcpStdioServer, getExecutor } from "@executor-js/local";
+import {
+  decodeAccessTokenClaims,
+  discoverCliLogin,
+  openBrowser,
+  pollForDeviceTokens,
+  refreshDeviceTokens,
+  requestDeviceCode,
+} from "./device-login";
+import {
+  startServer,
+  runMcpStdioServer,
+  getExecutor,
+  rotateLocalAuthToken,
+  localAuthTokenPath,
+} from "@executor-js/local";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { fetchIntegrations } from "./integrations";
 import {
@@ -65,6 +98,7 @@ import {
   isExecutorServerReachable,
   isDevCliEntrypoint,
   parseDaemonBaseUrl,
+  planServiceInstall,
   spawnDetached,
   waitForReachable,
   waitForUnreachable,
@@ -99,6 +133,12 @@ import {
   writeLocalServerManifest,
 } from "./local-server-manifest";
 import {
+  DEFAULT_SERVICE_PORT,
+  getServiceBackend,
+  SERVICE_LABEL,
+  stopWindowsExecutorListenersOnPort,
+} from "./service";
+import {
   defaultCliServerConnectionProfile,
   findCliServerConnectionProfile,
   readCliServerConnectionStore,
@@ -106,10 +146,10 @@ import {
   setDefaultCliServerConnectionProfile,
   upsertCliServerConnectionProfile,
   validateCliServerConnectionProfileName,
+  type CliServerConnectionStore,
 } from "./server-profile";
 import {
   buildResumeContentTemplate,
-  buildToolPath,
   buildDescribeToolCode,
   filterToolPathChildren,
   buildInvokeToolCode,
@@ -121,6 +161,7 @@ import {
   inspectToolPath,
   normalizeCliErrorText,
   parseJsonObjectInput,
+  resolveToolInvocation,
   sanitizeCliOutputText,
   shellQuoteArg,
 } from "./tooling";
@@ -134,10 +175,13 @@ import embeddedWebUI from "./embedded-web-ui.gen";
 
 const { version: CLI_VERSION } = await import("../package.json");
 const DEFAULT_PORT = 4788;
+/** Canonical public docs (Mintlify), matching the web shell's DEFAULT_DOCS_URL. */
+const DOCS_URL = "https://executor.sh/docs";
 const DEFAULT_BASE_URL = `http://localhost:${DEFAULT_PORT}`;
 const DAEMON_BOOT_TIMEOUT_MS = 15_000;
 const DAEMON_BOOT_POLL_MS = 150;
 const DAEMON_STOP_TIMEOUT_MS = 10_000;
+const SERVICE_BOOT_TIMEOUT_MS = 45_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -158,8 +202,8 @@ const waitForShutdownSignal = () =>
 // Background server management
 // ---------------------------------------------------------------------------
 
-const isServerReachable = (baseUrl: string, authorization?: string): Effect.Effect<boolean> =>
-  isExecutorServerReachable({ baseUrl, authorization });
+const isServerReachable = (baseUrl: string): Effect.Effect<boolean> =>
+  isExecutorServerReachable({ baseUrl });
 
 const readActiveLocalServerManifest = (): Effect.Effect<
   ExecutorLocalServerManifest | null,
@@ -170,14 +214,13 @@ const readActiveLocalServerManifest = (): Effect.Effect<
     const manifest = yield* readLocalServerManifest();
     if (!manifest) return null;
 
+    if (yield* isServerReachable(manifest.connection.origin)) {
+      return manifest;
+    }
+
     if (!isPidAlive(manifest.pid)) {
       yield* removeLocalServerManifestIfOwnedBy({ pid: manifest.pid }).pipe(Effect.ignore);
       return null;
-    }
-
-    const authorization = getExecutorServerAuthorizationHeader(manifest.connection) ?? undefined;
-    if (yield* isServerReachable(manifest.connection.origin, authorization)) {
-      return manifest;
     }
 
     return yield* Effect.fail(
@@ -238,21 +281,6 @@ const parseExecutorServerConnection = (baseUrl: string) =>
 const daemonBaseUrl = (hostname: string, port: number): string =>
   `http://${canonicalDaemonHost(hostname)}:${port}`;
 
-const serverAuthFromInputs = (input: {
-  readonly authToken: string | undefined;
-  readonly authPassword: string | undefined;
-}): ExecutorServerConnection["auth"] | undefined => {
-  if (input.authPassword) {
-    return {
-      kind: "basic",
-      username: DEFAULT_EXECUTOR_SERVER_USERNAME,
-      password: input.authPassword,
-    };
-  }
-  if (input.authToken) return { kind: "bearer", token: input.authToken };
-  return undefined;
-};
-
 const makeLocalServerManifest = (input: {
   readonly kind: ExecutorLocalServerKind;
   readonly connection: ExecutorServerConnection;
@@ -268,7 +296,7 @@ const makeLocalServerManifest = (input: {
       scopeDir: currentScopeDirForManifest(),
       connection: input.connection,
       owner: {
-        client: "cli",
+        client: process.env.EXECUTOR_CLIENT === "desktop" ? "desktop" : "cli",
         version: CLI_VERSION,
         executablePath: isDevMode ? (script ?? null) : process.execPath,
       },
@@ -292,6 +320,44 @@ const assertNoOtherActiveLocalServer = (): Effect.Effect<
         ].join("\n"),
       ),
     );
+  });
+
+const takeOverActiveLocalServer = (input?: {
+  readonly onlyKind?: ExecutorLocalServerKind;
+}): Effect.Effect<
+  ExecutorLocalServerManifest | null,
+  Error,
+  FileSystem.FileSystem | PlatformPath.Path
+> =>
+  Effect.gen(function* () {
+    const manifest = yield* readLocalServerManifest();
+    if (!manifest) return null;
+    if (input?.onlyKind && manifest.kind !== input.onlyKind) return null;
+
+    if (!isPidAlive(manifest.pid) || manifest.pid === process.pid) {
+      yield* removeLocalServerManifestIfOwnedBy({ pid: manifest.pid }).pipe(Effect.ignore);
+      return null;
+    }
+
+    yield* terminatePid(manifest.pid).pipe(Effect.ignore);
+    const stopped = yield* waitForUnreachable({
+      check: isServerReachable(manifest.connection.origin),
+      timeoutMs: DAEMON_STOP_TIMEOUT_MS,
+      intervalMs: DAEMON_BOOT_POLL_MS,
+    });
+    if (!stopped) {
+      return yield* Effect.fail(
+        new Error(
+          [
+            `The existing Executor ${manifest.kind} at ${manifest.connection.origin} (pid ${manifest.pid}) did not stop within ${DAEMON_STOP_TIMEOUT_MS / 1000}s.`,
+            "Stop it manually and re-run.",
+          ].join("\n"),
+        ),
+      );
+    }
+
+    yield* removeLocalServerManifestIfOwnedBy({ pid: manifest.pid }).pipe(Effect.ignore);
+    return manifest;
   });
 
 const publishLocalServerManifest = (input: {
@@ -532,6 +598,59 @@ const resolveRequestedExecutorServerConnection = (
     };
   });
 
+// Refresh an `oauth` (device-login) credential a minute before it expires, so
+// `executor call` against a hosted server keeps working long after the browser
+// login. The refreshed tokens are written back to the originating profile.
+const OAUTH_REFRESH_SKEW_SECONDS = 60;
+
+const profileNameFromKey = (key: string): string | null =>
+  key.startsWith("profile:") ? key.slice("profile:".length) : null;
+
+const refreshOAuthConnection = (
+  connection: ExecutorServerConnection,
+): Effect.Effect<ExecutorServerConnection, never, FileSystem.FileSystem | PlatformPath.Path> =>
+  Effect.gen(function* () {
+    const auth = connection.auth;
+    if (!auth || auth.kind !== "oauth") return connection;
+    const now = Math.floor(Date.now() / 1000);
+    if (auth.expiresAt && auth.expiresAt - now > OAUTH_REFRESH_SKEW_SECONDS) return connection;
+    // Destructure so the narrowed string types survive into the deferred
+    // `tryPromise` callback (where TS would otherwise re-widen the fields).
+    const { refreshToken, tokenEndpoint, clientId } = auth;
+    if (!refreshToken || !tokenEndpoint || !clientId) return connection;
+
+    const refreshed = yield* Effect.tryPromise({
+      try: () => refreshDeviceTokens({ tokenEndpoint, clientId, refreshToken }),
+      catch: toError,
+      // On a failed refresh, keep the existing token and let the eventual 401
+      // surface, better than blocking the command on a transient hiccup.
+    }).pipe(Effect.option);
+    if (Option.isNone(refreshed)) return connection;
+
+    const next = refreshed.value;
+    const nextConnection = normalizeExecutorServerConnection({
+      ...connection,
+      auth: {
+        kind: "oauth",
+        accessToken: next.accessToken,
+        refreshToken: next.refreshToken ?? refreshToken,
+        ...(next.expiresAt ? { expiresAt: next.expiresAt } : {}),
+        tokenEndpoint,
+        clientId,
+      },
+    });
+
+    const profileName = profileNameFromKey(connection.key);
+    if (profileName) {
+      yield* upsertCliServerConnectionProfile({
+        name: profileName,
+        connection: nextConnection,
+        makeDefault: false,
+      }).pipe(Effect.ignore);
+    }
+    return nextConnection;
+  });
+
 const resolveExecutorServerConnection = (
   target: ServerTarget,
 ): Effect.Effect<ExecutorServerConnection, Error, FileSystem.FileSystem | PlatformPath.Path> =>
@@ -557,12 +676,17 @@ const resolveExecutorServerConnection = (
       );
     }
 
-    const requested = decision.connection;
+    const requested = yield* refreshOAuthConnection(decision.connection);
     if (decision.kind === "use-active") return requested;
 
     if (!canAutoStartCliServerConnection(requested)) {
-      const authorization = getExecutorServerAuthorizationHeader(requested) ?? undefined;
-      if (yield* isServerReachable(requested.origin, authorization)) {
+      // An authenticated remote connection (oauth device-login, bearer key, or
+      // basic password): use it directly. The /api/health liveness probe is only
+      // a gate for the local auto-start decision and isn't necessarily exposed
+      // by hosted servers, the real API call surfaces any connectivity/auth
+      // error with proper context.
+      if (requested.auth) return requested;
+      if (yield* isServerReachable(requested.origin)) {
         return requested;
       }
       return yield* Effect.fail(
@@ -570,14 +694,24 @@ const resolveExecutorServerConnection = (
           [
             `Executor server is not reachable at ${requested.origin}.`,
             "For hosted Executor, set EXECUTOR_API_KEY to a bearer API key.",
-            "For password-protected local or desktop servers, set EXECUTOR_AUTH_PASSWORD.",
-            "For unauthenticated local Executor, use an http://localhost or http://127.0.0.1 server URL.",
+            "For local or desktop servers, set EXECUTOR_AUTH_TOKEN to the server's bearer token.",
           ].join("\n"),
         ),
       );
     }
 
     const daemonUrl = yield* ensureDaemon(requested.origin);
+    // The daemon we just ensured published a manifest carrying its bearer token
+    // (minted into auth.json). Prefer that authed connection — otherwise the
+    // next API call hits the now-gated server with no credential and 401s.
+    const started = yield* readActiveLocalServerManifest().pipe(Effect.orElseSucceed(() => null));
+    const daemonOrigin = normalizeExecutorServerConnection({ origin: daemonUrl }).origin;
+    const startedOrigin = started
+      ? normalizeExecutorServerConnection({ origin: started.connection.origin }).origin
+      : null;
+    if (started && startedOrigin === daemonOrigin) {
+      return started.connection;
+    }
     return normalizeExecutorServerConnection({
       ...requested,
       origin: daemonUrl,
@@ -799,7 +933,6 @@ const runForegroundSession = (input: {
   hostname: string;
   allowedHosts: ReadonlyArray<string>;
   authToken: string | undefined;
-  authPassword: string | undefined;
 }) =>
   Effect.gen(function* () {
     const displayHost =
@@ -821,7 +954,6 @@ const runForegroundSession = (input: {
             hostname: input.hostname,
             allowedHosts: input.allowedHosts,
             authToken: input.authToken,
-            authPassword: input.authPassword,
             embeddedWebUI,
           }),
         );
@@ -832,7 +964,7 @@ const runForegroundSession = (input: {
             kind: "http",
             origin: baseUrl,
             displayName: "CLI web",
-            auth: serverAuthFromInputs(input),
+            auth: { kind: "bearer", token: server.authToken },
           }),
         });
       } finally {
@@ -845,6 +977,7 @@ const runForegroundSession = (input: {
 
       try {
         console.log(`Executor is ready.`);
+        console.log(`Open:    ${baseUrl}/?_token=${server.authToken}`);
         console.log(`Web:     ${baseUrl}`);
         console.log(`MCP:     ${baseUrl}/mcp`);
         console.log(`OpenAPI: ${baseUrl}/api/docs`);
@@ -853,12 +986,7 @@ const runForegroundSession = (input: {
             `\n⚠  Listening on ${input.hostname}. Executor runs arbitrary commands — only expose on trusted networks.`,
           );
           if (input.allowedHosts.length > 0) {
-            console.log(`   Extra allowed Host headers: ${input.allowedHosts.join(", ")}`);
-          }
-          if (input.authPassword) {
-            console.log("   Basic authentication is enabled.");
-          } else if (input.authToken) {
-            console.log("   Token authentication is enabled.");
+            console.log(`   Extra CORS origins: ${input.allowedHosts.join(", ")}`);
           }
         }
         console.log(`\nPress Ctrl+C to stop.`);
@@ -878,7 +1006,6 @@ const runDaemonSession = (input: {
   hostname: string;
   allowedHosts: ReadonlyArray<string>;
   authToken: string | undefined;
-  authPassword: string | undefined;
 }) =>
   Effect.gen(function* () {
     const daemonHost = canonicalDaemonHost(input.hostname);
@@ -894,22 +1021,53 @@ const runDaemonSession = (input: {
       let token: string | null = null;
 
       try {
-        yield* assertNoOtherActiveLocalServer();
+        // A supervised daemon (launchd/systemd) is the OS-guaranteed singleton
+        // — kickstart -k kills the old instance before starting the new — so any
+        // server.json from a previous boot is stale. Reclaim it rather than
+        // refusing: across a reboot the recorded pid may have been recycled by
+        // an unrelated process, which would otherwise make the "is one already
+        // running?" check treat it as alive-but-unreachable, refuse to start,
+        // and crash-loop under KeepAlive. (Found by a real reboot test with
+        // integration data in the DB.)
+        if (process.env.EXECUTOR_SUPERVISED) {
+          yield* takeOverActiveLocalServer().pipe(Effect.ignore);
+        } else {
+          yield* assertNoOtherActiveLocalServer();
+        }
 
         const existing = yield* readDaemonPointer({ hostname: daemonHost, scopeId });
 
         if (existing) {
           const existingUrl = daemonBaseUrl(existing.hostname, existing.port);
           if (isPidAlive(existing.pid) && (yield* isServerReachable(existingUrl))) {
-            return yield* Effect.fail(
-              new Error(
-                [
-                  `A daemon is already running for scope ${scopeId} on ${daemonHost}.`,
-                  `Existing daemon: ${existingUrl} (pid ${existing.pid}).`,
-                  `Stop it first: ${cliPrefix} daemon stop`,
-                ].join("\n"),
-              ),
-            );
+            if (process.env.EXECUTOR_SUPERVISED) {
+              yield* terminatePid(existing.pid).pipe(Effect.ignore);
+              const stopped = yield* waitForUnreachable({
+                check: isServerReachable(existingUrl),
+                timeoutMs: DAEMON_STOP_TIMEOUT_MS,
+                intervalMs: DAEMON_BOOT_POLL_MS,
+              });
+              if (!stopped) {
+                return yield* Effect.fail(
+                  new Error(
+                    [
+                      `The existing daemon for scope ${scopeId} at ${existingUrl} (pid ${existing.pid}) did not stop within ${DAEMON_STOP_TIMEOUT_MS / 1000}s.`,
+                      "Stop it manually and re-run.",
+                    ].join("\n"),
+                  ),
+                );
+              }
+            } else {
+              return yield* Effect.fail(
+                new Error(
+                  [
+                    `A daemon is already running for scope ${scopeId} on ${daemonHost}.`,
+                    `Existing daemon: ${existingUrl} (pid ${existing.pid}).`,
+                    `Stop it first: ${cliPrefix} daemon stop`,
+                  ].join("\n"),
+                ),
+              );
+            }
           }
           yield* cleanupPointer({ hostname: existing.hostname, scopeId, port: existing.port });
         }
@@ -920,7 +1078,6 @@ const runDaemonSession = (input: {
             hostname: input.hostname,
             allowedHosts: input.allowedHosts,
             authToken: input.authToken,
-            authPassword: input.authPassword,
             embeddedWebUI,
           }),
         );
@@ -934,7 +1091,7 @@ const runDaemonSession = (input: {
             kind: "http",
             origin: daemonUrl,
             displayName: "CLI daemon",
-            auth: serverAuthFromInputs(input),
+            auth: { kind: "bearer", token: server.authToken },
           }),
         });
       } finally {
@@ -962,11 +1119,6 @@ const runDaemonSession = (input: {
         });
 
         console.log(`Daemon ready on http://${daemonHost}:${daemonPort}`);
-        if (input.authPassword) {
-          console.log("Basic authentication is enabled.");
-        } else if (input.authToken) {
-          console.log("Token authentication is enabled.");
-        }
 
         yield* waitForShutdownSignal();
       } finally {
@@ -1092,6 +1244,7 @@ const runStdioMcpSession = (input: { readonly elicitationMode: "browser" | "mode
           kind: "http",
           origin: web.baseUrl,
           displayName: "CLI MCP",
+          auth: { kind: "bearer", token: web.server.authToken },
         }),
       });
     } finally {
@@ -1585,38 +1738,6 @@ const runCallHelp = (
     });
   }).pipe(Effect.mapError(toError));
 
-const resolveToolInvocation = (input: {
-  rawPathParts: ReadonlyArray<string>;
-}): Effect.Effect<{ path: string; args: Record<string, unknown> }, Error> =>
-  Effect.gen(function* () {
-    if (!Array.isArray(input.rawPathParts)) {
-      return yield* Effect.fail(
-        new Error("Invalid tool invocation: path parts were not parsed as an array"),
-      );
-    }
-
-    const maybeJsonArg = input.rawPathParts.at(-1)?.trim();
-    const hasInlineJsonArg = maybeJsonArg !== undefined && maybeJsonArg.startsWith("{");
-    const pathParts = hasInlineJsonArg ? input.rawPathParts.slice(0, -1) : input.rawPathParts;
-    const args = hasInlineJsonArg ? yield* parseJsonObjectInput(maybeJsonArg) : {};
-
-    if (pathParts.some((part) => part.trim().startsWith("-"))) {
-      return yield* Effect.fail(
-        new Error(
-          "Tool invocation no longer accepts flags. Use: executor call <path...> '{...json...}'",
-        ),
-      );
-    }
-
-    const path = yield* Effect.try({
-      try: () => buildToolPath(pathParts),
-      catch: (cause) =>
-        cause instanceof Error ? cause : new Error(`Invalid tool path: ${String(cause)}`),
-    });
-
-    return { path, args };
-  });
-
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -1915,50 +2036,347 @@ const serverRemoveCommand = Command.make(
     }),
 ).pipe(Command.withDescription("Remove an Executor server profile"));
 
+const serverRotateTokenCommand = Command.make("rotate-token", {}, () =>
+  Effect.gen(function* () {
+    const token = rotateLocalAuthToken();
+    console.log("Rotated the local server bearer token.");
+    console.log(`Stored in ${localAuthTokenPath()}`);
+
+    const manifest = yield* readLocalServerManifest();
+    if (manifest && isPidAlive(manifest.pid)) {
+      console.log(
+        `\n⚠  A local server is running at ${manifest.connection.origin} (pid ${manifest.pid}).`,
+      );
+      console.log("   Restart it to apply the new token.");
+    }
+    console.log(`\nNew token: ${token}`);
+    console.log("Re-run your MCP client connect command with the new token.");
+  }),
+).pipe(Command.withDescription("Rotate the local server's bearer token (auth.json)"));
+
 const serverCommand = Command.make("server").pipe(
   Command.withSubcommands([
     serverAddCommand,
     serverListCommand,
     serverUseCommand,
     serverRemoveCommand,
+    serverRotateTokenCommand,
   ] as const),
   Command.withDescription("Manage named Executor server profiles"),
 );
 
+const loginHostLabel = (origin: string): string => {
+  try {
+    const host = new URL(origin).hostname;
+    const first = host.split(".")[0];
+    return first && first.length > 0 ? first : host;
+  } catch {
+    return "server";
+  }
+};
+
+const sanitizeProfileName = (raw: string): string => {
+  const cleaned = raw
+    .trim()
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned.length > 0 ? cleaned : "server";
+};
+
+// The (origin, user, org) a stored oauth profile authenticates as, lets us
+// recognize a re-login to the SAME account (update in place) versus a
+// different account on the same host (needs its own profile).
+const oauthAccountIdentity = (connection: ExecutorServerConnection): string | null => {
+  const auth = connection.auth;
+  if (!auth || auth.kind !== "oauth") return null;
+  const claims = decodeAccessTokenClaims(auth.accessToken);
+  const sub = typeof claims?.sub === "string" ? claims.sub : undefined;
+  const org = typeof claims?.org_id === "string" ? claims.org_id : undefined;
+  return sub && org ? `${connection.origin}|${sub}|${org}` : null;
+};
+
+// Name a login's profile by the ACCOUNT it authenticates (email, falling back
+// to user id), not the hostname, so two accounts on the same server get
+// distinct profiles instead of clobbering each other (the way opencode keys
+// accounts by email/url). A re-login to the same account reuses its profile.
+const chooseLoginProfileName = (
+  store: CliServerConnectionStore,
+  account: {
+    readonly origin: string;
+    readonly sub?: string;
+    readonly org?: string;
+    readonly email?: string;
+  },
+): string => {
+  const identity =
+    account.sub && account.org ? `${account.origin}|${account.sub}|${account.org}` : null;
+  if (identity) {
+    const existing = store.profiles.find((p) => oauthAccountIdentity(p.connection) === identity);
+    if (existing) return existing.name;
+  }
+  const base = sanitizeProfileName(account.email ?? account.sub ?? loginHostLabel(account.origin));
+  if (!store.profiles.some((p) => p.name === base)) return base;
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${base}-${suffix}`;
+    if (!store.profiles.some((p) => p.name === candidate)) return candidate;
+  }
+};
+
+// Resolve which server a login/logout targets: an existing profile (--server
+// or the default) or a bare origin (--base-url). The profile name is decided
+// later, from the authenticated account.
+const resolveLoginOrigin = (input: {
+  readonly baseUrl: Option.Option<string>;
+  readonly server: Option.Option<string>;
+}): Effect.Effect<
+  { readonly origin: string; readonly profile: ReturnType<typeof findCliServerConnectionProfile> },
+  Error,
+  FileSystem.FileSystem | PlatformPath.Path
+> =>
+  Effect.gen(function* () {
+    const baseUrl = Option.getOrUndefined(input.baseUrl);
+    const serverName = Option.getOrUndefined(input.server);
+    if (baseUrl && serverName) {
+      return yield* Effect.fail(new Error("Use either --server or --base-url, not both."));
+    }
+    if (serverName) {
+      const store = yield* readCliServerConnectionStore();
+      const profile = findCliServerConnectionProfile(store, serverName);
+      if (!profile)
+        return yield* Effect.fail(new Error(`No server profile named "${serverName}".`));
+      return { origin: profile.connection.origin, profile };
+    }
+    if (baseUrl) {
+      return { origin: normalizeExecutorServerOrigin(baseUrl), profile: null };
+    }
+    const store = yield* readCliServerConnectionStore();
+    const profile = defaultCliServerConnectionProfile(store);
+    if (profile) return { origin: profile.connection.origin, profile };
+    return yield* Effect.fail(
+      new Error(
+        "No server to log in to. Pass --base-url <https://your-host> or --server <profile>.",
+      ),
+    );
+  });
+
+const loginNameOption = Options.string("name").pipe(
+  Options.optional,
+  Options.withDescription("Profile name to save the login under (defaults to your account)."),
+);
+
+const noBrowserOption = Options.boolean("no-browser").pipe(
+  Options.withDefault(false),
+  Options.withDescription("Print the verification URL instead of opening a browser."),
+);
+
+const loginCommand = Command.make(
+  "login",
+  {
+    baseUrl: serverBaseUrl,
+    server: serverProfile,
+    name: loginNameOption,
+    noBrowser: noBrowserOption,
+  },
+  ({ baseUrl, server, name, noBrowser }) =>
+    Effect.gen(function* () {
+      const target = yield* resolveLoginOrigin({ baseUrl, server });
+      const explicitName = Option.getOrUndefined(name);
+      const discovery = yield* Effect.tryPromise({
+        try: () => discoverCliLogin(target.origin),
+        catch: toError,
+      });
+      const grant = yield* Effect.tryPromise({
+        try: () => requestDeviceCode(discovery),
+        catch: toError,
+      });
+      const verifyUrl = grant.verificationUriComplete ?? grant.verificationUri;
+      console.log("");
+      console.log(`To sign in, open:  ${verifyUrl}`);
+      console.log(`and confirm the code:  ${grant.userCode}`);
+      console.log("");
+      if (!noBrowser) openBrowser(verifyUrl);
+      console.log("Waiting for you to approve in the browser...");
+      const tokens = yield* Effect.tryPromise({
+        try: () => pollForDeviceTokens(discovery, grant),
+        catch: toError,
+      });
+
+      const claims = decodeAccessTokenClaims(tokens.accessToken);
+      const sub = typeof claims?.sub === "string" ? claims.sub : undefined;
+      const org =
+        tokens.organizationId ?? (typeof claims?.org_id === "string" ? claims.org_id : undefined);
+      const email = tokens.email;
+
+      // Name by account so a different account on the same host doesn't clobber
+      // an existing login; --server / the default profile / --name pin it.
+      const store = yield* readCliServerConnectionStore();
+      const profileName = explicitName
+        ? validateCliServerConnectionProfileName(explicitName)
+        : target.profile
+          ? target.profile.name
+          : chooseLoginProfileName(store, { origin: target.origin, sub, org, email });
+
+      yield* upsertCliServerConnectionProfile({
+        name: profileName,
+        connection: {
+          kind: "http",
+          origin: target.origin,
+          ...(email ? { displayName: email } : {}),
+          auth: {
+            kind: "oauth",
+            accessToken: tokens.accessToken,
+            ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
+            ...(tokens.expiresAt ? { expiresAt: tokens.expiresAt } : {}),
+            tokenEndpoint: discovery.tokenEndpoint,
+            clientId: discovery.clientId,
+          },
+        },
+        makeDefault: true,
+      });
+
+      console.log("");
+      console.log(`Logged in to ${target.origin} (profile "${profileName}", now the default).`);
+      if (email) console.log(`Account: ${email}`);
+      if (org) console.log(`Organization: ${org}`);
+      else if (sub) console.log(`User: ${sub}`);
+    }),
+).pipe(Command.withDescription("Sign in to a hosted Executor server in the browser (device flow)"));
+
+const logoutCommand = Command.make(
+  "logout",
+  { baseUrl: serverBaseUrl, server: serverProfile },
+  ({ baseUrl, server }) =>
+    Effect.gen(function* () {
+      const target = yield* resolveLoginOrigin({ baseUrl, server });
+      const store = yield* readCliServerConnectionStore();
+      // --server / default give the profile directly; --base-url matches by origin.
+      const profile =
+        target.profile ?? store.profiles.find((p) => p.connection.origin === target.origin) ?? null;
+      if (!profile) {
+        console.log(`No stored login for ${target.origin}.`);
+        return;
+      }
+      if (!profile.connection.auth) {
+        console.log(`Profile "${profile.name}" has no stored credentials.`);
+        return;
+      }
+      yield* upsertCliServerConnectionProfile({
+        name: profile.name,
+        connection: {
+          kind: profile.connection.kind,
+          origin: profile.connection.origin,
+          displayName: profile.connection.displayName,
+        },
+        makeDefault: store.defaultProfile === profile.name,
+      });
+      console.log(
+        `Logged out of ${profile.connection.origin} (cleared credentials for "${profile.name}").`,
+      );
+    }),
+).pipe(Command.withDescription("Clear stored credentials for a server profile"));
+
+const whoamiCommand = Command.make(
+  "whoami",
+  { baseUrl: serverBaseUrl, server: serverProfile },
+  ({ baseUrl, server }) =>
+    Effect.gen(function* () {
+      const requested = yield* resolveRequestedExecutorServerConnection(
+        serverTargetFromOptions({ baseUrl, server }),
+      );
+      const connection = yield* refreshOAuthConnection(requested.connection);
+      const auth = connection.auth;
+      console.log(`Server: ${connection.origin}`);
+      if (!auth) {
+        console.log("Not logged in (no stored credentials).");
+        return;
+      }
+      if (auth.kind === "oauth") {
+        const claims = decodeAccessTokenClaims(auth.accessToken);
+        const sub = claims?.sub;
+        const org = claims?.org_id;
+        // The email lives on the profile's displayName (WorkOS access tokens
+        // don't carry an email claim); the token carries sub + org_id.
+        if (connection.displayName.includes("@")) console.log(`Account: ${connection.displayName}`);
+        if (typeof sub === "string") console.log(`User: ${sub}`);
+        if (typeof org === "string") console.log(`Organization: ${org}`);
+        if (auth.expiresAt) {
+          const remaining = auth.expiresAt - Math.floor(Date.now() / 1000);
+          console.log(
+            remaining > 0
+              ? `Token valid for ~${Math.round(remaining / 60)} min.`
+              : "Token expired (refreshes on next use).",
+          );
+        }
+        return;
+      }
+      console.log(`Authenticated via ${auth.kind}.`);
+    }),
+).pipe(Command.withDescription("Show who you're signed in as on a server"));
+
 const webCommand = Command.make(
   "web",
   {
-    port: Options.integer("port").pipe(Options.withDefault(DEFAULT_PORT)),
+    foreground: Options.boolean("foreground")
+      .pipe(Options.withDefault(false))
+      .pipe(
+        Options.withDescription(
+          "Run a temporary web server in this terminal. By default, web opens the installed background service.",
+        ),
+      ),
+    port: Options.integer("port")
+      .pipe(Options.withDefault(DEFAULT_PORT))
+      .pipe(Options.withDescription("Port for the temporary --foreground server.")),
     hostname: Options.string("hostname")
       .pipe(Options.withDefault("127.0.0.1"))
-      .pipe(Options.withDescription("Bind address. Use 0.0.0.0 to listen on all interfaces.")),
+      .pipe(
+        Options.withDescription(
+          "Bind address for the temporary --foreground server. Use 0.0.0.0 to listen on all interfaces.",
+        ),
+      ),
     allowedHost: Options.string("allowed-host")
       .pipe(Options.atLeast(0))
       .pipe(
         Options.withDescription(
-          "Additional hostname permitted in the Host header (repeatable). localhost/127.0.0.1 are always allowed.",
+          "For --foreground, grant an extra origin cross-origin (CORS) access (repeatable). Not needed to reach the server from another host — the bearer token is the gate; localhost is always allowed.",
         ),
       ),
     authToken: Options.string("auth-token")
       .pipe(Options.optional)
-      .pipe(Options.withDescription("Bearer token required for requests.")),
-    authPassword: Options.string("auth-password")
-      .pipe(Options.optional)
-      .pipe(Options.withDescription("Basic auth password required for requests.")),
+      .pipe(
+        Options.withDescription(
+          "For --foreground, override the bearer token. Defaults to the stable token in auth.json.",
+        ),
+      ),
     scope,
   },
-  ({ port, scope, hostname, allowedHost, authToken, authPassword }) =>
+  ({ foreground, port, scope, hostname, allowedHost, authToken }) =>
     Effect.gen(function* () {
+      if (!foreground) {
+        // `--scope` can ONLY be honored by a foreground server we boot here.
+        // Without `--foreground` we just open whatever background service is
+        // already running, which uses the scope IT was started with — so a
+        // `--scope` here would be silently ignored and the user could land on a
+        // different workspace ("where did my config go?"). Say so loudly and
+        // point at the flag that actually applies it.
+        if (Option.isSome(scope)) {
+          console.warn(
+            `Ignoring --scope ${scope.value}: it only applies with --foreground. ` +
+              `The running web app uses the scope it was started with. ` +
+              `Run \`executor web --foreground --scope ${scope.value}\` to serve that workspace.`,
+          );
+        }
+        yield* openRunningLocalWebApp();
+        return;
+      }
       applyScope(scope);
       yield* runForegroundSession({
         port,
         hostname,
         allowedHosts: allowedHost,
         authToken: Option.getOrUndefined(authToken),
-        authPassword: Option.getOrUndefined(authPassword),
       });
     }),
-).pipe(Command.withDescription("Start a foreground web session"));
+).pipe(Command.withDescription("Open the Executor web UI"));
 
 const daemonRunCommand = Command.make(
   "run",
@@ -1971,15 +2389,16 @@ const daemonRunCommand = Command.make(
       .pipe(Options.atLeast(0))
       .pipe(
         Options.withDescription(
-          "Additional hostname permitted in the Host header (repeatable). localhost/127.0.0.1 are always allowed.",
+          "Grant an extra origin cross-origin (CORS) access (repeatable). Not needed to reach the server from another host — the bearer token is the gate; localhost is always allowed.",
         ),
       ),
     authToken: Options.string("auth-token")
       .pipe(Options.optional)
-      .pipe(Options.withDescription("Bearer token required for requests.")),
-    authPassword: Options.string("auth-password")
-      .pipe(Options.optional)
-      .pipe(Options.withDescription("Basic auth password required for requests.")),
+      .pipe(
+        Options.withDescription(
+          "Override the bearer token. Defaults to the stable token in auth.json.",
+        ),
+      ),
     foreground: Options.boolean("foreground")
       .pipe(Options.withDefault(false))
       .pipe(
@@ -1989,16 +2408,19 @@ const daemonRunCommand = Command.make(
       ),
     scope,
   },
-  ({ port, scope, hostname, allowedHost, authToken, authPassword, foreground }) =>
+  ({ port, scope, hostname, allowedHost, authToken, foreground }) =>
     Effect.gen(function* () {
       applyScope(scope);
       if (foreground) {
+        // The foreground daemon is the form OS service managers run. Its bearer
+        // comes from --auth-token, else the stable token in auth.json (loaded by
+        // startServer from EXECUTOR_DATA_DIR) — the supervised unit carries no
+        // secret, so the daemon and its clients share the one auth.json token.
         yield* runDaemonSession({
           port,
           hostname,
           allowedHosts: allowedHost,
           authToken: Option.getOrUndefined(authToken),
-          authPassword: Option.getOrUndefined(authPassword),
         });
       } else {
         yield* runBackgroundDaemonStart({ port, hostname, allowedHosts: allowedHost });
@@ -2111,18 +2533,378 @@ const mcpCommand = Command.make(
 ).pipe(Command.withDescription("Start an MCP server over stdio"));
 
 // ---------------------------------------------------------------------------
+// Service — register the daemon with the OS so it survives app-quit + restart
+// ---------------------------------------------------------------------------
+
+const supervisedServiceOrigin = (port: number): string => `http://127.0.0.1:${port}`;
+
+const LOCAL_SERVICE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+const originPort = (url: URL): string => url.port || (url.protocol === "https:" ? "443" : "80");
+
+const sameServerOrigin = (left: string, right: string): boolean => {
+  const leftUrl = new URL(normalizeExecutorServerConnection({ origin: left }).origin);
+  const rightUrl = new URL(normalizeExecutorServerConnection({ origin: right }).origin);
+  if (leftUrl.toString() === rightUrl.toString()) return true;
+  return (
+    leftUrl.protocol === rightUrl.protocol &&
+    originPort(leftUrl) === originPort(rightUrl) &&
+    LOCAL_SERVICE_HOSTS.has(leftUrl.hostname.toLowerCase()) &&
+    LOCAL_SERVICE_HOSTS.has(rightUrl.hostname.toLowerCase())
+  );
+};
+
+const hasReachableCliDaemonManifest = (input: {
+  readonly origin: string;
+  readonly version: string;
+}): Effect.Effect<boolean, never, FileSystem.FileSystem | PlatformPath.Path> =>
+  Effect.gen(function* () {
+    const manifest = yield* readActiveLocalServerManifest().pipe(
+      Effect.catchCause(() => Effect.succeed(null)),
+    );
+    if (!manifest || manifest.kind !== "cli-daemon") return false;
+    if (!sameServerOrigin(manifest.connection.origin, input.origin)) return false;
+    if (manifest.owner.version !== input.version) return false;
+    return yield* isServerReachable(manifest.connection.origin);
+  });
+
+const clearUnmanifestedWindowsExecutorListener = (input: {
+  readonly port: number;
+  readonly origin: string;
+}): Effect.Effect<void, Error, FileSystem.FileSystem | PlatformPath.Path> =>
+  Effect.gen(function* () {
+    const active = yield* readActiveLocalServerManifest().pipe(
+      Effect.catchCause(() => Effect.succeed(null)),
+    );
+    if (active && sameServerOrigin(active.connection.origin, input.origin)) return;
+    if (!(yield* isServerReachable(input.origin))) return;
+
+    const stoppedPids = yield* stopWindowsExecutorListenersOnPort(input.port);
+    const stopped = yield* waitForUnreachable({
+      check: isServerReachable(input.origin),
+      timeoutMs: DAEMON_STOP_TIMEOUT_MS,
+      intervalMs: DAEMON_BOOT_POLL_MS,
+    });
+    if (stopped) return;
+
+    return yield* Effect.fail(
+      new Error(
+        [
+          `Executor is already reachable at ${input.origin}, but no live server manifest exists for it.`,
+          stoppedPids.length > 0
+            ? `Tried to stop orphaned Executor pid(s): ${stoppedPids.join(", ")}.`
+            : `No orphaned executor.exe listener could be stopped on port ${input.port}.`,
+          "Stop the process using that port and re-run the install.",
+        ].join("\n"),
+      ),
+    );
+  });
+
+const portFromOrigin = (origin: string): number | null => {
+  try {
+    const url = new URL(origin);
+    if (!url.port) return url.protocol === "https:" ? 443 : 80;
+    const port = Number.parseInt(url.port, 10);
+    return Number.isInteger(port) && port > 0 ? port : null;
+  } catch {
+    return null;
+  }
+};
+
+const servicePortOption = () =>
+  Options.integer("port")
+    .pipe(Options.withDefault(DEFAULT_SERVICE_PORT))
+    .pipe(Options.withDescription("Port the supervised daemon binds (loopback only)."));
+
+const serviceManagerName = (platform: ReturnType<typeof getServiceBackend>["platform"]): string => {
+  switch (platform) {
+    case "darwin":
+      return "launchd";
+    case "linux":
+      return "systemd --user";
+    case "win32":
+      return "Windows Task Scheduler";
+    case "unsupported":
+      return "manual setup";
+  }
+};
+
+const installService = (port: number, commandName: string) =>
+  Effect.gen(function* () {
+    const command = `${cliPrefix} ${commandName}`;
+    if (isDevMode) {
+      return yield* Effect.fail(
+        new Error(
+          [
+            `\`${command}\` requires the compiled \`executor\` binary so the OS can run it directly.`,
+            `In a dev checkout, run \`${cliPrefix} daemon run --foreground\` instead.`,
+          ].join("\n"),
+        ),
+      );
+    }
+
+    const backend = getServiceBackend();
+    if (!backend.automated) {
+      // Unsupported platforms surface their manual steps via the install error.
+      yield* backend.install({ executablePath: process.execPath, port, version: CLI_VERSION });
+      return;
+    }
+
+    const status = yield* backend.status();
+    const active = yield* readActiveLocalServerManifest().pipe(Effect.orElseSucceed(() => null));
+    const plan = planServiceInstall({
+      registered: status.registered,
+      running: status.running,
+      activeKind: active?.kind ?? null,
+      activePid: active?.pid ?? null,
+      servicePid: status.pid,
+      activeVersion: active?.owner.version ?? null,
+      activeExecutablePath: active?.owner.executablePath ?? null,
+      activePort: active ? portFromOrigin(active.connection.origin) : null,
+      requestedPort: port,
+      currentVersion: CLI_VERSION,
+      currentExecutablePath: process.execPath,
+    });
+
+    if (plan === "noop") {
+      const where = active ? ` at ${active.connection.origin} (pid ${active.pid})` : "";
+      console.log(`Executor background service is already running${where}.`);
+      console.log(`Open it in your browser, already signed in, with:  ${cliPrefix} web`);
+      return;
+    }
+
+    if (
+      plan === "takeover-then-install" ||
+      (backend.platform === "win32" && plan === "reinstall")
+    ) {
+      const replaced = yield* takeOverActiveLocalServer();
+      if (replaced) {
+        console.log(
+          `Replacing running Executor ${replaced.kind} at ${replaced.connection.origin} (pid ${replaced.pid})...`,
+        );
+      }
+    }
+
+    const path = yield* PlatformPath.Path;
+    const dataDir = resolveExecutorDataDir(path);
+    const origin = supervisedServiceOrigin(port);
+    console.log("Installing Executor as a background service...");
+    console.log(`Service manager: ${serviceManagerName(backend.platform)}`);
+    console.log(`Web UI:          ${origin}`);
+    console.log(`Data directory:  ${dataDir}`);
+    console.log(`Logs:            ${path.join(dataDir, "logs")}`);
+    console.log("");
+    console.log("Writing the service definition and starting Executor...");
+
+    if (backend.platform === "win32") {
+      yield* clearUnmanifestedWindowsExecutorListener({ port, origin });
+    }
+
+    // The unit carries no secret: the supervised daemon mints/loads its bearer
+    // from auth.json (under EXECUTOR_DATA_DIR) on first boot, and clients read
+    // the same file — so reachability is the credential-free /api/health probe.
+    yield* backend.install({ executablePath: process.execPath, port, version: CLI_VERSION });
+
+    console.log(`Waiting for Executor to publish its service manifest at ${origin}...`);
+    const reachable = yield* waitForReachable({
+      check: hasReachableCliDaemonManifest({
+        origin,
+        version: CLI_VERSION,
+      }),
+      timeoutMs: SERVICE_BOOT_TIMEOUT_MS,
+      intervalMs: DAEMON_BOOT_POLL_MS,
+    });
+    if (!reachable) {
+      return yield* Effect.fail(
+        new Error(
+          [
+            `Installed ${SERVICE_LABEL} but it did not publish a reachable server manifest for ${origin} within ${SERVICE_BOOT_TIMEOUT_MS / 1000}s.`,
+            `Check ~/.executor/logs/daemon.error.log and \`${cliPrefix} service status\`.`,
+          ].join("\n"),
+        ),
+      );
+    }
+
+    console.log(`Executor is now running as a background service at ${origin}.`);
+    console.log("It keeps serving after you quit the app and restarts on login.");
+    console.log(`Open it in your browser, already signed in, with:  ${cliPrefix} web`);
+  });
+
+const serviceInstallCommand = Command.make(
+  "install",
+  {
+    port: servicePortOption(),
+  },
+  ({ port }) => installService(port, "service install"),
+).pipe(
+  Command.withDescription("Install and start Executor as an OS-supervised background service"),
+);
+
+const serviceUninstallCommand = Command.make("uninstall", {}, () =>
+  Effect.gen(function* () {
+    const backend = getServiceBackend();
+    const activeBefore = yield* readActiveLocalServerManifest().pipe(
+      Effect.catchCause(() => Effect.succeed(null)),
+    );
+    const servicePort = activeBefore
+      ? (portFromOrigin(activeBefore.connection.origin) ?? DEFAULT_SERVICE_PORT)
+      : DEFAULT_SERVICE_PORT;
+    const status = backend.automated
+      ? yield* backend.status().pipe(Effect.catchCause(() => Effect.succeed(null)))
+      : null;
+    yield* backend.uninstall();
+    const stopped = yield* takeOverActiveLocalServer({ onlyKind: "cli-daemon" });
+    if (stopped) {
+      console.log(
+        `Stopped running Executor daemon at ${stopped.connection.origin} (pid ${stopped.pid}).`,
+      );
+    } else if (backend.platform === "win32" && status?.registered) {
+      const stoppedPids = yield* stopWindowsExecutorListenersOnPort(servicePort);
+      if (stoppedPids.length > 0) {
+        console.log(`Stopped orphaned Executor daemon pid(s): ${stoppedPids.join(", ")}.`);
+      }
+    }
+    console.log("Executor background service uninstalled.");
+  }),
+).pipe(Command.withDescription("Stop and remove the OS-supervised background service"));
+
+const serviceStatusCommand = Command.make("status", {}, () =>
+  Effect.gen(function* () {
+    const backend = getServiceBackend();
+    const status = yield* backend.status();
+    // Tolerate a registered-but-unreachable manifest here — status shouldn't throw.
+    const active = yield* readActiveLocalServerManifest().pipe(
+      Effect.catchCause(() => Effect.succeed(null)),
+    );
+    console.log(`Platform:   ${status.platform}`);
+    console.log(`Registered: ${status.registered ? "yes" : "no"}`);
+    console.log(
+      `Running:    ${status.running ? "yes" : "no"}${status.pid ? ` (pid ${status.pid})` : ""}`,
+    );
+    if (active) {
+      console.log(`Serving:    ${active.connection.origin} (${active.kind}, pid ${active.pid})`);
+      // Version drift: the running daemon was launched by the binary the unit
+      // points at. If that differs from this CLI, an upgrade left the unit
+      // pointing at an older binary — reinstall to repoint + restart.
+      if (active.owner.version && active.owner.version !== CLI_VERSION) {
+        console.log(
+          `Drift:      running ${active.owner.version}, current ${CLI_VERSION} — run \`${cliPrefix} service install\` to upgrade.`,
+        );
+      }
+    }
+    for (const line of status.detail) console.log(line);
+  }),
+).pipe(Command.withDescription("Show the OS-supervised service status"));
+
+const serviceRestartCommand = Command.make("restart", {}, () =>
+  Effect.gen(function* () {
+    const backend = getServiceBackend();
+    yield* backend.restart();
+    console.log("Executor background service restarted.");
+  }),
+).pipe(Command.withDescription("Restart the OS-supervised background service"));
+
+const serviceCommand = Command.make("service").pipe(
+  Command.withSubcommands([
+    serviceInstallCommand,
+    serviceUninstallCommand,
+    serviceStatusCommand,
+    serviceRestartCommand,
+  ] as const),
+  Command.withDescription("Manage the OS-supervised background service"),
+);
+
+const installCommand = Command.make(
+  "install",
+  {
+    port: servicePortOption(),
+  },
+  ({ port }) => installService(port, "install"),
+).pipe(
+  Command.withDescription("Install and start Executor as an OS-supervised background service"),
+);
+
+// ---------------------------------------------------------------------------
 // Root command
 // ---------------------------------------------------------------------------
+
+/**
+ * Open a URL in the user's default browser. Best-effort: if the platform opener
+ * isn't found (e.g. headless Linux without xdg-open) we swallow the error — the
+ * URL is always printed first, so the user can copy it manually.
+ */
+const openInBrowser = (url: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    openBrowser(url);
+  });
+
+const printNoRunningLocalWebApp = (): void => {
+  console.log("Executor is not running.");
+  console.log("");
+  console.log("Install and start the background service:");
+  console.log(`  ${cliPrefix} install`);
+  console.log("");
+  console.log("Then open the web UI:");
+  console.log(`  ${cliPrefix} web`);
+  console.log("");
+  console.log("For a temporary foreground server:");
+  console.log(`  ${cliPrefix} web --foreground`);
+};
+
+const openRunningLocalWebApp = (): Effect.Effect<
+  void,
+  never,
+  FileSystem.FileSystem | PlatformPath.Path
+> =>
+  Effect.gen(function* () {
+    const manifest = yield* readActiveLocalServerManifest().pipe(Effect.orElseSucceed(() => null));
+    if (!manifest) {
+      printNoRunningLocalWebApp();
+      return;
+    }
+    const { origin, auth } = manifest.connection;
+    const token = auth?.kind === "bearer" ? auth.token : undefined;
+    const url = token ? `${origin}/?_token=${token}` : origin;
+    console.log(`Opening ${url}`);
+    yield* openInBrowser(url);
+  });
+
+/**
+ * `executor open` — the friendly way back in. Reads the running local server's
+ * manifest and opens the browser straight to its `?_token=` URL, so the user
+ * never has to copy a bearer token out of a terminal or auth.json by hand.
+ */
+const openCommand = Command.make("open", {}, () => openRunningLocalWebApp()).pipe(
+  Command.withDescription("Open the running Executor web app in your browser, already signed in"),
+);
+
+/**
+ * `executor docs` — open the documentation in the browser. The URL is printed
+ * first so it stays usable on headless machines where no opener is available.
+ */
+const docsCommand = Command.make("docs", {}, () =>
+  Effect.gen(function* () {
+    console.log(`Opening ${DOCS_URL}`);
+    yield* openInBrowser(DOCS_URL);
+  }),
+).pipe(Command.withDescription("Open the Executor documentation in your browser"));
 
 const root = Command.make("executor").pipe(
   Command.withSubcommands([
     callCommand,
     resumeCommand,
     toolsCommand,
+    installCommand,
+    loginCommand,
+    logoutCommand,
+    whoamiCommand,
     serverCommand,
     webCommand,
     daemonCommand,
+    serviceCommand,
     mcpCommand,
+    openCommand,
+    docsCommand,
   ] as const),
   Command.withDescription("Executor local CLI"),
 );

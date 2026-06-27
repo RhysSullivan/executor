@@ -5,15 +5,18 @@ description: Use the @executor-js/emulate service emulators (GitHub, Google, Str
 
 # Emulate: production-fidelity service emulators
 
-`@executor-js/emulate` (our fork of Vercel Labs' emulate, developed in
-`vendor/emulate` but ALWAYS consumed as the published npm package — never
-import from `vendor/`) provides stateful, wire-level emulators for 16
-services: `github vercel google okta microsoft spotify slack apple aws
-resend stripe mongoatlas clerk x workos autumn`. These are not mocks: real
-SDKs and real product code run against them unmodified — the cloud e2e
-target points the actual WorkOS SDK (sealed sessions, JWKS, hosted AuthKit
-login) and Autumn billing at emulators and exercises the product's real
-auth code.
+`@executor-js/emulate` (our fork of Vercel Labs' emulate) provides stateful,
+wire-level emulators for 16 services: `github vercel google okta microsoft
+spotify slack apple aws resend stripe mongoatlas clerk x workos autumn`.
+These are not mocks: real SDKs and real product code run against them
+unmodified — the cloud e2e target points the actual WorkOS SDK (sealed
+sessions, JWKS, hosted AuthKit login) and Autumn billing at emulators and
+exercises the product's real auth code.
+
+**This repo only consumes the published npm package.** There is no
+`vendor/emulate` submodule — everything imports `@executor-js/emulate` from
+npm. The emulator _source_ is its own standalone project; to change or deploy
+an emulator, see "Changing or deploying an emulator" at the bottom.
 
 ## Two ways to get one
 
@@ -82,6 +85,40 @@ before `createEmulator` so minted MCP access tokens carry the right audience.
 `cd e2e && bun run cli up cloud --share` — WorkOS + Autumn emulators + the
 app's real dev stack (recipe in `e2e/setup/cloud.boot.ts`), fronted with
 tailscale HTTPS.
+
+## Changing or deploying an emulator
+
+The emulators live in their own repo — **not** in executor and **not** a
+submodule: `github.com/UsefulSoftwareCo/emulate` (clone it as a sibling of
+executor). It's a pnpm + turbo monorepo on node ≥ 24 — a different toolchain
+from executor's bun, which is exactly why it's standalone rather than
+vendored here.
+
+You have full autonomy over it: **work directly on `main`, and commit, push,
+publish, and deploy without asking.** The loop:
+
+1. Edit in the emulate repo, then **rebuild the package you changed.** It
+   resolves through built `dist`, so a source-only edit does nothing until you
+   build it — this is the single most common mistake. `@emulators/*` packages
+   are a `workspace:*` graph, so adding or renaming one needs an install +
+   rebuild too.
+2. Publish a version bump of `@executor-js/emulate` to npm.
+3. Deploy the hosted Cloudflare emulators (the `emulate-hosts` worker behind
+   `*.emulators.dev`) when behavior the hosted instances serve has changed.
+4. Back in executor, bump the `@executor-js/emulate` dependency to the version
+   you just published. Never point a consumer at a local checkout to ship —
+   publish, then bump.
+
+The emulate repo's own `AGENTS.md` / `README.md` carry the current build,
+publish, and deploy commands (npm + Cloudflare creds are in 1Password). Read
+them there rather than memorizing flags here — they move.
+
+**A hot deploy can redden other people's e2e.** `*.emulators.dev` service
+hosts are shared infrastructure; a control-plane regression there has failed
+unrelated PRs' suites before. When a scenario needs isolation or a behavior
+that isn't deployed yet, pin to a published package version or mint a private
+per-run instance (`POST /_emulate/instances`) instead of mutating the shared
+service host.
 
 ## Gotchas
 

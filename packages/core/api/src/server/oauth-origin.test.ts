@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import { requestWebOriginFromRequest } from "./execution-stack-middleware";
-import { resolveScopedWebBaseUrl } from "./scoped-executor";
+import { buildOAuthRedirectUri, resolveScopedWebBaseUrl } from "./scoped-executor";
 
 describe("OAuth web origin resolution", () => {
   it("uses the browser loopback origin when a local proxy rewrites the request host", () => {
@@ -38,5 +38,23 @@ describe("OAuth web origin resolution", () => {
         requestOrigin: "https://preview.example",
       }),
     ).toBe("https://executor.sh");
+  });
+
+  it("uses the host-provided callback path when building OAuth redirect URLs", () => {
+    expect(
+      buildOAuthRedirectUri({
+        webBaseUrl: "https://executor.sh",
+        oauthCallbackPath: "/api/oauth/callback",
+      }),
+    ).toBe("https://executor.sh/api/oauth/callback");
+  });
+
+  it("does not put org routing in OAuth redirect URLs", () => {
+    const redirectUri = buildOAuthRedirectUri({
+      webBaseUrl: "https://executor.sh",
+      oauthCallbackPath: "/api/oauth/callback",
+    });
+
+    expect(new URL(redirectUri ?? "").search).toBe("");
   });
 });

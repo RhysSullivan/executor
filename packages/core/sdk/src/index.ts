@@ -91,6 +91,7 @@ export type {
   ConnectionRef,
   ConnectionValueInput,
   CreateConnectionInput,
+  UpdateConnectionInput,
 } from "./connection";
 export type { Tool, ToolDef, ToolListFilter, ToolAnnotations } from "./tool";
 
@@ -213,7 +214,13 @@ export {
 } from "./plugin-storage";
 
 // OAuth (v2 contracts).
-export { OAUTH2_PROVIDER_KEY, OAUTH2_SESSION_TTL_MS } from "./oauth";
+export {
+  OAUTH2_PROVIDER_KEY,
+  OAUTH2_SESSION_TTL_MS,
+  decodeOAuthCallbackState,
+  encodeOAuthCallbackState,
+  type OAuthCallbackState,
+} from "./oauth";
 export {
   OAuthStartError,
   OAuthCompleteError,
@@ -242,6 +249,7 @@ export {
 export {
   DEFAULT_EXECUTOR_SERVER_ORIGIN,
   DEFAULT_EXECUTOR_SERVER_USERNAME,
+  EXECUTOR_ORG_SELECTOR_HEADER,
   apiBaseUrlForServerOrigin,
   getExecutorServerAuthorizationHeader,
   normalizeExecutorServerConnection,
@@ -269,6 +277,8 @@ export {
   type AnyPlugin,
   type StorageDeps,
   type OwnerBinding,
+  type ToolPolicyProvider,
+  type ToolPolicyProviderRule,
   type IntegrationRecord,
   type StaticSourceDecl,
   type StaticToolDecl,
@@ -324,7 +334,18 @@ export { buildToolTypeScriptPreview } from "./schema-types";
 export { InternalError } from "./api-errors";
 
 // ToolResult — typed value-based discriminated union for tool outcomes.
-export { ToolResult, isToolResult, type ToolError, type ToolHttpMeta } from "./tool-result";
+export {
+  ToolFileSchema,
+  ToolFileJsonSchema,
+  ToolResult,
+  annotateToolResultOutcome,
+  isToolFile,
+  isToolResult,
+  type ToolFile,
+  type ToolFile as ToolFileValue,
+  type ToolError,
+  type ToolHttpMeta,
+} from "./tool-result";
 
 // Stamped boot-time data-migration ledger for the libSQL-backed apps.
 export {

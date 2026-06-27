@@ -9,202 +9,258 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './__root'
-import { Route as ToolsRouteImport } from './tools'
-import { Route as SecretsRouteImport } from './secrets'
-import { Route as PoliciesRouteImport } from './policies'
-import { Route as IndexRouteImport } from './index'
-import { Route as ResumeExecutionIdRouteImport } from './resume.$executionId'
-import { Route as IntegrationsNamespaceRouteImport } from './integrations.$namespace'
-import { Route as PluginsPluginIdSplatRouteImport } from './plugins.$pluginId.$'
-import { Route as IntegrationsAddPluginKeyRouteImport } from './integrations.add.$pluginKey'
+import { Route as DotIndexRouteImport } from './index'
+import { Route as DotToolsRouteImport } from './tools'
+import { Route as DotToolkitsRouteImport } from './toolkits'
+import { Route as DotSecretsRouteImport } from './secrets'
+import { Route as DotPoliciesRouteImport } from './policies'
+import { Route as DotToolkitsDottoolkitSlugRouteImport } from './toolkits.$toolkitSlug'
+import { Route as DotResumeDotexecutionIdRouteImport } from './resume.$executionId'
+import { Route as DotIntegrationsDotnamespaceRouteImport } from './integrations.$namespace'
+import { Route as DotPluginsDotpluginIdDotsplatRouteImport } from './plugins.$pluginId.$'
+import { Route as DotIntegrationsDotaddDotpluginKeyRouteImport } from './integrations.add.$pluginKey'
 
-const ToolsRoute = ToolsRouteImport.update({
-  id: '/tools',
-  path: '/tools',
+const DotIndexRoute = DotIndexRouteImport.update({
+  id: '/{-$orgSlug}/',
+  path: '/{-$orgSlug}/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SecretsRoute = SecretsRouteImport.update({
-  id: '/secrets',
-  path: '/secrets',
+const DotToolsRoute = DotToolsRouteImport.update({
+  id: '/{-$orgSlug}/tools',
+  path: '/{-$orgSlug}/tools',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PoliciesRoute = PoliciesRouteImport.update({
-  id: '/policies',
-  path: '/policies',
+const DotToolkitsRoute = DotToolkitsRouteImport.update({
+  id: '/{-$orgSlug}/toolkits',
+  path: '/{-$orgSlug}/toolkits',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const DotSecretsRoute = DotSecretsRouteImport.update({
+  id: '/{-$orgSlug}/secrets',
+  path: '/{-$orgSlug}/secrets',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ResumeExecutionIdRoute = ResumeExecutionIdRouteImport.update({
-  id: '/resume/$executionId',
-  path: '/resume/$executionId',
+const DotPoliciesRoute = DotPoliciesRouteImport.update({
+  id: '/{-$orgSlug}/policies',
+  path: '/{-$orgSlug}/policies',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IntegrationsNamespaceRoute = IntegrationsNamespaceRouteImport.update({
-  id: '/integrations/$namespace',
-  path: '/integrations/$namespace',
+const DotToolkitsDottoolkitSlugRoute =
+  DotToolkitsDottoolkitSlugRouteImport.update({
+    id: '/$toolkitSlug',
+    path: '/$toolkitSlug',
+    getParentRoute: () => DotToolkitsRoute,
+  } as any)
+const DotResumeDotexecutionIdRoute = DotResumeDotexecutionIdRouteImport.update({
+  id: '/{-$orgSlug}/resume/$executionId',
+  path: '/{-$orgSlug}/resume/$executionId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PluginsPluginIdSplatRoute = PluginsPluginIdSplatRouteImport.update({
-  id: '/plugins/$pluginId/$',
-  path: '/plugins/$pluginId/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IntegrationsAddPluginKeyRoute =
-  IntegrationsAddPluginKeyRouteImport.update({
-    id: '/integrations/add/$pluginKey',
-    path: '/integrations/add/$pluginKey',
+const DotIntegrationsDotnamespaceRoute =
+  DotIntegrationsDotnamespaceRouteImport.update({
+    id: '/{-$orgSlug}/integrations/$namespace',
+    path: '/{-$orgSlug}/integrations/$namespace',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DotPluginsDotpluginIdDotsplatRoute =
+  DotPluginsDotpluginIdDotsplatRouteImport.update({
+    id: '/{-$orgSlug}/plugins/$pluginId/$',
+    path: '/{-$orgSlug}/plugins/$pluginId/$',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DotIntegrationsDotaddDotpluginKeyRoute =
+  DotIntegrationsDotaddDotpluginKeyRouteImport.update({
+    id: '/{-$orgSlug}/integrations/add/$pluginKey',
+    path: '/{-$orgSlug}/integrations/add/$pluginKey',
     getParentRoute: () => rootRouteImport,
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/policies': typeof PoliciesRoute
-  '/secrets': typeof SecretsRoute
-  '/tools': typeof ToolsRoute
-  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
-  '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
-  '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
+  '/{-$orgSlug}/policies': typeof DotPoliciesRoute
+  '/{-$orgSlug}/secrets': typeof DotSecretsRoute
+  '/{-$orgSlug}/toolkits': typeof DotToolkitsRouteWithChildren
+  '/{-$orgSlug}/tools': typeof DotToolsRoute
+  '/{-$orgSlug}/': typeof DotIndexRoute
+  '/{-$orgSlug}/integrations/$namespace': typeof DotIntegrationsDotnamespaceRoute
+  '/{-$orgSlug}/resume/$executionId': typeof DotResumeDotexecutionIdRoute
+  '/{-$orgSlug}/toolkits/$toolkitSlug': typeof DotToolkitsDottoolkitSlugRoute
+  '/{-$orgSlug}/integrations/add/$pluginKey': typeof DotIntegrationsDotaddDotpluginKeyRoute
+  '/{-$orgSlug}/plugins/$pluginId/$': typeof DotPluginsDotpluginIdDotsplatRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/policies': typeof PoliciesRoute
-  '/secrets': typeof SecretsRoute
-  '/tools': typeof ToolsRoute
-  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
-  '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
-  '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
+  '/{-$orgSlug}/policies': typeof DotPoliciesRoute
+  '/{-$orgSlug}/secrets': typeof DotSecretsRoute
+  '/{-$orgSlug}/toolkits': typeof DotToolkitsRouteWithChildren
+  '/{-$orgSlug}/tools': typeof DotToolsRoute
+  '/{-$orgSlug}': typeof DotIndexRoute
+  '/{-$orgSlug}/integrations/$namespace': typeof DotIntegrationsDotnamespaceRoute
+  '/{-$orgSlug}/resume/$executionId': typeof DotResumeDotexecutionIdRoute
+  '/{-$orgSlug}/toolkits/$toolkitSlug': typeof DotToolkitsDottoolkitSlugRoute
+  '/{-$orgSlug}/integrations/add/$pluginKey': typeof DotIntegrationsDotaddDotpluginKeyRoute
+  '/{-$orgSlug}/plugins/$pluginId/$': typeof DotPluginsDotpluginIdDotsplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/policies': typeof PoliciesRoute
-  '/secrets': typeof SecretsRoute
-  '/tools': typeof ToolsRoute
-  '/integrations/$namespace': typeof IntegrationsNamespaceRoute
-  '/resume/$executionId': typeof ResumeExecutionIdRoute
-  '/integrations/add/$pluginKey': typeof IntegrationsAddPluginKeyRoute
-  '/plugins/$pluginId/$': typeof PluginsPluginIdSplatRoute
+  '/{-$orgSlug}/policies': typeof DotPoliciesRoute
+  '/{-$orgSlug}/secrets': typeof DotSecretsRoute
+  '/{-$orgSlug}/toolkits': typeof DotToolkitsRouteWithChildren
+  '/{-$orgSlug}/tools': typeof DotToolsRoute
+  '/{-$orgSlug}/': typeof DotIndexRoute
+  '/{-$orgSlug}/integrations/$namespace': typeof DotIntegrationsDotnamespaceRoute
+  '/{-$orgSlug}/resume/$executionId': typeof DotResumeDotexecutionIdRoute
+  '/{-$orgSlug}/toolkits/$toolkitSlug': typeof DotToolkitsDottoolkitSlugRoute
+  '/{-$orgSlug}/integrations/add/$pluginKey': typeof DotIntegrationsDotaddDotpluginKeyRoute
+  '/{-$orgSlug}/plugins/$pluginId/$': typeof DotPluginsDotpluginIdDotsplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
-    | '/policies'
-    | '/secrets'
-    | '/tools'
-    | '/integrations/$namespace'
-    | '/resume/$executionId'
-    | '/integrations/add/$pluginKey'
-    | '/plugins/$pluginId/$'
+    | '/{-$orgSlug}/policies'
+    | '/{-$orgSlug}/secrets'
+    | '/{-$orgSlug}/toolkits'
+    | '/{-$orgSlug}/tools'
+    | '/{-$orgSlug}/'
+    | '/{-$orgSlug}/integrations/$namespace'
+    | '/{-$orgSlug}/resume/$executionId'
+    | '/{-$orgSlug}/toolkits/$toolkitSlug'
+    | '/{-$orgSlug}/integrations/add/$pluginKey'
+    | '/{-$orgSlug}/plugins/$pluginId/$'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
-    | '/policies'
-    | '/secrets'
-    | '/tools'
-    | '/integrations/$namespace'
-    | '/resume/$executionId'
-    | '/integrations/add/$pluginKey'
-    | '/plugins/$pluginId/$'
+    | '/{-$orgSlug}/policies'
+    | '/{-$orgSlug}/secrets'
+    | '/{-$orgSlug}/toolkits'
+    | '/{-$orgSlug}/tools'
+    | '/{-$orgSlug}'
+    | '/{-$orgSlug}/integrations/$namespace'
+    | '/{-$orgSlug}/resume/$executionId'
+    | '/{-$orgSlug}/toolkits/$toolkitSlug'
+    | '/{-$orgSlug}/integrations/add/$pluginKey'
+    | '/{-$orgSlug}/plugins/$pluginId/$'
   id:
     | '__root__'
-    | '/'
-    | '/policies'
-    | '/secrets'
-    | '/tools'
-    | '/integrations/$namespace'
-    | '/resume/$executionId'
-    | '/integrations/add/$pluginKey'
-    | '/plugins/$pluginId/$'
+    | '/{-$orgSlug}/policies'
+    | '/{-$orgSlug}/secrets'
+    | '/{-$orgSlug}/toolkits'
+    | '/{-$orgSlug}/tools'
+    | '/{-$orgSlug}/'
+    | '/{-$orgSlug}/integrations/$namespace'
+    | '/{-$orgSlug}/resume/$executionId'
+    | '/{-$orgSlug}/toolkits/$toolkitSlug'
+    | '/{-$orgSlug}/integrations/add/$pluginKey'
+    | '/{-$orgSlug}/plugins/$pluginId/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  PoliciesRoute: typeof PoliciesRoute
-  SecretsRoute: typeof SecretsRoute
-  ToolsRoute: typeof ToolsRoute
-  IntegrationsNamespaceRoute: typeof IntegrationsNamespaceRoute
-  ResumeExecutionIdRoute: typeof ResumeExecutionIdRoute
-  IntegrationsAddPluginKeyRoute: typeof IntegrationsAddPluginKeyRoute
-  PluginsPluginIdSplatRoute: typeof PluginsPluginIdSplatRoute
+  DotPoliciesRoute: typeof DotPoliciesRoute
+  DotSecretsRoute: typeof DotSecretsRoute
+  DotToolkitsRoute: typeof DotToolkitsRouteWithChildren
+  DotToolsRoute: typeof DotToolsRoute
+  DotIndexRoute: typeof DotIndexRoute
+  DotIntegrationsDotnamespaceRoute: typeof DotIntegrationsDotnamespaceRoute
+  DotResumeDotexecutionIdRoute: typeof DotResumeDotexecutionIdRoute
+  DotIntegrationsDotaddDotpluginKeyRoute: typeof DotIntegrationsDotaddDotpluginKeyRoute
+  DotPluginsDotpluginIdDotsplatRoute: typeof DotPluginsDotpluginIdDotsplatRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/tools': {
-      id: '/tools'
-      path: '/tools'
-      fullPath: '/tools'
-      preLoaderRoute: typeof ToolsRouteImport
+    '/{-$orgSlug}/': {
+      id: '/{-$orgSlug}/'
+      path: '/{-$orgSlug}'
+      fullPath: '/{-$orgSlug}/'
+      preLoaderRoute: typeof DotIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/secrets': {
-      id: '/secrets'
-      path: '/secrets'
-      fullPath: '/secrets'
-      preLoaderRoute: typeof SecretsRouteImport
+    '/{-$orgSlug}/tools': {
+      id: '/{-$orgSlug}/tools'
+      path: '/{-$orgSlug}/tools'
+      fullPath: '/{-$orgSlug}/tools'
+      preLoaderRoute: typeof DotToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/policies': {
-      id: '/policies'
-      path: '/policies'
-      fullPath: '/policies'
-      preLoaderRoute: typeof PoliciesRouteImport
+    '/{-$orgSlug}/toolkits': {
+      id: '/{-$orgSlug}/toolkits'
+      path: '/{-$orgSlug}/toolkits'
+      fullPath: '/{-$orgSlug}/toolkits'
+      preLoaderRoute: typeof DotToolkitsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/{-$orgSlug}/secrets': {
+      id: '/{-$orgSlug}/secrets'
+      path: '/{-$orgSlug}/secrets'
+      fullPath: '/{-$orgSlug}/secrets'
+      preLoaderRoute: typeof DotSecretsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/resume/$executionId': {
-      id: '/resume/$executionId'
-      path: '/resume/$executionId'
-      fullPath: '/resume/$executionId'
-      preLoaderRoute: typeof ResumeExecutionIdRouteImport
+    '/{-$orgSlug}/policies': {
+      id: '/{-$orgSlug}/policies'
+      path: '/{-$orgSlug}/policies'
+      fullPath: '/{-$orgSlug}/policies'
+      preLoaderRoute: typeof DotPoliciesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/integrations/$namespace': {
-      id: '/integrations/$namespace'
-      path: '/integrations/$namespace'
-      fullPath: '/integrations/$namespace'
-      preLoaderRoute: typeof IntegrationsNamespaceRouteImport
+    '/{-$orgSlug}/toolkits/$toolkitSlug': {
+      id: '/{-$orgSlug}/toolkits/$toolkitSlug'
+      path: '/$toolkitSlug'
+      fullPath: '/{-$orgSlug}/toolkits/$toolkitSlug'
+      preLoaderRoute: typeof DotToolkitsDottoolkitSlugRouteImport
+      parentRoute: typeof DotToolkitsRoute
+    }
+    '/{-$orgSlug}/resume/$executionId': {
+      id: '/{-$orgSlug}/resume/$executionId'
+      path: '/{-$orgSlug}/resume/$executionId'
+      fullPath: '/{-$orgSlug}/resume/$executionId'
+      preLoaderRoute: typeof DotResumeDotexecutionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/plugins/$pluginId/$': {
-      id: '/plugins/$pluginId/$'
-      path: '/plugins/$pluginId/$'
-      fullPath: '/plugins/$pluginId/$'
-      preLoaderRoute: typeof PluginsPluginIdSplatRouteImport
+    '/{-$orgSlug}/integrations/$namespace': {
+      id: '/{-$orgSlug}/integrations/$namespace'
+      path: '/{-$orgSlug}/integrations/$namespace'
+      fullPath: '/{-$orgSlug}/integrations/$namespace'
+      preLoaderRoute: typeof DotIntegrationsDotnamespaceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/integrations/add/$pluginKey': {
-      id: '/integrations/add/$pluginKey'
-      path: '/integrations/add/$pluginKey'
-      fullPath: '/integrations/add/$pluginKey'
-      preLoaderRoute: typeof IntegrationsAddPluginKeyRouteImport
+    '/{-$orgSlug}/plugins/$pluginId/$': {
+      id: '/{-$orgSlug}/plugins/$pluginId/$'
+      path: '/{-$orgSlug}/plugins/$pluginId/$'
+      fullPath: '/{-$orgSlug}/plugins/$pluginId/$'
+      preLoaderRoute: typeof DotPluginsDotpluginIdDotsplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/{-$orgSlug}/integrations/add/$pluginKey': {
+      id: '/{-$orgSlug}/integrations/add/$pluginKey'
+      path: '/{-$orgSlug}/integrations/add/$pluginKey'
+      fullPath: '/{-$orgSlug}/integrations/add/$pluginKey'
+      preLoaderRoute: typeof DotIntegrationsDotaddDotpluginKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
 }
 
+interface DotToolkitsRouteChildren {
+  DotToolkitsDottoolkitSlugRoute: typeof DotToolkitsDottoolkitSlugRoute
+}
+
+const DotToolkitsRouteChildren: DotToolkitsRouteChildren = {
+  DotToolkitsDottoolkitSlugRoute: DotToolkitsDottoolkitSlugRoute,
+}
+
+const DotToolkitsRouteWithChildren = DotToolkitsRoute._addFileChildren(
+  DotToolkitsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  PoliciesRoute: PoliciesRoute,
-  SecretsRoute: SecretsRoute,
-  ToolsRoute: ToolsRoute,
-  IntegrationsNamespaceRoute: IntegrationsNamespaceRoute,
-  ResumeExecutionIdRoute: ResumeExecutionIdRoute,
-  IntegrationsAddPluginKeyRoute: IntegrationsAddPluginKeyRoute,
-  PluginsPluginIdSplatRoute: PluginsPluginIdSplatRoute,
+  DotPoliciesRoute: DotPoliciesRoute,
+  DotSecretsRoute: DotSecretsRoute,
+  DotToolkitsRoute: DotToolkitsRouteWithChildren,
+  DotToolsRoute: DotToolsRoute,
+  DotIndexRoute: DotIndexRoute,
+  DotIntegrationsDotnamespaceRoute: DotIntegrationsDotnamespaceRoute,
+  DotResumeDotexecutionIdRoute: DotResumeDotexecutionIdRoute,
+  DotIntegrationsDotaddDotpluginKeyRoute:
+    DotIntegrationsDotaddDotpluginKeyRoute,
+  DotPluginsDotpluginIdDotsplatRoute: DotPluginsDotpluginIdDotsplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

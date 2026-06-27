@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from "react";
 import { ExecutorProvider } from "@executor-js/react/api/provider";
 import { ExecutorPluginsProvider } from "@executor-js/sdk/client";
 import { OrganizationProvider } from "@executor-js/react/api/organization-context";
+import { OrgSlugGate } from "@executor-js/react/multiplayer/org-slug-gate";
 import { Toaster } from "@executor-js/react/components/sonner";
 import { AuthProvider, useAuth } from "@executor-js/react/multiplayer/auth-context";
 import { Shell, defaultShellNavItems } from "@executor-js/react/multiplayer/shell";
@@ -19,8 +20,8 @@ import { plugins as clientPlugins } from "virtual:executor/plugins-client";
 // resolves to authenticated; the unauthenticated branch can only happen when
 // Access isn't in front yet (or a JWT expired) — we bounce to the Access login.
 //
-// API keys + members are managed in Cloudflare Access, not in-app, so the
-// API-keys footer is hidden (`apiKeysTo={null}`) and the nav is the default set.
+// API keys + members are managed in Cloudflare Access, not in-app, so this host
+// omits the API-keys nav item and just uses the default set.
 // ---------------------------------------------------------------------------
 
 export const Route = createRootRoute({
@@ -59,14 +60,25 @@ function AuthGate({ children }: { children: ReactNode }) {
 
 function AuthenticatedApp() {
   const auth = useAuth();
-  const organizationId = auth.status === "authenticated" ? (auth.organization?.id ?? null) : null;
+  const organization = auth.status === "authenticated" ? (auth.organization ?? null) : null;
+
+  // Single-org instance: a bare URL canonicalizes onto the instance org's
+  // slug. There's only ever one org, so no other slug is reachable.
+  const gated = (
+    <>
+      <Shell onSignOut={signOut} navItems={defaultShellNavItems} />
+      <Toaster />
+    </>
+  );
 
   return (
     <ExecutorProvider>
       <ExecutorPluginsProvider plugins={clientPlugins}>
-        <OrganizationProvider organizationId={organizationId}>
-          <Shell onSignOut={signOut} navItems={defaultShellNavItems} apiKeysTo={null} />
-          <Toaster />
+        {/* No organizationSlug: the worker serves only the bare /mcp (see
+            wrangler.jsonc run_worker_first), so a slug-pinned URL would fall
+            through to the SPA. */}
+        <OrganizationProvider organizationId={organization?.id ?? null}>
+          {organization ? <OrgSlugGate activeSlug={organization.slug}>{gated}</OrgSlugGate> : gated}
         </OrganizationProvider>
       </ExecutorPluginsProvider>
     </ExecutorProvider>

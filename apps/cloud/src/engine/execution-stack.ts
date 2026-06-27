@@ -57,13 +57,15 @@ export const CloudDbProvider = cloudDbProviderLayer(collectTables());
 // Fresh plugin instances per request, carrying the Worker env's WorkOS Vault
 // credentials. Matches the old `createScopedExecutor`'s `orgPlugins()`.
 export const CloudPluginsProvider: Layer.Layer<PluginsProvider> = Layer.succeed(PluginsProvider)({
-  plugins: () =>
+  plugins: (context) =>
     executorConfig.plugins({
       workosCredentials: {
         apiKey: env.WORKOS_API_KEY,
         clientId: env.WORKOS_CLIENT_ID,
         apiUrl: env.WORKOS_API_URL,
       },
+      activeToolkitSlug:
+        context?.mcpResource?.kind === "toolkit" ? context.mcpResource.slug : undefined,
     }),
 });
 
@@ -83,9 +85,7 @@ export const CloudHostConfig: Layer.Layer<HostConfig> = Layer.sync(HostConfig, (
   // servers on localhost are reachable. See `hosted-http-client.ts`.
   allowLocalNetwork: env.ALLOW_LOCAL_NETWORK === "true",
   webBaseUrl: env.VITE_PUBLIC_SITE_URL ?? "https://executor.sh",
-  // `oauthCallbackPath` is NOT set here — `ExecutorApp.make` derives it from the
-  // `mountPrefix` cloud passes (`CLOUD_MOUNT_PREFIX`), so the callback can't drift
-  // from the route that serves it.
+  oauthCallbackPath: `${CLOUD_MOUNT_PREFIX}/oauth/callback`,
   // WorkOS Vault is cloud's credential storage implementation detail, not a
   // user-selectable provider surface.
   exposeCredentialProviders: false,

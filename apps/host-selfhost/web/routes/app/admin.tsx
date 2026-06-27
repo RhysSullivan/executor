@@ -19,7 +19,7 @@ import { orgMemberWriteKeys } from "@executor-js/react/api/reactivity-keys";
 
 import { createInvite, invitesAtom, inviteWriteKeys, revokeInvite } from "../../admin-atoms";
 
-export const Route = createFileRoute("/admin")({
+export const Route = createFileRoute("/{-$orgSlug}/admin")({
   component: AdminPage,
 });
 

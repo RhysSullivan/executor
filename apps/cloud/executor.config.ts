@@ -1,8 +1,11 @@
 import { defineExecutorConfig } from "@executor-js/sdk";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
+import { googleHttpPlugin } from "@executor-js/plugin-google/api";
+import { microsoftHttpPlugin } from "@executor-js/plugin-microsoft/api";
 import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
 import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
 import { workosVaultPlugin, type WorkOSVaultClient } from "@executor-js/plugin-workos-vault";
+import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
 
 // ---------------------------------------------------------------------------
 // Single source of truth for the cloud app's plugin list.
@@ -38,16 +41,20 @@ interface CloudPluginDeps {
    *  bypass the real WorkOS API. Production leaves this undefined and
    *  falls back to the credential-driven default. */
   readonly workosVaultClient?: WorkOSVaultClient;
+  readonly activeToolkitSlug?: string;
 }
 
 export default defineExecutorConfig({
-  plugins: ({ workosCredentials, workosVaultClient }: CloudPluginDeps = {}) =>
+  plugins: ({ workosCredentials, workosVaultClient, activeToolkitSlug }: CloudPluginDeps = {}) =>
     [
       openApiHttpPlugin(),
+      googleHttpPlugin(),
+      microsoftHttpPlugin(),
       mcpHttpPlugin({
         dangerouslyAllowStdioMCP: false,
       }),
       graphqlHttpPlugin(),
+      toolkitsPlugin({ activeToolkitSlug }),
       workosVaultPlugin({
         credentials: workosCredentials ?? { apiKey: "", clientId: "" },
         ...(workosVaultClient ? { client: workosVaultClient } : {}),

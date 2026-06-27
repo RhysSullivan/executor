@@ -1,7 +1,8 @@
 import * as React from "react";
+import { isValidOrgSlug } from "@executor-js/api";
 import {
   DEFAULT_EXECUTOR_SERVER_ORIGIN,
-  DEFAULT_EXECUTOR_SERVER_USERNAME,
+  EXECUTOR_ORG_SELECTOR_HEADER,
   getExecutorServerAuthorizationHeader as getAuthorizationHeaderForConnection,
   normalizeExecutorServerConnection,
   originFromApiBaseUrl,
@@ -11,7 +12,7 @@ import {
 
 export {
   DEFAULT_EXECUTOR_SERVER_ORIGIN,
-  DEFAULT_EXECUTOR_SERVER_USERNAME,
+  EXECUTOR_ORG_SELECTOR_HEADER,
   apiBaseUrlForServerOrigin,
   normalizeExecutorServerConnection,
   normalizeExecutorServerOrigin,
@@ -25,10 +26,15 @@ export {
 interface ExecutorWindowBridge {
   readonly serverConnection?: ExecutorServerConnectionInput;
   readonly getServerConnection?: () => Promise<ExecutorServerConnectionInput | null>;
+  /**
+   * The desktop bearer token, fetched on demand for the "Connect an agent"
+   * install command (an external agent needs it in plaintext). The renderer's
+   * own requests don't use it — the desktop main process injects the header at
+   * the session layer.
+   */
+  readonly getServerAuthToken?: () => Promise<string | null>;
   readonly getServerProfiles?: () => Promise<string | null>;
   readonly setServerProfiles?: (value: string) => Promise<void>;
-  readonly baseUrl?: string;
-  readonly authPassword?: string;
 }
 
 declare global {
@@ -44,24 +50,6 @@ export const resolveBrowserExecutorServerConnection = (input: {
   const configured = input.bridge?.serverConnection;
   if (configured) {
     return normalizeExecutorServerConnection(configured);
-  }
-
-  const legacyBaseUrl = input.bridge?.baseUrl;
-  if (legacyBaseUrl) {
-    return normalizeExecutorServerConnection({
-      kind: "desktop-sidecar",
-      origin: legacyBaseUrl,
-      displayName: "Desktop sidecar",
-      ...(input.bridge?.authPassword
-        ? {
-            auth: {
-              kind: "basic",
-              username: DEFAULT_EXECUTOR_SERVER_USERNAME,
-              password: input.bridge.authPassword,
-            },
-          }
-        : {}),
-    });
   }
 
   return normalizeExecutorServerConnection({
@@ -83,6 +71,37 @@ const resolveInitialExecutorServerConnection = (): ExecutorServerConnection => {
 };
 
 let activeConnection = resolveInitialExecutorServerConnection();
+
+// ---------------------------------------------------------------------------
+// Active org selector — the org the console URL is scoped to.
+// ---------------------------------------------------------------------------
+//
+// Org-scoped hosts (cloud) send this on every API request so the server scopes
+// to the URL's org, not the session's stored one — which is what lets two
+// browser tabs sit in two different orgs at once (each tab's window.location is
+// its own).
+//
+// Read straight from `window.location` at REQUEST time, not from a
+// React-synced mirror: the API clients' `transformClient` runs only in the
+// browser, so this never touches SSR/hydration, and it's always exactly the
+// current URL with no effect-timing to get wrong. The org is the first path
+// segment when it's a valid slug; reserved console roots (`/policies`,
+// `/login`, …) are NOT valid slugs, so a bare path sends no header and the
+// server falls back to the session org. Hosts without slugs (self-host,
+// cloudflare) never produce one either.
+export const EXECUTOR_ORG_HEADER = EXECUTOR_ORG_SELECTOR_HEADER;
+
+export const getActiveOrgSlug = (): string | null => {
+  const pathname = globalThis.window?.location?.pathname;
+  if (!pathname) return null;
+  const first = pathname.split("/")[1];
+  return first && isValidOrgSlug(first) ? first : null;
+};
+
+export const getExecutorOrganizationHeaders = (): Readonly<Record<string, string>> => {
+  const orgSlug = getActiveOrgSlug();
+  return orgSlug ? { [EXECUTOR_ORG_HEADER]: orgSlug } : {};
+};
 
 export const getExecutorServerConnection = (): ExecutorServerConnection => activeConnection;
 
@@ -115,6 +134,9 @@ interface ExecutorServerConnectionContextValue {
 const ExecutorServerConnectionContext =
   React.createContext<ExecutorServerConnectionContextValue | null>(null);
 
+const hasDesktopServerConnectionBridge = (): boolean =>
+  typeof globalThis.window?.executor?.getServerConnection === "function";
+
 export function ExecutorServerConnectionProvider(
   props: React.PropsWithChildren<{
     readonly connection?: ExecutorServerConnectionInput;
@@ -130,6 +152,7 @@ export function ExecutorServerConnectionProvider(
   const [connection, setConnection] = React.useState(initialConnection);
   const setActiveConnection = React.useCallback((input: ExecutorServerConnectionInput): void => {
     const next = normalizeExecutorServerConnection(input);
+    if (hasDesktopServerConnectionBridge() && next.kind !== "desktop-sidecar") return;
     activeConnection = next;
     setConnection(next);
   }, []);
@@ -148,13 +171,13 @@ export function ExecutorServerConnectionProvider(
     if (typeof bridge?.getServerConnection !== "function") return;
 
     let cancelled = false;
-    const initialKey = activeConnection.key;
     void bridge.getServerConnection().then(
       (input) => {
         if (cancelled || !input) return;
         const next = normalizeExecutorServerConnection(input);
-        setConnection((current) => {
-          if (current.key !== initialKey) return current;
+        setConnection(() => {
+          // Electron loads the UI from a local URL before the async bridge
+          // answers. Once it does, the bridge is the authoritative app server.
           activeConnection = next;
           return next;
         });

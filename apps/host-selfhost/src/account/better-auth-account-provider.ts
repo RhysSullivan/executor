@@ -37,7 +37,7 @@ const orgRole = (slug: string | undefined): "owner" | "admin" | "member" =>
 export const betterAuthAccountProvider: Layer.Layer<AccountProvider, never, BetterAuth> =
   Layer.effect(AccountProvider)(
     Effect.gen(function* () {
-      const { auth, organizationId, organizationName } = yield* BetterAuth;
+      const { auth, organizationId, organizationName, organizationSlug } = yield* BetterAuth;
 
       const getSession = (headers: AccountHeaders) =>
         Effect.tryPromise({
@@ -65,6 +65,7 @@ export const betterAuthAccountProvider: Layer.Layer<AccountProvider, never, Bett
               organization: {
                 id: resolved.session.activeOrganizationId ?? organizationId,
                 name: organizationName,
+                slug: organizationSlug,
               },
             };
           }),

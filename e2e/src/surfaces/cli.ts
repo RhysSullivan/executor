@@ -3,9 +3,12 @@
 // vitest; pass `record` to save an asciicast v2 the viewer can replay. The
 // recording is written in release so a timeout still leaves the evidence.
 import { writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 import { Effect } from "effect";
 import { TerminalControl, type Session } from "@kitlangton/terminal-control";
+
+import { beat, enterFocus, markRecordingStart } from "../timeline";
 
 export interface CliSurface {
   readonly session: <T>(
@@ -65,9 +68,23 @@ export const makeCliSurface = (): CliSurface => ({
           record: options?.record ? true : undefined,
           viewport: options?.viewport,
         });
-        return { tc, session };
+        // Anchor the terminal recording on the run's focus timeline (symmetric
+        // with the browser surface), so a combined cli+browser scenario gets the
+        // synced SessionPlayer view (terminal/browser cuts + URL bar) for free.
+        const runDir = options?.record ? dirname(options.record) : null;
+        if (runDir) markRecordingStart(runDir, "terminal");
+        return { tc, session, runDir };
       }),
-      ({ session }) => Effect.promise(() => drive(session)),
+      ({ session, runDir }) =>
+        Effect.promise(async () => {
+          if (runDir) await enterFocus(runDir, "terminal");
+          const result = await drive(session);
+          // Hold the terminal's final frame (e.g. "connected") before the
+          // recording stops, so it isn't a single flash in the film. Filming
+          // only — fast runs return immediately.
+          await beat();
+          return result;
+        }),
       ({ tc, session }) =>
         Effect.promise(async () => {
           if (options?.record) {

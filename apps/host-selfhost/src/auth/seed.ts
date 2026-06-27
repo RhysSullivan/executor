@@ -21,14 +21,24 @@ export const seedOrgAndAdmin = async (
   config: SelfHostConfig,
 ): Promise<{ organizationId: string; organizationName: string }> => {
   // Idempotent: once the single organization exists, boot is past first-run.
+  // This instance is SINGLE-org, so adopt whatever organization exists rather
+  // than looking it up by slug — matching on slug would silently create a
+  // second org (forking the instance) the first boot after EXECUTOR_ORG_SLUG
+  // changes. A changed slug is a rename of the one org, applied here.
   // oxlint-disable-next-line executor/no-double-cast -- boundary: the SELECT columns are the schema contract for the Better Auth `organization` row read off the libSQL client
   const existingOrg = (
     await client.execute({
-      sql: "SELECT id, name FROM organization WHERE slug = ?",
-      args: [config.orgSlug],
+      sql: "SELECT id, name, slug FROM organization ORDER BY createdAt ASC LIMIT 1",
+      args: [],
     })
-  ).rows[0] as unknown as { id: string; name: string } | undefined;
+  ).rows[0] as unknown as { id: string; name: string; slug: string } | undefined;
   if (existingOrg) {
+    if (existingOrg.slug !== config.orgSlug) {
+      await client.execute({
+        sql: "UPDATE organization SET slug = ? WHERE id = ?",
+        args: [config.orgSlug, existingOrg.id],
+      });
+    }
     return { organizationId: existingOrg.id, organizationName: existingOrg.name };
   }
 

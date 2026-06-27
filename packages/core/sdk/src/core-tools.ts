@@ -14,6 +14,7 @@ import {
   AuthTemplateSlug,
   ConnectionName,
   IntegrationSlug,
+  NO_AUTH_TEMPLATE,
   OAuthClientSlug,
   OAuthState,
   ProviderItemId,
@@ -70,6 +71,7 @@ const ConnectionOutput = Schema.Struct({
   provider: Schema.String,
   address: Schema.String,
   identityLabel: Schema.optional(Schema.NullOr(Schema.String)),
+  description: Schema.optional(Schema.NullOr(Schema.String)),
   expiresAt: Schema.NullOr(Schema.Number),
   oauthClient: Schema.NullOr(Schema.String),
   oauthClientOwner: Schema.NullOr(OwnerSchema),
@@ -79,9 +81,30 @@ const ConnectionOutput = Schema.Struct({
 const ConnectionsListInput = Schema.Struct({
   integration: Schema.optional(Schema.String),
   owner: Schema.optional(OwnerSchema),
+  verbose: Schema.optional(Schema.Boolean),
+});
+
+/** Lean per-connection shape for list scans. Omits the full `oauthScope`
+ *  grant string (a single connection's scope list can run to thousands of
+ *  characters and dominates the payload) in favor of `oauthScopeCount`. The
+ *  full scope is included only when the caller passes `verbose: true`. */
+const ConnectionListItem = Schema.Struct({
+  owner: OwnerSchema,
+  name: Schema.String,
+  integration: Schema.String,
+  template: Schema.String,
+  provider: Schema.String,
+  address: Schema.String,
+  identityLabel: Schema.optional(Schema.NullOr(Schema.String)),
+  description: Schema.optional(Schema.NullOr(Schema.String)),
+  expiresAt: Schema.NullOr(Schema.Number),
+  oauthClient: Schema.NullOr(Schema.String),
+  oauthClientOwner: Schema.NullOr(OwnerSchema),
+  oauthScopeCount: Schema.NullOr(Schema.Number),
+  oauthScope: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const ConnectionsListOutput = Schema.Struct({
-  connections: Schema.Array(ConnectionOutput),
+  connections: Schema.Array(ConnectionListItem),
 });
 
 const ConnectionCreateHandoffInput = Schema.Struct({
@@ -112,7 +135,19 @@ const ConnectionCreateInput = Schema.Struct({
   Schema.makeFilter((payload) => {
     const originCount =
       (payload.from === undefined ? 0 : 1) + (payload.inputs === undefined ? 0 : 1);
-    if (originCount !== 1) return "Expected exactly one provider credential origin";
+    // The no-auth template ("none") binds zero credentials — both `from` and
+    // `inputs` are legitimately absent (public MCP servers, public REST APIs).
+    // Mirror the engine, which accepts an empty input set only for this
+    // template; a stray origin would wire a credential the connection can't
+    // hold, so reject any. Every other template needs exactly one origin.
+    const isNoAuth = String(payload.template) === String(NO_AUTH_TEMPLATE);
+    if (isNoAuth) {
+      if (originCount > 0) {
+        return 'A no-auth connection (template "none") takes no provider credential origin';
+      }
+    } else if (originCount !== 1) {
+      return "Expected exactly one provider credential origin";
+    }
     if (payload.inputs !== undefined && Object.keys(payload.inputs).length === 0) {
       return "Expected at least one provider credential input";
     }
@@ -196,6 +231,10 @@ const OAuthClientOutput = Schema.Struct({
 const OAuthClientsListOutput = Schema.Struct({
   clients: Schema.Array(OAuthClientOutput),
 });
+// No `clientSecret`: a confidential client's secret must never cross the agent
+// boundary (it would land in the LLM context window). This tool registers a
+// PUBLIC client only; a secret-bearing app is registered by the human through
+// `oauth.clients.createHandoff`, which deep-links them to the web form.
 const OAuthCreateClientInput = Schema.Struct({
   owner: OwnerSchema,
   slug: Schema.String,
@@ -203,8 +242,26 @@ const OAuthCreateClientInput = Schema.Struct({
   tokenUrl: Schema.String,
   grant: OAuthGrantSchema,
   clientId: Schema.String,
-  clientSecret: Schema.String,
   resource: Schema.optional(Schema.NullOr(Schema.String)),
+});
+// Browser-handoff for a CONFIDENTIAL OAuth app: carries only the NON-secret
+// fields the form pre-fills. The client secret is typed by the human in the web
+// UI, exactly like a pasted connection credential, so it never reaches the
+// agent. Mirrors `ConnectionCreateHandoffInput`.
+const OAuthCreateClientHandoffInput = Schema.Struct({
+  integration: Schema.String,
+  owner: Schema.optional(OwnerSchema),
+  slug: Schema.optional(Schema.String),
+  grant: Schema.optional(OAuthGrantSchema),
+  clientId: Schema.optional(Schema.String),
+  authorizationUrl: Schema.optional(Schema.String),
+  tokenUrl: Schema.optional(Schema.String),
+  resource: Schema.optional(Schema.NullOr(Schema.String)),
+  label: Schema.optional(Schema.String),
+});
+const OAuthCreateClientHandoffOutput = Schema.Struct({
+  url: Schema.String,
+  instructions: Schema.String,
 });
 const OAuthClientOutputRef = Schema.Struct({
   client: Schema.String,
@@ -286,6 +343,8 @@ const PolicyUpdateInputStd = schemaToStandard(PolicyUpdateInput);
 const PolicyRemoveInputStd = schemaToStandard(PolicyRemoveInput);
 const OAuthClientsListOutputStd = schemaToStandard(OAuthClientsListOutput);
 const OAuthCreateClientInputStd = schemaToStandard(OAuthCreateClientInput);
+const OAuthCreateClientHandoffInputStd = schemaToStandard(OAuthCreateClientHandoffInput);
+const OAuthCreateClientHandoffOutputStd = schemaToStandard(OAuthCreateClientHandoffOutput);
 const OAuthClientOutputRefStd = schemaToStandard(OAuthClientOutputRef);
 const OAuthRegisterDynamicInputStd = schemaToStandard(OAuthRegisterDynamicInput);
 const OAuthRemoveClientInputStd = schemaToStandard(OAuthRemoveClientInput);
@@ -303,10 +362,35 @@ const connectionToOutput = (connection: Connection) => ({
   provider: String(connection.provider),
   address: String(connection.address),
   identityLabel: connection.identityLabel ?? null,
+  description: connection.description ?? null,
   expiresAt: connection.expiresAt ?? null,
   oauthClient: connection.oauthClient == null ? null : String(connection.oauthClient),
   oauthClientOwner: connection.oauthClientOwner ?? null,
   oauthScope: connection.oauthScope ?? null,
+});
+
+/** Number of space-separated grants in an `oauthScope` string, or null when
+ *  the connection carries no scope (static credentials, or an OAuth AS that
+ *  omitted scope). */
+const oauthScopeCount = (scope: string | null | undefined): number | null =>
+  scope == null ? null : scope.split(/\s+/).filter(Boolean).length;
+
+/** Lean projection for `connections.list`. Summarizes `oauthScope` to a count
+ *  unless `verbose`, where the full grant string is included too. */
+const connectionToListItem = (connection: Connection, verbose: boolean) => ({
+  owner: connection.owner,
+  name: String(connection.name),
+  integration: String(connection.integration),
+  template: String(connection.template),
+  provider: String(connection.provider),
+  address: String(connection.address),
+  identityLabel: connection.identityLabel ?? null,
+  description: connection.description ?? null,
+  expiresAt: connection.expiresAt ?? null,
+  oauthClient: connection.oauthClient == null ? null : String(connection.oauthClient),
+  oauthClientOwner: connection.oauthClientOwner ?? null,
+  oauthScopeCount: oauthScopeCount(connection.oauthScope),
+  ...(verbose ? { oauthScope: connection.oauthScope ?? null } : {}),
 });
 
 const toolToOutput = (toolRow: Tool) => ({
@@ -367,19 +451,54 @@ const createConnectionInputFromTool = (
 
 const connectionCreateHandoffUrl = (
   webBaseUrl: string | undefined,
+  orgSlug: string | undefined,
   input: typeof ConnectionCreateHandoffInput.Type,
 ): string => {
   const search = new URLSearchParams({ addAccount: "1" });
   if (input.owner !== undefined) search.set("owner", input.owner);
   if (input.template !== undefined) search.set("template", input.template);
   if (input.label !== undefined) search.set("label", input.label);
-  const path = `/integrations/${encodeURIComponent(input.integration)}?${search.toString()}`;
+  // Org-scoped hosts (cloud, self-host, cloudflare) serve the console under an
+  // optional `/<org-slug>` segment. Pin the URL to the executor's bound org so
+  // it opens that org directly instead of relying on the browser's last-active
+  // org (which `OrgSlugGate` would otherwise canonicalize a bare URL to). When
+  // no slug is known (CLI, local, non-request callers) we emit the bare path.
+  const orgPrefix = orgSlug !== undefined && orgSlug.length > 0 ? `/${orgSlug}` : "";
+  const path = `${orgPrefix}/integrations/${encodeURIComponent(input.integration)}?${search.toString()}`;
+  if (webBaseUrl === undefined || webBaseUrl.length === 0) return path;
+  return new URL(path, webBaseUrl.endsWith("/") ? webBaseUrl : `${webBaseUrl}/`).toString();
+};
+
+const oauthClientCreateHandoffUrl = (
+  webBaseUrl: string | undefined,
+  orgSlug: string | undefined,
+  input: typeof OAuthCreateClientHandoffInput.Type,
+): string => {
+  // `oauthClient=1` flips the integration's Add-account flow straight into the
+  // Register-OAuth-app form; the rest pre-fill its NON-secret fields. The client
+  // secret is deliberately absent: the human types it in the browser, so it is
+  // never placed in this URL (nor in the agent's context). Same builder shape as
+  // `connectionCreateHandoffUrl`.
+  const search = new URLSearchParams({ addAccount: "1", oauthClient: "1" });
+  if (input.owner !== undefined) search.set("owner", input.owner);
+  if (input.slug !== undefined) search.set("clientSlug", input.slug);
+  if (input.grant !== undefined) search.set("grant", input.grant);
+  if (input.clientId !== undefined) search.set("clientId", input.clientId);
+  if (input.authorizationUrl !== undefined) search.set("authorizationUrl", input.authorizationUrl);
+  if (input.tokenUrl !== undefined) search.set("tokenUrl", input.tokenUrl);
+  if (input.resource != null && input.resource.length > 0) search.set("resource", input.resource);
+  if (input.label !== undefined) search.set("label", input.label);
+  const orgPrefix = orgSlug !== undefined && orgSlug.length > 0 ? `/${orgSlug}` : "";
+  const path = `${orgPrefix}/integrations/${encodeURIComponent(input.integration)}?${search.toString()}`;
   if (webBaseUrl === undefined || webBaseUrl.length === 0) return path;
   return new URL(path, webBaseUrl.endsWith("/") ? webBaseUrl : `${webBaseUrl}/`).toString();
 };
 
 export interface CoreToolsPluginOptions {
   readonly webBaseUrl?: string;
+  /** The bound org's URL slug, prefixed onto browser-handoff URLs so they open
+   *  the right org's console (`${webBaseUrl}/<orgSlug>/integrations/...`). */
+  readonly orgSlug?: string;
   readonly includeProviders?: boolean;
 }
 
@@ -431,7 +550,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
         tool({
           name: "connections.list",
           description:
-            "List saved connections (the credential for one integration). Never returns the credential value. Optionally filter by integration or owner.",
+            "List saved connections (the credential for one integration). Never returns the credential value. Optionally filter by integration or owner. OAuth scopes are summarized as `oauthScopeCount` by default; pass `verbose: true` to include the full `oauthScope` grant string per connection.",
           inputSchema: ConnectionsListInputStd,
           outputSchema: ConnectionsListOutputStd,
           execute: (input: typeof ConnectionsListInput.Type, { ctx }) =>
@@ -444,16 +563,25 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
                 owner: input.owner === undefined ? undefined : (input.owner as Owner),
               }),
               (connections) => ({
-                connections: connections.map(connectionToOutput),
+                connections: connections.map((connection) =>
+                  connectionToListItem(connection, input.verbose === true),
+                ),
               }),
             ),
         }),
         tool({
           name: "connections.create",
           description:
-            "Low-level create or replace for a saved connection from provider item references. For normal API keys/tokens, use `connections.createHandoff` so the user enters the credential in the web UI. OAuth credentials should use `oauth.start`.",
+            'Low-level create or replace for a saved connection from provider item references. For a no-auth integration (public MCP server, public REST API), pass `template: "none"` with no `from`/`inputs` to wire it up directly. For normal API keys/tokens, use `connections.createHandoff` so the user enters the credential in the web UI. OAuth credentials should use `oauth.start`.',
           inputSchema: ConnectionCreateInputStd,
           outputSchema: ConnectionOutputStd,
+          // Creating a connection binds a credential reference and roots a new
+          // tool catalog: every tool that connection produces then becomes
+          // callable. Even the no-auth (`template: "none"`) path pulls tools
+          // from an arbitrary endpoint. Prompt-injected code could silently
+          // wire an attacker-chosen integration or credential, so this is
+          // approval-gated (the v1 `sources.configure` carried the same guard).
+          annotations: { requiresApproval: true },
           execute: (input: typeof ConnectionCreateInput.Type, { ctx }) =>
             Effect.map(
               ctx.connections.create(createConnectionInputFromTool(input)),
@@ -467,7 +595,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
           inputSchema: ConnectionCreateHandoffInputStd,
           outputSchema: ConnectionCreateHandoffOutputStd,
           execute: (input: typeof ConnectionCreateHandoffInput.Type) => {
-            const url = connectionCreateHandoffUrl(options.webBaseUrl, input);
+            const url = connectionCreateHandoffUrl(options.webBaseUrl, options.orgSlug, input);
             return Effect.succeed({
               url,
               instructions:
@@ -481,6 +609,10 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
             "Remove a saved connection and its produced tools by owner, integration, and connection name.",
           inputSchema: ConnectionRefInputStd,
           outputSchema: RemovedOutputStd,
+          // Deleting a connection drops it and every tool it produced, which
+          // prompt-injected code could use to disrupt an integration or force a
+          // re-add flow. Approval-gated, matching v1 `sources.remove`.
+          annotations: { requiresApproval: true },
           execute: (input: typeof ConnectionRefInput.Type, { ctx }) =>
             Effect.map(ctx.connections.remove(connectionRefFromInput(input)), () => ({
               removed: true,
@@ -492,6 +624,11 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
             "Re-run an integration's tool production for a saved connection, replacing that connection's persisted tools.",
           inputSchema: ConnectionRefInputStd,
           outputSchema: ConnectionsRefreshOutputStd,
+          // Refresh replaces a connection's persisted tool set; for a mutable
+          // upstream (an MCP server whose catalog can change) this can swap in
+          // different tools without confirmation. Approval-gated, matching v1
+          // `sources.refresh`.
+          annotations: { requiresApproval: true },
           execute: (input: typeof ConnectionRefInput.Type, { ctx }) =>
             Effect.map(ctx.connections.refresh(connectionRefFromInput(input)), (tools) => ({
               tools: tools.map(toolToOutput),
@@ -545,9 +682,20 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
         tool({
           name: "oauth.clients.create",
           description:
-            "Register or replace an owner-scoped OAuth client from explicit client credentials. Use grant `client_credentials` for machine OAuth or `authorization_code` for browser consent flows.",
+            "Register or replace an owner-scoped OAuth client WITHOUT a client secret: a PUBLIC client (PKCE / authorization_code) or a discovery-prefill placeholder. To register a CONFIDENTIAL client that has a secret, call `oauth.clients.createHandoff` instead so the human enters the secret in the web UI; never pass a client secret through this tool.",
           inputSchema: OAuthCreateClientInputStd,
           outputSchema: OAuthClientOutputRefStd,
+          // This persists an OAuth client and REPLACES on slug collision. It
+          // takes NO client secret: a secret would have to travel through the
+          // agent's context window, so a confidential app is registered by the
+          // human via `oauth.clients.createHandoff`. An empty secret registers a
+          // PUBLIC client. The remaining risk is the write itself: prompt-injected
+          // code could register a client with an attacker-controlled
+          // authorizationUrl/tokenUrl, then drive `oauth.start` to mint a
+          // connection and route the user's tokens to the attacker. The
+          // highest-value gate here; matches v1 `sources.bindings.set`, which
+          // guarded credential writes.
+          annotations: { requiresApproval: true },
           execute: (input: typeof OAuthCreateClientInput.Type, { ctx }) =>
             Effect.map(
               ctx.oauth.createClient({
@@ -557,11 +705,32 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
                 tokenUrl: input.tokenUrl,
                 grant: input.grant,
                 clientId: input.clientId,
-                clientSecret: input.clientSecret,
+                // No secret crosses the agent boundary; an empty secret registers
+                // a public client. Confidential clients go through
+                // `oauth.clients.createHandoff`.
+                clientSecret: "",
                 resource: input.resource ?? null,
               }),
               (client) => ({ client: String(client) }),
             ),
+        }),
+        tool({
+          name: "oauth.clients.createHandoff",
+          description:
+            "Return a browser URL that opens the Register-OAuth-app form for one integration, pre-filled with the non-secret fields (client id, endpoints, grant). Use this for any CONFIDENTIAL OAuth app: the user types the client secret directly in the web UI instead of sending it through the agent. After they register the app, call `oauth.clients.list` to discover its owner and slug, then `oauth.start`.",
+          inputSchema: OAuthCreateClientHandoffInputStd,
+          outputSchema: OAuthCreateClientHandoffOutputStd,
+          // Pure URL builder: no DB write, no token, no secret. This is the SAFE
+          // path (it routes the secret to the human in the browser), so it is
+          // deliberately NOT approval-gated, mirroring `connections.createHandoff`.
+          execute: (input: typeof OAuthCreateClientHandoffInput.Type) => {
+            const url = oauthClientCreateHandoffUrl(options.webBaseUrl, options.orgSlug, input);
+            return Effect.succeed({
+              url,
+              instructions:
+                "Ask the user to open this URL and register the OAuth app in the Executor web UI, entering the client secret there. Do not ask them to paste the client secret into chat. After they finish, call oauth.clients.list to find the registered client (owner + slug), then oauth.start.",
+            });
+          },
         }),
         tool({
           name: "oauth.clients.registerDynamic",
@@ -569,6 +738,10 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
             "Register an OAuth client through RFC 7591 Dynamic Client Registration and save the minted client for later `oauth.start` calls.",
           inputSchema: OAuthRegisterDynamicInputStd,
           outputSchema: OAuthClientOutputRefStd,
+          // Same risk class as `oauth.clients.create`: registers a client at a
+          // caller-supplied endpoint and persists the minted credentials for
+          // later `oauth.start` abuse. Approval-gated. See `oauth.clients.create`.
+          annotations: { requiresApproval: true },
           execute: (input: typeof OAuthRegisterDynamicInput.Type, { ctx }) =>
             Effect.map(
               ctx.oauth.registerDynamicClient({
@@ -596,6 +769,11 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
             "Remove an owner-scoped OAuth client by owner and slug. Existing connections are not cascaded.",
           inputSchema: OAuthRemoveClientInputStd,
           outputSchema: RemovedOutputStd,
+          // Removing a client breaks token refresh for every connection that
+          // depends on it (a silent DoS) and can force re-auth through an
+          // attacker-supplied replacement. Approval-gated, matching v1
+          // `sources.bindings.remove`.
+          annotations: { requiresApproval: true },
           execute: (input: typeof OAuthRemoveClientInput.Type, { ctx }) =>
             Effect.map(
               ctx.oauth.removeClient(input.owner as Owner, OAuthClientSlug.make(input.slug)),
@@ -624,6 +802,14 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
             "Start OAuth through a registered client to mint a connection for an integration. `client_credentials` clients return `connected`; authorization-code clients return an authorization URL and state.",
           inputSchema: OAuthStartInputStd,
           outputSchema: OAuthStartOutputStd,
+          // This is the materialization step that turns a registered client
+          // into a live connection. For `client_credentials` it completes
+          // synchronously (status `connected`) with no browser step, so a
+          // prompt-injected call against an attacker-registered client mints a
+          // credentialed connection with no human in the loop. The
+          // authorization-code path already returns a URL the user must visit,
+          // but one gate on the whole tool covers the silent path cleanly.
+          annotations: { requiresApproval: true },
           execute: (input: typeof OAuthStartInput.Type, { ctx }) =>
             Effect.map(
               ctx.oauth.start({
@@ -680,6 +866,11 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
             "Create a tool policy. `pattern` matches a tool address tail (`integration.connection.tool`, `integration.*`, `*`); `action` is approve/require_approval/block. `owner` is org (workspace guardrail) or user (personal).",
           inputSchema: PolicyCreateInputStd,
           outputSchema: PolicyOutputStd,
+          // A policy decides which tools run without confirmation, so creating
+          // one can silence every other approval gate (e.g. `approve *`). It
+          // must itself require approval, otherwise prompt-injected code could
+          // disable approvals by writing its own bypass policy.
+          annotations: { requiresApproval: true },
           execute: (input: typeof PolicyCreateInput.Type, { ctx }) =>
             Effect.map(
               ctx.core.policies.create({
@@ -701,6 +892,10 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
           description: "Update a tool policy's pattern and/or action by id + owner.",
           inputSchema: PolicyUpdateInputStd,
           outputSchema: PolicyOutputStd,
+          // Editing a policy can broaden a pattern or flip an action to
+          // `approve`, weakening an approval gate just as creation can, so it
+          // requires approval too. See `policies.create`.
+          annotations: { requiresApproval: true },
           execute: (input: typeof PolicyUpdateInput.Type, { ctx }) =>
             Effect.map(
               ctx.core.policies.update({
@@ -723,6 +918,10 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
           description: "Remove a tool policy by id + owner.",
           inputSchema: PolicyRemoveInputStd,
           outputSchema: RemovedOutputStd,
+          // Removing a policy can drop a `block` or `require_approval`
+          // guardrail, so deletion is also approval-gated. See
+          // `policies.create`.
+          annotations: { requiresApproval: true },
           execute: (input: typeof PolicyRemoveInput.Type, { ctx }) =>
             Effect.map(
               ctx.core.policies.remove({

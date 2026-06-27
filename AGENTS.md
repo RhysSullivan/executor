@@ -61,6 +61,12 @@ with zero setup. See the `emulate` skill
 (`.claude/skills/emulate/SKILL.md`) for the control-plane reference and
 recipes.
 
+The emulators are a standalone project (`github.com/UsefulSoftwareCo/emulate`),
+not vendored here — this repo only consumes the published `@executor-js/emulate`
+package. You have full autonomy to change, publish, and deploy the emulators,
+working directly on their `main`; the skill covers the loop. Don't re-introduce
+a `vendor/` submodule for them.
+
 ## Attribution
 
 Do not add any AI assistant, Claude, Anthropic, or Co-Authored-By
@@ -77,6 +83,10 @@ are not right, infer the likely intent and ask only when needed.
 Code is very cheap to write. Do not give time estimates; with agents, code is
 practically instant to generate. Unless stated otherwise, time to implement is
 not a blocker.
+
+Never use em-dashes (the `—` character) anywhere: prose, docs, code comments,
+commit messages, or PRs. Use commas, colons, parentheses, or separate sentences
+instead.
 
 ## Reference Repos
 

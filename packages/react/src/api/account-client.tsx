@@ -4,7 +4,12 @@ import { AccountHttpApi } from "@executor-js/api/client";
 import * as Effect from "effect/Effect";
 
 import { reportApiClientInfrastructureCause } from "./client";
-import { getExecutorApiBaseUrl, getExecutorServerAuthorizationHeader } from "./server-connection";
+import {
+  EXECUTOR_ORG_HEADER,
+  getActiveOrgSlug,
+  getExecutorApiBaseUrl,
+  getExecutorServerAuthorizationHeader,
+} from "./server-connection";
 
 // ---------------------------------------------------------------------------
 // Shared account client — the provider-neutral `/account/*` surface.
@@ -24,6 +29,11 @@ const AccountApiClient = AtomHttpApi.Service<"AccountApiClient">()("AccountApiCl
     const authorization = getExecutorServerAuthorizationHeader();
     if (authorization) {
       next = HttpClientRequest.setHeader(next, "authorization", authorization);
+    }
+    // Scope to the org the console URL is on (see server-connection).
+    const orgSlug = getActiveOrgSlug();
+    if (orgSlug) {
+      next = HttpClientRequest.setHeader(next, EXECUTOR_ORG_HEADER, orgSlug);
     }
     return next;
   }),

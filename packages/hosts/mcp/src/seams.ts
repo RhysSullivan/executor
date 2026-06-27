@@ -40,6 +40,10 @@ export const Principal = Schema.Struct({
   accountId: Schema.String,
   organizationId: Schema.String,
   organizationName: Schema.String,
+  /** The org's URL slug, when the auth provider resolved it. Threaded into
+   *  browser-handoff URLs so they open the right org's console. Optional so a
+   *  provider without it (no org row loaded) still maps onto this shape. */
+  organizationSlug: Schema.optional(Schema.String),
   email: Schema.String,
   name: Schema.NullOr(Schema.String),
   avatarUrl: Schema.NullOr(Schema.String),
@@ -51,6 +55,25 @@ export type Principal = Schema.Schema.Type<typeof Principal>;
 /** Ownership is keyed on (accountId, organizationId) — a subset of the principal. */
 export const principalOwns = (owner: Principal, principal: Principal): boolean =>
   owner.accountId === principal.accountId && owner.organizationId === principal.organizationId;
+
+// ---------------------------------------------------------------------------
+// Shared MCP resource identity.
+//
+// The default `/mcp` endpoint and named sub-resources such as
+// `/mcp/toolkits/<slug>` share auth and transport machinery, but a serving
+// session belongs to the exact resource path that minted it. This keeps a
+// leaked/reused `mcp-session-id` from crossing from one exposed capability set
+// into another.
+// ---------------------------------------------------------------------------
+
+export type McpResource =
+  | { readonly kind: "default" }
+  | { readonly kind: "toolkit"; readonly slug: string };
+
+export const defaultMcpResource: McpResource = { kind: "default" };
+
+export const mcpResourceKey = (resource: McpResource): string =>
+  resource.kind === "default" ? "default" : `toolkit:${resource.slug}`;
 
 // ---------------------------------------------------------------------------
 // AuthOutcome — the result of `McpAuthProvider.authenticate`.
@@ -206,6 +229,7 @@ export class McpAuthProvider extends Context.Service<
 export interface McpDispatchInput {
   readonly request: Request;
   readonly principal: Principal;
+  readonly resource: McpResource;
   readonly sessionId: string | null;
   readonly method: string;
 }

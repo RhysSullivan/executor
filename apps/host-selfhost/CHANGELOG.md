@@ -1,5 +1,185 @@
 # @executor-js/host-selfhost
 
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.20
+  - @executor-js/runtime-quickjs@1.5.20
+  - @executor-js/execution@1.5.20
+  - @executor-js/plugin-graphql@1.5.20
+  - @executor-js/plugin-mcp@1.5.20
+  - @executor-js/plugin-openapi@1.5.20
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.40
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.19
+  - @executor-js/plugin-google@1.5.19
+  - @executor-js/plugin-microsoft@1.5.19
+  - @executor-js/react@1.4.40
+
+## 0.0.18
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.19
+  - @executor-js/runtime-quickjs@1.5.19
+  - @executor-js/execution@1.5.19
+  - @executor-js/plugin-graphql@1.5.19
+  - @executor-js/plugin-mcp@1.5.19
+  - @executor-js/plugin-openapi@1.5.19
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.39
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.18
+  - @executor-js/plugin-google@1.5.18
+  - @executor-js/plugin-microsoft@1.5.18
+  - @executor-js/react@1.4.39
+
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.18
+  - @executor-js/runtime-quickjs@1.5.18
+  - @executor-js/execution@1.5.18
+  - @executor-js/plugin-graphql@1.5.18
+  - @executor-js/plugin-mcp@1.5.18
+  - @executor-js/plugin-openapi@1.5.18
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.38
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.17
+  - @executor-js/plugin-google@1.5.17
+  - @executor-js/plugin-microsoft@1.5.17
+  - @executor-js/react@1.4.38
+
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.17
+  - @executor-js/runtime-quickjs@1.5.17
+  - @executor-js/execution@1.5.17
+  - @executor-js/plugin-graphql@1.5.17
+  - @executor-js/plugin-mcp@1.5.17
+  - @executor-js/plugin-openapi@1.5.17
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.37
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.16
+  - @executor-js/plugin-google@1.5.16
+  - @executor-js/plugin-microsoft@1.5.16
+  - @executor-js/react@1.4.37
+
+## 0.0.15
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.16
+  - @executor-js/runtime-quickjs@1.5.16
+  - @executor-js/execution@1.5.16
+  - @executor-js/plugin-graphql@1.5.16
+  - @executor-js/plugin-mcp@1.5.16
+  - @executor-js/plugin-openapi@1.5.16
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.36
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.15
+  - @executor-js/plugin-google@1.5.15
+  - @executor-js/plugin-microsoft@1.5.15
+  - @executor-js/react@1.4.36
+
+## 0.0.14
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.15
+  - @executor-js/plugin-openapi@1.5.15
+  - @executor-js/plugin-mcp@1.5.15
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.35
+  - @executor-js/execution@1.5.15
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.14
+  - @executor-js/plugin-graphql@1.5.15
+  - @executor-js/react@1.4.35
+  - @executor-js/runtime-quickjs@1.5.15
+
+## 0.0.13
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.14
+  - @executor-js/runtime-quickjs@1.5.14
+  - @executor-js/execution@1.5.14
+  - @executor-js/plugin-graphql@1.5.14
+  - @executor-js/plugin-mcp@1.5.14
+  - @executor-js/plugin-openapi@1.5.14
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.34
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.13
+  - @executor-js/react@1.4.34
+
+## 0.0.12
+
+### Patch Changes
+
+- Updated dependencies [[`8244fee`](https://github.com/RhysSullivan/executor/commit/8244fee567cb2408650fc1fcd1a9e72cedc2f683)]:
+  - @executor-js/execution@1.5.13
+  - @executor-js/api@1.4.33
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-graphql@1.5.13
+  - @executor-js/plugin-mcp@1.5.13
+  - @executor-js/plugin-openapi@1.5.13
+  - @executor-js/react@1.4.33
+  - @executor-js/app@1.4.4
+  - @executor-js/sdk@1.5.13
+  - @executor-js/runtime-quickjs@1.5.13
+  - @executor-js/plugin-encrypted-secrets@0.0.12
+
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.12
+  - @executor-js/runtime-quickjs@1.5.12
+  - @executor-js/execution@1.5.12
+  - @executor-js/plugin-graphql@1.5.12
+  - @executor-js/plugin-mcp@1.5.12
+  - @executor-js/plugin-openapi@1.5.12
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.32
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.11
+  - @executor-js/react@1.4.32
+
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.11
+  - @executor-js/runtime-quickjs@1.5.11
+  - @executor-js/execution@1.5.11
+  - @executor-js/plugin-graphql@1.5.11
+  - @executor-js/plugin-mcp@1.5.11
+  - @executor-js/plugin-openapi@1.5.11
+  - @executor-js/app@1.4.4
+  - @executor-js/api@1.4.31
+  - @executor-js/host-mcp@1.4.4
+  - @executor-js/plugin-encrypted-secrets@0.0.10
+  - @executor-js/react@1.4.31
+
 ## 0.0.9
 
 ### Patch Changes

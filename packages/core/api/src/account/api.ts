@@ -58,6 +58,8 @@ export const AccountUser = Schema.Struct({
 export const AccountOrganization = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  /** URL slug for org-prefixed console paths (`/<slug>/policies`). */
+  slug: Schema.String,
 });
 
 export const AccountMeResponse = Schema.Struct({

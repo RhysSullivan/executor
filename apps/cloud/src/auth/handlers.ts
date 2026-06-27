@@ -1,6 +1,7 @@
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
-import { HttpServerResponse } from "effect/unstable/http";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { Duration, Effect, Predicate } from "effect";
+import { isValidOrgSlug } from "@executor-js/api";
 
 import {
   AUTH_PATHS,
@@ -25,7 +26,12 @@ import {
   isOverFreeOrganizationLimit,
   shouldApplyFreeOrganizationLimit,
 } from "../extensions/billing/plans";
-import { authorizeOrganization } from "./organization";
+import {
+  ORG_SELECTOR_HEADER,
+  authorizeOrganization,
+  authorizeOrganizationSelector,
+  resolveOrganization,
+} from "./organization";
 import type {
   McpSessionApprovalResult,
   McpSessionResumeApprovalResult,
@@ -82,14 +88,37 @@ const timingSafeEqual = (a: string, b: string): boolean => {
   return diff === 0;
 };
 
-const requireSessionOrganizationId = Effect.gen(function* () {
+const requestHeaders = Effect.map(HttpServerRequest.HttpServerRequest.asEffect(), (req) => ({
+  ...req.headers,
+}));
+
+const firstPathSegment = (path: string): string | null => {
+  const pathname = path.split(/[?#]/, 1)[0] ?? "";
+  const segment = pathname.split("/")[1];
+  return segment && isValidOrgSlug(segment) ? segment : null;
+};
+
+const requestedOrgSelectorFromReturnTo = (returnTo: string): string | null =>
+  firstPathSegment(returnTo);
+
+const requireSelectedOrganization = Effect.gen(function* () {
   const session = yield* SessionContext;
-  if (!session.organizationId) {
+  const headers = yield* requestHeaders;
+  const selector = headers[ORG_SELECTOR_HEADER] ?? session.organizationId;
+  if (!selector) {
     return yield* new NoOrganization();
   }
+
+  const org = yield* authorizeOrganizationSelector(session.accountId, selector).pipe(
+    Effect.catch(() => Effect.fail(new NoOrganization())),
+  );
+  if (!org) {
+    return yield* new NoOrganization();
+  }
+
   return {
     ...session,
-    organizationId: session.organizationId,
+    organizationId: org.id,
   };
 });
 
@@ -194,37 +223,46 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
 
           let sealedSession = result.sealedSession;
 
-          // If the auth response didn't surface an org but the user is already
-          // an *active* member of one, rehydrate the session with it. Pending
-          // memberships (which represent unaccepted invitations on WorkOS's
-          // side) are skipped — refreshing into one 400s, and silently
-          // attaching an unaccepted org would also bypass invite consent.
-          // If they have no active memberships, leave the session org-less —
-          // AuthGate's onboarding flow surfaces pending invites and the
-          // create-org form. We never auto-create organizations on login.
-          if (!result.organizationId && sealedSession) {
+          // Resume where the SSR gate interrupted them. The state passed the
+          // CSRF check above whenever it's present, but it's still a
+          // round-tripped value, so the returnTo inside it is re-validated like
+          // any other untrusted path.
+          const returnTo = safeReturnTo(decodeLoginState(query.state)?.returnTo) ?? "/";
+          const requestedOrgSelector = requestedOrgSelectorFromReturnTo(returnTo);
+          const requestedOrg = requestedOrgSelector
+            ? yield* authorizeOrganizationSelector(result.user.id, requestedOrgSelector).pipe(
+                Effect.orElseSucceed(() => null),
+              )
+            : null;
+
+          // Prefer the org in the URL that sent the user to login. If the URL
+          // is bare, or not an org route, fall back to WorkOS's org and then to
+          // the first active membership for org-less sessions. Pending
+          // memberships are skipped because refreshing into one 400s and would
+          // bypass invite consent.
+          let targetOrganizationId = requestedOrg?.id ?? result.organizationId ?? null;
+          if (!targetOrganizationId && !requestedOrgSelector) {
             const memberships = yield* workos.listUserMemberships(result.user.id);
             const existingActive = memberships.data.find((m) => m.status === "active");
-            if (existingActive) {
-              // Best-effort refresh — if WorkOS rejects (e.g. the membership
-              // was just revoked), fall through to an org-less session rather
-              // than 500ing the entire callback.
-              const refreshed = yield* workos
-                .refreshSession(sealedSession, existingActive.organizationId)
-                .pipe(Effect.orElseSucceed(() => null));
-              if (refreshed) sealedSession = refreshed;
-            }
+            targetOrganizationId = existingActive?.organizationId ?? null;
+          }
+
+          if (
+            targetOrganizationId &&
+            targetOrganizationId !== result.organizationId &&
+            sealedSession
+          ) {
+            // Best-effort refresh: if WorkOS rejects, fall through with the
+            // original session instead of 500ing the entire callback.
+            const refreshed = yield* workos
+              .refreshSession(sealedSession, targetOrganizationId)
+              .pipe(Effect.orElseSucceed(() => null));
+            if (refreshed) sealedSession = refreshed;
           }
 
           if (!sealedSession) {
             return HttpServerResponse.text("Failed to create session", { status: 500 });
           }
-
-          // Resume where the SSR gate interrupted them. The state passed the
-          // CSRF check above whenever it's present, but it's still a
-          // round-tripped value — so the returnTo inside it is re-validated
-          // like any other untrusted path.
-          const returnTo = safeReturnTo(decodeLoginState(query.state)?.returnTo) ?? "/";
 
           return deleteResponseCookie(
             setResponseCookie(
@@ -235,6 +273,22 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
             ),
             STATE_COOKIE,
           );
+        }),
+      )
+      // CLI device-login discovery. The WorkOS device endpoints live on the
+      // WorkOS API host (`WORKOS_API_URL`, or api.workos.com in production,
+      // the SAME base the SDK uses, so e2e points the CLI at the emulator with
+      // zero extra wiring). The CLI runs RFC 8628 against them as a public
+      // client (no secret) and gets a WorkOS access-token JWT back.
+      .handle("cliLogin", () =>
+        Effect.sync(() => {
+          const base = (env.WORKOS_API_URL ?? "https://api.workos.com").replace(/\/+$/, "");
+          return {
+            provider: "workos" as const,
+            deviceAuthorizationEndpoint: `${base}/user_management/authorize/device`,
+            tokenEndpoint: `${base}/user_management/authenticate`,
+            clientId: env.WORKOS_CLIENT_ID,
+          };
         }),
       ),
 );
@@ -262,7 +316,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
               name: session.name,
               avatarUrl: session.avatarUrl,
             },
-            organization: org ? { id: org.id, name: org.name } : null,
+            organization: org ? { id: org.id, name: org.name, slug: org.slug } : null,
           };
         }),
       )
@@ -283,10 +337,12 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           const session = yield* SessionContext;
 
           const memberships = yield* workos.listUserMemberships(session.accountId);
+          // Resolve through the mirror (not WorkOS directly) so each org's
+          // URL slug is minted/read — the switcher navigates to `/<slug>`.
           const organizations = yield* Effect.all(
             memberships.data.map((m) =>
-              workos.getOrganization(m.organizationId).pipe(
-                Effect.map((org) => ({ id: org.id, name: org.name })),
+              resolveOrganization(m.organizationId).pipe(
+                Effect.map((org) => ({ id: org.id, name: org.name, slug: org.slug })),
                 Effect.orElseSucceed(() => null),
               ),
             ),
@@ -297,20 +353,6 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
             organizations: organizations.filter(Predicate.isNotNull),
             activeOrganizationId: session.organizationId,
           };
-        }),
-      )
-      .handle("switchOrganization", ({ payload }) =>
-        Effect.gen(function* () {
-          const workos = yield* WorkOSClient;
-          const session = yield* SessionContext;
-
-          const refreshed = yield* workos.refreshSession(
-            session.sealedSession,
-            payload.organizationId,
-          );
-          if (refreshed) {
-            (yield* SessionCookies).set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
-          }
         }),
       )
       .handle("createOrganization", ({ payload }) =>
@@ -354,7 +396,10 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
 
           const org = yield* workos.createOrganization(name);
           yield* workos.createMembership(org.id, session.accountId, "admin");
-          yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
+          // `upsertOrganization` mints the slug at insert — no separate heal step.
+          const mirrored = yield* users.use((s) =>
+            s.upsertOrganization({ id: org.id, name: org.name }),
+          );
 
           // Try to attach the new org to the current session. This can fail
           // (or silently return a session still scoped to the old org) when
@@ -381,7 +426,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           }
 
           (yield* SessionCookies).set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
-          return { id: org.id, name: org.name };
+          return { id: org.id, name: org.name, slug: mirrored.slug };
         }),
       )
       .handle("pendingInvitations", () =>
@@ -450,9 +495,12 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
             return yield* new WorkOSError();
           }
 
-          // Mirror the org locally so domain tables can FK against it.
+          // Mirror the org locally so domain tables can FK against it; the
+          // upsert mints the slug at insert — no separate heal step.
           const org = yield* workos.getOrganization(invitation.organizationId);
-          yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
+          const mirrored = yield* users.use((s) =>
+            s.upsertOrganization({ id: org.id, name: org.name }),
+          );
 
           // Attach the just-accepted org to the current session. Same shape
           // as createOrganization: refresh + verify; if we can't pin the
@@ -474,12 +522,12 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           }
 
           (yield* SessionCookies).set("wos-session", refreshed, RESPONSE_COOKIE_OPTIONS);
-          return { id: org.id, name: org.name };
+          return { id: org.id, name: org.name, slug: mirrored.slug };
         }),
       )
       .handle("getMcpPaused", ({ params }) =>
         Effect.gen(function* () {
-          const owner = yield* requireSessionOrganizationId;
+          const owner = yield* requireSelectedOrganization;
           const stub = yield* requireMcpSessionStub(params.mcpSessionId, params.executionId);
           const result = yield* Effect.promise(
             () =>
@@ -501,7 +549,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
       )
       .handle("resumeMcpExecution", ({ params, payload }) =>
         Effect.gen(function* () {
-          const owner = yield* requireSessionOrganizationId;
+          const owner = yield* requireSelectedOrganization;
           const stub = yield* requireMcpSessionStub(params.mcpSessionId, params.executionId);
           const result = yield* Effect.promise(
             () =>

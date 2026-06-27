@@ -38,8 +38,11 @@ scenario(
         await page.getByRole("button", { name: "Continue to app" }).click();
         await page.getByText("Integrations").first().waitFor();
         // Let the router navigation fully settle before opening menus — a late
-        // remount closes them mid-interaction.
-        await page.waitForURL(/\/$/, { timeout: 30_000 });
+        // remount closes them mid-interaction. The console canonicalizes onto
+        // the org's URL slug (/switcher-org-one).
+        await page.waitForURL((url) => /^\/[a-z0-9-]+\/?$/.test(url.pathname), {
+          timeout: 30_000,
+        });
         await page.waitForLoadState("networkidle");
       });
 

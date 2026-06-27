@@ -33,6 +33,7 @@ import {
 } from "@executor-js/sdk";
 
 import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
+import { googlePlugin } from "@executor-js/plugin-google";
 import { graphqlPlugin } from "@executor-js/plugin-graphql";
 import { keychainPlugin } from "@executor-js/plugin-keychain";
 import { mcpPlugin } from "@executor-js/plugin-mcp";
@@ -77,6 +78,7 @@ const plugins = [
   // Integration plugins — these declare their own schemas (tables), register
   // integrations via their extension methods (`addSpec` / `addServer` /
   // `addIntegration`), and produce tools per connection.
+  googlePlugin(),
   graphqlPlugin(),
   mcpPlugin({ dangerouslyAllowStdioMCP: false }),
   openApiPlugin(),
@@ -416,7 +418,7 @@ const program = Effect.gen(function* () {
   console.log("  executor.fileSecrets.filePath:   ", executor.fileSecrets.filePath);
 
   // executor.mcp.addServer({ transport: "remote", name: "...", endpoint: "...", slug: "..." });
-  // executor.openapi.addSpec({ spec: { kind: "googleDiscovery", url: "..." }, slug: "..." });
+  // executor.google.addBundle({ urls: ["..."], slug: "google" });
   // executor.onepassword.configure({ auth: { kind: "desktop-app", accountName: "..." }, vaultId: "..." });
 
   // -------------------------------------------------------------------------

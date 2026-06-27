@@ -46,7 +46,9 @@ import { BetterAuth } from "../auth/better-auth";
 // ---------------------------------------------------------------------------
 
 const PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
+const TOOLKIT_PROTECTED_RESOURCE_METADATA_PATH = `${PROTECTED_RESOURCE_METADATA_PATH}/mcp/toolkits/:toolkitSlug`;
 const AUTHORIZATION_SERVER_METADATA_PATH = "/.well-known/oauth-authorization-server";
+const TOOLKIT_MCP_SEGMENT = "/mcp/toolkits/";
 
 const parseRoles = (role: string | null | undefined): ReadonlyArray<string> =>
   (role ?? "user")
@@ -66,6 +68,19 @@ const userRole = (user: object): string | null => {
 const hasBearer = (request: Request): boolean =>
   (request.headers.get("authorization") ?? "").startsWith("Bearer ");
 
+const toolkitSlugFromRequest = (request: Request): string | null => {
+  const pathname = new URL(request.url).pathname;
+  const index = pathname.indexOf(TOOLKIT_MCP_SEGMENT);
+  if (index < 0) return null;
+  const slug = pathname.slice(index + TOOLKIT_MCP_SEGMENT.length).split("/", 1)[0];
+  return slug && slug.length > 0 ? slug : null;
+};
+
+const mcpResourcePathFor = (request: Request): string => {
+  const toolkitSlug = toolkitSlugFromRequest(request);
+  return toolkitSlug ? `/mcp/toolkits/${toolkitSlug}` : "/mcp";
+};
+
 /**
  * Absolute protected-resource metadata URL for the 401 challenge. Derive the
  * origin from `baseURL` when set; otherwise from the live request so the URL is
@@ -73,14 +88,41 @@ const hasBearer = (request: Request): boolean =>
  */
 const resourceMetadataUrlFor = (baseURL: string | undefined, request: Request): string => {
   const origin = baseURL && baseURL.length > 0 ? baseURL : new URL(request.url).origin;
-  return `${origin}${PROTECTED_RESOURCE_METADATA_PATH}`;
+  const toolkitSlug = toolkitSlugFromRequest(request);
+  return toolkitSlug
+    ? `${origin}${PROTECTED_RESOURCE_METADATA_PATH}/mcp/toolkits/${toolkitSlug}`
+    : `${origin}${PROTECTED_RESOURCE_METADATA_PATH}`;
+};
+
+const resourceUrlFor = (baseURL: string | undefined, request: Request): string => {
+  const origin = baseURL && baseURL.length > 0 ? baseURL : new URL(request.url).origin;
+  return `${origin}${mcpResourcePathFor(request)}`;
+};
+
+const toolkitProtectedResourceMetadata = (
+  request: Request,
+  response: Response,
+  baseURL: string | undefined,
+): Effect.Effect<Response> => {
+  const toolkitSlug = toolkitSlugFromRequest(request);
+  if (!toolkitSlug) return Effect.succeed(response);
+  return Effect.promise(async () => {
+    const body = (await response.json()) as Record<string, unknown>;
+    const headers = new Headers(response.headers);
+    headers.set("content-type", "application/json");
+    return new Response(JSON.stringify({ ...body, resource: resourceUrlFor(baseURL, request) }), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  });
 };
 
 export const selfHostMcpAuth: Layer.Layer<McpAuthProvider, never, BetterAuth | IdentityProvider> =
   Layer.effect(
     McpAuthProvider,
     Effect.gen(function* () {
-      const { auth, organizationId, organizationName } = yield* BetterAuth;
+      const { auth, organizationId, organizationName, organizationSlug } = yield* BetterAuth;
       const fallback = yield* IdentityProvider;
 
       const asMetadata = oAuthDiscoveryMetadata(auth);
@@ -99,7 +141,21 @@ export const selfHostMcpAuth: Layer.Layer<McpAuthProvider, never, BetterAuth | I
       const discoveryRoutes: ReadonlyArray<McpDiscoveryRoute> = [
         {
           path: PROTECTED_RESOURCE_METADATA_PATH,
-          handler: (request) => Effect.promise(() => prMetadata(request)),
+          handler: (request) =>
+            Effect.promise(() => prMetadata(request)).pipe(
+              Effect.flatMap((response) =>
+                toolkitProtectedResourceMetadata(request, response, baseURL),
+              ),
+            ),
+        },
+        {
+          path: TOOLKIT_PROTECTED_RESOURCE_METADATA_PATH,
+          handler: (request) =>
+            Effect.promise(() => prMetadata(request)).pipe(
+              Effect.flatMap((response) =>
+                toolkitProtectedResourceMetadata(request, response, baseURL),
+              ),
+            ),
         },
         {
           path: AUTHORIZATION_SERVER_METADATA_PATH,
@@ -121,6 +177,7 @@ export const selfHostMcpAuth: Layer.Layer<McpAuthProvider, never, BetterAuth | I
             // the seeded org (same default as the cookie/api-key path).
             organizationId,
             organizationName,
+            organizationSlug,
             email: user.email ?? "",
             name: user.name ?? null,
             avatarUrl: user.image ?? null,

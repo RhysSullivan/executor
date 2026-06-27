@@ -174,8 +174,13 @@ describe("runOAuthCallback", () => {
     expect(html).toContain("s1");
   });
 
-  it("passes code and error through to the complete callback verbatim", async () => {
-    const received: Array<{ state: string; code: string | null; error: string | null }> = [];
+  it("passes code, error, and the regional domain through to the complete callback", async () => {
+    const received: Array<{
+      state: string;
+      code: string | null;
+      error: string | null;
+      callbackDomain: string | null;
+    }> = [];
     await Effect.runPromise(
       runOAuthCallback<GoogleAuth, never, never>({
         complete: (params) => {
@@ -186,17 +191,63 @@ describe("runOAuthCallback", () => {
             refreshTokenSecretId: null,
           });
         },
-        urlParams: { state: "s1", code: "code1", error: null },
+        // Multi-site providers (Datadog) echo the org's region back as `domain`,
+        // which `runOAuthCallback` surfaces as `callbackDomain`.
+        urlParams: { state: "s1", code: "code1", error: null, domain: "us5.datadoghq.com" },
         toErrorMessage: () => ({ short: "" }),
         channelName: "c",
       }),
     );
-    expect(received).toEqual([{ state: "s1", code: "code1", error: null }]);
+    expect(received).toEqual([
+      { state: "s1", code: "code1", error: null, callbackDomain: "us5.datadoghq.com" },
+    ]);
+  });
+
+  it("falls back to `site` for the regional domain and defaults to null", async () => {
+    const received: Array<{ callbackDomain: string | null }> = [];
+    const complete = (params: { callbackDomain: string | null }) => {
+      received.push(params);
+      return Effect.succeed({
+        kind: "oauth2" as const,
+        accessTokenSecretId: "s",
+        refreshTokenSecretId: null,
+      });
+    };
+    // `site` is the full-origin variant; used only when `domain` is absent.
+    await Effect.runPromise(
+      runOAuthCallback<GoogleAuth, never, never>({
+        complete,
+        urlParams: { state: "s1", code: "c", site: "https://eu1.datadoghq.com" },
+        toErrorMessage: () => ({ short: "" }),
+        channelName: "c",
+      }),
+    );
+    // No region hints at all -> null (standard single-site providers).
+    await Effect.runPromise(
+      runOAuthCallback<GoogleAuth, never, never>({
+        complete,
+        urlParams: { state: "s2", code: "c" },
+        toErrorMessage: () => ({ short: "" }),
+        channelName: "c",
+      }),
+    );
+    expect(received[0]!.callbackDomain).toBe("https://eu1.datadoghq.com");
+    expect(received[1]!.callbackDomain).toBeNull();
   });
 
   it("prefers `error` over `error_description` but falls back when absent", async () => {
-    const received: Array<{ state: string; code: string | null; error: string | null }> = [];
-    const complete = (params: { state: string; code: string | null; error: string | null }) => {
+    const received: Array<{
+      state: string;
+      code: string | null;
+      error: string | null;
+      callbackDomain: string | null;
+    }> = [];
+    const complete = (params: {
+      state: string;
+      code: string | null;
+      error: string | null;
+      callbackDomain: string | null;
+    }) => {
       received.push(params);
       return Effect.succeed({
         kind: "oauth2" as const,

@@ -17,7 +17,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TransportState } from "agents/mcp";
 
 import { jsonRpcErrorBody } from "@executor-js/host-mcp";
-import { RequestWebOrigin } from "@executor-js/api/server";
+import { formatResumeAcknowledgement } from "@executor-js/host-mcp/browser-approval";
+import { RequestOrgSlug, RequestWebOrigin } from "@executor-js/api/server";
 import {
   formatPausedExecution,
   type ExecutionEngine,
@@ -28,9 +29,12 @@ import { makeMcpWorkerTransport, type McpWorkerTransport } from "./worker-transp
 import {
   INTERNAL_ACCOUNT_ID_HEADER,
   INTERNAL_ORGANIZATION_ID_HEADER,
+  INTERNAL_RESOURCE_KEY_HEADER,
   type IncomingPropagationHeaders,
 } from "./do-headers";
+import { mcpResourceKey } from "@executor-js/host-mcp";
 import type { McpSessionInit } from "./seams";
+import type { McpResource } from "@executor-js/host-mcp";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,26 +76,12 @@ export type McpSessionResumeApprovalResult =
 const resumeApprovalResult = (
   executionId: string,
   response: ResumeResponse,
-): Extract<McpSessionResumeApprovalResult, { readonly status: "ok" }> => {
-  const textByAction = {
-    accept: "I've approved it",
-    decline: "I've denied it",
-    cancel: "I've canceled it",
-  } satisfies Record<ResumeResponse["action"], string>;
-  const statusByAction = {
-    accept: "approved",
-    decline: "denied",
-    cancel: "canceled",
-  } satisfies Record<ResumeResponse["action"], string>;
-
-  return {
-    status: "ok",
-    executionStatus: "completed",
-    text: textByAction[response.action],
-    structured: { status: statusByAction[response.action], executionId },
-    isError: false,
-  };
-};
+): Extract<McpSessionResumeApprovalResult, { readonly status: "ok" }> => ({
+  status: "ok",
+  executionStatus: "completed",
+  ...formatResumeAcknowledgement(executionId, response),
+  isError: false,
+});
 
 const HEARTBEAT_MS = 30 * 1000;
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
@@ -135,6 +125,10 @@ export interface SessionDbHandle {
 export interface SessionMeta {
   readonly organizationId: string;
   readonly organizationName: string;
+  readonly resource: McpResource;
+  /** The org's URL slug, when the host's `resolveSessionMeta` carried one.
+   *  Pins browser-handoff URLs to the right org's console. */
+  readonly organizationSlug?: string;
   readonly userId: string;
   readonly elicitationMode?: "browser" | "model" | "native";
   /** Public origin captured at session create — used to derive the runtime's
@@ -367,9 +361,16 @@ export abstract class McpSessionDOBase<
       // The session's captured origin is provided here so the host's execution
       // stack derives a web base URL zero-config (a no-op when it configures one).
       const built = self.buildMcpServer(sessionMeta, options.dbHandle);
-      const { mcpServer, engine } = yield* sessionMeta.webOrigin
+      const withOrigin = sessionMeta.webOrigin
         ? built.pipe(Effect.provideService(RequestWebOrigin, { origin: sessionMeta.webOrigin }))
         : built;
+      // Pin browser-handoff URLs to the session's org slug when captured at
+      // create; absent slug leaves the URL bare for client canonicalization.
+      const { mcpServer, engine } = yield* sessionMeta.organizationSlug
+        ? withOrigin.pipe(
+            Effect.provideService(RequestOrgSlug, { slug: sessionMeta.organizationSlug }),
+          )
+        : withOrigin;
       const transport = yield* makeMcpWorkerTransport({
         sessionIdGenerator: () => self.sessionId,
         storage: self.makeStorage(),
@@ -544,8 +545,11 @@ export abstract class McpSessionDOBase<
 
       const accountId = request.headers.get(INTERNAL_ACCOUNT_ID_HEADER);
       const organizationId = request.headers.get(INTERNAL_ORGANIZATION_ID_HEADER);
+      const resourceKey = request.headers.get(INTERNAL_RESOURCE_KEY_HEADER);
       const matches =
-        accountId === sessionMeta.userId && organizationId === sessionMeta.organizationId;
+        accountId === sessionMeta.userId &&
+        organizationId === sessionMeta.organizationId &&
+        resourceKey === mcpResourceKey(sessionMeta.resource);
 
       yield* Effect.annotateCurrentSpan({
         "mcp.session.owner_match": matches,
@@ -562,9 +566,11 @@ export abstract class McpSessionDOBase<
       // Carry the create request's origin onto the persisted meta (the host's
       // resolveSessionMeta is identity-only and doesn't see it), so a cold
       // isolate rebuilds the runtime with the same web base URL.
-      const sessionMeta: SessionMeta = token.webOrigin
-        ? { ...resolved, webOrigin: token.webOrigin }
-        : resolved;
+      const sessionMeta: SessionMeta = {
+        ...resolved,
+        resource: token.resource,
+        ...(token.webOrigin ? { webOrigin: token.webOrigin } : {}),
+      };
       yield* Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
         Effect.withSpan("mcp.session.save_meta"),
       );

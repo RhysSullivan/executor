@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { HttpEffect, HttpRouter } from "effect/unstable/http";
 
 import { dbProviderLayer, ExecutorApp, textFailureStrategy } from "@executor-js/api/server";
 
@@ -65,6 +66,14 @@ export const makeCloudflareApp = async (env: CloudflareEnv) => {
       // The MCP serving envelope: Access-JWT auth + the shared in-process session
       // store over the QuickJS engine.
       mcp: { auth: mcp.auth, sessions: mcp.sessions, reporter: mcp.reporter },
+    },
+    extensions: {
+      routes: [
+        // Browser approval of paused MCP executions: the console resume page
+        // reads paused detail (GET) and records the decision (POST .../resume),
+        // Access-gated, routed to the owning session's Durable Object.
+        HttpRouter.add("*", "/api/mcp-sessions/*", HttpEffect.fromWebHandler(mcp.approvalHandler)),
+      ],
     },
     config: { mountPrefix: "/api", failure: textFailureStrategy },
     boot: identityLayer,

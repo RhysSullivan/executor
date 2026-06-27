@@ -28,7 +28,9 @@ scenario(
       });
       const httpCommand = await command();
       expect(httpCommand, "the default command adds the MCP server").toContain("npx add-mcp");
-      expect(httpCommand, "the HTTP command is org-scoped").toMatch(/\/org_[^/]+\/mcp/);
+      // Org-scoped via the org's URL slug, not the raw org_ id.
+      expect(httpCommand, "the HTTP command is org-scoped").toMatch(/\/[a-z0-9-]+\/mcp/);
+      expect(httpCommand, "the slug form, not the org_ id").not.toMatch(/\/org_[^/]+\/mcp/);
       expect(httpCommand).toContain("--transport http");
 
       await step("Switch to Standard I/O", async () => {

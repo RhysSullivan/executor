@@ -3,9 +3,9 @@ import type { PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import { physical, rootRoute } from "@tanstack/virtual-file-routes";
-import { consoleRoutes } from "@executor-js/react/console-routes";
 import executorVitePlugin from "@executor-js/vite-plugin";
+
+import { routes } from "./tsr.routes.ts";
 
 const APP_ROOT = fileURLToPath(new URL("./", import.meta.url));
 
@@ -60,14 +60,9 @@ export default function appPlugin(options: AppPluginOptions = {}): PluginOption[
       autoCodeSplitting: true,
       routesDirectory: fileURLToPath(new URL("./src/routes", import.meta.url)),
       generatedRouteTree: fileURLToPath(new URL("./src/routeTree.gen.ts", import.meta.url)),
-      // Shared console routes come from @executor-js/react (see its
-      // console-routes.ts); this app owns its root and the local-specific
-      // routes under src/routes/app. /secrets is excluded: the local app's
-      // variant shows credential-provider info.
-      virtualRouteConfig: rootRoute("__root.tsx", [
-        ...consoleRoutes({ dir: "../../../react/src/routes", exclude: ["/secrets"] }),
-        physical("", "app"),
-      ]),
+      // The route tree definition lives in tsr.routes.ts (shared with
+      // packages/react's routes:gen so a CLI regen matches dev/build).
+      virtualRouteConfig: routes,
     }),
     ...react(),
   ];

@@ -44,7 +44,7 @@ const KIND_TO_PLUGIN_KEY: Record<string, string> = {
   openapi: "openapi",
   mcp: "mcp",
   graphql: "graphql",
-  googleDiscovery: "openapi",
+  googleDiscovery: "google",
 };
 
 const detectionRank: Record<IntegrationDetectionResult["confidence"], number> = {
@@ -202,7 +202,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
       trackEvent("integration_add_started", { plugin_key: pluginKey, via: "detect" });
       closeAndReset();
       void navigate({
-        to: "/integrations/add/$pluginKey",
+        to: "/{-$orgSlug}/integrations/add/$pluginKey",
         params: { pluginKey },
         search: { url: trimmed, namespace: detected.slug },
       });
@@ -260,7 +260,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
               {integrationPlugins.map((p) => (
                 <Link
                   key={p.key}
-                  to="/integrations/add/$pluginKey"
+                  to="/{-$orgSlug}/integrations/add/$pluginKey"
                   params={{ pluginKey: p.key }}
                   onClick={() => {
                     trackEvent("integration_add_started", { plugin_key: p.key, via: "manual" });
@@ -371,7 +371,7 @@ function PresetGrid(props: {
               return (
                 <CardStackEntry key={`${pluginKey}-${preset.id}`} asChild>
                   <Link
-                    to="/integrations/add/$pluginKey"
+                    to="/{-$orgSlug}/integrations/add/$pluginKey"
                     params={{ pluginKey }}
                     search={search}
                     onClick={() => {
@@ -435,10 +435,10 @@ function IntegrationGrid(props: { integrations: readonly Integration[] }) {
           const plugin = pluginByKind.get(pluginKey);
           const SummaryComponent = plugin?.summary;
           const slug = String(integration.slug);
-          const name = integration.description || slug;
+          const name = integration.name || slug;
           return (
             <CardStackEntry key={slug} asChild searchText={`${name} ${slug} ${integration.kind}`}>
-              <Link to="/integrations/$namespace" params={{ namespace: slug }}>
+              <Link to="/{-$orgSlug}/integrations/$namespace" params={{ namespace: slug }}>
                 <IntegrationIconWithAccount
                   icon={integrationPresetIconUrl(
                     { id: slug, kind: integration.kind, name, url: integration.displayUrl },

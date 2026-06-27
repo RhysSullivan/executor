@@ -2,12 +2,12 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import { physical, rootRoute } from "@tanstack/virtual-file-routes";
-import { consoleRoutes } from "@executor-js/react/console-routes";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import executorVitePlugin from "@executor-js/vite-plugin";
 import { unstable_readConfig } from "wrangler";
+
+import { routes } from "./tsr.routes";
 
 // Dev-only: the cloudflare vite-plugin bridges outbound fetches (JWKS,
 // OAuth metadata proxy, etc.) through node undici in the host process. If
@@ -87,21 +87,10 @@ export default defineConfig(({ command, mode }) => {
       executorVitePlugin(),
       cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: false }),
       tanstackStart({
-        // Shared console routes come from @executor-js/react (see its
-        // console-routes.ts); cloud owns its root (WorkOS auth + billing
-        // shell) and the cloud-specific routes under src/routes/app.
-        // Excluded shared paths are intentional divergence: cloud's
-        // /secrets redirects to / (credential storage is product plumbing
-        // here), its /resume page is the cloud variant, and client plugin
-        // pages aren't wired up on cloud.
+        // The route tree definition lives in tsr.routes.ts (shared with
+        // tsr.config.json so `bunx tsr generate` produces the same tree).
         router: {
-          virtualRouteConfig: rootRoute("__root.tsx", [
-            ...consoleRoutes({
-              dir: "../../../../packages/react/src/routes",
-              exclude: ["/secrets", "/resume/$executionId", "/plugins/$pluginId/$"],
-            }),
-            physical("", "app"),
-          ]),
+          virtualRouteConfig: routes,
         },
       }),
       react(),

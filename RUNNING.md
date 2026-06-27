@@ -15,11 +15,13 @@ artifacts dev servers fail without) plus Playwright chromium. A fresh
 worktree that skips it dies with "Failed to resolve entry for package
 '@executor-js/vite-plugin'".
 
-The `vendor/` submodules (emulate, mcporter) are NOT required — nothing
-imports from `vendor/` at runtime; those packages come from npm
-(`@executor-js/emulate`, `@executor-js/mcporter`). `bun run bootstrap
---forks` inits them only when deliberately developing a fork (see
-`vendor/README.md`).
+Our two upstream forks — `@executor-js/emulate` (service emulators) and
+`@executor-js/mcporter` (headless MCP client) — are consumed purely as
+published npm packages; nothing in this repo references them by path. There
+are no `vendor/` submodules. Each fork is its own standalone repo
+(`github.com/UsefulSoftwareCo/emulate`, `github.com/UsefulSoftwareCo/mcporter`):
+develop on its `main`, publish a bump, then bump the dependency here. The
+`emulate` skill covers the emulator publish/deploy loop.
 
 ## Dev servers
 
@@ -47,8 +49,14 @@ working instance of X" — read them before inventing a boot path.
   scenario source as `test.ts`.
 - `cd e2e && bun run serve` builds the viewer and serves the scenario ×
   target matrix over HTTP, bound to all interfaces (reachable over the
-  tailnet). Individual runs are at `#/<target>/<slug>` hash routes — when
-  handing results to the user, link those directly, not the bare matrix.
+  tailnet). It prefers port 8901 but walks forward to the next free port if
+  that's taken (so concurrent worktrees, or a leaked previous viewer, never
+  wedge each other) — read the printed `e2e viewer → …` URL for the actual
+  port. `PORT=…` pins a port explicitly and fails loudly if it's busy. The
+  built SPA is port- and mount-agnostic (relative assets + hash routing), so
+  whatever port it lands on just works. Individual runs are at
+  `#/<target>/<slug>` hash routes — when handing results to the user, link
+  those directly, not the bare matrix.
 - `bun e2e/scripts/pr-media.ts e2e/runs/<target>/<slug>` converts a run's
   recording to a gif, uploads it to the `e2e-media` branch, and prints
   PR-ready markdown.

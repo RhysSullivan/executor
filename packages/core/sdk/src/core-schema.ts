@@ -120,8 +120,23 @@ export const coreTables = defineTables({
     {
       slug: keyColumn("slug"),
       plugin_id: textColumn("plugin_id"),
-      description: textColumn("description"),
+      // Display name. The pre-split field: `description` used to hold the
+      // name, so cloud backfills `name` from it (migration 0006) and other
+      // hosts fall back at read time (see rowToIntegration). Nullable because
+      // SQLite boot-ensure hosts cannot add a NOT NULL column to existing
+      // tables, so the column stays nullable even though it is always present
+      // in practice.
+      name: nullableTextColumn("name"),
+      // Actual prose description, now distinct from the name. Nullable: absent
+      // until a user/spec supplies one (cloud clears the old duplicated title
+      // to NULL in 0006).
+      description: nullableTextColumn("description"),
       config: nullableJsonColumn("config"),
+      // Epoch ms of the last tool-affecting config change (spec update, auth
+      // template edit). Compared against each connection's `tools_synced_at`
+      // so OTHER subjects' connections — whose tool rows the updater cannot
+      // write under the owner policy — lazily rebuild on their next read.
+      config_revised_at: nullableBigintColumn("config_revised_at"),
       can_remove: boolColumn("can_remove", true),
       can_refresh: boolColumn("can_refresh", false),
       created_at: dateColumn("created_at"),
@@ -144,6 +159,12 @@ export const coreTables = defineTables({
       provider: textColumn("provider"),
       item_ids: jsonColumn("item_ids"),
       identity_label: nullableTextColumn("identity_label"),
+      // User-curated, agent-visible "what is this connection for". Settable at
+      // create, editable after; never reset by OAuth re-mints.
+      description: nullableTextColumn("description"),
+      // Epoch ms of the last tool (re)production for this connection. Stale
+      // vs the integration's `config_revised_at` → re-produced on next read.
+      tools_synced_at: nullableBigintColumn("tools_synced_at"),
       oauth_client: nullableTextColumn("oauth_client"),
       // The OWNER of `oauth_client` (a Personal connection may be minted through
       // a shared Workspace app), set together with `oauth_client`; null for
@@ -153,6 +174,11 @@ export const coreTables = defineTables({
       refresh_item_id: nullableTextColumn("refresh_item_id"),
       expires_at: nullableBigintColumn("expires_at"),
       oauth_scope: nullableTextColumn("oauth_scope"),
+      // Per-connection token endpoint override. Set only when the code was
+      // redeemed at a region other than the oauth_client's configured token host
+      // (multi-site providers like Datadog signal the org's region on the
+      // callback). Null means refresh uses the oauth_client's `token_url`.
+      oauth_token_url: nullableTextColumn("oauth_token_url"),
       provider_state: nullableJsonColumn("provider_state"),
       created_at: dateColumn("created_at"),
       updated_at: dateColumn("updated_at"),

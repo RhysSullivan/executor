@@ -4,7 +4,7 @@ import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import { type FumaDB } from "@executor-js/fumadb";
 import {
   createDrizzleRuntimeSchemaFromTables,
-  createDrizzleRuntimeSchemaSqlFromTables,
+  ensureDrizzleRuntimeSchemaFromTables,
 } from "@executor-js/fumadb/adapters/drizzle";
 import { type schema as fumaSchema, type RelationsMap } from "@executor-js/fumadb/schema";
 
@@ -49,18 +49,23 @@ export const createSqliteFumaDb = async <const TTables extends FumaTables>(
   });
   const drizzleDb = drizzle({ client, schema });
 
-  for (const statement of createDrizzleRuntimeSchemaSqlFromTables({
+  // CREATE TABLE IF NOT EXISTS for fresh files, plus ALTER TABLE ADD COLUMN for
+  // every nullable column the running schema declares — so files created by an
+  // earlier baseline gain new columns on boot instead of 500ing on first query.
+  // This is the same bring-up the self-host and Cloudflare hosts run; keeping
+  // local on it stops per-column drift between hosts. Idempotent.
+  await ensureDrizzleRuntimeSchemaFromTables(drizzleDb, {
     tables: options.tables,
     namespace: options.namespace,
     version,
     provider: "sqlite",
-  })) {
-    await client.execute(statement);
-  }
+  });
 
-  // Defensive column adds for libSQL files created by earlier v2 baselines —
-  // the bring-up above is CREATE TABLE IF NOT EXISTS and won't add a column to
-  // an already-created table. Idempotent.
+  // Defensive column adds for libSQL files created by earlier v2 baselines.
+  // The generic bring-up above already evolves every nullable column the live
+  // schema declares, so these are mostly redundant now; they are kept as an
+  // explicit safety net and to cover any column the schema no longer declares.
+  // Idempotent.
   const connectionColumns = await client.execute("PRAGMA table_info('connection')");
   if (
     connectionColumns.rows.length > 0 &&

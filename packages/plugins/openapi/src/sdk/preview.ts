@@ -135,6 +135,8 @@ export type PreviewOperation = typeof PreviewOperation.Type;
 
 export const SpecPreview = Schema.Struct({
   title: Schema.OptionFromOptional(Schema.String),
+  /** The spec's `info.description` — prefills the add form's description field. */
+  description: Schema.OptionFromOptional(Schema.String),
   version: Schema.OptionFromOptional(Schema.String),
   /** Reuses ServerInfo from extraction */
   servers: Schema.Array(ServerInfo),
@@ -151,6 +153,37 @@ export const SpecPreview = Schema.Struct({
   oauth2Presets: Schema.Array(OAuth2Preset),
 });
 export type SpecPreview = typeof SpecPreview.Type;
+
+// HTTP/UI preview deliberately omits the per-operation list. Graph-sized specs
+// can define 16k+ operations, while the add flow only needs counts, tags,
+// servers, and auth metadata before registration.
+export const SpecPreviewSummary = Schema.Struct({
+  title: Schema.OptionFromOptional(Schema.String),
+  description: Schema.OptionFromOptional(Schema.String),
+  version: Schema.OptionFromOptional(Schema.String),
+  servers: Schema.Array(ServerInfo),
+  operationCount: Schema.Number,
+  tags: Schema.Array(Schema.String),
+  securitySchemes: Schema.Array(SecurityScheme),
+  authStrategies: Schema.Array(AuthStrategy),
+  headerPresets: Schema.Array(HeaderPreset),
+  oauth2Presets: Schema.Array(OAuth2Preset),
+});
+export type SpecPreviewSummary = typeof SpecPreviewSummary.Type;
+
+export const specPreviewSummary = (preview: SpecPreview): SpecPreviewSummary =>
+  SpecPreviewSummary.make({
+    title: preview.title,
+    description: preview.description,
+    version: preview.version,
+    servers: preview.servers,
+    operationCount: preview.operationCount,
+    tags: preview.tags,
+    securitySchemes: preview.securitySchemes,
+    authStrategies: preview.authStrategies,
+    headerPresets: preview.headerPresets,
+    oauth2Presets: preview.oauth2Presets,
+  });
 
 // ---------------------------------------------------------------------------
 // Security scheme extraction
@@ -396,6 +429,7 @@ export const previewSpecText = Effect.fn("OpenApi.previewSpecText")(function* (s
 
   return SpecPreview.make({
     title: result.title,
+    description: result.description,
     version: result.version,
     servers: result.servers,
     operationCount: result.operations.length,

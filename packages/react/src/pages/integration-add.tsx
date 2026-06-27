@@ -31,7 +31,7 @@ export function AddIntegrationPage(props: {
               This integration plugin is not registered.
             </p>
             <Link
-              to="/"
+              to="/{-$orgSlug}"
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Back to integrations
@@ -59,13 +59,13 @@ export function AddIntegrationPage(props: {
               });
               void navigate(
                 slug
-                  ? { to: "/integrations/$namespace", params: { namespace: slug } }
-                  : { to: "/" },
+                  ? { to: "/{-$orgSlug}/integrations/$namespace", params: { namespace: slug } }
+                  : { to: "/{-$orgSlug}" },
               );
             }}
             onCancel={() => {
               trackEvent("integration_add_cancelled", { plugin_key: pluginKey });
-              void navigate({ to: "/" });
+              void navigate({ to: "/{-$orgSlug}" });
             }}
           />
         </Suspense>

@@ -10,7 +10,7 @@ import {
   convertGoogleDiscoveryToOpenApi,
   fetchGoogleDiscoveryDocument,
   isGoogleDiscoveryUrl,
-} from "../packages/plugins/openapi/src/sdk/google-discovery";
+} from "../packages/plugins/google/src/sdk/discovery";
 import { mcpPlugin } from "../packages/plugins/mcp/src/sdk/plugin";
 import { graphqlPlugin } from "../packages/plugins/graphql/src/sdk/plugin";
 import { introspect } from "../packages/plugins/graphql/src/sdk/introspect";

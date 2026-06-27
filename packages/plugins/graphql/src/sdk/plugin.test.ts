@@ -1,6 +1,12 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { Effect, Layer } from "effect";
+import {
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
 
 import {
   AuthTemplateSlug,
@@ -312,6 +318,48 @@ describe("graphqlPlugin real protocol server", () => {
       );
 
       const tools = yield* executor.tools.list();
+      expect(tools.map((tool) => String(tool.name))).toEqual(
+        expect.arrayContaining(["query.hello", "mutation.setGreeting"]),
+      );
+    }),
+  );
+
+  it.effect("uses the executor HttpClient layer for connection-time introspection", () =>
+    Effect.gen(function* () {
+      const seen: string[] = [];
+      const httpClientLayer = Layer.succeed(HttpClient.HttpClient)(
+        HttpClient.make((request: HttpClientRequest.HttpClientRequest) => {
+          seen.push(request.url);
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              new Response(JSON.stringify({ data: introspectionResult }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+            ),
+          );
+        }),
+      );
+      const config = makeTestConfig({
+        plugins: [memoryCredentialsPlugin(), graphqlPlugin()] as const,
+      });
+      const executor = yield* createExecutor({ ...config, httpClientLayer });
+
+      yield* executor.graphql.addIntegration({
+        endpoint: "https://internal.example/graphql",
+        slug: "guarded_graph",
+        name: "Guarded Graph",
+      });
+      yield* createOrgConnection(executor, {
+        integration: "guarded_graph",
+        name: "default",
+        template: "none",
+        value: "unused",
+      });
+
+      const tools = yield* executor.tools.list();
+      expect(seen).toEqual(["https://internal.example/graphql"]);
       expect(tools.map((tool) => String(tool.name))).toEqual(
         expect.arrayContaining(["query.hello", "mutation.setGreeting"]),
       );

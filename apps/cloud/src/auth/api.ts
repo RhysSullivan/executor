@@ -14,6 +14,8 @@ const AuthUser = Schema.Struct({
 const AuthOrganization = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  /** URL slug for org-prefixed console paths (`/<slug>/policies`). */
+  slug: Schema.String,
 });
 
 const AuthMeResponse = Schema.Struct({
@@ -24,15 +26,12 @@ const AuthMeResponse = Schema.Struct({
 const AuthOrganizationSummary = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  slug: Schema.String,
 });
 
 const AuthOrganizationsResponse = Schema.Struct({
   organizations: Schema.Array(AuthOrganizationSummary),
   activeOrganizationId: Schema.NullOr(Schema.String),
-});
-
-const SwitchOrganizationBody = Schema.Struct({
-  organizationId: Schema.String,
 });
 
 const CreateOrganizationBody = Schema.Struct({
@@ -42,6 +41,18 @@ const CreateOrganizationBody = Schema.Struct({
 const CreateOrganizationResponse = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  slug: Schema.String,
+});
+
+// CLI device-login discovery (`executor login`). Tells the CLI where to run
+// the OAuth 2.0 Device Authorization Grant (RFC 8628) and which public client
+// to use. The CLI hits these provider endpoints directly, gets a WorkOS access
+// token (a JWT), and sends it as a Bearer to the `/api/*` plane.
+const CliLoginResponse = Schema.Struct({
+  provider: Schema.Literal("workos"),
+  deviceAuthorizationEndpoint: Schema.String,
+  tokenEndpoint: Schema.String,
+  clientId: Schema.String,
 });
 
 // `state` is optional — some WorkOS-initiated redirects arrive at the
@@ -83,6 +94,7 @@ const AcceptInvitationBody = Schema.Struct({
 const AcceptInvitationResponse = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  slug: Schema.String,
 });
 
 const McpSessionExecutionParams = {
@@ -138,7 +150,6 @@ export const AUTH_PATHS = {
   login: "/api/auth/login",
   logout: "/api/auth/logout",
   callback: "/api/auth/callback",
-  switchOrganization: "/api/auth/switch-organization",
 } as const;
 
 const AuthErrors = [UserStoreError, WorkOSError] as const;
@@ -156,7 +167,8 @@ export class CloudAuthPublicApi extends HttpApiGroup.make("cloudAuthPublic")
       query: AuthCallbackSearch,
       error: AuthErrors,
     }),
-  ) {}
+  )
+  .add(HttpApiEndpoint.get("cliLogin", "/auth/cli-login", { success: CliLoginResponse })) {}
 
 /** Session auth endpoints — require a logged-in user, may not have an org */
 export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
@@ -170,12 +182,6 @@ export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
   .add(
     HttpApiEndpoint.get("organizations", "/auth/organizations", {
       success: AuthOrganizationsResponse,
-      error: WorkOSError,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.post("switchOrganization", "/auth/switch-organization", {
-      payload: SwitchOrganizationBody,
       error: WorkOSError,
     }),
   )

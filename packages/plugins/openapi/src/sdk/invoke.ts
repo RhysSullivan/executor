@@ -1,10 +1,12 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import type { ToolFileValue } from "@executor-js/sdk/core";
 
 import { OpenApiInvocationError } from "./errors";
 import { resolveServerUrl } from "./openapi-utils";
 import {
   type EncodingObject,
+  type OperationFileHint,
   type OperationBinding,
   InvocationResult,
   type MediaBinding,
@@ -124,6 +126,13 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
   return resolved;
 });
 
+// GitHub (and some other upstreams) reject requests that lack a User-Agent
+// header with a 403 ("Request forbidden by administrative rules"), which is
+// indistinguishable from a credential rejection downstream. Send a default so
+// those calls succeed. It is applied before operation header params and
+// resolved auth headers, so a spec- or connection-provided User-Agent wins.
+const DEFAULT_USER_AGENT = "executor";
+
 const applyHeaders = (
   request: HttpClientRequest.HttpClientRequest,
   headers: Record<string, string>,
@@ -170,6 +179,99 @@ const isTextContentType = (ct: string | null | undefined): boolean =>
 const isOctetStream = (ct: string | null | undefined): boolean =>
   normalizeContentType(ct) === "application/octet-stream";
 
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+};
+
+const normalizeBase64 = (value: string, encoding: "base64" | "base64url"): string => {
+  const compact = value.replace(/\s/g, "");
+  const alphabet =
+    encoding === "base64url" ? compact.replace(/-/g, "+").replace(/_/g, "/") : compact;
+  const remainder = alphabet.length % 4;
+  return remainder === 0 ? alphabet : `${alphabet}${"=".repeat(4 - remainder)}`;
+};
+
+const byteLengthFromBase64 = (base64: string): number => {
+  const compact = base64.replace(/\s/g, "");
+  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
+};
+
+const isGenericMimeType = (mimeType: string): boolean =>
+  normalizeContentType(mimeType) === "application/octet-stream";
+
+const startsWithBytes = (bytes: Uint8Array, prefix: readonly number[]): boolean =>
+  prefix.every((byte, index) => bytes[index] === byte);
+
+const isLikelyUtf8Text = (bytes: Uint8Array): boolean => {
+  if (bytes.length === 0) return false;
+  let text: string;
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: TextDecoder throws while probing arbitrary binary content
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return false;
+  }
+  let suspicious = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    const allowedControl = code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d;
+    if (code === 0x00) return false;
+    if (code < 0x20 && !allowedControl) suspicious += 1;
+  }
+  return suspicious / Math.max(1, text.length) <= 0.02;
+};
+
+const sniffMimeType = (bytes: Uint8Array): string | null => {
+  if (startsWithBytes(bytes, [0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (startsWithBytes(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+    return "image/png";
+  }
+  if (
+    startsWithBytes(bytes, [0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) ||
+    startsWithBytes(bytes, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
+  ) {
+    return "image/gif";
+  }
+  if (
+    startsWithBytes(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  if (startsWithBytes(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf";
+  if (
+    startsWithBytes(bytes, [0x50, 0x4b, 0x03, 0x04]) ||
+    startsWithBytes(bytes, [0x50, 0x4b, 0x05, 0x06]) ||
+    startsWithBytes(bytes, [0x50, 0x4b, 0x07, 0x08])
+  ) {
+    return "application/zip";
+  }
+  if (isLikelyUtf8Text(bytes)) return "text/plain";
+  return null;
+};
+
+const bytesFromBase64Prefix = (base64: string): Uint8Array => {
+  const prefix = base64.slice(0, Math.min(base64.length, 64));
+  const binary = atob(prefix);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
+const sniffMimeTypeFromBase64 = (base64: string): string | null =>
+  sniffMimeType(bytesFromBase64Prefix(base64));
+
 const toUint8Array = (value: unknown): Uint8Array | null => {
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
@@ -181,6 +283,58 @@ const toUint8Array = (value: unknown): Uint8Array | null => {
     return new Uint8Array(value as readonly number[]);
   }
   return null;
+};
+
+const readHintString = (option: OperationFileHint["dataField"], fallback: string): string =>
+  Option.getOrElse(option, () => fallback);
+
+const readHintMimeType = (hint: OperationFileHint, fallback: string): string =>
+  Option.getOrElse(hint.mimeType, () => fallback);
+
+const readHintEncoding = (hint: OperationFileHint): "base64" | "base64url" =>
+  Option.getOrElse(hint.encoding, () => "base64");
+
+const fileFromByteField = (body: unknown, hint: OperationFileHint): ToolFileValue | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  const record = body as Record<string, unknown>;
+  const dataField = readHintString(hint.dataField, "data");
+  const rawData = record[dataField];
+  if (typeof rawData !== "string") return null;
+
+  const data = normalizeBase64(rawData, readHintEncoding(hint));
+  const sizeField = Option.getOrUndefined(hint.sizeField);
+  const byteLength =
+    sizeField && typeof record[sizeField] === "number"
+      ? record[sizeField]
+      : byteLengthFromBase64(data);
+  const hintedMimeType = readHintMimeType(hint, "application/octet-stream");
+
+  return {
+    _tag: "ToolFile",
+    mimeType: isGenericMimeType(hintedMimeType)
+      ? (sniffMimeTypeFromBase64(data) ?? hintedMimeType)
+      : hintedMimeType,
+    encoding: "base64",
+    data,
+    byteLength,
+  };
+};
+
+const fileFromBinaryBytes = (
+  bytes: Uint8Array,
+  hint: OperationFileHint,
+  contentType: string | null | undefined,
+): ToolFileValue => {
+  const hintedMimeType = contentType ?? readHintMimeType(hint, "application/octet-stream");
+  return {
+    _tag: "ToolFile",
+    mimeType: isGenericMimeType(hintedMimeType)
+      ? (sniffMimeType(bytes) ?? hintedMimeType)
+      : hintedMimeType,
+    encoding: "base64",
+    data: bytesToBase64(bytes),
+    byteLength: bytes.byteLength,
+  };
 };
 
 type FormDataRecord = Parameters<typeof HttpClientRequest.bodyFormDataRecord>[1];
@@ -484,6 +638,10 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 
   let request = HttpClientRequest.make(operation.method.toUpperCase() as "GET")(path);
 
+  // Default first so operation header params and resolved auth headers below
+  // can override it; the upstream still gets a User-Agent if nothing else sets one.
+  request = HttpClientRequest.setHeader(request, "User-Agent", DEFAULT_USER_AGENT);
+
   for (const [name, value] of Object.entries(sourceQueryParams)) {
     request = HttpClientRequest.setUrlParam(request, name, value);
   }
@@ -554,22 +712,35 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
         cause: err,
       }),
   );
+  const responseBodyBinding = Option.getOrUndefined(operation.responseBody);
+  const fileHint = responseBodyBinding
+    ? Option.getOrUndefined(responseBodyBinding.fileHint)
+    : undefined;
+  const ok = status >= 200 && status < 300;
   const responseBody: unknown =
     status === 204
       ? null
-      : isJsonContentType(contentType)
-        ? yield* response.json.pipe(
-            Effect.catch(() => response.text),
-            mapBodyError,
+      : ok && fileHint?.kind === "binaryResponse"
+        ? fileFromBinaryBytes(
+            new Uint8Array(yield* response.arrayBuffer.pipe(mapBodyError)),
+            fileHint,
+            contentType,
           )
-        : yield* response.text.pipe(mapBodyError);
+        : isJsonContentType(contentType)
+          ? yield* response.json.pipe(
+              Effect.catch(() => response.text),
+              mapBodyError,
+            )
+          : yield* response.text.pipe(mapBodyError);
 
-  const ok = status >= 200 && status < 300;
-
+  const dataBody =
+    ok && fileHint?.kind === "byteField"
+      ? (fileFromByteField(responseBody, fileHint) ?? responseBody)
+      : responseBody;
   return InvocationResult.make({
     status,
     headers: responseHeaders,
-    data: ok ? responseBody : null,
+    data: ok ? dataBody : null,
     error: ok ? null : responseBody,
   });
 });
@@ -625,6 +796,11 @@ export const invokeWithLayer = (
 
   return invoke(operation, args, resolvedHeaders, sourceQueryParams).pipe(
     Effect.provide(clientWithBaseUrl),
+    // `invoke` annotates http.status_code on ITS span (`OpenApi.invoke`,
+    // via Effect.fn) — annotateCurrentSpan inside it never reaches this
+    // wrapper span. Stamp the status here too so queries against
+    // `plugin.openapi.invoke` see the upstream outcome directly.
+    Effect.tap((result) => Effect.annotateCurrentSpan({ "http.status_code": result.status })),
     Effect.withSpan("plugin.openapi.invoke", {
       attributes: {
         "plugin.openapi.method": operation.method.toUpperCase(),

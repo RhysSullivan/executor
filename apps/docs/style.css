@@ -1,0 +1,12 @@
+/* Logo wordmark: Instrument Serif, the brand display font (--font-display in
+   the app console and the marketing wordmark/accent treatment). The navbar
+   default is a bold sans; Instrument Serif ships a single 400 weight, so drop
+   the faux-bold and tight tracking. */
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap");
+
+.nav-logo,
+.nav-logo * {
+  font-family: "Instrument Serif", ui-serif, Georgia, serif !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+}

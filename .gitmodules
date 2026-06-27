@@ -1,9 +1,0 @@
-[submodule "integrationsdotsh"]
-	path = integrationsdotsh
-	url = https://github.com/RhysSullivan/integrationsdotsh.git
-[submodule "vendor/emulate"]
-	path = vendor/emulate
-	url = https://github.com/UsefulSoftwareCo/emulate.git
-[submodule "vendor/mcporter"]
-	path = vendor/mcporter
-	url = https://github.com/UsefulSoftwareCo/mcporter.git

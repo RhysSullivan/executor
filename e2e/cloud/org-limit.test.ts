@@ -39,7 +39,10 @@ scenario(
         await page.getByText("Integrations").first().waitFor();
         // Let the router navigation fully settle (slow on a cold dev server)
         // before opening menus — a late remount closes them mid-interaction.
-        await page.waitForURL(/\/$/, { timeout: 30_000 });
+        // The console canonicalizes onto the org's URL slug (/acme-1).
+        await page.waitForURL((url) => /^\/[a-z0-9-]+\/?$/.test(url.pathname), {
+          timeout: 30_000,
+        });
         await page.waitForLoadState("networkidle");
       });
 

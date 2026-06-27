@@ -1,6 +1,7 @@
-// MCP surface: our mcporter fork (@executor-js/mcporter on npm; develop it in
-// the vendor/mcporter submodule) as a programmatic MCP client, with headless
-// OAuth via the target's consent strategy. Session methods are Effects;
+// MCP surface: our mcporter fork (@executor-js/mcporter on npm; developed in
+// its own repo, github.com/UsefulSoftwareCo/mcporter) as a programmatic MCP
+// client, with headless OAuth via the target's consent strategy. Session
+// methods are Effects;
 // mcporter itself is promise-native underneath. Assertions are vitest's job.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -10,6 +11,8 @@ import { join } from "node:path";
 import { Effect } from "effect";
 
 import { createRuntime, type Runtime } from "@executor-js/mcporter";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import { appendTraces } from "../trace-harvest";
 import type { Identity, Target } from "../target";
@@ -94,20 +97,73 @@ export interface McpCallResult {
   readonly ok: boolean;
 }
 
+export interface McpToolDef {
+  readonly name: string;
+  readonly description: string;
+}
+
+/** How a connection surfaces a paused (approval-gated) execution. `browser` is
+ *  what the browser-approval scenarios drive: the pause yields an `approvalUrl`
+ *  for a human to open instead of letting the model resume inline. */
+export type McpElicitationMode = "browser" | "model" | "native";
+
+/** The paused-execution handle a `browser`-mode call returns: the id to resume
+ *  and the console URL a human opens to approve or decline it. */
+export interface McpBrowserApproval {
+  readonly executionId: string;
+  readonly approvalUrl: string;
+}
+
+/**
+ * Pull the `{ executionId, approvalUrl }` out of a `browser`-mode paused result.
+ * Throws if the call did not pause for approval (so a missing gate fails loudly
+ * rather than silently skipping the browser leg).
+ */
+export const parseBrowserApproval = (result: McpCallResult): McpBrowserApproval => {
+  const structured = (result.raw as { structuredContent?: unknown })?.structuredContent;
+  const record = (structured ?? {}) as {
+    status?: unknown;
+    executionId?: unknown;
+    approvalUrl?: unknown;
+  };
+  if (
+    record.status !== "user_approval_required" ||
+    typeof record.executionId !== "string" ||
+    typeof record.approvalUrl !== "string"
+  ) {
+    throw new Error(
+      `expected a browser approval-required result, got: ${JSON.stringify(structured)}`,
+    );
+  }
+  return { executionId: record.executionId, approvalUrl: record.approvalUrl };
+};
+
 export interface McpSession {
   readonly listTools: () => Effect.Effect<ReadonlyArray<string>>;
+  /** Full advertised tool definitions — for asserting on the description text
+   *  an MCP client actually reads (e.g. the execute tool's inventory). */
+  readonly describeTools: () => Effect.Effect<ReadonlyArray<McpToolDef>>;
   readonly call: (name: string, args?: Record<string, unknown>) => Effect.Effect<McpCallResult>;
   /** Find the paused executionId in `text` and resume it with approval. */
   readonly approvePaused: (
     text: string,
     content?: Record<string, unknown>,
   ) => Effect.Effect<McpCallResult>;
+  /**
+   * Call `resume` with only an executionId — the browser-mode contract, where
+   * `resume` long-polls until a human records a decision through the console.
+   * Run this concurrently with the browser leg that approves/declines.
+   */
+  readonly awaitResume: (executionId: string) => Effect.Effect<McpCallResult>;
 }
 
 export interface McpSurface {
   /** The target's MCP endpoint — yield this surface to depend on it existing. */
   readonly url: string;
-  readonly session: (identity: Identity) => McpSession;
+  readonly session: (
+    identity: Identity,
+    options?: { readonly elicitationMode?: McpElicitationMode; readonly url?: string },
+  ) => McpSession;
   /**
    * Mint a real MCP bearer headlessly: protected-resource discovery →
    * authorization-server discovery → dynamic client registration → authorize
@@ -134,6 +190,17 @@ interface TokenResponse {
   readonly access_token?: string;
 }
 
+const jsonFrom = async <T>(response: Response, label: string): Promise<T> => {
+  const text = await response.text();
+  if (!text) {
+    throw new Error(`${label}: empty response body (status ${response.status})`);
+  }
+  if (!response.ok) {
+    throw new Error(`${label}: request failed (status ${response.status}): ${text}`);
+  }
+  return JSON.parse(text) as T;
+};
+
 const mintBearerFlow = async (target: Target, email: string): Promise<string> => {
   const consent = target.mcpConsent?.({
     label: email,
@@ -142,21 +209,31 @@ const mintBearerFlow = async (target: Target, email: string): Promise<string> =>
   if (!consent) throw new Error(`target ${target.name} has no mcpConsent strategy`);
 
   const mcpPath = new URL(target.mcpUrl).pathname;
-  const resource = (await (
-    await fetch(new URL(`/.well-known/oauth-protected-resource${mcpPath}`, target.baseUrl))
-  ).json()) as { authorization_servers?: ReadonlyArray<string> };
+  let resourceResponse = await fetch(
+    new URL(`/.well-known/oauth-protected-resource${mcpPath}`, target.baseUrl),
+  );
+  if (resourceResponse.status === 404) {
+    resourceResponse = await fetch(
+      new URL("/.well-known/oauth-protected-resource", target.baseUrl),
+    );
+  }
+  const resource = await jsonFrom<{ authorization_servers?: ReadonlyArray<string> }>(
+    resourceResponse,
+    "mintBearer: protected-resource metadata",
+  );
   const issuer = resource.authorization_servers?.[0];
   if (!issuer) throw new Error("mintBearer: no authorization server advertised");
-  const metadata = (await (
-    await fetch(new URL("/.well-known/oauth-authorization-server", issuer))
-  ).json()) as {
+  const metadata = await jsonFrom<{
     readonly authorization_endpoint: string;
     readonly token_endpoint: string;
     readonly registration_endpoint: string;
-  };
+  }>(
+    await fetch(new URL("/.well-known/oauth-authorization-server", issuer)),
+    "mintBearer: authorization-server metadata",
+  );
 
   const redirectUri = "http://127.0.0.1:9/callback";
-  const registered = (await (
+  const registered = await jsonFrom<{ readonly client_id: string }>(
     await fetch(metadata.registration_endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -167,8 +244,9 @@ const mintBearerFlow = async (target: Target, email: string): Promise<string> =>
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
-    })
-  ).json()) as { readonly client_id: string };
+    }),
+    "mintBearer: dynamic client registration",
+  );
 
   const verifier = randomBytes(32).toString("base64url");
   const authorizeUrl = new URL(metadata.authorization_endpoint);
@@ -186,7 +264,7 @@ const mintBearerFlow = async (target: Target, email: string): Promise<string> =>
     redirectUrl: redirectUri,
   });
 
-  const token = (await (
+  const token = await jsonFrom<TokenResponse>(
     await fetch(metadata.token_endpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -197,8 +275,9 @@ const mintBearerFlow = async (target: Target, email: string): Promise<string> =>
         client_id: registered.client_id,
         code_verifier: verifier,
       }),
-    })
-  ).json()) as TokenResponse;
+    }),
+    "mintBearer: token exchange",
+  );
   if (!token.access_token) throw new Error("mintBearer: token exchange returned no token");
   return token.access_token;
 };
@@ -206,9 +285,80 @@ const mintBearerFlow = async (target: Target, email: string): Promise<string> =>
 export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => ({
   url: target.mcpUrl,
   mintBearer: (email) => Effect.promise(() => mintBearerFlow(target, email)),
-  session: (identity) => {
-    if (runDir) installTraceparentFetch(target.mcpUrl, runDir);
-    const serverName = target.name;
+  session: (identity, options) => {
+    const mcpUrl = options?.url ?? target.mcpUrl;
+    if (runDir) installTraceparentFetch(mcpUrl, runDir);
+    // mcporter caches OAuth tokens (and the DCR client) per server NAME, so a
+    // constant name would let a later session reuse an earlier identity's token
+    // — landing in the wrong org. A unique name per session keeps each
+    // identity's OAuth isolated. The traceparent ledger keys off the URL, not
+    // this name, so it is unaffected.
+    const serverName = `${target.name}-${randomUUID().slice(0, 8)}`;
+    // `browser` mode is selected per the ecosystem convention — an
+    // `?elicitation_mode=` query on the MCP endpoint — so a paused execution
+    // yields an approvalUrl instead of letting the model resume inline.
+    const sessionUrl = options?.elicitationMode
+      ? `${mcpUrl}?elicitation_mode=${options.elicitationMode}`
+      : mcpUrl;
+
+    if (target.name === "cloudflare") {
+      let clientPromise: Promise<Client> | undefined;
+      const client = () => {
+        if (!clientPromise) {
+          clientPromise = (async () => {
+            const directClient = new Client(
+              { name: serverName, version: "1.0.0" },
+              { capabilities: {} },
+            );
+            const transport = new StreamableHTTPClientTransport(new URL(sessionUrl), {
+              requestInit: { headers: identity.headers ?? {} },
+            });
+            await directClient.connect(transport);
+            return directClient;
+          })();
+        }
+        return clientPromise;
+      };
+
+      const listTools = () =>
+        Effect.promise(async () => {
+          const listed = await (await client()).listTools();
+          return listed.tools.map((tool) => tool.name);
+        });
+
+      const call = (name: string, args: Record<string, unknown> = {}) =>
+        Effect.promise(async (): Promise<McpCallResult> => {
+          const raw = await (await client()).callTool({ name, arguments: args });
+          const isError = Boolean((raw as { isError?: boolean })?.isError);
+          return { raw, text: textOf(raw), ok: !isError };
+        });
+
+      return {
+        listTools,
+        describeTools: () =>
+          Effect.promise(async (): Promise<ReadonlyArray<McpToolDef>> => {
+            const listed = await (await client()).listTools();
+            return listed.tools.map((tool) => ({
+              name: tool.name,
+              description: tool.description ?? "",
+            }));
+          }),
+        call,
+        approvePaused: (text, content = {}) =>
+          Effect.suspend(() => {
+            const match = /\bexecutionId:\s*(\S+)/.exec(text);
+            if (!match)
+              return Effect.die(new Error("approvePaused: executionId not found in text"));
+            return call("resume", {
+              executionId: match[1],
+              action: "accept",
+              content: JSON.stringify(content),
+            });
+          }),
+        awaitResume: (executionId) => call("resume", { executionId }),
+      };
+    }
+
     let runtimePromise: Promise<Runtime> | undefined;
     let connected = false;
 
@@ -224,7 +374,7 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
         writeFileSync(
           join(dir, "mcporter.json"),
           JSON.stringify({
-            mcpServers: { [serverName]: { url: target.mcpUrl } },
+            mcpServers: { [serverName]: { url: sessionUrl } },
           }),
         );
         runtimePromise = createRuntime({
@@ -241,6 +391,16 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
         return defs.map((tool: { name: string }) => tool.name);
       });
 
+    const describeTools = () =>
+      Effect.promise(async (): Promise<ReadonlyArray<McpToolDef>> => {
+        const defs = await (await runtime()).listTools(serverName, callOptions);
+        connected = true;
+        return defs.map((tool: { name: string; description?: string }) => ({
+          name: tool.name,
+          description: tool.description ?? "",
+        }));
+      });
+
     const call = (name: string, args: Record<string, unknown> = {}) =>
       Effect.promise(async (): Promise<McpCallResult> => {
         if (!connected) {
@@ -254,6 +414,7 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
 
     return {
       listTools,
+      describeTools,
       call,
       approvePaused: (text, content = {}) =>
         Effect.suspend(() => {
@@ -265,6 +426,9 @@ export const makeMcpSurface = (target: Target, runDir?: string): McpSurface => (
             content: JSON.stringify(content),
           });
         }),
+      // No action argument: in browser mode `resume` blocks until the human's
+      // decision arrives via the console, then returns the resumed result.
+      awaitResume: (executionId) => call("resume", { executionId }),
     };
   },
 });

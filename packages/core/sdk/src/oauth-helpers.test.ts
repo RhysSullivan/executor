@@ -608,6 +608,49 @@ describe("exchangeAuthorizationCode", () => {
 });
 
 describe("exchangeClientCredentials", () => {
+  it.effect("routes token grant requests through the injected fetch", () =>
+    withTokenEndpoint(tokenResponse(validRefreshBody), ({ tokenUrl }) =>
+      Effect.gen(function* () {
+        const seen: Array<{ url: string; method: string | undefined }> = [];
+        const customFetch: typeof globalThis.fetch = (async (input, init) => {
+          seen.push({
+            url: input instanceof Request ? input.url : String(input),
+            method: init?.method,
+          });
+          // oxlint-disable-next-line executor/no-raw-fetch -- boundary: test fetch adapter delegates to the local token endpoint
+          return fetch(input, init);
+        }) as typeof globalThis.fetch;
+
+        yield* exchangeAuthorizationCode({
+          tokenUrl,
+          clientId: "cid",
+          redirectUrl: "https://app.example.com/cb",
+          codeVerifier: "verifier",
+          code: "abc",
+          fetch: customFetch,
+        });
+        yield* exchangeClientCredentials({
+          tokenUrl,
+          clientId: "cid",
+          clientSecret: "secret",
+          fetch: customFetch,
+        });
+        yield* refreshAccessToken({
+          tokenUrl,
+          clientId: "cid",
+          refreshToken: "old",
+          fetch: customFetch,
+        });
+
+        expect(seen).toEqual([
+          { url: tokenUrl, method: "POST" },
+          { url: tokenUrl, method: "POST" },
+          { url: tokenUrl, method: "POST" },
+        ]);
+      }),
+    ),
+  );
+
   it.effect("rejects unsupported token URL schemes before exchange", () =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(

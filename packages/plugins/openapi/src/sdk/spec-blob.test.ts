@@ -62,7 +62,6 @@ const EchoGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
 const specText = () => {
   const spec = makeOpenApiHttpApiTestSourceConfig(TestApi, {}).spec;
   if (spec.kind === "blob") return spec.value;
-  if (spec.kind === "googleDiscoveryBundle") return spec.urls[0] ?? "";
   return spec.url;
 };
 
@@ -133,17 +132,21 @@ describe("OpenAPI plugin — spec blob storage", () => {
       const hash = yield* sha256Hex(text);
       const storage: OpenapiStore = {
         putOperations: () => Effect.void,
+        appendOperations: () => Effect.void,
         getOperation: () => Effect.succeed(null),
         listOperations: () => Effect.succeed([]),
         removeOperations: () => Effect.void,
         putSpec: () => Effect.void,
         getSpec: (specHash) => Effect.succeed(specHash === hash ? text : null),
+        putDefs: () => Effect.void,
+        getDefs: () => Effect.succeed(null),
       };
 
       const resolve = (config: IntegrationConfig) =>
         plugin.resolveTools!({
           integration: {
             slug: IntegrationSlug.make("pointer_api"),
+            name: "pointer",
             description: "pointer",
             kind: "openapi",
             canRemove: true,
@@ -158,6 +161,7 @@ describe("OpenAPI plugin — spec blob storage", () => {
           },
           template: null,
           storage,
+          httpClientLayer: FetchHttpClient.layer,
           getValue: () => Effect.succeed(null),
           getValues: () => Effect.succeed({}),
         });

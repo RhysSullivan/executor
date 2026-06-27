@@ -7,6 +7,7 @@ import {
   createRootRoute,
   useLocation,
   useNavigate,
+  useParams,
 } from "@tanstack/react-router";
 import { AutumnProvider } from "autumn-js/react";
 import posthog from "posthog-js";
@@ -15,6 +16,8 @@ import type { FrontendErrorReporter } from "@executor-js/react/api/error-reporti
 import { AnalyticsProvider, type AnalyticsClient } from "@executor-js/react/api/analytics";
 import { ExecutorProvider } from "@executor-js/react/api/provider";
 import { OrganizationProvider } from "@executor-js/react/api/organization-context";
+import { EXECUTOR_ORG_HEADER } from "@executor-js/react/api/server-connection";
+import { OrgSlugGate } from "@executor-js/react/multiplayer/org-slug-gate";
 import { Toaster } from "@executor-js/react/components/sonner";
 import { ExecutorPluginsProvider } from "@executor-js/sdk/client";
 import { plugins as clientPlugins } from "virtual:executor/plugins-client";
@@ -207,13 +210,20 @@ function AuthGate({ ssrOrigin }: { ssrOrigin: string | null }) {
   const navigate = useNavigate();
   const isOnboardingRoute = ONBOARDING_PATHS.has(location.pathname);
   const isPublicRoute = PUBLIC_PATHS.has(location.pathname);
+  // The org the URL names (the `{-$orgSlug}` segment), if any. `/account/me`
+  // is scoped to it, so `auth.organization` IS this org when the caller is a
+  // member — and `null` when the URL names an org they can't access.
+  const urlOrgSlug = (useParams({ strict: false }) as { orgSlug?: string }).orgSlug;
 
   // The SSR gate already bounced fresh org-less document requests to
   // /create-org; this catches the MID-SESSION transitions (org deleted,
-  // membership revoked → /account/me now reports no org).
+  // membership revoked → /account/me now reports no org). Only for BARE paths:
+  // an org-less result on a slugged URL is a wrong address (404 below), not a
+  // reason to send the user to onboarding.
   const needsOrgRedirect =
     auth.status === "authenticated" &&
     auth.organization == null &&
+    !urlOrgSlug &&
     !isOnboardingRoute &&
     !isPublicRoute;
 
@@ -252,7 +262,11 @@ function AuthGate({ ssrOrigin }: { ssrOrigin: string | null }) {
   }
 
   if (auth.organization == null) {
-    return <BlankScreen />;
+    // A URL naming an org this session can't access (`/account/me` returned no
+    // org for its slug) is a wrong address → the route 404, framed by nothing
+    // (the user isn't "in" any org here). A bare path with no org is a new
+    // user — the redirect effect above is taking them to onboarding.
+    return urlOrgSlug ? <NotFoundPage /> : <BlankScreen />;
   }
 
   // Seed the server connection from the SSR origin so origin-derived UI (the
@@ -261,16 +275,36 @@ function AuthGate({ ssrOrigin }: { ssrOrigin: string | null }) {
   // Null on client loader re-runs → undefined → the window-derived global,
   // which is the same origin, so the key never changes and nothing remounts.
   const connection = ssrOrigin ? ({ kind: "http", origin: ssrOrigin } as const) : undefined;
+  const activeSlug = auth.organization.slug;
+  // The org context's slug feeds the connect card's `/<slug>/mcp` install URL.
+  // Prefer the URL's slug over the session's: on first paint `auth.organization`
+  // comes from the SSR auth-hint (the COOKIE's org), so a multi-org user viewing
+  // /<orgB> while their cookie still points at orgA would briefly render orgA's
+  // slug in the copyable URL before /account/me (URL-scoped) corrects it. The
+  // URL slug is the actual request scope and is correct on the very first paint,
+  // so sourcing it from there removes that flash. Falls back to the session slug
+  // on a bare URL (which OrgSlugGate is about to canonicalize onto it anyway).
+  const scopeSlug = urlOrgSlug ?? activeSlug;
+  const billingHeaders = scopeSlug ? { [EXECUTOR_ORG_HEADER]: scopeSlug } : undefined;
 
   return (
-    <AutumnProvider pathPrefix="/api/billing">
+    <AutumnProvider pathPrefix="/api/billing" headers={billingHeaders}>
       <Sentry.ErrorBoundary fallback={<ShellErrorFallback />} showDialog={false}>
         <ExecutorProvider connection={connection} onHandledError={captureFrontendError}>
           <React.Suspense fallback={<BlankScreen />}>
             <ExecutorPluginsProvider plugins={clientPlugins}>
-              <OrganizationProvider organizationId={auth.organization.id}>
-                <Shell />
-                <Toaster />
+              <OrganizationProvider
+                organizationId={auth.organization.id}
+                organizationSlug={scopeSlug}
+              >
+                {/* The org header scopes every request to the URL's org, so
+                    reaching here means the caller is a member of `activeSlug`
+                    (a foreign slug already 404'd above). The gate only keeps
+                    the URL canonical — bare → /<slug>. */}
+                <OrgSlugGate activeSlug={activeSlug}>
+                  <Shell />
+                  <Toaster />
+                </OrgSlugGate>
               </OrganizationProvider>
             </ExecutorPluginsProvider>
           </React.Suspense>

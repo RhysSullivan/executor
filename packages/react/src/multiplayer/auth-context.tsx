@@ -44,6 +44,8 @@ export type AuthUser = {
 export type AuthOrganization = {
   id: string;
   name: string;
+  /** URL slug for org-prefixed console paths (`/<slug>/policies`). */
+  slug: string;
 };
 
 export type AuthState =

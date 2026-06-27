@@ -13,11 +13,11 @@
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
+import { mcpResourceKey, type McpResource } from "@executor-js/host-mcp";
 
 export const INTERNAL_ACCOUNT_ID_HEADER = "x-executor-mcp-account-id";
 export const INTERNAL_ORGANIZATION_ID_HEADER = "x-executor-mcp-organization-id";
-
-const TRUE_QUERY_VALUES = new Set(["1", "true", "yes", "on"]);
+export const INTERNAL_RESOURCE_KEY_HEADER = "x-executor-mcp-resource-key";
 
 /** The verified identity used to stamp the DO's internal owner headers. */
 export type VerifiedTokenHeaders = {
@@ -72,10 +72,12 @@ export const withPropagationHeaders = (
 export const withVerifiedIdentityHeaders = (
   request: Request,
   token: VerifiedTokenHeaders,
+  resource: McpResource,
 ): Request => {
   const headers = new Headers(request.headers);
   headers.set(INTERNAL_ACCOUNT_ID_HEADER, token.accountId);
   headers.set(INTERNAL_ORGANIZATION_ID_HEADER, token.organizationId ?? "");
+  headers.set(INTERNAL_RESOURCE_KEY_HEADER, mcpResourceKey(resource));
   return new Request(request, { headers });
 };
 
@@ -90,21 +92,11 @@ export const withMcpResponseHeaders = (response: Response): Response => {
   });
 };
 
-export type McpElicitationMode = "browser" | "model" | "native";
-
-const MCP_ELICITATION_MODES = new Set<McpElicitationMode>(["browser", "model", "native"]);
-
-export const readElicitationMode = (request: Request): McpElicitationMode => {
-  const url = new URL(request.url);
-  const mode = url.searchParams.get("elicitation_mode");
-  if (mode && MCP_ELICITATION_MODES.has(mode as McpElicitationMode)) {
-    return mode as McpElicitationMode;
-  }
-
-  const legacyModelResume = url.searchParams.get("allow_model_resume");
-  if (legacyModelResume !== null && TRUE_QUERY_VALUES.has(legacyModelResume.toLowerCase())) {
-    return "model";
-  }
-
-  return "model";
-};
+// The elicitation-mode query contract (`?elicitation_mode=` plus the legacy
+// `?allow_model_resume` alias) is shared with every host that serves the
+// browser-approval flow. Re-exported here so the worker dispatcher's existing
+// import site (`./do-headers`) is unchanged.
+export {
+  readElicitationMode,
+  type McpElicitationMode,
+} from "@executor-js/host-mcp/browser-approval";

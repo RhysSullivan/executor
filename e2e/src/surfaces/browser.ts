@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 import { Effect } from "effect";
 import { chromium, type Page } from "playwright";
 
-import { markFocus, markNavigation, markRecordingStart } from "../timeline";
+import { beat, enterFocus, markNavigation, markRecordingStart } from "../timeline";
 import { appendTraces, type TraceEntry } from "../trace-harvest";
 import type { Identity, Target } from "../target";
 
@@ -44,6 +44,11 @@ export const makeBrowserSurface = (dir: string, target: Target): BrowserSurface 
         const videoTmp = join(dir, ".video-tmp");
         mkdirSync(videoTmp, { recursive: true });
 
+        // Watchable mode (E2E_FILM / E2E_DESK): slow each Playwright action so
+        // the recording is readable instead of flickering through states at
+        // machine speed. Off by default — normal CI runs stay fast.
+        const watchable = process.env.E2E_FILM === "1" || process.env.E2E_DESK === "1";
+        const slowMo = watchable ? 400 : undefined;
         // On the desk (E2E_DESK), the browser is a real headed window on the
         // virtual display — the desk's single screen recording films it next
         // to the chat terminal, exactly like a developer tabbing over.
@@ -52,8 +57,11 @@ export const makeBrowserSurface = (dir: string, target: Target): BrowserSurface 
             ? {
                 headless: false,
                 args: ["--window-position=300,40", "--window-size=1100,830"],
+                slowMo,
               }
-            : {},
+            : slowMo
+              ? { slowMo }
+              : {},
         );
         const context = await browser.newContext({
           colorScheme: "dark",
@@ -133,8 +141,10 @@ export const makeBrowserSurface = (dir: string, target: Target): BrowserSurface 
       ({ page, context, shots }) =>
         Effect.promise(async () => {
           const step = async (label: string, action: (page: Page) => Promise<void>) => {
-            // Acting on the page IS focusing the browser window.
-            markFocus(dir, "browser");
+            // Acting on the page IS focusing the browser window — and when
+            // filming, enterFocus lingers a beat on whatever the developer was
+            // looking at before tabbing here.
+            await enterFocus(dir, "browser");
             await context.tracing.group(label);
             try {
               await action(page);
@@ -144,6 +154,9 @@ export const makeBrowserSurface = (dir: string, target: Target): BrowserSurface 
             await page.screenshot({
               path: join(dir, `${String(shots.count++).padStart(2, "0")}-${slug(label)}.png`),
             });
+            // Hold this step's result on screen so the film is readable (the
+            // consent screen, the success page, …). No-op unless filming.
+            await beat();
           };
           try {
             await drive({ page, step });

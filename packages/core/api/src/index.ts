@@ -51,6 +51,12 @@ export {
   SuccessResponse,
 } from "./account/api";
 export {
+  RESERVED_ORG_SLUGS,
+  generateOrgSlug,
+  isValidOrgSlug,
+  slugifyOrgName,
+} from "./account/org-slug";
+export {
   InternalError,
   ErrorCapture,
   observabilityMiddleware,

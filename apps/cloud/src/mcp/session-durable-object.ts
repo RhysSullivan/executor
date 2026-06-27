@@ -22,6 +22,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 
 import { createExecutorMcpServer } from "@executor-js/host-mcp/tool-server";
+import { buildResumeApprovalUrl } from "@executor-js/host-mcp/browser-approval";
 import {
   McpSessionDOBase,
   type BuiltMcpServer,
@@ -169,7 +170,9 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
       return {
         organizationId: org.id,
         organizationName: org.name,
+        organizationSlug: org.slug,
         userId: token.userId,
+        resource: token.resource,
         elicitationMode: token.elicitationMode,
       } satisfies SessionMeta;
     }).pipe(
@@ -191,6 +194,7 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
         sessionMeta.userId,
         sessionMeta.organizationId,
         sessionMeta.organizationName,
+        { mcpResource: sessionMeta.resource },
       ).pipe(
         Effect.provide(CloudExecutionStackLayer),
         Effect.withSpan("McpSessionDO.makeExecutionStack"),
@@ -210,12 +214,13 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
           sessionElicitationMode === "browser"
             ? {
                 mode: "browser" as const,
-                approvalUrl: (executionId) => {
-                  const origin = env.VITE_PUBLIC_SITE_URL ?? "https://executor.sh";
-                  const url = new URL(`/resume/${encodeURIComponent(executionId)}`, origin);
-                  url.searchParams.set("mcp_session_id", self.sessionId);
-                  return url.toString();
-                },
+                approvalUrl: (executionId) =>
+                  buildResumeApprovalUrl({
+                    origin: env.VITE_PUBLIC_SITE_URL ?? "https://executor.sh",
+                    executionId,
+                    sessionId: self.sessionId,
+                    organizationSlug: sessionMeta.organizationSlug,
+                  }),
               }
             : { mode: sessionElicitationMode },
       }).pipe(Effect.withSpan("McpSessionDO.createExecutorMcpServer"));

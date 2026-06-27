@@ -43,16 +43,13 @@ describe("CLI server connection", () => {
     });
   });
 
-  it("supports desktop-style basic auth for local server connections", () => {
+  it("reads a local server bearer token from EXECUTOR_AUTH_TOKEN", () => {
     const connection = parseCliExecutorServerConnection("http://127.0.0.1:4789", {
-      EXECUTOR_AUTH_PASSWORD: "desktop-password",
+      EXECUTOR_AUTH_TOKEN: "desktop-token",
     });
 
-    expect(connection.auth).toEqual({
-      kind: "basic",
-      username: "executor",
-      password: "desktop-password",
-    });
+    expect(connection.auth).toEqual({ kind: "bearer", token: "desktop-token" });
+    // A connection carrying explicit auth is not an auto-startable local daemon.
     expect(canAutoStartCliServerConnection(connection)).toBe(false);
   });
 
@@ -65,23 +62,12 @@ describe("CLI server connection", () => {
     expect(canAutoStartCliServerConnection(connection)).toBe(false);
   });
 
-  it("prefers bearer auth for hosted connections and basic auth for local connections", () => {
-    const hosted = parseCliExecutorServerConnection("https://executor.example", {
+  it("prefers EXECUTOR_API_KEY over EXECUTOR_AUTH_TOKEN", () => {
+    const connection = parseCliExecutorServerConnection("https://executor.example", {
       EXECUTOR_API_KEY: "key_123",
-      EXECUTOR_AUTH_PASSWORD: "desktop-password",
+      EXECUTOR_AUTH_TOKEN: "token_456",
     });
-    expect(hosted.auth).toEqual({ kind: "bearer", token: "key_123" });
-
-    const local = parseCliExecutorServerConnection("http://127.0.0.1:4789", {
-      EXECUTOR_API_KEY: "key_123",
-      EXECUTOR_AUTH_PASSWORD: "desktop-password",
-      EXECUTOR_AUTH_USERNAME: "rhys",
-    });
-    expect(local.auth).toEqual({
-      kind: "basic",
-      username: "rhys",
-      password: "desktop-password",
-    });
+    expect(connection.auth).toEqual({ kind: "bearer", token: "key_123" });
   });
 
   it("attaches implicit local requests to the active local owner", () => {
@@ -94,7 +80,7 @@ describe("CLI server connection", () => {
       dataDir: "/tmp/executor",
       scopeDir: "/tmp/executor",
       connection: parseCliExecutorServerConnection("http://127.0.0.1:4789", {
-        EXECUTOR_AUTH_PASSWORD: "desktop-password",
+        EXECUTOR_AUTH_TOKEN: "desktop-token",
       }),
       owner: {
         client: "desktop" as const,
@@ -114,9 +100,8 @@ describe("CLI server connection", () => {
       connection: {
         origin: "http://127.0.0.1:4789",
         auth: {
-          kind: "basic",
-          username: "executor",
-          password: "desktop-password",
+          kind: "bearer",
+          token: "desktop-token",
         },
       },
     });
@@ -132,7 +117,7 @@ describe("CLI server connection", () => {
       dataDir: "/tmp/executor",
       scopeDir: "/tmp/executor",
       connection: parseCliExecutorServerConnection("http://127.0.0.1:4789", {
-        EXECUTOR_AUTH_PASSWORD: "desktop-password",
+        EXECUTOR_AUTH_TOKEN: "desktop-token",
       }),
       owner: {
         client: "desktop" as const,

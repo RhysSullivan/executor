@@ -10,10 +10,11 @@ The integration layer for AI agents. One catalog for every tool, shared across e
 
 ```bash
 npm install -g executor
+executor install
 executor web
 ```
 
-This starts a local runtime with a web UI at `http://127.0.0.1:4788`. From there, add your first source and start using tools.
+This installs the local background service and opens the web UI. From there, add your first source and start using tools.
 
 ### Use as an MCP server
 
@@ -37,13 +38,30 @@ Example `mcp.json` for Claude Code / Cursor:
 }
 ```
 
+### Use with Pi
+
+[Pi](https://pi.dev) does not include a built-in MCP client. To use Executor from Pi, install the community bridge:
+
+```bash
+pi install git:github.com/gvkhosla/pi-executor-mcp@v0.2.0
+```
+
+Reload Pi, then verify the bridge:
+
+```text
+/reload
+/executor-status
+```
+
+After that, ask Pi to search, inspect, and call tools through Executor.
+
 ## Add a source
 
 If you can represent it with a JSON schema, it can be an integration. Executor has first-party support for OpenAPI, GraphQL, MCP, and Google Discovery — but the plugin system is open to any source type.
 
 ### Via the web UI
 
-Open `http://127.0.0.1:4788`, go to **Add Source**, paste a URL, and Executor will detect the type, index the tools, and handle auth.
+Run `executor web`, go to **Add Source**, paste a URL, and Executor will detect the type, index the tools, and handle auth.
 
 ### Via the CLI
 
@@ -102,7 +120,9 @@ executor resume --execution-id exec_123
 ## CLI reference
 
 ```bash
-executor web                        # start runtime + web UI
+executor install                    # install/start the durable background service
+executor web                        # open the running web UI
+executor web --foreground           # start a temporary foreground runtime + web UI
 executor daemon run                 # start persistent local daemon in background
 executor daemon status              # show daemon status
 executor daemon stop                # stop daemon
@@ -134,8 +154,7 @@ bun run test:e2e   # full-stack e2e: boots the cloud and self-host apps and driv
 ```
 
 The browser e2e scenarios need Playwright's Chromium once per machine:
-`bunx playwright install chromium`. The git submodules under `vendor/` are
-optional — see [vendor/README.md](vendor/README.md).
+`bunx playwright install chromium`.
 
 ## Community
 

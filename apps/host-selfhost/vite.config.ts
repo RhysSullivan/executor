@@ -5,9 +5,10 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import { physical, rootRoute } from "@tanstack/virtual-file-routes";
-import { consoleRoutes } from "@executor-js/react/console-routes";
 import executorVitePlugin from "@executor-js/vite-plugin";
+
+import { routes } from "./tsr.routes";
+import { stripMcpOrgSegment } from "./src/mcp/org-path";
 
 // Self-host web SPA. Mirrors @executor-js/app's vite plugin bundle, but points
 // the TanStack router codegen at THIS app's routes (web/routes) so we get the
@@ -53,16 +54,32 @@ function executorApiPlugin(): Plugin {
         if (path.includes("/src/") || path.endsWith("/executor.config.ts")) handlerPromise = null;
       });
       server.middlewares.use(async (req, res, next) => {
-        const rawUrl = req.url ?? "/";
+        let rawUrl = req.url ?? "/";
+        // The "Connect an agent" card prints `/<organizationId>/mcp`; self-host
+        // serves the bare `/mcp`, so rewrite it here (prod does the same in
+        // serve.ts) — otherwise this org-pinned path isn't recognized as an MCP
+        // path and falls through to the SPA as a 404. Mirrors ./src/mcp/org-path.
+        const devOrigin = `http://${req.headers.host ?? `localhost:${DEV_PORT}`}`;
+        const pathname = stripMcpOrgSegment(new URL(rawUrl, devOrigin).pathname) ?? "";
+        if (pathname !== "") {
+          const original = new URL(rawUrl, devOrigin);
+          rawUrl = `${pathname}${original.search}`;
+        }
+        // Match on PATHNAME, not a raw-URL prefix: `/mcp` must NOT swallow the
+        // SPA route `/mcp-consent`, or the dev server misroutes it to the API
+        // handler and returns a 404.
+        const path = new URL(rawUrl, devOrigin).pathname;
         const handled =
-          rawUrl === "/api" ||
-          rawUrl.startsWith("/api/") ||
-          rawUrl.startsWith("/mcp") ||
-          rawUrl.startsWith("/docs") ||
+          path === "/api" ||
+          path.startsWith("/api/") ||
+          path === "/mcp" ||
+          path.startsWith("/mcp/") ||
+          path === "/docs" ||
+          path.startsWith("/docs/") ||
           // RFC 9728 / RFC 8414 OAuth discovery the MCP client fetches before
           // auth. Served by the Effect router in prod; without this the SPA
           // index.html fallback answers 200-with-HTML and breaks discovery.
-          rawUrl.startsWith("/.well-known/");
+          path.startsWith("/.well-known/");
         if (!handled) return next();
 
         // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Vite dev middleware must convert handler failures into HTTP 500 responses
@@ -136,14 +153,9 @@ export default defineConfig({
       autoCodeSplitting: true,
       routesDirectory: fileURLToPath(new URL("./web/routes", import.meta.url)),
       generatedRouteTree: fileURLToPath(new URL("./web/routeTree.gen.ts", import.meta.url)),
-      // Shared console routes come from @executor-js/react (see its
-      // console-routes.ts); this app owns its root (the Better Auth shell)
-      // and the self-host-specific routes under web/routes/app (admin,
-      // api-keys, invite join).
-      virtualRouteConfig: rootRoute("__root.tsx", [
-        ...consoleRoutes({ dir: "../../../../packages/react/src/routes" }),
-        physical("", "app"),
-      ]),
+      // The route tree definition lives in tsr.routes.ts (shared with
+      // packages/react's routes:gen so a CLI regen matches dev/build).
+      virtualRouteConfig: routes,
     }),
     ...react(),
   ],

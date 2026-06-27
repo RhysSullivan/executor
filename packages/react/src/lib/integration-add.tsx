@@ -79,7 +79,7 @@ export function SlugCollisionAlert(props: { readonly slug: string }) {
         An integration named &quot;{props.slug}&quot; already exists. To add more authentication,
         update your existing integration.{" "}
         <Link
-          to="/integrations/$namespace"
+          to="/{-$orgSlug}/integrations/$namespace"
           params={{ namespace: props.slug }}
           className="font-medium underline underline-offset-2"
         >

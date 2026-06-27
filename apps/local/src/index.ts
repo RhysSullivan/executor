@@ -14,3 +14,4 @@ export {
 } from "./executor";
 export { createMcpRequestHandler, runMcpStdioServer, type McpRequestHandler } from "./mcp";
 export { startServer, type StartServerOptions, type ServerInstance } from "./serve";
+export { loadOrMintLocalAuthToken, rotateLocalAuthToken, localAuthTokenPath } from "./auth";

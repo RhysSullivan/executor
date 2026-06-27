@@ -11,6 +11,8 @@ import {
   toolsAllAtom,
 } from "@executor-js/react/api/atoms";
 import { Button } from "@executor-js/react/components/button";
+import { toast } from "@executor-js/react/components/sonner";
+import { copyToClipboard } from "@executor-js/react/lib/clipboard";
 import { integrationPresetIconUrl } from "@executor-js/react/components/integration-favicon";
 import { IntegrationIconWithAccount } from "@executor-js/react/components/integration-icon-with-account";
 import { CommandPalette } from "@executor-js/react/components/command-palette";
@@ -134,7 +136,11 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(command).then(() => {
+    void copyToClipboard(command).then((ok) => {
+      if (!ok) {
+        toast.error("Failed to copy to clipboard");
+        return;
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -252,7 +258,7 @@ function PluginNav(props: { pathname: string; onNavigate?: () => void }) {
       {entries.map((entry) => (
         <Link
           key={entry.key}
-          to="/plugins/$pluginId/$"
+          to="/{-$orgSlug}/plugins/$pluginId/$"
           params={{ pluginId: entry.pluginId, _splat: entry.splat }}
           onClick={props.onNavigate}
           className={[
@@ -289,14 +295,14 @@ function IntegrationList(props: { pathname: string; onNavigate?: () => void }) {
         <div className="flex flex-col gap-px">
           {value.map((integration: Integration) => {
             const slug = String(integration.slug);
-            const name = integration.description || slug;
+            const name = integration.name || slug;
             const detailPath = `/integrations/${slug}`;
             const active =
               props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
             return (
               <Link
                 key={slug}
-                to="/integrations/$namespace"
+                to="/{-$orgSlug}/integrations/$namespace"
                 params={{ namespace: slug }}
                 onClick={props.onNavigate}
                 className={[
@@ -315,9 +321,6 @@ function IntegrationList(props: { pathname: string; onNavigate?: () => void }) {
                   size="sm"
                 />
                 <span className="flex-1 truncate">{name}</span>
-                <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
-                  {integration.kind}
-                </span>
               </Link>
             );
           })}
@@ -339,30 +342,50 @@ function SidebarContent(props: {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
   const isPolicies = props.pathname === "/policies";
+  const isToolkits = props.pathname === "/toolkits" || props.pathname.startsWith("/toolkits/");
 
   return (
     <>
       {props.showBrand !== false && (
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border px-4">
-          <Link to="/" className="flex shrink-0 items-center gap-1.5">
+        <div className="desktop-macos-titlebar flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border px-4">
+          <Link
+            to="/{-$orgSlug}"
+            className="desktop-macos-no-drag flex shrink-0 items-center gap-1.5"
+          >
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
             <span className="rounded bg-primary/15 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-primary">
               Beta
             </span>
           </Link>
-          <div className="ml-auto flex min-w-0 flex-1 justify-end">
+          <div className="desktop-macos-no-drag ml-auto flex min-w-0 flex-1 justify-end pl-3">
             <ServerConnectionMenu variant="header" />
           </div>
         </div>
       )}
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
-        <NavItem to="/" label="Integrations" active={isHome} onNavigate={props.onNavigate} />
-        <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
         <NavItem
-          to="/policies"
+          to="/{-$orgSlug}"
+          label="Integrations"
+          active={isHome}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          to="/{-$orgSlug}/secrets"
+          label="Secrets"
+          active={isSecrets}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          to="/{-$orgSlug}/policies"
           label="Policies"
           active={isPolicies}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          to="/{-$orgSlug}/toolkits"
+          label="Toolkits"
+          active={isToolkits}
           onNavigate={props.onNavigate}
         />
 
@@ -383,6 +406,14 @@ function SidebarContent(props: {
       {/* Footer */}
       <div className="shrink-0 border-t border-sidebar-border px-4 py-2.5">
         <div className="flex flex-col gap-1.5 text-xs leading-none">
+          <a
+            href="https://executor.sh/docs"
+            target="_blank"
+            rel="noreferrer"
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Docs
+          </a>
           <a
             href={`${VITE_GITHUB_URL}/issues`}
             target="_blank"
@@ -454,7 +485,7 @@ export function Shell() {
     <div className="flex h-screen overflow-hidden">
       <CommandPalette />
       {/* Desktop sidebar */}
-      <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
+      <aside className="desktop-macos-sidebar hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
         <SidebarContent
           pathname={pathname}
           updateAvailable={updateAvailable}
@@ -475,7 +506,7 @@ export function Shell() {
           />
           <div className="relative flex h-full w-[84vw] max-w-xs flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
-              <Link to="/" className="flex items-center gap-1.5">
+              <Link to="/{-$orgSlug}" className="flex items-center gap-1.5">
                 <span className="font-display text-base tracking-tight text-foreground">
                   executor
                 </span>
@@ -532,7 +563,7 @@ export function Shell() {
               />
             </svg>
           </Button>
-          <Link to="/" className="flex items-center gap-1.5">
+          <Link to="/{-$orgSlug}" className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
           <div className="w-8 shrink-0" />

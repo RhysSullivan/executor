@@ -43,6 +43,7 @@ import {
   mcpOrganizationFromRequest,
   protectedResourceMetadataUrlFor,
   PROTECTED_RESOURCE_METADATA_PATH,
+  toolkitSlugFromRequest,
   McpAuth,
   McpAuthLive,
   McpOrganizationAuth,
@@ -57,6 +58,7 @@ import {
 } from "./oauth-metadata";
 
 const AUTHORIZATION_SERVER_METADATA_PATH = "/.well-known/oauth-authorization-server";
+const TOOLKIT_PROTECTED_RESOURCE_METADATA_PATH = `${PROTECTED_RESOURCE_METADATA_PATH}/toolkits/:toolkitSlug`;
 
 const NO_ORGANIZATION_MESSAGE = "No organization in session — log in via the web app first";
 
@@ -94,7 +96,22 @@ export const cloudMcpAuthProviderLayer: Layer.Layer<
         // The bare path is the only one mounted; `prepareMcpOrgScope` rewrites an
         // org-scoped discovery doc onto it and pins the org in the header we read.
         handler: (request) =>
-          Effect.succeed(protectedResourceMetadataResponse(mcpOrganizationFromRequest(request))),
+          Effect.succeed(
+            protectedResourceMetadataResponse(
+              mcpOrganizationFromRequest(request),
+              toolkitSlugFromRequest(request),
+            ),
+          ),
+      },
+      {
+        path: TOOLKIT_PROTECTED_RESOURCE_METADATA_PATH,
+        handler: (request) =>
+          Effect.succeed(
+            protectedResourceMetadataResponse(
+              mcpOrganizationFromRequest(request),
+              toolkitSlugFromRequest(request),
+            ),
+          ),
       },
       {
         path: AUTHORIZATION_SERVER_METADATA_PATH,
@@ -103,7 +120,10 @@ export const cloudMcpAuthProviderLayer: Layer.Layer<
     ];
 
     const resourceMetadataUrl = (request: Request): string =>
-      protectedResourceMetadataUrlFor(mcpOrganizationFromRequest(request));
+      protectedResourceMetadataUrlFor(
+        mcpOrganizationFromRequest(request),
+        toolkitSlugFromRequest(request),
+      );
 
     /**
      * Resolve a verified bearer to a final AuthOutcome by running the live org
@@ -123,33 +143,35 @@ export const cloudMcpAuthProviderLayer: Layer.Layer<
         // not on the org outcome, to preserve that telemetry.
         const parseBody = request.method === "POST";
 
-        // URL is the source of truth for the active org when pinned (`/org_xxx/mcp`,
-        // carried in the header by `prepareMcpOrgScope`); the bare `/mcp` falls back
-        // to the token's `org_id`. Either way `orgAuth.authorize` re-checks live
-        // WorkOS membership below, so the URL is a selector, not a trust boundary.
-        const organizationId = mcpOrganizationFromRequest(request) ?? token.organizationId;
-        if (!organizationId) {
+        // URL is the source of truth for the active org when pinned — the org's
+        // slug (`/acme/mcp`, what the install card prints) or a legacy org id
+        // (`/org_xxx/mcp`), carried in the header by `prepareMcpOrgScope`; the
+        // bare `/mcp` falls back to the token's `org_id`. Either way
+        // `orgAuth.authorize` resolves the selector and re-checks live WorkOS
+        // membership below, so the URL is a selector, not a trust boundary.
+        const organizationSelector = mcpOrganizationFromRequest(request) ?? token.organizationId;
+        if (!organizationSelector) {
           yield* annotateMcpRequest(request, { token, parseBody });
           return forbidden(NO_ORGANIZATION_MESSAGE, -32001);
         }
 
-        const allowed = yield* orgAuth.authorize(token.accountId, organizationId).pipe(
+        const organizationId = yield* orgAuth.authorize(token.accountId, organizationSelector).pipe(
           Effect.catchCause((error) =>
             Effect.gen(function* () {
               yield* Effect.annotateCurrentSpan({
                 "mcp.auth.organization_authorize_error": Cause.pretty(error),
               });
-              return false;
+              return null;
             }),
           ),
           Effect.withSpan("mcp.auth.authorize_organization", {
-            attributes: { "mcp.auth.organization_id": organizationId },
+            attributes: { "mcp.auth.organization_selector": organizationSelector },
           }),
         );
 
         yield* annotateMcpRequest(request, { token, parseBody });
 
-        if (!allowed) return forbidden(NO_ORGANIZATION_MESSAGE, -32001);
+        if (!organizationId) return forbidden(NO_ORGANIZATION_MESSAGE, -32001);
         return authenticated(principalFromToken(token, organizationId));
       });
 
@@ -158,7 +180,15 @@ export const cloudMcpAuthProviderLayer: Layer.Layer<
         return finishAuthorized(request, result.token);
       }
       return annotateMcpRequest(request, { token: null, parseBody: false }).pipe(
-        Effect.as(unauthorized(bearerChallengeFor(result, mcpOrganizationFromRequest(request)))),
+        Effect.as(
+          unauthorized(
+            bearerChallengeFor(
+              result,
+              mcpOrganizationFromRequest(request),
+              toolkitSlugFromRequest(request),
+            ),
+          ),
+        ),
       );
     };
 

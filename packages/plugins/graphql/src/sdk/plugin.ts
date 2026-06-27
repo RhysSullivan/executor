@@ -1,6 +1,6 @@
 import { Effect, Match, Option, Schema } from "effect";
 import type { Layer } from "effect";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/unstable/http";
 
 import {
   authToolFailure,
@@ -95,6 +95,9 @@ const GraphqlAddIntegrationInputSchema = Schema.Struct({
   endpoint: Schema.String,
   slug: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
+  /** Agent-visible catalog description. Falls back to the introspected
+   *  schema's own description, then the display name. */
+  description: Schema.optional(Schema.String),
   introspectionJson: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   queryParams: Schema.optional(Schema.Record(Schema.String, Schema.String)),
@@ -603,7 +606,8 @@ const makeGraphqlExtension = (ctx: PluginCtx<GraphqlStore>) => {
         yield* ctx.transaction(
           ctx.core.integrations.register({
             slug,
-            description: baseConfig.name,
+            name: baseConfig.name,
+            description: input.description?.trim() || baseConfig.name,
             config: baseConfig,
             canRemove: true,
             canRefresh: true,
@@ -637,9 +641,17 @@ const makeGraphqlExtension = (ctx: PluginCtx<GraphqlStore>) => {
         Effect.gen(function* () {
           yield* ctx.storage.replaceOperations(String(slug), toStoredOperations(slug, prepared));
 
+          // Prefill order: caller's description, then the schema's own
+          // description (present when introspection ran with schema
+          // descriptions), then the display name.
+          const schemaDescription =
+            typeof (introspection as { description?: unknown }).description === "string"
+              ? ((introspection as { description?: string }).description ?? "").trim()
+              : "";
           yield* ctx.core.integrations.register({
             slug,
-            description: config.name,
+            name: config.name,
+            description: input.description?.trim() || schemaDescription || config.name,
             config,
             canRemove: true,
             canRefresh: true,
@@ -881,11 +893,13 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
       template,
       storage,
       getValues,
+      httpClientLayer,
     }: {
       readonly config: IntegrationConfig;
       readonly template: AuthTemplateSlug | null;
       readonly storage: GraphqlStore;
       readonly getValues: () => Effect.Effect<Record<string, string | null>, unknown>;
+      readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient>;
     }) =>
       Effect.gen(function* () {
         const decoded = yield* decodeGraphqlIntegrationConfig(config).pipe(Effect.option);
@@ -905,7 +919,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
           introspectionJson,
           values,
           template,
-          options?.httpClientLayer ?? httpClientLayerFallback,
+          options?.httpClientLayer ?? httpClientLayer,
         ).pipe(Effect.option);
         if (Option.isNone(introspection)) return { tools: [] };
         const extracted = yield* extract(introspection.value).pipe(Effect.option);
@@ -1105,9 +1119,3 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
   // HTTP transport (routes/handlers/extensionService) is layered on by the
   // api-aware factory in `@executor-js/plugin-graphql/api`.
 });
-
-// The fallback HTTP layer for `resolveTools`. The hook input carries no `ctx`,
-// so when no explicit layer is passed to the plugin we use the same default the
-// executor wires into `ctx.httpClientLayer` (`FetchHttpClient.layer`). Hosts/
-// tests that need a custom transport pass `options.httpClientLayer`.
-const httpClientLayerFallback: Layer.Layer<HttpClient.HttpClient> = FetchHttpClient.layer;
