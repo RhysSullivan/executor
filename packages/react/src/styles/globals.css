@@ -164,6 +164,27 @@
   -webkit-app-region: no-drag;
 }
 
+/* The main content area sits to the right of the sidebar. On the frameless
+   desktop window it renders page content straight to the top edge with nothing
+   marked as a drag region, so the window could not be moved or
+   double-clicked-to-zoom from there (only the sidebar header worked, see
+   .desktop-macos-titlebar above). Reserve a title-bar-height strip along the
+   top of the main area and make it draggable so the whole top row behaves like
+   the native title bar. Hidden off-desktop. It reserves space rather than
+   overlaying, so no page content sits under the drag region (a drag region
+   would otherwise swallow clicks on anything beneath it). The traffic lights
+   sit over the sidebar, never the main area, so no left offset is needed here. */
+.desktop-macos-main-titlebar {
+  display: none;
+}
+
+.executor-desktop-macos .desktop-macos-main-titlebar {
+  display: block;
+  height: 3rem; /* matches the sidebar header (h-12) */
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
 /* The 88px title-bar offset eats into the sidebar's width; without extra room
    the brand wordmark and the server-connection menu collide. Widen the macOS
    sidebar so both clear the traffic lights with comfortable spacing. */
