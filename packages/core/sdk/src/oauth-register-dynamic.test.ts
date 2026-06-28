@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 
 import {
   AuthTemplateSlug,
@@ -8,6 +8,7 @@ import {
   OAuthClientSlug,
   ToolName,
 } from "./ids";
+import { OAuthRegisterDynamicError } from "./oauth-client";
 import { definePlugin } from "./plugin";
 import { makeTestWorkspaceHarness, memoryCredentialsPlugin } from "./test-config";
 import { serveOAuthTestServer } from "./testing/oauth-test-server";
@@ -142,5 +143,90 @@ describe("oauth.registerDynamicClient", () => {
         expect(new URLSearchParams(tokenRequest!.body).get("resource")).toBe(server.mcpResourceUrl);
       }),
     ),
+  );
+
+  // Regression: issue #770. Vercel (and other RFC 8252-strict servers) only
+  // approve loopback redirect URIs for anonymous DCR, so a hosted/tailnet/LAN
+  // origin trips `invalid_redirect_uri`. The failure must explain the loopback
+  // requirement and name the offending URI, not dump the raw RFC code.
+  it.effect("DCR rejection of a non-loopback redirect URI yields an actionable loopback hint", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = yield* serveOAuthTestServer({
+          scopes: ["read"],
+          // Mirror Vercel: approve only loopback redirect URIs for anonymous DCR.
+          approveRedirectUri: (uri) =>
+            uri.startsWith("http://localhost") || uri.startsWith("http://127."),
+        });
+        const { executor } = yield* makeTestWorkspaceHarness({ plugins });
+        yield* executor.acme.seed();
+        const probe = yield* executor.oauth.probe({ url: server.mcpResourceUrl });
+
+        const nonLoopback = "https://app.example.com/api/oauth/callback";
+        const error = yield* Effect.flip(
+          executor.oauth.registerDynamicClient({
+            owner: "org",
+            slug: CLIENT,
+            registrationEndpoint: probe.registrationEndpoint!,
+            authorizationUrl: probe.authorizationUrl,
+            tokenUrl: probe.tokenUrl,
+            resource: probe.resource,
+            scopes: ["read"],
+            tokenEndpointAuthMethodsSupported: probe.tokenEndpointAuthMethodsSupported,
+            clientName: "Acme DCR",
+            redirectUri: nonLoopback,
+            originIntegration: INTEG,
+          }),
+        );
+        // Predicate guard narrows the union so `.message` reads off a typed failure.
+        expect(Predicate.isTagged("OAuthRegisterDynamicError")(error)).toBe(true);
+        const registerError = error as OAuthRegisterDynamicError;
+        const message = registerError.message;
+        // Names the loopback-only requirement, the localhost fix, and the URI.
+        expect(message).toContain("loopback");
+        expect(message).toContain("http://localhost");
+        expect(message).toContain(nonLoopback);
+      }),
+    ),
+  );
+
+  // The loopback hint is gated on the redirect URI actually being non-loopback.
+  // A server that rejects even a loopback URI keeps the generic message so we
+  // never tell the user "use localhost" when they already are.
+  it.effect(
+    "DCR rejection of a loopback redirect URI keeps the generic message (no false hint)",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = yield* serveOAuthTestServer({
+            scopes: ["read"],
+            approveRedirectUri: () => false, // reject every redirect URI, even loopback
+          });
+          const { executor } = yield* makeTestWorkspaceHarness({ plugins });
+          yield* executor.acme.seed();
+          const probe = yield* executor.oauth.probe({ url: server.mcpResourceUrl });
+
+          const error = yield* Effect.flip(
+            executor.oauth.registerDynamicClient({
+              owner: "org",
+              slug: CLIENT,
+              registrationEndpoint: probe.registrationEndpoint!,
+              authorizationUrl: probe.authorizationUrl,
+              tokenUrl: probe.tokenUrl,
+              resource: probe.resource,
+              scopes: ["read"],
+              tokenEndpointAuthMethodsSupported: probe.tokenEndpointAuthMethodsSupported,
+              clientName: "Acme DCR",
+              redirectUri: "http://127.0.0.1:5394/api/oauth/callback",
+              originIntegration: INTEG,
+            }),
+          );
+          expect(Predicate.isTagged("OAuthRegisterDynamicError")(error)).toBe(true);
+          const registerError = error as OAuthRegisterDynamicError;
+          const message = registerError.message;
+          expect(message).toContain("Dynamic Client Registration failed: invalid_redirect_uri");
+          expect(message).not.toContain("Automatic OAuth setup failed");
+        }),
+      ),
   );
 });

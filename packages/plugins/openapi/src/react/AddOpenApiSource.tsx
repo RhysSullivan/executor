@@ -65,6 +65,14 @@ const specInputForAdd = (input: string) => {
     : { kind: "blob" as const, value };
 };
 
+export const baseUrlFromSpecInput = (input: string): string => {
+  const value = input.trim();
+  if (!URL.canParse(value)) return "";
+  const parsed = new URL(value);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+  return parsed.origin;
+};
+
 // ---------------------------------------------------------------------------
 // Component: single progressive form. Post-redesign: preview -> addSpec
 // (register the integration catalog entry with ALL detected auth methods) →
@@ -220,7 +228,7 @@ export default function AddOpenApiSource(props: {
     }
     const result = exit.value;
     setPreview(result);
-    setBaseUrl("");
+    setBaseUrl(result.servers.length === 0 ? baseUrlFromSpecInput(specUrl) : "");
     setAnalyzing(false);
   };
 

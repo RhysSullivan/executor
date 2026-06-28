@@ -52,11 +52,16 @@ export interface AuthMethodOAuthDescriptor {
   readonly discoveryUrl?: string;
   readonly authorizationUrl?: string;
   readonly tokenUrl?: string;
+  readonly resource?: string | null;
   readonly scopes?: readonly string[];
   readonly registrationEndpoint?: string;
   /** True when the integration is known to support RFC 7591 dynamic client
    *  registration (drives the transparent auto-register connect flow). */
   readonly supportsDynamicRegistration?: boolean;
+  /** True when the authorization server supports Client ID Metadata Document
+   *  clients. The UI can create a local public OAuth client using this host's
+   *  metadata-document URL as `client_id`, with no provider app registration. */
+  readonly supportsClientIdMetadataDocument?: boolean;
 }
 
 /** A single declared auth method on an integration's catalog response. */

@@ -155,6 +155,17 @@ export type RunOAuthCallbackInput<TAuth, E, R> = {
   readonly channelName: string;
 };
 
+const providerErrorMessage = (params: OAuthCallbackUrlParams): PopupErrorMessage | null => {
+  const error = params.error ?? null;
+  const description = params.error_description ?? null;
+  const value = error ?? description;
+  if (!value) return null;
+  return {
+    short: "OAuth provider rejected authorization",
+    details: error && description && description !== error ? `${error}: ${description}` : value,
+  };
+};
+
 /**
  * Run a plugin's `completeOAuth` against URL params from the OAuth redirect,
  * wrap the success / failure in an `OAuthPopupResult`, and return the HTML
@@ -165,35 +176,49 @@ export type RunOAuthCallbackInput<TAuth, E, R> = {
  */
 export const runOAuthCallback = <TAuth, E, R>(
   input: RunOAuthCallbackInput<TAuth, E, R>,
-): Effect.Effect<string, never, R> =>
-  input
-    .complete({
-      state: input.urlParams.state,
-      code: input.urlParams.code ?? null,
-      error: input.urlParams.error ?? input.urlParams.error_description ?? null,
-      callbackDomain: input.urlParams.domain ?? input.urlParams.site ?? null,
-    })
-    .pipe(
-      Effect.map(
-        (auth): OAuthPopupResult<TAuth> => ({
-          type: OAUTH_POPUP_MESSAGE_TYPE,
-          ok: true,
-          sessionId: input.urlParams.state,
-          ...auth,
-        }),
-      ),
-      Effect.catchCause((cause) => {
-        const { short, details } = input.toErrorMessage(Cause.squash(cause));
-        return Effect.succeed<OAuthPopupResult<TAuth>>({
+): Effect.Effect<string, never, R> => {
+  const providerError = providerErrorMessage(input.urlParams);
+  const result =
+    providerError == null
+      ? input
+          .complete({
+            state: input.urlParams.state,
+            code: input.urlParams.code ?? null,
+            error: null,
+            callbackDomain: input.urlParams.domain ?? input.urlParams.site ?? null,
+          })
+          .pipe(
+            Effect.map(
+              (auth): OAuthPopupResult<TAuth> => ({
+                type: OAUTH_POPUP_MESSAGE_TYPE,
+                ok: true,
+                sessionId: input.urlParams.state,
+                ...auth,
+              }),
+            ),
+          )
+      : Effect.succeed<OAuthPopupResult<TAuth>>({
           type: OAUTH_POPUP_MESSAGE_TYPE,
           ok: false,
           sessionId: input.urlParams.state ?? null,
-          error: short,
-          ...(details && details !== short ? { errorDetails: details } : {}),
+          error: providerError.short,
+          ...(providerError.details ? { errorDetails: providerError.details } : {}),
         });
-      }),
-      Effect.tap((result) =>
-        Effect.sync(() => completionListener?.(result as OAuthPopupResult<unknown>)),
-      ),
-      Effect.map((result) => popupDocument(result, input.channelName)),
-    );
+
+  return result.pipe(
+    Effect.catchCause((cause) => {
+      const { short, details } = input.toErrorMessage(Cause.squash(cause));
+      return Effect.succeed<OAuthPopupResult<TAuth>>({
+        type: OAUTH_POPUP_MESSAGE_TYPE,
+        ok: false,
+        sessionId: input.urlParams.state ?? null,
+        error: short,
+        ...(details && details !== short ? { errorDetails: details } : {}),
+      });
+    }),
+    Effect.tap((result) =>
+      Effect.sync(() => completionListener?.(result as OAuthPopupResult<unknown>)),
+    ),
+    Effect.map((result) => popupDocument(result, input.channelName)),
+  );
+};

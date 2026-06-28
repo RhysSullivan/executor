@@ -32,7 +32,15 @@ export interface OAuthAuthentication {
   readonly kind: "oauth2";
   readonly authorizationUrl: string;
   readonly tokenUrl: string;
+  /** RFC 8707 Resource Indicator to bind the OAuth flow to this protected
+   *  resource, when discovered from protected-resource metadata. */
+  readonly resource?: string | null;
   readonly scopes: readonly string[];
+  /** True when the authorization server supports OAuth Client ID Metadata
+   *  Document (CIMD). The local OAuth client is then a public PKCE client whose
+   *  `client_id` is this host's metadata-document URL, not a provider-side
+   *  registered app id. */
+  readonly supportsClientIdMetadataDocument?: boolean;
 }
 
 /** A registered OAuth app — pure app identity: clientId/secret + its endpoints.
@@ -138,6 +146,9 @@ export interface OAuthProbeResult {
   /** RFC 8414 `token_endpoint_auth_methods_supported`. Surfaced so DCR can pick
    *  a public ("none") client when the server allows it. */
   readonly tokenEndpointAuthMethodsSupported?: readonly string[];
+  /** Draft OAuth Client ID Metadata Document support, advertised by providers
+   *  such as PostHog as `client_id_metadata_document_supported`. */
+  readonly clientIdMetadataDocumentSupported?: boolean;
 }
 
 /** Mint an OAuth client via RFC 7591 Dynamic Client Registration and persist it.

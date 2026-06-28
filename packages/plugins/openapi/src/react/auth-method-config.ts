@@ -41,7 +41,9 @@ const oauthAuthMethod = (template: Extract<Authentication, { kind: "oauth2" }>):
     oauth: {
       authorizationUrl: template.authorizationUrl,
       tokenUrl: template.tokenUrl,
+      resource: template.resource ?? null,
       scopes: template.scopes,
+      supportsClientIdMetadataDocument: template.supportsClientIdMetadataDocument,
     },
   };
 };
@@ -78,7 +80,9 @@ export function editorValueFromAuthentication(template: Authentication): AuthTem
       kind: "oauth",
       authorizationUrl: template.authorizationUrl ?? "",
       tokenUrl: template.tokenUrl ?? "",
+      resource: template.resource ?? null,
       scopes: template.scopes ?? [],
+      supportsClientIdMetadataDocument: template.supportsClientIdMetadataDocument,
     };
   }
   return editorValueFromSharedMethod(template);
@@ -93,7 +97,11 @@ const oauthTemplateFromEditorValue = (
   kind: "oauth2",
   authorizationUrl: value.authorizationUrl,
   tokenUrl: value.tokenUrl,
+  resource: value.resource ?? null,
   scopes: [...value.scopes],
+  ...(value.supportsClientIdMetadataDocument === true
+    ? { supportsClientIdMetadataDocument: true }
+    : {}),
 });
 
 /** Convert one generic editor value back into a stored `Authentication`, or

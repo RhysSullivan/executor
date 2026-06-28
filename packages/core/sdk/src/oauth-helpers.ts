@@ -61,7 +61,7 @@ export interface OAuthEndpointUrlPolicy {
   readonly allowHttp?: boolean;
 }
 
-const isLoopbackHttpUrl = (value: string): boolean => {
+export const isLoopbackHttpUrl = (value: string): boolean => {
   if (!URL.canParse(value)) return false;
   const url = new URL(value);
   if (url.protocol !== "http:") return false;

@@ -33,7 +33,9 @@ export type AuthTemplateEditorValue =
       readonly kind: "oauth";
       readonly authorizationUrl: string;
       readonly tokenUrl: string;
+      readonly resource?: string | null;
       readonly scopes: readonly string[];
+      readonly supportsClientIdMetadataDocument?: boolean;
     };
 
 export interface AuthTemplateEditorPreset {

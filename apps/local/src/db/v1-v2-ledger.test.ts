@@ -245,7 +245,7 @@ describe("local v1→v2 gate × data-migration ledger", () => {
 
     const boot1 = await bootOnce(dbPath);
     expect(boot1.migration.migrated).toBe(true);
-    expect(boot1.applied).toContain(LOCAL_V1_V2_LEDGER_NAME);
+    expect(boot1.ledger).toContain(LOCAL_V1_V2_LEDGER_NAME);
     await expectV2WithContext7(dbPath);
 
     const boot2 = await bootOnce(dbPath);
