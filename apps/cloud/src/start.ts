@@ -11,6 +11,7 @@ import { prepareMcpOrgScope } from "./mcp/mount";
 import {
   docsProxyMiddleware,
   marketingMiddleware,
+  openAiAppsChallengeMiddleware,
   posthogProxyMiddleware,
   sentryTunnelMiddleware,
 } from "./edge";
@@ -100,6 +101,7 @@ const appRequestMiddleware = createMiddleware({ type: "request" }).server(
 // load-bearing.
 export const startInstance = createStart(() => ({
   requestMiddleware: [
+    openAiAppsChallengeMiddleware,
     marketingMiddleware,
     docsProxyMiddleware,
     sentryTunnelMiddleware,
