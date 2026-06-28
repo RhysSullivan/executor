@@ -30,6 +30,14 @@ const SSH_OPTS = [
   "ServerAliveInterval=5",
   "-o",
   "LogLevel=ERROR",
+  // We authenticate with sshpass (password). A loaded SSH agent would otherwise
+  // offer its keys first and exhaust the guest's MaxAuthTries ("Too many
+  // authentication failures") before the password is tried — intermittently,
+  // depending on how many keys the agent holds. Force password-only.
+  "-o",
+  "PubkeyAuthentication=no",
+  "-o",
+  "IdentitiesOnly=yes",
 ];
 const GUEST_USER = "admin";
 const GUEST_PASS = "admin";
@@ -92,7 +100,15 @@ export const tartVm = (os: "macos" | "linux", arch: VmArch = "arm64"): VmProvide
   provision: async () => {
     const name = `executor-e2e-${os}-${process.pid}-${Math.floor(performance.now())}`;
     await execFileP(TART, ["clone", baseImage(os), name]);
-    const runProc = spawn(TART, ["run", name, "--no-graphics"], { stdio: "ignore" });
+    // `--no-graphics` opens NO host window (never steals focus) yet the guest
+    // still has a virtual display: with the base image's autologin it reaches a
+    // real Aqua session (WindowServer/Dock/Finder), so even the packaged GUI app
+    // renders and `screencapture` records it. No windowed/VNC mode is needed.
+    const runProc = spawn(TART, ["run", name, "--no-graphics"], {
+      stdio: "ignore",
+      detached: true,
+    });
+    runProc.unref();
 
     const tunnelClosers: Array<() => void> = [];
     let ip = "";

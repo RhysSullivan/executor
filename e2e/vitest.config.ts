@@ -77,6 +77,26 @@ export default defineConfig({
         testTimeout: 360_000,
         hookTimeout: 600_000,
       }),
+      // The packaged desktop app inside a GUI guest, driven over CDP from the
+      // host and filmed (the cross-OS counterpart of desktop-packaged) — one
+      // shared scenario (desktop-vm/), one project per guest OS. The globalsetup
+      // provisions the guest, launches the bundle with --remote-debugging-port,
+      // and forwards it; the scenario connects, drives, and records the console.
+      // Each lands in runs/<target>/. Not in the default `npm run test` chain —
+      // run with `vitest run --project desktop-macos` (or desktop-linux). The VM
+      // is provisioned automatically; set E2E_DESKTOP_VM_IP to attach to an
+      // already-running guest instead.
+      // macos/linux provision a tart guest and build+push the ~450MB bundle;
+      // windows ATTACHES to a long-lived dockur guest over an SSH jump (no
+      // provision), so it needs no build but the same generous hooks.
+      ...(["macos", "linux", "windows"] as const).map((os) =>
+        project(`desktop-${os}`, {
+          include: ["desktop-vm/**/*.test.ts"],
+          fileParallelism: false,
+          testTimeout: 300_000,
+          hookTimeout: 900_000,
+        }),
+      ),
       // The single-user local app. Each scenario launches its OWN `executor
       // web` via the CLI on a throwaway data dir + an OS-assigned port, so
       // there is no shared instance and scenarios are independent. Files run

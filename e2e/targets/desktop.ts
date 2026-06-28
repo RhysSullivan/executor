@@ -9,7 +9,10 @@ import { Effect } from "effect";
 import type { Target } from "../src/target";
 
 export const desktopTarget = (): Target => ({
-  name: "desktop",
+  // The project name (desktop / desktop-packaged / desktop-macos) so each lands
+  // in its own runs/<target>/ bucket and viewer column — they're the same app
+  // in different harnesses (dev electron / packaged / packaged-in-a-VM).
+  name: process.env.E2E_TARGET ?? "desktop",
   baseUrl: "",
   mcpUrl: "",
   capabilities: new Set(),

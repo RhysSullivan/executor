@@ -45,7 +45,11 @@ await rm(EXECUTOR_OUT_DIR, { recursive: true, force: true });
 await mkdir(EXECUTOR_OUT_DIR, { recursive: true });
 await cp(sourceBinDir, EXECUTOR_OUT_DIR, { recursive: true });
 
-if (process.platform !== "win32") {
+// Restore the unix executable bit — keyed on the TARGET, not the host. A
+// windows-target cross-build (BUN_TARGET=bun-windows-x64 on macOS/linux) stages
+// `executor.exe`, which needs no bit; chmod'ing a non-existent `executor` there
+// would ENOENT.
+if (!targetPackage.includes("windows")) {
   await chmod(join(EXECUTOR_OUT_DIR, "executor"), 0o755);
 }
 
