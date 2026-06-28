@@ -180,6 +180,15 @@ const refreshItemIdFor = (accessId: string): string => `${accessId}:refresh`;
 /** Order-preserving de-duplication of a scope list. */
 const dedupeScopes = (scopes: readonly string[]): readonly string[] => [...new Set(scopes)];
 
+const intersectScopes = (
+  requested: readonly string[],
+  supported: readonly string[] | undefined,
+): readonly string[] => {
+  if (!supported || supported.length === 0) return requested;
+  const supportedSet = new Set(supported);
+  return requested.filter((scope) => supportedSet.has(scope));
+};
+
 const recordedOAuthScope = (
   token: OAuth2TokenResponse,
   requestedScopes: readonly string[],
@@ -354,6 +363,28 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
   // EXPLICIT — no localhost default. `null` means this executor has no OAuth
   // callback; redirect-requiring flows fail loudly via `requireRedirectUri`.
   const redirectUri = deps.redirectUri;
+  const discoveryOptions = { endpointUrlPolicy: deps.endpointUrlPolicy };
+
+  const filterAuthorizationCodeScopes = (
+    client: LoadedOAuthClient,
+    requestedScopes: readonly string[],
+  ): Effect.Effect<readonly string[], never> =>
+    Effect.gen(function* () {
+      if (requestedScopes.length === 0) return requestedScopes;
+      const resource = client.resource
+        ? yield* discoverProtectedResourceMetadata(client.resource, discoveryOptions).pipe(
+            Effect.catch(() => Effect.succeed(null)),
+            Effect.provide(httpClientLayer),
+          )
+        : null;
+      const issuer =
+        resource?.metadata.authorization_servers?.[0] ?? new URL(client.authorizationUrl).origin;
+      const as = yield* discoverAuthorizationServerMetadata(issuer, discoveryOptions).pipe(
+        Effect.catch(() => Effect.succeed(null)),
+        Effect.provide(httpClientLayer),
+      );
+      return intersectScopes(requestedScopes, as?.metadata.scopes_supported);
+    }).pipe(Effect.catch(() => Effect.succeed(requestedScopes)));
 
   // Caps on server-controlled discovery input — a hostile or buggy server must
   // not be able to hang `oauth.start` or overflow the authorize URL.
@@ -818,6 +849,14 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
           message: REDIRECT_URI_REQUIRED_MESSAGE,
         });
       }
+      // Prune stale DECLARED scopes against the AS's advertised set, but leave
+      // resource-discovered scopes untouched: an RFC 9728 `scopes_supported`
+      // list is already authoritative (§7.2) and must not be re-narrowed by a
+      // divergent authorization server.
+      const authorizationRequestedScopes =
+        scopePolicy.kind === "discover"
+          ? requestedScopes
+          : yield* filterAuthorizationCodeScopes(client, requestedScopes);
 
       // authorization_code: persist a session + build the authorize URL.
       const verifier = createPkceCodeVerifier();
@@ -843,11 +882,15 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
           redirect_url: flowRedirectUri,
           pkce_verifier: verifier,
           identity_label: input.identityLabel ?? null,
-          // Persist the requested scope set (the integration's declared or
-          // discovered scopes) so `complete`'s recorded-scope fallback reflects
-          // exactly what was requested when the AS omits `scope`, without
-          // re-resolving it at completion.
-          payload: { owner: input.owner, clientOwner: input.clientOwner, requestedScopes },
+          // Persist the requested scope set (declared ∪ client, filtered to the
+          // authorization-code flow) so `complete`'s recorded-scope fallback
+          // reflects exactly what was requested when the AS omits `scope`,
+          // without re-resolving the integration's declared scopes at completion.
+          payload: {
+            owner: input.owner,
+            clientOwner: input.clientOwner,
+            requestedScopes: authorizationRequestedScopes,
+          },
           expires_at: expiresAt,
           created_at: now,
         }),
@@ -859,7 +902,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
             authorizationUrl: client.authorizationUrl,
             clientId: client.clientId,
             redirectUrl: flowRedirectUri,
-            scopes: requestedScopes,
+            scopes: authorizationRequestedScopes,
             state: providerState,
             codeChallenge: challenge,
             resource: client.resource ?? undefined,
@@ -1127,6 +1170,8 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         scopesSupported: resource?.metadata.scopes_supported ?? as.metadata.scopes_supported,
         registrationEndpoint: as.metadata.registration_endpoint ?? null,
         tokenEndpointAuthMethodsSupported: as.metadata.token_endpoint_auth_methods_supported,
+        clientIdMetadataDocumentSupported:
+          as.metadata.client_id_metadata_document_supported === true,
       } satisfies OAuthProbeResult;
     }).pipe(Effect.provide(httpClientLayer));
 

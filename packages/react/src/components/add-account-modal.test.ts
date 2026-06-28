@@ -17,6 +17,7 @@ import {
   dcrClientNameForIntegration,
   DEFAULT_CONNECTION_OWNER,
   mergeCustomMethods,
+  runCimdConnect,
   runDcrConnect,
 } from "./add-account-modal";
 
@@ -53,6 +54,19 @@ type RegisterArgs = {
 };
 
 type StartArgs = { readonly client: OAuthClientSlug; readonly owner: Owner };
+
+type CimdCreateArgs = {
+  readonly owner: Owner;
+  readonly slug: OAuthClientSlug;
+  readonly authorizationUrl: string;
+  readonly tokenUrl: string;
+  readonly resource?: string | null;
+  readonly grant: "authorization_code";
+  readonly clientId: string;
+  readonly clientSecret: "";
+};
+
+type CimdStartArgs = { readonly client: OAuthClientSlug; readonly owner: Owner };
 
 const TEST_INTEGRATION = IntegrationSlug.make("linear_mcp");
 
@@ -191,6 +205,90 @@ describe("createCredentialPayloadOrigin", () => {
         singleInput: false,
       }),
     ).toBeNull();
+  });
+});
+
+describe("runCimdConnect", () => {
+  it("creates a public metadata-document OAuth client and starts OAuth", async () => {
+    let createArgs: CimdCreateArgs | null = null;
+    let startArgs: CimdStartArgs | null = null;
+
+    const outcome = await runCimdConnect(
+      {
+        createClient: (args: CimdCreateArgs): Promise<OAuthClientSlug | null> => {
+          createArgs = args;
+          return Promise.resolve(args.slug);
+        },
+        start: (args: CimdStartArgs): void => {
+          startArgs = args;
+        },
+      },
+      {
+        owner: "user",
+        integrationName: "PostHog API",
+        authorizationUrl: "https://us.posthog.com/oauth/authorize/",
+        tokenUrl: "https://us.posthog.com/oauth/token/",
+        resource: "https://us.posthog.com",
+        clientIdMetadataDocumentUrl:
+          "https://executor.example/api/oauth/client-id-metadata/acme.json",
+        existingClients: [],
+      },
+    );
+
+    expect(outcome.kind).toBe("started");
+    expect(createArgs).toMatchObject({
+      owner: "user",
+      authorizationUrl: "https://us.posthog.com/oauth/authorize/",
+      tokenUrl: "https://us.posthog.com/oauth/token/",
+      resource: "https://us.posthog.com",
+      grant: "authorization_code",
+      clientId: "https://executor.example/api/oauth/client-id-metadata/acme.json",
+      clientSecret: "",
+    });
+    expect(String(createArgs!.slug)).toBe("posthog-api-cimd");
+    expect(String(startArgs!.client)).toBe("posthog-api-cimd");
+    expect(startArgs!.owner).toBe("user");
+  });
+
+  it("reuses an existing matching metadata-document client", async () => {
+    const existingSlug = OAuthClientSlug.make("posthog-api-cimd");
+    let created = false;
+    let startArgs: CimdStartArgs | null = null;
+
+    const outcome = await runCimdConnect(
+      {
+        createClient: (): Promise<OAuthClientSlug | null> => {
+          created = true;
+          return Promise.resolve(OAuthClientSlug.make("new-client"));
+        },
+        start: (args: CimdStartArgs): void => {
+          startArgs = args;
+        },
+      },
+      {
+        owner: "user",
+        integrationName: "PostHog API",
+        authorizationUrl: "https://us.posthog.com/oauth/authorize/",
+        tokenUrl: "https://us.posthog.com/oauth/token/",
+        resource: "https://us.posthog.com",
+        clientIdMetadataDocumentUrl: "https://executor.example/api/oauth/client-id-metadata.json",
+        existingClients: [
+          {
+            owner: "user",
+            slug: existingSlug,
+            grant: "authorization_code",
+            authorizationUrl: "https://us.posthog.com/oauth/authorize/",
+            tokenUrl: "https://us.posthog.com/oauth/token/",
+            resource: "https://us.posthog.com",
+            clientId: "https://executor.example/api/oauth/client-id-metadata.json",
+          },
+        ],
+      },
+    );
+
+    expect(outcome).toEqual({ kind: "started", client: existingSlug, reused: true });
+    expect(created).toBe(false);
+    expect(startArgs).toEqual({ client: existingSlug, owner: "user" });
   });
 });
 

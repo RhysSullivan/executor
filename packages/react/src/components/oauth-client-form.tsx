@@ -70,6 +70,22 @@ export const registrationScopes = (
   discoveredScopes: readonly string[],
 ): readonly string[] => (declaredScopes.length > 0 ? declaredScopes : discoveredScopes);
 
+export const canSubmitOAuthClientForm = (input: {
+  readonly submitting: boolean;
+  readonly name: string;
+  readonly grant: OAuthGrant;
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly authorizationUrl: string;
+  readonly tokenUrl: string;
+}): boolean =>
+  !input.submitting &&
+  input.name.trim().length > 0 &&
+  input.clientId.trim().length > 0 &&
+  (input.grant === "authorization_code" || input.clientSecret.trim().length > 0) &&
+  input.tokenUrl.trim().length > 0 &&
+  (input.grant === "client_credentials" || input.authorizationUrl.trim().length > 0);
+
 export function OAuthClientForm(props: {
   /** Human label for the integration this app backs (used in toasts + default name). */
   readonly integrationName: string;
@@ -162,13 +178,15 @@ export function OAuthClientForm(props: {
     mode: "promiseExit",
   });
 
-  const canSubmit =
-    !submitting &&
-    name.trim().length > 0 &&
-    clientId.trim().length > 0 &&
-    clientSecret.trim().length > 0 &&
-    tokenUrl.trim().length > 0 &&
-    (grant === "client_credentials" || authorizationUrl.trim().length > 0);
+  const canSubmit = canSubmitOAuthClientForm({
+    submitting,
+    name,
+    grant,
+    clientId,
+    clientSecret,
+    authorizationUrl,
+    tokenUrl,
+  });
 
   // DCR is offered when the server advertises a registration endpoint AND we
   // have the interactive-flow endpoints to persist alongside the minted client.
@@ -285,7 +303,7 @@ export function OAuthClientForm(props: {
         <p className="text-xs text-muted-foreground">
           {canRegisterDynamic
             ? "Register automatically below, or enter a client id/secret manually."
-            : "Paste a client id/secret. We only ask for endpoints when they aren't already known."}
+            : "Paste a client id and optional secret. We only ask for endpoints when they aren't already known."}
         </p>
       </div>
 
@@ -413,12 +431,19 @@ export function OAuthClientForm(props: {
         <div className="space-y-1.5">
           <Label htmlFor="oauth-client-secret" className="text-xs text-muted-foreground">
             Client secret
+            {grant === "authorization_code" ? (
+              <span className="font-normal text-muted-foreground/70">
+                optional for public clients
+              </span>
+            ) : null}
           </Label>
           <Input
             id="oauth-client-secret"
             type="password"
             autoComplete="new-password"
-            placeholder="client secret"
+            placeholder={
+              grant === "authorization_code" ? "optional client secret" : "required client secret"
+            }
             value={clientSecret}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setClientSecret(e.target.value)}
             className="font-mono"

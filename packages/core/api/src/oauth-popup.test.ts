@@ -235,44 +235,33 @@ describe("runOAuthCallback", () => {
     expect(received[1]!.callbackDomain).toBeNull();
   });
 
-  it("prefers `error` over `error_description` but falls back when absent", async () => {
-    const received: Array<{
-      state: string;
-      code: string | null;
-      error: string | null;
-      callbackDomain: string | null;
-    }> = [];
-    const complete = (params: {
-      state: string;
-      code: string | null;
-      error: string | null;
-      callbackDomain: string | null;
-    }) => {
-      received.push(params);
+  it("renders provider OAuth errors without invoking completeOAuth", async () => {
+    let completeCalls = 0;
+    const complete = () => {
+      completeCalls += 1;
       return Effect.succeed({
         kind: "oauth2" as const,
         accessTokenSecretId: "s",
         refreshTokenSecretId: null,
       });
     };
-    await Effect.runPromise(
+    const html = await Effect.runPromise(
       runOAuthCallback<GoogleAuth, never, never>({
         complete,
-        urlParams: { state: "s1", error: "access_denied" },
+        urlParams: {
+          state: "s1",
+          error: "invalid_scope",
+          error_description: "unknown scope wizard_session:write",
+        },
         toErrorMessage: () => ({ short: "" }),
         channelName: "c",
       }),
     );
-    await Effect.runPromise(
-      runOAuthCallback<GoogleAuth, never, never>({
-        complete,
-        urlParams: { state: "s2", error_description: "user cancelled" },
-        toErrorMessage: () => ({ short: "" }),
-        channelName: "c",
-      }),
-    );
-    expect(received[0]!.error).toBe("access_denied");
-    expect(received[1]!.error).toBe("user cancelled");
+    expect(completeCalls).toBe(0);
+    expect(html).toContain("<title>Connection failed</title>");
+    expect(html).toContain("OAuth provider rejected authorization");
+    expect(html).toContain("invalid_scope");
+    expect(html).toContain("unknown scope wizard_session:write");
   });
 
   it("renders a failure popup when completeOAuth fails and uses toErrorMessage", async () => {

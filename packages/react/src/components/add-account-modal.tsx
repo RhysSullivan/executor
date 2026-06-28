@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import {
   addConnectionOptimistic,
   connectionsAllAtom,
+  createOAuthClientOptimistic,
   oauthClientsOptimisticAtom,
   probeOAuth,
   providerItemsAtom,
@@ -38,7 +39,11 @@ import {
   resolveOAuthConnectionOwnerForHost,
   type ConnectionOwnerOption,
 } from "../plugins/connection-owner";
-import { oauthCallbackUrl, useOAuthPopupFlow } from "../plugins/oauth-sign-in";
+import {
+  oauthCallbackUrl,
+  oauthClientIdMetadataDocumentUrl,
+  useOAuthPopupFlow,
+} from "../plugins/oauth-sign-in";
 import {
   clientDisplayName,
   clientHost,
@@ -459,6 +464,94 @@ export const connectionNameFrom = (
   connectionIdentifier(connectionLabelForHost(label, owner, integrationName, organizationId));
 
 // ---------------------------------------------------------------------------
+// Transparent CIMD connect orchestration.
+//
+// Client ID Metadata Document support is not Dynamic Client Registration:
+// there is no POST to a registration endpoint and no provider-side app to pick.
+// The OAuth client identity is this host's public metadata-document URL, stored
+// locally as a public PKCE client (`clientSecret: ""`) so the existing
+// `oauth.start` flow can run unchanged.
+// ---------------------------------------------------------------------------
+
+type CimdExistingClient = Pick<
+  OAuthClientSummary,
+  "owner" | "slug" | "grant" | "authorizationUrl" | "tokenUrl" | "resource" | "clientId"
+>;
+
+type CimdCreateClientArgs = {
+  readonly owner: Owner;
+  readonly slug: OAuthClientSlug;
+  readonly authorizationUrl: string;
+  readonly tokenUrl: string;
+  readonly resource?: string | null;
+  readonly grant: "authorization_code";
+  readonly clientId: string;
+  readonly clientSecret: "";
+};
+
+type RunCimdConnectDeps = {
+  readonly createClient: (args: CimdCreateClientArgs) => Promise<OAuthClientSlug | null>;
+  readonly start: (args: { readonly client: OAuthClientSlug; readonly owner: Owner }) => void;
+};
+
+type RunCimdConnectInput = {
+  readonly owner: Owner;
+  readonly integrationName: string;
+  readonly authorizationUrl: string;
+  readonly tokenUrl: string;
+  readonly resource?: string | null;
+  readonly clientIdMetadataDocumentUrl: string;
+  readonly existingClients: readonly CimdExistingClient[];
+};
+
+type CimdOutcome =
+  | { readonly kind: "started"; readonly client: OAuthClientSlug; readonly reused: boolean }
+  | { readonly kind: "failed"; readonly reason: "missing-endpoints" | "create-failed" };
+
+export async function runCimdConnect(
+  deps: RunCimdConnectDeps,
+  input: RunCimdConnectInput,
+): Promise<CimdOutcome> {
+  if (input.authorizationUrl.trim().length === 0 || input.tokenUrl.trim().length === 0) {
+    return { kind: "failed", reason: "missing-endpoints" };
+  }
+
+  const resource = input.resource ?? null;
+  const existing = input.existingClients.find(
+    (client) =>
+      client.owner === input.owner &&
+      client.grant === "authorization_code" &&
+      client.authorizationUrl === input.authorizationUrl &&
+      client.tokenUrl === input.tokenUrl &&
+      (client.resource ?? null) === resource &&
+      client.clientId === input.clientIdMetadataDocumentUrl,
+  );
+
+  if (existing) {
+    deps.start({ client: existing.slug, owner: input.owner });
+    return { kind: "started", client: existing.slug, reused: true };
+  }
+
+  const slug = uniqueClientSlug(
+    `${input.integrationName} CIMD`,
+    input.existingClients.map((client) => String(client.slug)),
+  );
+  const created = await deps.createClient({
+    owner: input.owner,
+    slug,
+    authorizationUrl: input.authorizationUrl,
+    tokenUrl: input.tokenUrl,
+    resource,
+    grant: "authorization_code",
+    clientId: input.clientIdMetadataDocumentUrl,
+    clientSecret: "",
+  });
+  if (created === null) return { kind: "failed", reason: "create-failed" };
+  deps.start({ client: created, owner: input.owner });
+  return { kind: "started", client: created, reused: false };
+}
+
+// ---------------------------------------------------------------------------
 // Transparent DCR (RFC 7591) connect orchestration.
 //
 // For DCR-capable methods (MCP OAuth) the user clicks one "Connect" button and
@@ -746,6 +839,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
   const [pickedApp, setPickedApp] = useState<string | null>(null);
   const [registeringOAuthClient, setRegisteringOAuthClient] = useState(false);
   const [ccBusy, setCcBusy] = useState(false);
+  const [cimdBusy, setCimdBusy] = useState(false);
   // Transparent DCR: busy while probing/registering/starting; `dcrFailed` flips
   // the modal to the bring-your-own-app picker if auto setup is unavailable.
   const [dcrBusy, setDcrBusy] = useState(false);
@@ -765,6 +859,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
     mode: "promiseExit",
   });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
+  const doCreateOAuthClient = useAtomSet(createOAuthClientOptimistic, { mode: "promiseExit" });
   const doProbe = useAtomSet(probeOAuth, { mode: "promiseExit" });
   const doRegisterDynamic = useAtomSet(registerDynamicOAuthClient, {
     mode: "promiseExit",
@@ -897,13 +992,20 @@ function AddAccountModalView(props: AddAccountModalProps) {
     method != null &&
     method.placements.length > 0 &&
     method.placements.every((p) => p.carrier === "env");
+  // CIMD-capable: the provider accepts a client_id that is a metadata-document
+  // URL, so we can create a public local client and skip provider app
+  // registration entirely.
+  const isCimd = isOAuth && method?.oauth?.supportsClientIdMetadataDocument === true;
+  const cimdActive = isCimd;
   // DCR-capable: the integration advertises dynamic registration (MCP oauth2),
   // OR carries a discovery URL we can probe at connect time. When DCR-capable
   // and not yet fallen back, we skip the app picker entirely (Option A).
   const isDcr =
+    !cimdActive &&
     isOAuth &&
     (method?.oauth?.supportsDynamicRegistration === true || method?.oauth?.discoveryUrl != null);
   const dcrActive = isDcr && !dcrFailed;
+  const automaticOAuthActive = cimdActive || dcrActive;
 
   // OAuth apps usable for this integration (user-owned first). Hooks run
   // unconditionally; in DCR mode the result is ignored until/unless we fall back.
@@ -942,7 +1044,9 @@ function AddAccountModalView(props: AddAccountModalProps) {
   const chosenClient: OAuthClientOption | null =
     oauthApps.find((c: OAuthClientOption) => String(c.slug) === selectedApp) ?? null;
   const oauthBusy = ccBusy || oauthPopup.busy;
+  const cimdConnecting = cimdBusy || oauthPopup.busy;
   const dcrConnecting = dcrBusy || oauthPopup.busy;
+  const automaticOAuthConnecting = cimdConnecting || dcrConnecting;
 
   // "Connection saved to" for a PICKED BYO OAuth app. Cloud: a Workspace (`org`)
   // app can mint Personal or Workspace connections; a Personal (`user`) app can
@@ -960,10 +1064,11 @@ function AddAccountModalView(props: AddAccountModalProps) {
     requestedOwner: owner,
     clientOwner: chosenClient?.owner ?? "user",
   });
-  const savedToOptions = isOAuth && !dcrActive ? oauthConnectionOptions : ownerOptions;
-  const savedToOwner = isOAuth && !dcrActive ? oauthConnectionOwner : owner;
+  const savedToOptions = isOAuth && !automaticOAuthActive ? oauthConnectionOptions : ownerOptions;
+  const savedToOwner = isOAuth && !automaticOAuthActive ? oauthConnectionOwner : owner;
   const showSavedToPicker = !oauthRegistering && savedToOptions.length > 1;
   const callableName = connectionNameFrom(label, savedToOwner, integrationName, organizationId);
+  const authStepLabel = isOAuth ? (cimdActive ? "OAuth setup" : "OAuth app") : "Credential";
 
   // Build the picker row's Edit/Remove menu for an app, but only once its full
   // summary has loaded (the picker option lacks endpoints/resource). Until then
@@ -1173,6 +1278,78 @@ function AddAccountModalView(props: AddAccountModalProps) {
     });
   };
 
+  const handleCimdConnect = async () => {
+    const authorizationUrl = method?.oauth?.authorizationUrl;
+    const tokenUrl = method?.oauth?.tokenUrl;
+    if (!method || !authorizationUrl || !tokenUrl) {
+      toast.error("OAuth metadata is missing endpoints");
+      return;
+    }
+    const cimdOwner = owner;
+    const connectionName = connectionNameFrom(label, cimdOwner, integrationName, organizationId);
+    const identityLabel = connectionLabelForHost(label, cimdOwner, integrationName, organizationId);
+    setCimdBusy(true);
+    const outcome = await runCimdConnect(
+      {
+        createClient: async (args: CimdCreateClientArgs): Promise<OAuthClientSlug | null> => {
+          const exit = await doCreateOAuthClient({
+            payload: {
+              owner: args.owner,
+              slug: args.slug,
+              authorizationUrl: args.authorizationUrl,
+              tokenUrl: args.tokenUrl,
+              resource: args.resource ?? null,
+              grant: args.grant,
+              clientId: args.clientId,
+              clientSecret: args.clientSecret,
+            },
+            reactivityKeys: oauthClientWriteKeys,
+          });
+          if (Exit.isFailure(exit)) return null;
+          return exit.value.client;
+        },
+        start: (args: { readonly client: OAuthClientSlug; readonly owner: Owner }): void => {
+          void oauthPopup.start({
+            payload: {
+              client: args.client,
+              // CIMD creates the public client under the connection owner, so
+              // the app and connection share one owner.
+              clientOwner: args.owner,
+              owner: args.owner,
+              name: connectionName,
+              integration,
+              template: method.template,
+              identityLabel,
+            },
+            onSuccess: () => {
+              toast.success("Connection added");
+              close();
+            },
+          });
+        },
+      },
+      {
+        owner: cimdOwner,
+        integrationName,
+        authorizationUrl,
+        tokenUrl,
+        resource: method.oauth?.resource ?? null,
+        clientIdMetadataDocumentUrl: oauthClientIdMetadataDocumentUrl(),
+        existingClients: clientSummaries,
+      },
+    );
+    setCimdBusy(false);
+    trackEvent("connection_oauth_started", {
+      integration_slug: String(integration),
+      owner: cimdOwner,
+      flow: "cimd",
+      success: outcome.kind === "started",
+    });
+    if (outcome.kind === "failed") {
+      toast.error("Client metadata setup failed");
+    }
+  };
+
   // Transparent DCR connect: probe → register → start, no app picker. On any
   // failure (probe error, no registration endpoint, or registration failure) we
   // flip `dcrFailed` so the bring-your-own-app picker renders as the recovery
@@ -1368,6 +1545,11 @@ function AddAccountModalView(props: AddAccountModalProps) {
                   ...(oauthHandoffPrefill?.clientId
                     ? { clientId: oauthHandoffPrefill.clientId }
                     : {}),
+                  ...(oauthHandoffPrefill?.resource != null
+                    ? { resource: oauthHandoffPrefill.resource }
+                    : method.oauth?.resource != null
+                      ? { resource: method.oauth.resource }
+                      : {}),
                 }}
                 fixedSlug={
                   oauthClientHandoff?.slug != null && oauthClientHandoff.slug.length > 0
@@ -1493,10 +1675,19 @@ function AddAccountModalView(props: AddAccountModalProps) {
 
                       {!isNoAuth && (
                         <div className="space-y-2">
-                          <StepHeader index={2} label={isOAuth ? "OAuth app" : "Credential"} />
+                          <StepHeader index={2} label={authStepLabel} />
 
                           {isOAuth && method ? (
-                            dcrActive ? (
+                            cimdActive ? (
+                              <div className="space-y-2 rounded-lg border border-ring/40 bg-accent/30 px-3 py-3">
+                                <p className="text-sm font-medium">No app registration</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {cimdConnecting
+                                    ? `Connecting to ${integrationName}…`
+                                    : `${integrationName} supports Client ID Metadata Document OAuth. We'll use this Executor host's public client metadata document and sign you in.`}
+                                </p>
+                              </div>
+                            ) : dcrActive ? (
                               // Transparent DCR: no picker. We register an app for you and run
                               // the OAuth flow with a single Connect click.
                               <div className="space-y-2 rounded-lg border border-ring/40 bg-accent/30 px-3 py-3">
@@ -1644,17 +1835,27 @@ function AddAccountModalView(props: AddAccountModalProps) {
                 type="button"
                 variant="ghost"
                 onClick={close}
-                disabled={submitting || oauthBusy || dcrConnecting}
+                disabled={submitting || oauthBusy || automaticOAuthConnecting}
               >
                 {isOAuth ? "Close" : "Cancel"}
               </Button>
               {/* Footer action, in precedence order:
+              - transparent CIMD (no app registration): create/reuse a public
+                metadata-document client and start OAuth;
               - transparent DCR (no picker): a single Connect that runs
                 probe → register → start;
               - registering a BYO app: the form owns its own submit, no footer;
               - picked BYO OAuth app: Connect with OAuth / Connect (client creds);
               - credential/no-auth method: Add connection. */}
-              {dcrActive ? (
+              {cimdActive ? (
+                <Button
+                  type="button"
+                  onClick={() => void handleCimdConnect()}
+                  disabled={cimdConnecting}
+                >
+                  {cimdConnecting ? "Connecting…" : "Connect with OAuth"}
+                </Button>
+              ) : dcrActive ? (
                 <Button
                   type="button"
                   onClick={() => void handleDcrConnect()}

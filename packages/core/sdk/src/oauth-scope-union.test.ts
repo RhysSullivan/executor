@@ -220,6 +220,44 @@ describe("oauth.start integration-driven scopes", () => {
       ),
   );
 
+  it.effect("filters stale declared scopes against authorization-server metadata", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = yield* serveOAuthTestServer({ scopes: ["calendar", "drive"] });
+        const plugins = [
+          memoryCredentialsPlugin(),
+          makeScopePlugin({ scopes: ["calendar", "stale_scope", "drive"] }),
+        ] as const;
+        const { executor } = yield* makeTestWorkspaceHarness({ plugins });
+        yield* executor.acme.seed();
+
+        yield* executor.oauth.createClient({
+          owner: "org",
+          slug: CLIENT,
+          authorizationUrl: server.authorizationEndpoint,
+          tokenUrl: server.tokenEndpoint,
+          grant: "authorization_code",
+          clientId: "test-client",
+          clientSecret: "test-secret",
+          resource: server.resourceUrl,
+        });
+
+        const started = yield* executor.oauth.start({
+          owner: "org",
+          client: CLIENT,
+          clientOwner: "org",
+          name: ConnectionName.make("main"),
+          integration: INTEG,
+          template: TEMPLATE,
+        });
+        expect(started.status).toBe("redirect");
+        if (started.status !== "redirect") return;
+
+        expect(scopesFromAuthorizeUrl(started.authorizationUrl)).toEqual(["calendar", "drive"]);
+      }),
+    ),
+  );
+
   it.effect("(b) when the integration declares no oauth scopes, start requests none", () =>
     Effect.scoped(
       Effect.gen(function* () {

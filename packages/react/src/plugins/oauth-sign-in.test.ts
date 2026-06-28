@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it } from "@effect/vitest";
 
 import { oauthCallbackUrl, oauthClientIdMetadataDocumentUrl } from "./oauth-sign-in";
 
+// The legacy query-param org selector the metadata-document URL must NOT use
+// (org is carried in the path instead). Mirrors the server-side constant.
+const OAUTH_CALLBACK_ORG_QUERY_PARAM = "executor_org";
+
 const originalWindow = globalThis.window;
 
 const setLocation = (href: string): void => {
@@ -67,5 +71,21 @@ describe("oauthCallbackUrl", () => {
     setLocation("https://executor.sh/login");
 
     expect(oauthCallbackUrl()).toBe("https://executor.sh/api/oauth/callback");
+  });
+});
+
+describe("oauthClientIdMetadataDocumentUrl", () => {
+  it("returns a relative metadata path outside the browser", () => {
+    Reflect.deleteProperty(globalThis, "window");
+    expect(oauthClientIdMetadataDocumentUrl()).toBe("/api/oauth/client-id-metadata/default.json");
+  });
+
+  it("carries the active org slug from the console URL", () => {
+    setLocation("https://executor.sh/acme/integrations/posthog");
+
+    const url = new URL(oauthClientIdMetadataDocumentUrl());
+
+    expect(url.toString()).toBe("https://executor.sh/api/oauth/client-id-metadata/acme.json");
+    expect(url.searchParams.has(OAUTH_CALLBACK_ORG_QUERY_PARAM)).toBe(false);
   });
 });

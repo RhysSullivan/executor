@@ -60,7 +60,9 @@ describe("describeOpenApiAuthMethods", () => {
           kind: "oauth2",
           authorizationUrl: "https://auth.example/authorize",
           tokenUrl: "https://auth.example/token",
+          resource: "https://api.example",
           scopes: ["read", "write"],
+          supportsClientIdMetadataDocument: true,
         },
       ]),
     );
@@ -74,7 +76,9 @@ describe("describeOpenApiAuthMethods", () => {
         oauth: {
           authorizationUrl: "https://auth.example/authorize",
           tokenUrl: "https://auth.example/token",
+          resource: "https://api.example",
           scopes: ["read", "write"],
+          supportsClientIdMetadataDocument: true,
         },
       },
     ]);

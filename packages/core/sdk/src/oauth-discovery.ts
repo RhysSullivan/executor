@@ -72,6 +72,7 @@ export const OAuthAuthorizationServerMetadataSchema = Schema.Struct({
   authorization_endpoint: Schema.String,
   token_endpoint: Schema.String,
   registration_endpoint: Schema.optional(Schema.String),
+  client_id_metadata_document_supported: Schema.optional(Schema.Boolean),
   scopes_supported: Schema.optional(StringArray),
   response_types_supported: Schema.optional(StringArray),
   grant_types_supported: Schema.optional(StringArray),

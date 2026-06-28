@@ -37,8 +37,10 @@ describe("authMethodsFromDescriptors", () => {
         oauth: {
           authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
           tokenUrl: "https://oauth2.googleapis.com/token",
+          resource: "https://api.example",
           scopes: ["read", "write"],
           registrationEndpoint: "https://accounts.google.com/register",
+          supportsClientIdMetadataDocument: true,
         },
       },
     ]);
@@ -47,8 +49,10 @@ describe("authMethodsFromDescriptors", () => {
       "https://accounts.google.com/o/oauth2/v2/auth",
     );
     expect(methods[0]?.oauth?.tokenUrl).toBe("https://oauth2.googleapis.com/token");
+    expect(methods[0]?.oauth?.resource).toBe("https://api.example");
     expect(methods[0]?.oauth?.scopes).toEqual(["read", "write"]);
     expect(methods[0]?.oauth?.registrationEndpoint).toBe("https://accounts.google.com/register");
+    expect(methods[0]?.oauth?.supportsClientIdMetadataDocument).toBe(true);
   });
 
   it("maps an apikey/header descriptor preserving placements", () => {
