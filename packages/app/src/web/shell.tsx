@@ -544,10 +544,12 @@ export function Shell() {
       )}
 
       {/* Main content */}
-      <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
+      <main className="relative flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
         {/* Desktop (macOS frameless) draggable title-bar strip. Gives the main
             area the same native window drag + double-click-to-zoom as the
-            sidebar header; hidden everywhere else via CSS. */}
+            sidebar header; hidden everywhere else via CSS. Overlays the top of
+            the main area (behind page content) so page headers stay flush with
+            the top and their borders line up with the sidebar header. */}
         <div className="desktop-macos-main-titlebar" />
 
         {/* Mobile top bar */}
