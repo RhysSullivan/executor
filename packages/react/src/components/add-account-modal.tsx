@@ -1665,7 +1665,12 @@ function AddAccountModalView(props: AddAccountModalProps) {
                   {dcrActive ? null : (
                     <TabsContent
                       value={methodId}
-                      className="mt-0 min-w-0 space-y-5 rounded-md border border-border/60 bg-muted/15 p-4"
+                      className={cn(
+                        "mt-0 min-w-0 space-y-5",
+                        // No-auth renders no fields, so skip the framed box that
+                        // would otherwise show up as an empty bordered panel.
+                        isNoAuth ? null : "rounded-md border border-border/60 bg-muted/15 p-4",
+                      )}
                     >
                       {method?.placements && !isEnvMethod && singleInput
                         ? (() => {

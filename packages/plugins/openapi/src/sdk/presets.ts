@@ -65,6 +65,14 @@ const openApiOnlyPresets: readonly OpenApiPreset[] = [
     featured: true,
   },
   {
+    id: "posthog",
+    name: "PostHog",
+    summary: "Product analytics, events, feature flags, and insights.",
+    url: "https://us.posthog.com/api/schema/",
+    icon: "https://svgl.app/library/posthog.svg",
+    featured: true,
+  },
+  {
     id: "exa",
     name: "Exa",
     summary: "Web search, similar links, content retrieval, and answers.",

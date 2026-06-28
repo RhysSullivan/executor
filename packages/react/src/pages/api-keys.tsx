@@ -7,6 +7,7 @@ import { apiKeyWriteKeys } from "../api/reactivity-keys";
 import { trackEvent } from "../api/analytics";
 import { apiKeysAtom, createApiKey, revokeApiKey } from "../api/account-atoms";
 import { Button } from "../components/button";
+import { PageContainer, PageHeader } from "../components/page";
 import { CopyButton } from "../components/copy-button";
 import {
   Dialog,
@@ -104,96 +105,92 @@ export function ApiKeysPage() {
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-10 lg:px-8 lg:py-14">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="font-display text-3xl tracking-tight text-foreground">API keys</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              User keys for accessing the Executor API and MCP endpoint from scripts and tools.
-            </p>
-            <div className="mt-4 flex max-w-2xl items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
-              <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
-                Authorization: Bearer &lt;api-key&gt;
-              </code>
-              <CopyButton value="Authorization: Bearer <api-key>" />
-            </div>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              API keys work as PATs and have full access to your account.
-            </p>
-          </div>
+    <PageContainer>
+      <PageHeader
+        title="API keys"
+        description="User keys for accessing the Executor API and MCP endpoint from scripts and tools."
+        actions={
           <Button
             onClick={() => {
               setName(defaultApiKeyName());
               setCreateOpen(true);
             }}
-            className="shrink-0"
           >
             <span aria-hidden="true">+</span>
             New key
           </Button>
+        }
+      >
+        <div className="mt-4 flex max-w-2xl items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
+          <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+            Authorization: Bearer &lt;api-key&gt;
+          </code>
+          <CopyButton value="Authorization: Bearer <api-key>" />
         </div>
+        <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+          API keys work as PATs and have full access to your account.
+        </p>
+      </PageHeader>
 
-        {AsyncResult.match(result, {
-          onInitial: () => (
-            <div className="rounded-md border border-border bg-card p-6 text-sm text-muted-foreground">
-              Loading API keys...
+      {AsyncResult.match(result, {
+        onInitial: () => (
+          <div className="rounded-md border border-border bg-card p-6 text-sm text-muted-foreground">
+            Loading API keys...
+          </div>
+        ),
+        onFailure: () => (
+          <div className="rounded-md border border-border bg-card p-6 text-sm text-destructive">
+            Failed to load API keys
+          </div>
+        ),
+        onSuccess: ({ value }) =>
+          value.apiKeys.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border bg-card p-8">
+              <h2 className="text-base font-semibold text-foreground">No API keys</h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+                Create a key and send it in the Authorization Bearer header.
+              </p>
             </div>
-          ),
-          onFailure: () => (
-            <div className="rounded-md border border-border bg-card p-6 text-sm text-destructive">
-              Failed to load API keys
-            </div>
-          ),
-          onSuccess: ({ value }) =>
-            value.apiKeys.length === 0 ? (
-              <div className="rounded-md border border-dashed border-border bg-card p-8">
-                <h2 className="text-base font-semibold text-foreground">No API keys</h2>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-                  Create a key and send it in the Authorization Bearer header.
-                </p>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-border bg-card">
+              <div className="grid grid-cols-[1fr_auto] gap-4 border-b border-border px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground md:grid-cols-[1.4fr_1fr_1fr_auto]">
+                <span>Name</span>
+                <span className="hidden md:block">Created</span>
+                <span className="hidden md:block">Last used</span>
+                <span className="text-right">Actions</span>
               </div>
-            ) : (
-              <div className="overflow-hidden rounded-md border border-border bg-card">
-                <div className="grid grid-cols-[1fr_auto] gap-4 border-b border-border px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground md:grid-cols-[1.4fr_1fr_1fr_auto]">
-                  <span>Name</span>
-                  <span className="hidden md:block">Created</span>
-                  <span className="hidden md:block">Last used</span>
-                  <span className="text-right">Actions</span>
-                </div>
-                {value.apiKeys.map((key: ApiKeySummary) => (
-                  <div
-                    key={key.id}
-                    className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border px-4 py-4 last:border-b-0 md:grid-cols-[1.4fr_1fr_1fr_auto]"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{key.name}</p>
-                      <p className="mt-1 font-mono text-xs text-muted-foreground">
-                        {key.obfuscatedValue}
-                      </p>
-                    </div>
-                    <p className="hidden text-sm text-muted-foreground md:block">
-                      {formatDate(key.createdAt)}
+              {value.apiKeys.map((key: ApiKeySummary) => (
+                <div
+                  key={key.id}
+                  className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border px-4 py-4 last:border-b-0 md:grid-cols-[1.4fr_1fr_1fr_auto]"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{key.name}</p>
+                    <p className="mt-1 font-mono text-xs text-muted-foreground">
+                      {key.obfuscatedValue}
                     </p>
-                    <p className="hidden text-sm text-muted-foreground md:block">
-                      {formatDate(key.lastUsedAt)}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleRevoke(key)}
-                      disabled={revokingId === key.id}
-                      title={`Revoke ${key.name}`}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <span aria-hidden="true">×</span>
-                    </Button>
                   </div>
-                ))}
-              </div>
-            ),
-        })}
-      </div>
+                  <p className="hidden text-sm text-muted-foreground md:block">
+                    {formatDate(key.createdAt)}
+                  </p>
+                  <p className="hidden text-sm text-muted-foreground md:block">
+                    {formatDate(key.lastUsedAt)}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => handleRevoke(key)}
+                    disabled={revokingId === key.id}
+                    title={`Revoke ${key.name}`}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <span aria-hidden="true">×</span>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ),
+      })}
 
       <Dialog open={createOpen} onOpenChange={closeCreate}>
         <DialogContent className="sm:max-w-[480px]">
@@ -270,6 +267,6 @@ export function ApiKeysPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

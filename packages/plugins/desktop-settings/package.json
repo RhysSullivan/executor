@@ -20,7 +20,6 @@
     "./client": "./src/client.tsx"
   },
   "publishConfig": {
-    "access": "public",
     "exports": {
       "./server": {
         "import": {
@@ -34,7 +33,8 @@
           "default": "./dist/client.js"
         }
       }
-    }
+    },
+    "access": "public"
   },
   "scripts": {
     "build": "tsup",
