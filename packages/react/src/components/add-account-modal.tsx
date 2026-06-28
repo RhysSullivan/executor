@@ -751,6 +751,10 @@ function AddAccountModalView(props: AddAccountModalProps) {
   const [dcrBusy, setDcrBusy] = useState(false);
   const [dcrFailed, setDcrFailed] = useState(false);
   const [oauthFallbackProbe, setOAuthFallbackProbe] = useState<DcrProbeResult | null>(null);
+  // When transparent DCR is rejected with an actionable reason (e.g. the server
+  // refuses our redirect URI), surface it as an inline error card on the
+  // bring-your-own-app recovery view instead of a transient toast.
+  const [dcrFallbackMessage, setDcrFallbackMessage] = useState<string | null>(null);
   // FIX 3 escape hatch: when no registered app matched the integration's
   // endpoints, the unmatched apps are collapsed behind an opt-in expander.
   const [showOtherApps, setShowOtherApps] = useState(false);
@@ -817,6 +821,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
     setPickedApp(null);
     setOAuthFallbackProbe(null);
     setDcrFailed(false);
+    setDcrFallbackMessage(null);
   }, [initialState, allMethods, defaultOwner, ownerOptions]);
 
   useEffect(() => {
@@ -1004,6 +1009,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
     setOnePasswordItemId("");
     setDcrFailed(false);
     setOAuthFallbackProbe(null);
+    setDcrFallbackMessage(null);
   };
 
   // A just-created custom method joins the in-session list and is auto-selected
@@ -1267,10 +1273,10 @@ function AddAccountModalView(props: AddAccountModalProps) {
     if (outcome.kind === "fallback") {
       setOAuthFallbackProbe("probe" in outcome ? outcome.probe : null);
       setDcrFailed(true);
-      toast.error(
-        ("message" in outcome ? outcome.message : undefined) ??
-          "Automatic setup unavailable. Register an app instead.",
-      );
+      // Surface the server's actionable rejection reason on the recovery view as
+      // an inline error card. Generic fallbacks (no message) fall through to the
+      // "register an app" empty state, which already guides the user.
+      setDcrFallbackMessage("message" in outcome ? (outcome.message ?? null) : null);
     }
   };
 
@@ -1511,6 +1517,22 @@ function AddAccountModalView(props: AddAccountModalProps) {
                               <p className="text-xs text-muted-foreground">Loading OAuth apps…</p>
                             ) : (
                               <div className="space-y-3">
+                                {dcrFallbackMessage ? (
+                                  <div
+                                    role="alert"
+                                    className="space-y-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-3"
+                                  >
+                                    <p className="text-sm font-medium text-destructive">
+                                      Couldn&apos;t set up {integrationName} automatically
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {dcrFallbackMessage}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      Register an app below to connect.
+                                    </p>
+                                  </div>
+                                ) : null}
                                 {/* No registered app matched the integration's endpoint:
                         empty state + a prominent register CTA, and an opt-in
                         collapsed "use a different registered app" escape hatch. */}
