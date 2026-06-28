@@ -8,6 +8,7 @@ import { integrationsOptimisticAtom } from "../api/atoms";
 import { trackEvent } from "../api/analytics";
 import { Button } from "../components/button";
 import { Skeleton } from "../components/skeleton";
+import { SidebarUpdateCard } from "../components/update-card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -361,6 +362,8 @@ function SidebarContent(
 
         <IntegrationList pathname={props.pathname} onNavigate={props.onNavigate} />
       </nav>
+
+      <SidebarUpdateCard />
 
       <div className="shrink-0 border-t border-sidebar-border p-2">
         <DocsLink href={props.docsUrl ?? DEFAULT_DOCS_URL} onNavigate={props.onNavigate} />
