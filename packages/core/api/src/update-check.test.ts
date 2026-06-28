@@ -92,6 +92,20 @@ describe("resolveDistTags", () => {
     const tags = await resolveDistTags({ env: {}, fetchImpl: fetchThatFails() });
     expect(tags).toEqual({});
   });
+
+  it("negative-caches a failure so the next call skips the fetch", async () => {
+    __resetDistTagsCache();
+    const failed = await resolveDistTags({ env: {}, fetchImpl: fetchThatFails() });
+    expect(failed).toEqual({});
+    // Within the negative TTL the cached empty result is reused, even though a
+    // working registry is now reachable (so an offline server pays the timeout
+    // once, not per request).
+    const cached = await resolveDistTags({
+      env: {},
+      fetchImpl: fetchReturning({ latest: "1.5.22" }),
+    });
+    expect(cached).toEqual({});
+  });
 });
 
 describe("checkForUpdate", () => {

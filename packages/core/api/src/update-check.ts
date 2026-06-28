@@ -30,6 +30,11 @@ const NPM_DIST_TAGS_URL = `https://registry.npmjs.org/-/package/${EXECUTOR_PACKA
 /** How long a successful registry lookup is reused before refetching. */
 const DIST_TAGS_TTL_MS = 10 * 60 * 1000;
 
+/** How long an empty result (offline, timeout, no tags) is reused before
+ *  retrying. Negative-caches failures so an air-gapped server does not pay the
+ *  fetch timeout on every shell load, while still recovering quickly. */
+const EMPTY_TTL_MS = 60 * 1000;
+
 /** How long to wait on the registry before giving up (a check, not a gate). */
 const NPM_FETCH_TIMEOUT_MS = 1500;
 
@@ -169,8 +174,12 @@ export const resolveDistTags = async (options?: ResolveDistTagsOptions): Promise
   if (override) return override;
 
   const now = Date.now();
-  if (registryCache && now - registryCache.at < DIST_TAGS_TTL_MS) {
-    return registryCache.tags;
+  if (registryCache) {
+    // Empty results (failures, or a package with no tags) carry the shorter
+    // negative TTL so a transient outage recovers quickly; real tags stick.
+    const ttl =
+      registryCache.tags.latest || registryCache.tags.beta ? DIST_TAGS_TTL_MS : EMPTY_TTL_MS;
+    if (now - registryCache.at < ttl) return registryCache.tags;
   }
 
   const fetchImpl = options?.fetchImpl ?? globalThis.fetch;
@@ -180,11 +189,15 @@ export const resolveDistTags = async (options?: ResolveDistTagsOptions): Promise
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(NPM_FETCH_TIMEOUT_MS),
     });
-    if (!res.ok) return {};
+    if (!res.ok) {
+      registryCache = { at: now, tags: {} };
+      return {};
+    }
     const tags = pickTags(await res.json());
     registryCache = { at: now, tags };
     return tags;
   } catch {
+    registryCache = { at: now, tags: {} };
     return {};
   }
 };

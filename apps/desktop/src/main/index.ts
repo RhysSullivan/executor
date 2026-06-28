@@ -727,6 +727,9 @@ const setUpdateStatus = (status: DesktopUpdateStatus) => {
 // `{"state":"downloaded","version":"99.0.0"}`) seeds a status to exercise the
 // renderer card and the install handler without one. Ignored in production.
 const applyFakeUpdateFromEnv = () => {
+  // Never honor the fake seam in a packaged build: a stray env var would seed a
+  // phantom "downloaded" update whose install quits the app against nothing.
+  if (app.isPackaged) return;
   const raw = process.env.EXECUTOR_DESKTOP_FAKE_UPDATE?.trim();
   if (!raw) return;
   // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: dev-only env override is untrusted text; a malformed value is logged and ignored, not fatal

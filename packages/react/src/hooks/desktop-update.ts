@@ -54,10 +54,17 @@ export function useDesktopUpdate(): DesktopUpdate | null {
   useEffect(() => {
     if (!bridge) return;
     let active = true;
+    // The initial snapshot is an async IPC round-trip; a push (e.g. download
+    // finished) can land first. Never let the stale snapshot overwrite a push
+    // that already arrived.
+    let receivedPush = false;
     void bridge.getUpdateStatus().then((current) => {
-      if (active) setStatus(current);
+      if (active && !receivedPush) setStatus(current);
     });
-    const unsubscribe = bridge.onUpdateStatus((next) => setStatus(next));
+    const unsubscribe = bridge.onUpdateStatus((next) => {
+      receivedPush = true;
+      setStatus(next);
+    });
     return () => {
       active = false;
       unsubscribe();
