@@ -1348,6 +1348,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
                 existingSlugs={[...oauthApps, ...oauthOtherApps].map((app: OAuthClientOption) =>
                   String(app.slug),
                 )}
+                autoRegisterRejectedReason={dcrFallbackMessage}
                 prefill={{
                   authorizationUrl:
                     oauthHandoffPrefill?.authorizationUrl ??

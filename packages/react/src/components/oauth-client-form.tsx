@@ -88,6 +88,11 @@ export function OAuthClientForm(props: {
   readonly onCreated: (result: { readonly owner: Owner; readonly slug: OAuthClientSlug }) => void;
   readonly onCancel?: () => void;
   readonly surface?: "card" | "plain";
+  /** When set, the server's automatic (DCR) registration is known to be rejected
+   *  for this host (e.g. it refused our redirect URI). The form then suppresses
+   *  the "Register automatically" path and leads with manual client entry; the
+   *  string is the actionable reason shown to the user. */
+  readonly autoRegisterRejectedReason?: string | null;
 }) {
   const {
     integrationName,
@@ -98,6 +103,7 @@ export function OAuthClientForm(props: {
     onCreated,
     onCancel,
     surface = "card",
+    autoRegisterRejectedReason = null,
   } = props;
   // Non-org hosts (local/desktop) have one local workspace. Offer only Local,
   // so the owner dropdown (which hides on a single option) disappears.
@@ -177,6 +183,11 @@ export function OAuthClientForm(props: {
     authorizationUrl.trim().length > 0 &&
     tokenUrl.trim().length > 0 &&
     grant === "authorization_code";
+
+  // When the server already rejected automatic registration for this host (e.g.
+  // it refused our non-loopback redirect URI), don't lead the user back into the
+  // path that just failed: suppress the auto CTA and lead with manual entry.
+  const showAutoRegister = canRegisterDynamic && autoRegisterRejectedReason === null;
 
   const handleDiscover = async () => {
     const url = issuerUrl.trim();
@@ -283,11 +294,18 @@ export function OAuthClientForm(props: {
       <div className="space-y-1">
         <p className="text-sm font-medium">Register an OAuth app</p>
         <p className="text-xs text-muted-foreground">
-          {canRegisterDynamic
+          {showAutoRegister
             ? "Register automatically below, or enter a client id/secret manually."
             : "Paste a client id/secret. We only ask for endpoints when they aren't already known."}
         </p>
       </div>
+
+      {autoRegisterRejectedReason ? (
+        <div className="space-y-1 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+          <p className="text-sm font-medium text-destructive">Automatic registration unavailable</p>
+          <p className="text-xs text-muted-foreground">{autoRegisterRejectedReason}</p>
+        </div>
+      ) : null}
 
       {/* app name */}
       <div className="space-y-1.5">
@@ -305,7 +323,7 @@ export function OAuthClientForm(props: {
 
       {/* register automatically (RFC 7591 DCR) — the primary path when the
           server advertises a registration endpoint: no client id/secret needed */}
-      {canRegisterDynamic ? (
+      {showAutoRegister ? (
         <div className="space-y-2 rounded-lg border border-ring/40 bg-accent/30 p-3">
           <p className="text-sm font-medium">No client ID needed</p>
           <p className="text-xs text-muted-foreground">
@@ -365,7 +383,7 @@ export function OAuthClientForm(props: {
       </div>
 
       {/* divider before the manual (secondary) path when DCR is available */}
-      {canRegisterDynamic ? (
+      {showAutoRegister ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="h-px flex-1 bg-border/60" />
           or enter a client ID manually
