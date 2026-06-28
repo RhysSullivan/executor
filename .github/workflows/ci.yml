@@ -94,8 +94,12 @@ jobs:
 
       # `chromium` and the new `chromium-headless-shell` ship as separate
       # downloads; the browser-driven scenarios launch the headless shell.
+      # Install from e2e so bunx resolves ITS pinned playwright (the version the
+      # tests run against) rather than floating to the latest, which would fetch
+      # a browser build the test runtime does not look for.
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium chromium-headless-shell
+        working-directory: e2e
 
       # The `local` vitest project is excluded from the default `test` chain
       # (each scenario launches its own server), so run it as its own job.
