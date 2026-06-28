@@ -190,6 +190,13 @@ const waitForSupervisedAttach = async (
 };
 
 const confirmEnableBackgroundService = async (): Promise<boolean> => {
+  // EXECUTOR_TEST_AUTO_CONFIRM_BACKGROUND_SERVICE skips the modal, the same seam
+  // as confirmResetState. Native dialogs are unreachable from CDP/Playwright, so
+  // a first-run boot under automation otherwise blocks here forever with no way
+  // to answer. "1" keeps the background service; any other value declines and
+  // falls back to the managed sidecar.
+  const autoConfirm = process.env.EXECUTOR_TEST_AUTO_CONFIRM_BACKGROUND_SERVICE;
+  if (autoConfirm !== undefined) return autoConfirm === "1";
   const { response } = await dialog.showMessageBox({
     type: "question",
     title: "Keep Executor running in the background?",
