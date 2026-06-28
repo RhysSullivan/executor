@@ -16,6 +16,7 @@ import {
   CardStackHeader,
 } from "../components/card-stack";
 import { Badge } from "../components/badge";
+import { PageContainer, PageHeader } from "../components/page";
 
 // ---------------------------------------------------------------------------
 // Providers page (v2) — repurposed from the v1 Secrets page.
@@ -45,93 +46,83 @@ export function SecretsPage(props: { showProviderInfo?: boolean }) {
   const providers = useAtomValue(providersAtom);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
-        {/* Header */}
-        <div className="flex items-end justify-between mb-10">
-          <div>
-            <h1 className="font-display text-[2rem] tracking-tight text-foreground leading-none">
-              Providers
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              Where your connections' credential values live — the default store for pasted values,
-              or an external backend like 1Password or your system keychain.
-            </p>
-          </div>
+    <PageContainer>
+      <PageHeader
+        title="Providers"
+        description="Where your connections' credential values live: the default store for pasted values, or an external backend like 1Password or your system keychain."
+      />
+
+      {/* Provider plugins (settings cards) */}
+      {showProviderInfo && secretProviderPlugins.length > 0 && (
+        <div className="mb-10">
+          <CardStack>
+            <CardStackHeader>Configure providers</CardStackHeader>
+            <CardStackContent>
+              {secretProviderPlugins.map((plugin) => (
+                <Suspense
+                  key={plugin.key}
+                  fallback={
+                    <div className="px-4 py-3 animate-pulse">
+                      <div className="h-4 w-24 rounded bg-muted" />
+                    </div>
+                  }
+                >
+                  <plugin.settings />
+                </Suspense>
+              ))}
+            </CardStackContent>
+          </CardStack>
         </div>
+      )}
 
-        {/* Provider plugins (settings cards) */}
-        {showProviderInfo && secretProviderPlugins.length > 0 && (
-          <div className="mb-10">
-            <CardStack>
-              <CardStackHeader>Configure providers</CardStackHeader>
-              <CardStackContent>
-                {secretProviderPlugins.map((plugin) => (
-                  <Suspense
-                    key={plugin.key}
-                    fallback={
-                      <div className="px-4 py-3 animate-pulse">
-                        <div className="h-4 w-24 rounded bg-muted" />
-                      </div>
-                    }
-                  >
-                    <plugin.settings />
-                  </Suspense>
-                ))}
-              </CardStackContent>
-            </CardStack>
+      {/* Registered providers */}
+      {AsyncResult.match(providers, {
+        onInitial: () => (
+          <div className="flex items-center gap-2 py-8">
+            <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
+            <p className="text-sm text-muted-foreground">Loading providers…</p>
           </div>
-        )}
-
-        {/* Registered providers */}
-        {AsyncResult.match(providers, {
-          onInitial: () => (
-            <div className="flex items-center gap-2 py-8">
-              <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <p className="text-sm text-muted-foreground">Loading providers…</p>
-            </div>
-          ),
-          onFailure: () => (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load providers</p>
-            </div>
-          ),
-          onSuccess: ({ value }) => (
-            <CardStack>
-              <CardStackHeader>Available providers</CardStackHeader>
-              <CardStackContent>
-                {value.length === 0 ? (
-                  <CardStackEntry>
+        ),
+        onFailure: () => (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+            <p className="text-sm text-destructive">Failed to load providers</p>
+          </div>
+        ),
+        onSuccess: ({ value }) => (
+          <CardStack>
+            <CardStackHeader>Available providers</CardStackHeader>
+            <CardStackContent>
+              {value.length === 0 ? (
+                <CardStackEntry>
+                  <CardStackEntryContent>
+                    <CardStackEntryDescription>
+                      No credential providers are registered.
+                    </CardStackEntryDescription>
+                  </CardStackEntryContent>
+                </CardStackEntry>
+              ) : (
+                value.map((key: ProviderKey) => (
+                  <CardStackEntry key={String(key)}>
                     <CardStackEntryContent>
-                      <CardStackEntryDescription>
-                        No credential providers are registered.
-                      </CardStackEntryDescription>
+                      <CardStackEntryTitle className="flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 shrink truncate">
+                          {providerLabel(String(key))}
+                        </span>
+                        <span className="max-w-40 shrink truncate font-mono text-xs text-muted-foreground">
+                          {String(key)}
+                        </span>
+                      </CardStackEntryTitle>
                     </CardStackEntryContent>
+                    <CardStackEntryActions>
+                      <Badge variant="secondary">provider</Badge>
+                    </CardStackEntryActions>
                   </CardStackEntry>
-                ) : (
-                  value.map((key: ProviderKey) => (
-                    <CardStackEntry key={String(key)}>
-                      <CardStackEntryContent>
-                        <CardStackEntryTitle className="flex min-w-0 items-center gap-2">
-                          <span className="min-w-0 shrink truncate">
-                            {providerLabel(String(key))}
-                          </span>
-                          <span className="max-w-40 shrink truncate font-mono text-xs text-muted-foreground">
-                            {String(key)}
-                          </span>
-                        </CardStackEntryTitle>
-                      </CardStackEntryContent>
-                      <CardStackEntryActions>
-                        <Badge variant="secondary">provider</Badge>
-                      </CardStackEntryActions>
-                    </CardStackEntry>
-                  ))
-                )}
-              </CardStackContent>
-            </CardStack>
-          ),
-        })}
-      </div>
-    </div>
+                ))
+              )}
+            </CardStackContent>
+          </CardStack>
+        ),
+      })}
+    </PageContainer>
   );
 }
