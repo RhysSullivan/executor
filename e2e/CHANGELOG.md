@@ -1,5 +1,18 @@
 # @executor-js/e2e
 
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies [[`1a1f9aa`](https://github.com/RhysSullivan/executor/commit/1a1f9aaae4e4d0f73311fd643919cdfaa637c124)]:
+  - @executor-js/plugin-openapi@1.5.22
+  - @executor-js/plugin-microsoft@1.5.21
+  - @executor-js/sdk@1.5.22
+  - @executor-js/plugin-graphql@1.5.22
+  - @executor-js/plugin-mcp@1.5.22
+  - @executor-js/api@1.4.42
+  - @executor-js/plugin-toolkits@1.5.14
+
 ## 0.0.18
 
 ### Patch Changes

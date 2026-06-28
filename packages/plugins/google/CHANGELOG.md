@@ -1,5 +1,17 @@
 # @executor-js/plugin-google
 
+## 1.5.21
+
+### Patch Changes
+
+- [#1137](https://github.com/RhysSullivan/executor/pull/1137) [`1a1f9aa`](https://github.com/RhysSullivan/executor/commit/1a1f9aaae4e4d0f73311fd643919cdfaa637c124) Thanks [@zrm625](https://github.com/zrm625)! - Add a Google Photos preset with raw upload support and binary-safe `bodyBase64` handling.
+
+- Updated dependencies [[`1a1f9aa`](https://github.com/RhysSullivan/executor/commit/1a1f9aaae4e4d0f73311fd643919cdfaa637c124)]:
+  - @executor-js/plugin-openapi@1.5.22
+  - @executor-js/sdk@1.5.22
+  - @executor-js/api@1.4.42
+  - @executor-js/react@1.4.42
+
 ## 1.5.20
 
 ### Patch Changes

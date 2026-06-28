@@ -1,5 +1,17 @@
 # executor
 
+## 1.5.22
+
+### Patch Changes
+
+- [#1167](https://github.com/RhysSullivan/executor/pull/1167) [`add2e40`](https://github.com/RhysSullivan/executor/commit/add2e405fca8a5e20aea43d216bc8289c15e2187) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Fix the desktop app's main-area title-bar strip pushing page content down so page headers no longer lined up with the sidebar header. The drag strip now overlays the top of the main area (behind page content) instead of reserving its own row, and the Toolkits header uses a fixed title-bar height so its bottom border aligns with the sidebar header again.
+
+- Updated dependencies []:
+  - @executor-js/local@1.4.4
+  - @executor-js/sdk@1.5.22
+  - @executor-js/runtime-quickjs@1.5.22
+  - @executor-js/api@1.4.42
+
 ## 1.5.21
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @executor-js/cloudflare
 
+## 0.0.21
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.22
+  - @executor-js/execution@1.5.22
+  - @executor-js/api@1.4.42
+  - @executor-js/host-mcp@1.4.4
+
 ## 0.0.20
 
 ### Patch Changes
