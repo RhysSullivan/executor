@@ -74,9 +74,32 @@ jobs:
 
       - run: bun run test
 
-  desktop-smoke:
-    name: Desktop smoke build
+  e2e-local:
+    name: E2E (local app)
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      # The local scenarios boot a real `executor web` (which spawns a Node
+      # sidecar) and some drive a browser, so pin Node 22 and install Chromium.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      # The `local` vitest project is excluded from the default `test` chain
+      # (each scenario launches its own server), so run it as its own job.
+      - name: Run local e2e scenarios
+        run: bun run test:local
+        working-directory: e2e
     steps:
       - uses: actions/checkout@v4
 
