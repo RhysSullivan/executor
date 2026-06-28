@@ -26,6 +26,7 @@ const failingExtension: McpPluginExtension = {
   probeEndpoint: () => Effect.die(new Error("Not implemented")),
   addServer: () => unused,
   removeServer: () => unused,
+  reconcileStdioConnections: () => unused,
   getServer: () => Effect.succeed(null),
   configureServer: () => unused,
   configureAuth: () => unused,

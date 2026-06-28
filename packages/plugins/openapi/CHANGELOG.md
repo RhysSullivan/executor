@@ -1,5 +1,49 @@
 # @executor-js/plugin-openapi
 
+## 1.5.22
+
+### Patch Changes
+
+- [#1137](https://github.com/RhysSullivan/executor/pull/1137) [`1a1f9aa`](https://github.com/RhysSullivan/executor/commit/1a1f9aaae4e4d0f73311fd643919cdfaa637c124) Thanks [@zrm625](https://github.com/zrm625)! - Add a Google Photos preset with raw upload support and binary-safe `bodyBase64` handling.
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.22
+  - @executor-js/config@1.5.22
+  - @executor-js/api@1.4.42
+  - @executor-js/react@1.4.42
+
+## 1.5.21
+
+### Patch Changes
+
+- [#1151](https://github.com/RhysSullivan/executor/pull/1151) [`4b361b9`](https://github.com/RhysSullivan/executor/commit/4b361b9f7220f679f582137f5375b29c3b72f919) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Derive separate credential inputs for OpenAPI auth strategies that require multiple API key headers.
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.21
+  - @executor-js/config@1.5.21
+  - @executor-js/api@1.4.41
+  - @executor-js/react@1.4.41
+
+## 1.5.20
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.20
+  - @executor-js/config@1.5.20
+  - @executor-js/api@1.4.40
+  - @executor-js/react@1.4.40
+
+## 1.5.19
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.19
+  - @executor-js/config@1.5.19
+  - @executor-js/api@1.4.39
+  - @executor-js/react@1.4.39
+
 ## 1.5.18
 
 ### Patch Changes

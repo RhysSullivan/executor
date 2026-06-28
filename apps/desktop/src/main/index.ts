@@ -190,6 +190,13 @@ const waitForSupervisedAttach = async (
 };
 
 const confirmEnableBackgroundService = async (): Promise<boolean> => {
+  // EXECUTOR_TEST_AUTO_CONFIRM_BACKGROUND_SERVICE skips the modal, the same seam
+  // as confirmResetState. Native dialogs are unreachable from CDP/Playwright, so
+  // a first-run boot under automation otherwise blocks here forever with no way
+  // to answer. "1" keeps the background service; any other value declines and
+  // falls back to the managed sidecar.
+  const autoConfirm = process.env.EXECUTOR_TEST_AUTO_CONFIRM_BACKGROUND_SERVICE;
+  if (autoConfirm !== undefined) return autoConfirm === "1";
   const { response } = await dialog.showMessageBox({
     type: "question",
     title: "Keep Executor running in the background?",
@@ -403,7 +410,13 @@ const createWindow = async (conn: SidecarConnection) => {
     y: windowState.y,
     width: windowState.width,
     height: windowState.height,
-    minWidth: 720,
+    // Keep the window at or above the responsive layout's mobile breakpoint
+    // (Tailwind `md` = 768px). Below it the web shell switches to the mobile
+    // header, whose far-left hamburger would render under the native macOS
+    // traffic lights (issue #1125). Staying >= 768 means the desktop always
+    // renders the sidebar layout, so the lights only ever sit over the sidebar
+    // header, which is offset to clear them (.desktop-macos-titlebar).
+    minWidth: 768,
     minHeight: 480,
     show: false,
     backgroundColor: "#0a0a0a",
@@ -821,6 +834,10 @@ const installApplicationMenu = () => {
       {
         label: "Report a Problem…",
         click: () => void reportAProblem(),
+      },
+      {
+        label: "Documentation",
+        click: () => void shell.openExternal("https://executor.sh/docs"),
       },
       { type: "separator" },
       ...(isMac

@@ -54,7 +54,26 @@ export const McpOAuthMethod = Schema.Struct({
 });
 export type McpOAuthMethod = typeof McpOAuthMethod.Type;
 
-export const McpAuthMethod = Schema.Union([NoneAuthMethod, ApiKeyAuthMethod, McpOAuthMethod]);
+/** Stdio env credential: the named environment variables a stdio server needs
+ *  (often API keys / tokens). A connection supplies one secret value per `var`,
+ *  keyed by the var name; at launch the connector injects them into the
+ *  subprocess env. The VALUES live in the secret store as the connection's
+ *  inputs, never in this config blob — that is the "properly store auth" half
+ *  of the stdio model, mirroring how remote apikey methods keep their secrets
+ *  on the connection rather than the integration. */
+export const McpStdioEnvMethod = Schema.Struct({
+  slug: Schema.String,
+  kind: Schema.Literal("stdio_env"),
+  vars: Schema.Array(Schema.String),
+});
+export type McpStdioEnvMethod = typeof McpStdioEnvMethod.Type;
+
+export const McpAuthMethod = Schema.Union([
+  NoneAuthMethod,
+  ApiKeyAuthMethod,
+  McpOAuthMethod,
+  McpStdioEnvMethod,
+]);
 export type McpAuthMethod = typeof McpAuthMethod.Type;
 
 /** Single-method `auth` shorthand on `addServer` — agent convenience for the
@@ -180,10 +199,20 @@ export const McpStdioIntegrationConfig = Schema.Struct({
   command: Schema.String,
   /** Arguments to the command */
   args: Schema.optional(Schema.Array(Schema.String)),
-  /** Environment variables */
+  /** Static, non-credential environment variables injected verbatim into the
+   *  subprocess. Secret env (API keys / tokens) is NOT stored here — it is
+   *  declared as a `stdio_env` method in `authenticationTemplate` and its
+   *  values live on the connection. Optional + legacy: pre-revamp stdio
+   *  integrations stored their (then-plaintext) env here, so it stays
+   *  decodable. */
   env: Schema.optional(StringMap),
   /** Working directory */
   cwd: Schema.optional(Schema.String),
+  /** Declared auth methods — a single `stdio_env` method naming the secret env
+   *  vars, or `none`. A connection's `template` picks one by slug, exactly as
+   *  for remote servers. Optional so pre-revamp stdio configs (which had no
+   *  methods) still decode; absence is treated as no declared secret env. */
+  authenticationTemplate: Schema.optional(Schema.Array(McpAuthMethod)),
 });
 export type McpStdioIntegrationConfig = typeof McpStdioIntegrationConfig.Type;
 

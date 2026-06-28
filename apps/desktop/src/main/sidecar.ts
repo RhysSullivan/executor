@@ -237,8 +237,12 @@ const resolveSidecarCommand = (input: {
         String(input.port),
         "--hostname",
         input.hostname,
-        "--auth-token",
-        input.authToken,
+        // Combined `--flag=value` form: the auth token is base64url and can
+        // start with "-", which the space-separated form makes the CLI parser
+        // read as an unknown flag, so the daemon prints help and exits and the
+        // desktop reports a fatal "server crashed during startup". Persistent
+        // until the token rotates, and cross-platform (~1 in 64 fresh installs).
+        `--auth-token=${input.authToken}`,
       ],
       cwd: process.resourcesPath,
       cliManagedManifest: true,

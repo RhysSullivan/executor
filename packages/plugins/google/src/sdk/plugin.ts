@@ -36,7 +36,12 @@ import {
   normalizeGoogleDiscoveryUrl,
 } from "./discovery";
 import { decodeGoogleIntegrationConfig, type GoogleIntegrationConfig } from "./config";
-import { googleOpenApiBundlePreset } from "./presets";
+import {
+  googleOAuthConsentScopesForPreset,
+  googleOpenApiBundlePreset,
+  googlePhotosOpenApiBundlePreset,
+  googlePhotosOpenApiPresets,
+} from "./presets";
 
 export interface GoogleBundleConfig {
   readonly urls: readonly string[];
@@ -68,6 +73,24 @@ export interface GooglePluginOptions {
 
 const DEFAULT_GOOGLE_SLUG = "google";
 
+const googlePhotosBundlePresetIdByUrl = new Map(
+  googlePhotosOpenApiPresets.flatMap((preset) =>
+    preset.url ? [[normalizeGoogleDiscoveryUrl(preset.url) ?? preset.url, preset.id] as const] : [],
+  ),
+);
+
+const googlePhotosBundleConsentScopes = (
+  urls: readonly string[],
+): readonly string[] | undefined => {
+  const normalized = new Set(urls);
+  const presetIds = [...googlePhotosBundlePresetIdByUrl.entries()].flatMap(([url, presetId]) =>
+    normalized.has(url) ? [presetId] : [],
+  );
+  return presetIds.length > 0
+    ? presetIds.flatMap((presetId) => googleOAuthConsentScopesForPreset(presetId))
+    : undefined;
+};
+
 const fetchGoogleBundleConversion = (
   urls: readonly string[],
   httpClientLayer: Layer.Layer<HttpClient.HttpClient, never, never>,
@@ -80,7 +103,15 @@ const fetchGoogleBundleConversion = (
         Effect.map((documentText) => ({ discoveryUrl: url, documentText })),
       ),
     { concurrency: 4 },
-  ).pipe(Effect.flatMap((documents) => convertGoogleDiscoveryBundleToOpenApi({ documents })));
+  ).pipe(
+    Effect.flatMap((documents) => {
+      const consentScopes = googlePhotosBundleConsentScopes(urls);
+      return convertGoogleDiscoveryBundleToOpenApi({
+        documents,
+        ...(consentScopes ? { consentScopes } : {}),
+      });
+    }),
+  );
 
 const uniqueUrls = (urls: readonly string[]): readonly string[] => [
   ...new Set(urls.flatMap((url) => normalizeGoogleDiscoveryUrl(url) ?? [])),
@@ -292,7 +323,7 @@ export type GooglePluginExtension = ReturnType<typeof makeGooglePluginExtension>
 export const googlePlugin = definePlugin((options?: GooglePluginOptions) => ({
   id: "google" as const,
   packageName: "@executor-js/plugin-google",
-  integrationPresets: [googleOpenApiBundlePreset],
+  integrationPresets: [googleOpenApiBundlePreset, googlePhotosOpenApiBundlePreset],
   storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
   extension: (ctx: PluginCtx<OpenapiStore>) => makeGooglePluginExtension(options, ctx),

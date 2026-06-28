@@ -66,12 +66,13 @@ type OpenApiOperationObject = {
   readonly servers?: readonly { readonly url: string }[];
   readonly parameters: readonly OpenApiParameterObject[];
   readonly requestBody?: {
-    readonly required: false;
-    readonly content: {
-      readonly "application/json": {
+    readonly required: boolean;
+    readonly content: Record<
+      string,
+      {
         readonly schema: OpenApiSchemaObject;
-      };
-    };
+      }
+    >;
   };
   readonly responses: {
     readonly "200": {
@@ -605,6 +606,7 @@ const buildDiscoveryOperation = (input: {
   readonly method: DiscoveryMethod;
   readonly toolPath: string;
   readonly pathTemplate: string;
+  readonly oauthScopes?: readonly string[];
   readonly schemaNameForRef?: (name: string) => string;
   readonly serverUrl?: string;
   readonly tags?: readonly string[];
@@ -619,7 +621,7 @@ const buildDiscoveryOperation = (input: {
     if (parameter.location) mergedParameters.set(name, parameter);
   }
 
-  const methodScopes = input.method.scopes ?? [];
+  const methodScopes = input.oauthScopes ?? input.method.scopes ?? [];
   const methodDescription = Option.getOrUndefined(input.method.description);
   const schemaNameForRef = input.schemaNameForRef ?? identitySchemaName;
 
@@ -674,6 +676,14 @@ const buildDiscoveryOperation = (input: {
 };
 
 const GOOGLE_OAUTH_SECURITY_SCHEME = "googleOAuth2";
+const GOOGLE_PHOTOS_LIBRARY_SERVICE = "photoslibrary";
+const GOOGLE_PHOTOS_PICKER_SERVICE = "photospicker";
+const GOOGLE_PHOTOS_APPENDONLY_SCOPE = "https://www.googleapis.com/auth/photoslibrary.appendonly";
+const GOOGLE_PHOTOS_UPLOAD_TOOL_PATH = "photoslibrary.mediaItems.upload";
+const GOOGLE_PHOTOS_UPLOAD_PATH = "/uploads";
+
+const isGooglePhotosService = (service: string): boolean =>
+  service === GOOGLE_PHOTOS_LIBRARY_SERVICE || service === GOOGLE_PHOTOS_PICKER_SERVICE;
 
 /** The v2 oauth auth template for a Google-discovery integration. The spec
  *  itself carries the matching `securitySchemes.googleOAuth2` entry; this is the
@@ -694,6 +704,72 @@ const googleOauthTemplate = (scopes: Record<string, string>): readonly Authentic
       scopes: Object.keys(scopes),
     },
   ];
+
+const googlePhotosUploadOperation = (input: {
+  readonly toolPath: string;
+  readonly oauthScopes: readonly string[];
+  readonly serverUrl: string;
+  readonly tags?: readonly string[];
+}): OpenApiOperationObject => ({
+  operationId: input.toolPath,
+  "x-executor-toolPath": input.toolPath,
+  "x-executor-pathTemplate": GOOGLE_PHOTOS_UPLOAD_PATH,
+  ...(input.tags && input.tags.length > 0 ? { tags: input.tags } : {}),
+  description:
+    "Uploads raw photo or video bytes to Google Photos and returns a plain-text upload token. Call mediaItems.batchCreate with the returned token to create the media item.",
+  servers: [{ url: input.serverUrl }],
+  parameters: [
+    {
+      name: "X-Goog-Upload-File-Name",
+      in: "header",
+      required: true,
+      description: "File name Google Photos should associate with the uploaded bytes.",
+      schema: { type: "string" },
+    },
+    {
+      name: "X-Goog-Upload-Protocol",
+      in: "header",
+      required: true,
+      description: "Google Photos raw upload protocol. Set to raw.",
+      schema: { type: "string", enum: ["raw"], default: "raw" },
+    },
+    {
+      name: "X-Goog-Upload-Content-Type",
+      in: "header",
+      required: false,
+      description: "MIME type of the uploaded media, for example image/jpeg or video/mp4.",
+      schema: { type: "string" },
+    },
+  ],
+  requestBody: {
+    required: true,
+    content: {
+      "application/octet-stream": {
+        schema: { type: "string", format: "binary" },
+      },
+    },
+  },
+  responses: {
+    "200": {
+      description: "Successful response",
+      content: {
+        "text/plain": {
+          schema: { type: "string" },
+        },
+      },
+    },
+  },
+  ...(input.oauthScopes.length > 0 ? { security: [{ googleOAuth2: input.oauthScopes }] } : {}),
+  "x-google-scopes": input.oauthScopes,
+});
+
+const hasOperation = (
+  paths: Record<string, Record<string, OpenApiOperationObject>>,
+  operationId: string,
+): boolean =>
+  Object.values(paths).some((pathItem) =>
+    Object.values(pathItem).some((operation) => operation.operationId === operationId),
+  );
 
 export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleDiscovery")(
   function* (input: { readonly discoveryUrl: string; readonly documentText: string }) {
@@ -735,6 +811,18 @@ export const convertGoogleDiscoveryToOpenApi = Effect.fn("OpenApi.convertGoogleD
         method,
         toolPath,
         pathTemplate: pathTemplate.startsWith("/") ? pathTemplate : `/${pathTemplate}`,
+      });
+    }
+
+    if (
+      service === GOOGLE_PHOTOS_LIBRARY_SERVICE &&
+      !hasOperation(paths, GOOGLE_PHOTOS_UPLOAD_TOOL_PATH)
+    ) {
+      paths[GOOGLE_PHOTOS_UPLOAD_PATH] ??= {};
+      paths[GOOGLE_PHOTOS_UPLOAD_PATH]!.post = googlePhotosUploadOperation({
+        toolPath: GOOGLE_PHOTOS_UPLOAD_TOOL_PATH,
+        oauthScopes: [GOOGLE_PHOTOS_APPENDONLY_SCOPE],
+        serverUrl: baseUrl,
       });
     }
 
@@ -798,6 +886,7 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
   "OpenApi.convertGoogleDiscoveryBundle",
 )(function* (input: {
   readonly documents: readonly { readonly discoveryUrl: string; readonly documentText: string }[];
+  readonly consentScopes?: readonly string[];
 }) {
   if (input.documents.length === 0) {
     return yield* new OpenApiParseError({
@@ -829,12 +918,16 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
   const paths: Record<string, Record<string, OpenApiOperationObject>> = {};
   const schemas: Record<string, OpenApiSchemaObject> = {};
   const rawScopes: Record<string, string> = {};
+  const consentScopeSet = input.consentScopes ? new Set(input.consentScopes) : null;
 
   for (const info of infos) {
     const schemaPrefix = schemaComponentPart(`${info.service}_${info.version}`);
     const schemaNameForRef = (name: string) => `${schemaPrefix}_${schemaComponentPart(name)}`;
+    const scopeDescriptions = discoveryScopes(info.document);
+    const filterPhotosScopes = consentScopeSet !== null && isGooglePhotosService(info.service);
 
-    for (const [scope, description] of Object.entries(discoveryScopes(info.document))) {
+    for (const [scope, description] of Object.entries(scopeDescriptions)) {
+      if (filterPhotosScopes && !consentScopeSet.has(scope)) continue;
       rawScopes[scope] ??= description;
     }
 
@@ -846,6 +939,11 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
       const methodId = Option.getOrUndefined(method.id);
       const rawPathTemplate = Option.getOrUndefined(method.path);
       if (!methodId || !rawPathTemplate || !method.httpMethod) continue;
+      const methodScopes = method.scopes ?? [];
+      const oauthScopes = filterPhotosScopes
+        ? methodScopes.filter((scope) => consentScopeSet.has(scope))
+        : methodScopes;
+      if (filterPhotosScopes && methodScopes.length > 0 && oauthScopes.length === 0) continue;
 
       const toolPath = methodId;
       const wirePath = rawPathTemplate.startsWith("/") ? rawPathTemplate : `/${rawPathTemplate}`;
@@ -859,7 +957,22 @@ export const convertGoogleDiscoveryBundleToOpenApi = Effect.fn(
         method,
         toolPath,
         pathTemplate: wirePath,
+        oauthScopes,
         schemaNameForRef,
+        serverUrl: info.baseUrl,
+        tags: [info.title],
+      });
+    }
+
+    if (
+      info.service === GOOGLE_PHOTOS_LIBRARY_SERVICE &&
+      (!consentScopeSet || consentScopeSet.has(GOOGLE_PHOTOS_APPENDONLY_SCOPE)) &&
+      !hasOperation(paths, GOOGLE_PHOTOS_UPLOAD_TOOL_PATH)
+    ) {
+      paths[GOOGLE_PHOTOS_UPLOAD_PATH] ??= {};
+      paths[GOOGLE_PHOTOS_UPLOAD_PATH]!.post = googlePhotosUploadOperation({
+        toolPath: GOOGLE_PHOTOS_UPLOAD_TOOL_PATH,
+        oauthScopes: [GOOGLE_PHOTOS_APPENDONLY_SCOPE],
         serverUrl: info.baseUrl,
         tags: [info.title],
       });

@@ -113,8 +113,13 @@ export const wirePlacementsFromEditor = (
 ): readonly AuthPlacement[] => {
   const variables = assignVariables(placements);
   return placements
-    .filter((p: Placement) => p.name.trim().length > 0 || p.literal !== undefined)
-    .map((p: Placement): AuthPlacement => {
+    .filter(
+      // `env` placements belong to stdio integrations, not the HTTP custom-
+      // method editor this codec serializes; they never reach the wire here.
+      (p: Placement): p is Placement & { readonly carrier: "header" | "query" } =>
+        p.carrier !== "env" && (p.name.trim().length > 0 || p.literal !== undefined),
+    )
+    .map((p): AuthPlacement => {
       const variable = variables.get(p);
       return {
         carrier: p.carrier,

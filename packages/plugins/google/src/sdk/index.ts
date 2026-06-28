@@ -8,6 +8,11 @@ export {
 export {
   googleOpenApiBundlePreset,
   googleOpenApiPresets,
+  googlePhotosOpenApiBundlePreset,
+  googlePhotosOpenApiPresets,
+  googlePhotosPresetIds,
+  GOOGLE_PHOTOS_ICON,
+  GOOGLE_PHOTOS_PRESET_ID,
   googleStandardUserOAuthPresets,
   googleOAuthConsentScopes,
   googleOAuthConsentScopesForPreset,

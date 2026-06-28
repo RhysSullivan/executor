@@ -49,6 +49,7 @@ export default defineConfig({
         include: [
           "scenarios/browser-approval.test.ts",
           "scenarios/microsoft-graph-full.test.ts",
+          "scenarios/toolkits-mcp.test.ts",
           "cloudflare/**/*.test.ts",
         ],
         fileParallelism: false,
@@ -78,15 +79,18 @@ export default defineConfig({
       }),
       // The single-user local app. Each scenario launches its OWN `executor
       // web` via the CLI on a throwaway data dir + an OS-assigned port, so
-      // there is no shared instance and scenarios are independent — file
-      // parallelism is ON. No globalSetup (nothing shared to boot). Only
-      // local/** scenarios. Not part of the default `npm run test` chain; run
-      // with `vitest run --project local`.
+      // there is no shared instance and scenarios are independent. Files run
+      // SERIALLY (like every other server-booting project): a cold `executor
+      // web` boot runs vite's optimizeDeps, and several booting at once on a
+      // CI runner thrash hard enough to blow the token-URL wait. Serial lets
+      // the first boot warm the shared vite cache so the rest come up fast. No
+      // globalSetup (nothing shared to boot). Only local/** scenarios. Not part
+      // of the default `npm run test` chain; run with `vitest run --project local`.
       project("local", {
         include: ["local/**/*.test.ts"],
         globalSetup: [],
-        fileParallelism: true,
-        testTimeout: 180_000,
+        fileParallelism: false,
+        testTimeout: 240_000,
       }),
       // The supervised CLI daemon inside a guest VM, one project per OS. The
       // globalsetup provisions a VM, `executor service install`s the daemon, and

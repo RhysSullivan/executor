@@ -24,12 +24,23 @@ const gd = (service: string, version: string) =>
 
 const GOOGLE_G = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
 export const GOOGLE_BUNDLE_PRESET_ID = "google";
+export const GOOGLE_PHOTOS_PRESET_ID = "google-photos";
+export const GOOGLE_PHOTOS_ICON =
+  "https://www.gstatic.com/images/branding/product/2x/photos_96dp.png";
 
 export const googleOpenApiBundlePreset: GooglePreset = {
   id: GOOGLE_BUNDLE_PRESET_ID,
   name: "Google",
   summary: "Bundle Gmail, Calendar, Drive, Docs, and other Google APIs into one source.",
   icon: GOOGLE_G,
+  featured: true,
+};
+
+export const googlePhotosOpenApiBundlePreset: GooglePreset = {
+  id: GOOGLE_PHOTOS_PRESET_ID,
+  name: "Google Photos",
+  summary: "Albums, uploads, app-created media, and user-selected picker media.",
+  icon: GOOGLE_PHOTOS_ICON,
   featured: true,
 };
 
@@ -110,6 +121,22 @@ export const googleOpenApiPresets: readonly GoogleOpenApiPreset[] = [
     url: gd("people", "v1"),
     icon: "https://fonts.gstatic.com/s/i/productlogos/contacts_2022/v2/192px.svg",
     oauthAudience: "standard-user",
+  },
+  {
+    id: "google-photos-library",
+    name: "Google Photos Library",
+    summary: "Albums, uploads, and app-created media through Google Photos.",
+    url: gd("photoslibrary", "v1"),
+    icon: GOOGLE_PHOTOS_ICON,
+    oauthAudience: "advanced-user",
+  },
+  {
+    id: "google-photos-picker",
+    name: "Google Photos Picker",
+    summary: "Picker sessions and user-selected Google Photos media items.",
+    url: "https://photospicker.googleapis.com/$discovery/rest?version=v1",
+    icon: GOOGLE_PHOTOS_ICON,
+    oauthAudience: "advanced-user",
   },
   {
     id: "google-chat",
@@ -197,6 +224,14 @@ export const googleStandardUserOAuthPresets = googleOpenApiPresets.filter(
   (preset) => preset.oauthAudience === "standard-user",
 );
 
+export const googlePhotosPresetIds: readonly string[] = [
+  "google-photos-library",
+  "google-photos-picker",
+];
+
+export const googlePhotosOpenApiPresets: readonly GoogleOpenApiPreset[] =
+  googleOpenApiPresets.filter((preset) => googlePhotosPresetIds.includes(preset.id));
+
 // ---------------------------------------------------------------------------
 // Representative consent scopes per preset.
 //
@@ -221,6 +256,11 @@ export const googleOAuthConsentScopes: Readonly<Record<string, readonly string[]
   "google-forms": ["https://www.googleapis.com/auth/forms.body"],
   "google-tasks": ["https://www.googleapis.com/auth/tasks"],
   "google-people": ["https://www.googleapis.com/auth/contacts"],
+  "google-photos-library": [
+    "https://www.googleapis.com/auth/photoslibrary.appendonly",
+    "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+  ],
+  "google-photos-picker": ["https://www.googleapis.com/auth/photospicker.mediaitems.readonly"],
   "google-chat": ["https://www.googleapis.com/auth/chat.spaces"],
   "google-keep": ["https://www.googleapis.com/auth/keep"],
   "google-youtube-data": ["https://www.googleapis.com/auth/youtube"],

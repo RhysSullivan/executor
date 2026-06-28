@@ -14,6 +14,7 @@ import {
 } from "@executor-js/sdk";
 import { collectTables } from "@executor-js/api/server";
 import { loadPluginsFromJsonc } from "@executor-js/config";
+import type { McpPluginExtension } from "@executor-js/plugin-mcp";
 
 import executorConfig from "../executor.config";
 import { localDataMigrations } from "./db/data-migrations";
@@ -57,33 +58,40 @@ const resolvePluginConfigPath = (scopeDir: string): string => join(scopeDir, "ex
 // Static config wins on conflict, matching the Vite plugin.
 type LocalPlugins = readonly AnyPlugin[];
 
-const loadLocalPlugins = Effect.gen(function* () {
-  const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
-  const staticPlugins = executorConfig.plugins();
-  const dynamicPlugins =
-    (yield* Effect.promise(() => loadPluginsFromJsonc({ path: resolvePluginConfigPath(cwd) }))) ??
-    [];
+export interface LocalExecutorOptions {
+  readonly activeToolkitSlug?: string;
+}
 
-  const staticPackageNames = new Set(
-    staticPlugins.map((plugin) => plugin.packageName).filter((name): name is string => !!name),
-  );
-  const dedupedDynamic = dynamicPlugins.filter((plugin) => {
-    if (plugin.packageName && staticPackageNames.has(plugin.packageName)) {
-      console.warn(
-        `[executor] plugin "${plugin.packageName}" appears in both ` +
-          `executor.config.ts and executor.jsonc#plugins. The static ` +
-          `entry wins; the jsonc entry is ignored.`,
-      );
-      return false;
-    }
-    return true;
+const loadLocalPlugins = (options: LocalExecutorOptions = {}) =>
+  Effect.gen(function* () {
+    const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
+    const staticPlugins = executorConfig.plugins({
+      activeToolkitSlug: options.activeToolkitSlug,
+    });
+    const dynamicPlugins =
+      (yield* Effect.promise(() => loadPluginsFromJsonc({ path: resolvePluginConfigPath(cwd) }))) ??
+      [];
+
+    const staticPackageNames = new Set(
+      staticPlugins.map((plugin) => plugin.packageName).filter((name): name is string => !!name),
+    );
+    const dedupedDynamic = dynamicPlugins.filter((plugin) => {
+      if (plugin.packageName && staticPackageNames.has(plugin.packageName)) {
+        console.warn(
+          `[executor] plugin "${plugin.packageName}" appears in both ` +
+            `executor.config.ts and executor.jsonc#plugins. The static ` +
+            `entry wins; the jsonc entry is ignored.`,
+        );
+        return false;
+      }
+      return true;
+    });
+
+    return {
+      cwd,
+      plugins: [...staticPlugins, ...dedupedDynamic] as LocalPlugins,
+    };
   });
-
-  return {
-    cwd,
-    plugins: [...staticPlugins, ...dedupedDynamic] as LocalPlugins,
-  };
-});
 
 interface LocalExecutorBundle {
   readonly executor: Executor<LocalPlugins>;
@@ -134,12 +142,12 @@ const handleOrNull = (promise: ReturnType<typeof createExecutorHandle>) =>
     ),
   );
 
-const createLocalExecutorLayer = () => {
+const createLocalExecutorLayer = (options: LocalExecutorOptions = {}) => {
   const storage = resolveStorage();
 
   return Layer.effect(LocalExecutorTag)(
     Effect.gen(function* () {
-      const { cwd, plugins } = yield* loadLocalPlugins;
+      const { cwd, plugins } = yield* loadLocalPlugins(options);
       const tenantId = makeTenantId(cwd);
       const tables = collectTables();
 
@@ -180,7 +188,11 @@ const createLocalExecutorLayer = () => {
       // without touching the data.
       yield* runSqliteDataMigrations(sqlite.client, localDataMigrations).pipe(
         Effect.mapError(
-          (cause) => new LocalExecutorCreateError({ message: CREATE_SQLITE_ERROR_MESSAGE, cause }),
+          (cause) =>
+            new LocalExecutorCreateError({
+              message: CREATE_SQLITE_ERROR_MESSAGE,
+              cause,
+            }),
         ),
       );
 
@@ -218,13 +230,33 @@ const createLocalExecutorLayer = () => {
         }
       }
 
+      // Heal stdio MCP integrations added before auto-connect existed (they
+      // landed with zero connections ⇒ zero tools) and move any legacy inline
+      // env into the secret store. No-op on a fresh install; never fails boot.
+      // Local is the only app that enables stdio, so this only runs here.
+      // oxlint-disable-next-line executor/no-double-cast -- typed boundary: the executor IS its own plugin-extension map (executor[pluginId]) but LocalExecutor doesn't surface per-plugin extensions statically
+      const mcpExtension = (executor as unknown as { readonly mcp?: McpPluginExtension }).mcp;
+      if (mcpExtension) {
+        yield* mcpExtension
+          .reconcileStdioConnections()
+          .pipe(
+            Effect.catch(() =>
+              Effect.sync(() =>
+                console.warn(
+                  "[executor] stdio connection reconcile failed; existing stdio servers may show no tools until re-added",
+                ),
+              ),
+            ),
+          );
+      }
+
       return { executor, plugins };
     }),
   );
 };
 
-export const createExecutorHandle = async () => {
-  const layer = createLocalExecutorLayer();
+export const createExecutorHandle = async (options: LocalExecutorOptions = {}) => {
+  const layer = createLocalExecutorLayer(options);
   const runtime = ManagedRuntime.make(layer);
   const bundle = await runtime.runPromise(LocalExecutorTag.asEffect());
 

@@ -24,10 +24,11 @@ export interface IntegrationDisplayDescriptor {
   readonly url?: string;
 }
 
-/** Where a credential value is carried on the outbound request. Mirrors the
- *  client's `Placement`. */
+/** Where a credential value is carried. `header`/`query` place it on an
+ *  outbound HTTP request (mirrors the client's `Placement`); `env` injects it
+ *  as an environment variable for a stdio (subprocess) integration. */
 export interface AuthPlacementDescriptor {
-  readonly carrier: "header" | "query";
+  readonly carrier: "header" | "query" | "env";
   readonly name: string;
   /** Literal prepended to the value (e.g. `"Bearer "`). Empty when bare. */
   readonly prefix: string;

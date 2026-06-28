@@ -34,6 +34,8 @@ import { googlePlugin } from "./plugin";
 const CALENDAR_URL = "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest";
 const GMAIL_URL = "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest";
 const DRIVE_URL = "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
+const PHOTOS_LIBRARY_URL = "https://www.googleapis.com/discovery/v1/apis/photoslibrary/v1/rest";
+const PHOTOS_PICKER_URL = "https://www.googleapis.com/discovery/v1/apis/photospicker/v1/rest";
 
 const calendarDoc = {
   name: "calendar",
@@ -141,12 +143,93 @@ const driveDoc = {
   },
 };
 
+const photosLibraryDoc = {
+  name: "photoslibrary",
+  version: "v1",
+  title: "Google Photos Library API",
+  rootUrl: "https://photoslibrary.googleapis.com/",
+  servicePath: "v1/",
+  auth: {
+    oauth2: {
+      scopes: {
+        "https://www.googleapis.com/auth/photoslibrary": {
+          description: "Manage the full Google Photos library",
+        },
+        "https://www.googleapis.com/auth/photoslibrary.appendonly": {
+          description: "Upload to Google Photos",
+        },
+        "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata": {
+          description: "Read app-created Google Photos media",
+        },
+      },
+    },
+  },
+  resources: {
+    albums: {
+      methods: {
+        list: {
+          id: "photoslibrary.albums.list",
+          httpMethod: "GET",
+          path: "albums",
+          scopes: ["https://www.googleapis.com/auth/photoslibrary"],
+          parameters: {},
+        },
+      },
+    },
+    mediaItems: {
+      methods: {
+        search: {
+          id: "photoslibrary.mediaItems.search",
+          httpMethod: "POST",
+          path: "mediaItems:search",
+          scopes: ["https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata"],
+          parameters: {},
+        },
+      },
+    },
+  },
+  schemas: {},
+};
+
+const photosPickerDoc = {
+  name: "photospicker",
+  version: "v1",
+  title: "Google Photos Picker API",
+  rootUrl: "https://photospicker.googleapis.com/",
+  servicePath: "v1/",
+  auth: {
+    oauth2: {
+      scopes: {
+        "https://www.googleapis.com/auth/photospicker.mediaitems.readonly": {
+          description: "Read selected Google Photos media",
+        },
+      },
+    },
+  },
+  resources: {
+    mediaItems: {
+      methods: {
+        list: {
+          id: "photospicker.mediaItems.list",
+          httpMethod: "GET",
+          path: "mediaItems",
+          scopes: ["https://www.googleapis.com/auth/photospicker.mediaitems.readonly"],
+          parameters: {},
+        },
+      },
+    },
+  },
+  schemas: {},
+};
+
 const toJson = (value: unknown): string => JSON.stringify(value);
 
 const DISCOVERY_BODIES: Readonly<Record<string, string>> = {
   [CALENDAR_URL]: toJson(calendarDoc),
   [GMAIL_URL]: toJson(gmailDoc),
   [DRIVE_URL]: toJson(driveDoc),
+  [PHOTOS_LIBRARY_URL]: toJson(photosLibraryDoc),
+  [PHOTOS_PICKER_URL]: toJson(photosPickerDoc),
 };
 
 // A stub HTTP client that serves the canned Discovery document for whichever
@@ -174,6 +257,16 @@ const bundlePlugins = () =>
   [googlePlugin({ httpClientLayer: discoveryHttpClientLayer }), memoryCredentialsPlugin()] as const;
 
 describe("Google bundle add flow", () => {
+  it("SDK catalog includes the Google Photos focused preset", () => {
+    const presetIds =
+      googlePlugin({ httpClientLayer: discoveryHttpClientLayer }).integrationPresets?.map(
+        (preset) => preset.id,
+      ) ?? [];
+
+    expect(presetIds).toContain("google");
+    expect(presetIds).toContain("google-photos");
+  });
+
   it.effect("rejects lookalike Discovery hosts before fetching bundle documents", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -265,5 +358,125 @@ describe("Google bundle add flow", () => {
           expect(googleTools.length).toBe(3);
         }),
       ),
+  );
+
+  it.effect("addBundle constrains Google Photos to the preset scopes and upload tool", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const executor = yield* createExecutor(makeTestConfig({ plugins: bundlePlugins() }));
+
+        yield* executor.google.addBundle({
+          urls: [
+            PHOTOS_LIBRARY_URL,
+            "https://photospicker.googleapis.com/$discovery/rest?version=v1",
+          ],
+          slug: "google_photos",
+          name: "Google Photos",
+        });
+
+        const config = yield* executor.google.getConfig("google_photos");
+        const oauth = config?.authenticationTemplate?.find((entry) => entry.kind === "oauth2");
+        expect(oauth?.kind === "oauth2" ? [...oauth.scopes].sort() : undefined).toEqual(
+          [
+            "https://www.googleapis.com/auth/photoslibrary.appendonly",
+            "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+            "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
+          ].sort(),
+        );
+
+        yield* executor.connections.create({
+          owner: "org",
+          name: ConnectionName.make("main"),
+          integration: IntegrationSlug.make("google_photos"),
+          template: AuthTemplateSlug.make("googleOAuth2"),
+          value: "token-xyz",
+        });
+
+        const toolNames = (yield* executor.tools.list()).map((tool) => String(tool.name));
+        expect(toolNames).toContain("photoslibrary.mediaItems.upload");
+        expect(toolNames).toContain("photoslibrary.mediaItems.search");
+        expect(toolNames).toContain("photospicker.mediaItems.list");
+        expect(toolNames).not.toContain("photoslibrary.albums.list");
+      }),
+    ),
+  );
+
+  it.effect("addBundle keeps Google Photos scoped when combined with another API", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const executor = yield* createExecutor(makeTestConfig({ plugins: bundlePlugins() }));
+
+        yield* executor.google.addBundle({
+          urls: [CALENDAR_URL, PHOTOS_LIBRARY_URL, PHOTOS_PICKER_URL],
+          slug: "google_photos_calendar",
+          name: "Google Photos and Calendar",
+        });
+
+        const config = yield* executor.google.getConfig("google_photos_calendar");
+        const oauth = config?.authenticationTemplate?.find((entry) => entry.kind === "oauth2");
+        expect(oauth?.kind === "oauth2" ? [...oauth.scopes].sort() : undefined).toEqual(
+          [
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/photoslibrary.appendonly",
+            "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+            "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
+          ].sort(),
+        );
+
+        yield* executor.connections.create({
+          owner: "org",
+          name: ConnectionName.make("main"),
+          integration: IntegrationSlug.make("google_photos_calendar"),
+          template: AuthTemplateSlug.make("googleOAuth2"),
+          value: "token-xyz",
+        });
+
+        const toolNames = (yield* executor.tools.list()).map((tool) => String(tool.name));
+        expect(toolNames).toContain("calendar.events.list");
+        expect(toolNames).toContain("photoslibrary.mediaItems.upload");
+        expect(toolNames).toContain("photoslibrary.mediaItems.search");
+        expect(toolNames).toContain("photospicker.mediaItems.list");
+        expect(toolNames).not.toContain("photoslibrary.albums.list");
+      }),
+    ),
+  );
+
+  it.effect("addBundle scopes a partial Google Photos bundle when mixed with another API", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const executor = yield* createExecutor(makeTestConfig({ plugins: bundlePlugins() }));
+
+        yield* executor.google.addBundle({
+          urls: [CALENDAR_URL, PHOTOS_LIBRARY_URL],
+          slug: "google_photos_library_calendar",
+          name: "Google Photos Library and Calendar",
+        });
+
+        const config = yield* executor.google.getConfig("google_photos_library_calendar");
+        const oauth = config?.authenticationTemplate?.find((entry) => entry.kind === "oauth2");
+        expect(oauth?.kind === "oauth2" ? [...oauth.scopes].sort() : undefined).toEqual(
+          [
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/photoslibrary.appendonly",
+            "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+          ].sort(),
+        );
+
+        yield* executor.connections.create({
+          owner: "org",
+          name: ConnectionName.make("main"),
+          integration: IntegrationSlug.make("google_photos_library_calendar"),
+          template: AuthTemplateSlug.make("googleOAuth2"),
+          value: "token-xyz",
+        });
+
+        const toolNames = (yield* executor.tools.list()).map((tool) => String(tool.name));
+        expect(toolNames).toContain("calendar.events.list");
+        expect(toolNames).toContain("photoslibrary.mediaItems.upload");
+        expect(toolNames).toContain("photoslibrary.mediaItems.search");
+        expect(toolNames).not.toContain("photospicker.mediaItems.list");
+        expect(toolNames).not.toContain("photoslibrary.albums.list");
+      }),
+    ),
   );
 });

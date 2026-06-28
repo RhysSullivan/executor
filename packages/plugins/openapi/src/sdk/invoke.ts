@@ -272,6 +272,28 @@ const bytesFromBase64Prefix = (base64: string): Uint8Array => {
 const sniffMimeTypeFromBase64 = (base64: string): string | null =>
   sniffMimeType(bytesFromBase64Prefix(base64));
 
+type DecodedBase64Body = { readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false };
+
+const base64ToUint8Array = (value: string): Uint8Array | null => {
+  let binary = "";
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: atob throws for invalid base64; invalid shapes are treated as non-byte input
+  try {
+    binary = atob(normalizeBase64(value, "base64"));
+  } catch {
+    return null;
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
+const decodeBase64Body = (value: string): DecodedBase64Body => {
+  const bytes = base64ToUint8Array(value);
+  return bytes ? { ok: true, bytes } : { ok: false };
+};
+
 const toUint8Array = (value: unknown): Uint8Array | null => {
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
@@ -284,6 +306,14 @@ const toUint8Array = (value: unknown): Uint8Array | null => {
   }
   return null;
 };
+
+const readNestedBodyBase64 = (value: unknown): unknown =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  Object.prototype.hasOwnProperty.call(value, "bodyBase64")
+    ? (value as Record<string, unknown>).bodyBase64
+    : undefined;
 
 const readHintString = (option: OperationFileHint["dataField"], fallback: string): string =>
   Option.getOrElse(option, () => fallback);
@@ -663,18 +693,101 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 
   if (Option.isSome(operation.requestBody)) {
     const rb = operation.requestBody.value;
-    const bodyValue = args.body ?? args.input;
+    const contentsOpt = Option.getOrUndefined(rb.contents);
+    const requestedCt = typeof args.contentType === "string" ? args.contentType : undefined;
+    const octetStreamContent = contentsOpt?.find((c) => isOctetStream(c.contentType));
+    const bodyAcceptsOctetStream = Boolean(octetStreamContent) || isOctetStream(rb.contentType);
+    const hasBodyBase64 = Object.prototype.hasOwnProperty.call(args, "bodyBase64");
+    const bodyBase64Raw = args.bodyBase64;
+    const bodyBase64 =
+      typeof bodyBase64Raw === "string" ? decodeBase64Body(bodyBase64Raw) : undefined;
+
+    if (hasBodyBase64 && typeof bodyBase64Raw !== "string") {
+      return yield* new OpenApiInvocationError({
+        message: "`bodyBase64` must be a base64 string",
+        statusCode: Option.none(),
+      });
+    }
+    if (bodyBase64?.ok === false) {
+      return yield* new OpenApiInvocationError({
+        message: "`bodyBase64` is not valid base64",
+        statusCode: Option.none(),
+      });
+    }
+    if (bodyBase64?.ok === true && !bodyAcceptsOctetStream) {
+      return yield* new OpenApiInvocationError({
+        message: "`bodyBase64` requires an application/octet-stream request body",
+        statusCode: Option.none(),
+      });
+    }
+    if (bodyBase64?.ok === true && requestedCt && !isOctetStream(requestedCt)) {
+      return yield* new OpenApiInvocationError({
+        message: "`bodyBase64` requires an application/octet-stream contentType",
+        statusCode: Option.none(),
+      });
+    }
+
+    const rawBodyValue = args.body ?? args.input;
+    const nestedBodyBase64Raw = readNestedBodyBase64(rawBodyValue);
+    const hasNestedBodyBase64 = nestedBodyBase64Raw !== undefined;
+    const nestedBodyBase64 =
+      typeof nestedBodyBase64Raw === "string" ? decodeBase64Body(nestedBodyBase64Raw) : undefined;
+
+    if (hasNestedBodyBase64 && typeof nestedBodyBase64Raw !== "string") {
+      return yield* new OpenApiInvocationError({
+        message: "`body.bodyBase64` must be a base64 string",
+        statusCode: Option.none(),
+      });
+    }
+    if (nestedBodyBase64?.ok === false) {
+      return yield* new OpenApiInvocationError({
+        message: "`body.bodyBase64` is not valid base64",
+        statusCode: Option.none(),
+      });
+    }
+    if (nestedBodyBase64?.ok === true && !bodyAcceptsOctetStream) {
+      return yield* new OpenApiInvocationError({
+        message: "`body.bodyBase64` requires an application/octet-stream request body",
+        statusCode: Option.none(),
+      });
+    }
+    if (nestedBodyBase64?.ok === true && requestedCt && !isOctetStream(requestedCt)) {
+      return yield* new OpenApiInvocationError({
+        message: "`body.bodyBase64` requires an application/octet-stream contentType",
+        statusCode: Option.none(),
+      });
+    }
+
+    const binaryBody = bodyBase64?.ok === true ? bodyBase64 : nestedBodyBase64;
+    const bodyValue = binaryBody?.ok === true ? binaryBody.bytes : rawBodyValue;
+    if (rb.required && bodyValue === undefined) {
+      return yield* new OpenApiInvocationError({
+        message: bodyAcceptsOctetStream
+          ? "Missing required request body: provide `bodyBase64`"
+          : "Missing required request body",
+        statusCode: Option.none(),
+      });
+    }
     if (bodyValue !== undefined) {
       // Resolve which declared media type to use. When the spec declares
       // multiple, the caller can override via `args.contentType`; otherwise
       // we use the first-declared (spec author's preferred ordering).
-      const contentsOpt = Option.getOrUndefined(rb.contents);
-      const requestedCt = typeof args.contentType === "string" ? args.contentType : undefined;
       const selected: MediaBinding | undefined =
-        contentsOpt && requestedCt
-          ? contentsOpt.find((c) => c.contentType === requestedCt)
-          : undefined;
-      const chosenCt = selected?.contentType ?? rb.contentType;
+        binaryBody?.ok === true && octetStreamContent
+          ? octetStreamContent
+          : contentsOpt && requestedCt
+            ? contentsOpt.find((c) => c.contentType === requestedCt)
+            : undefined;
+      const chosenCt =
+        binaryBody?.ok === true && !octetStreamContent && isOctetStream(rb.contentType)
+          ? rb.contentType
+          : (selected?.contentType ?? rb.contentType);
+      if (isOctetStream(chosenCt) && toUint8Array(bodyValue) === null) {
+        return yield* new OpenApiInvocationError({
+          message: "application/octet-stream request body must be bytes; provide `bodyBase64`",
+          statusCode: Option.none(),
+        });
+      }
       const chosenEncoding = selected
         ? Option.getOrUndefined(selected.encoding)
         : contentsOpt && contentsOpt[0]

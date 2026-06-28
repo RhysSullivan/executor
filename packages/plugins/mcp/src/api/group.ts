@@ -51,6 +51,10 @@ const AddStdioServerPayload = Schema.Struct({
   description: Schema.optional(Schema.String),
   command: Schema.String,
   args: Schema.optional(Schema.Array(Schema.String)),
+  /** Declare the secret env vars this server needs, by name. Their values are
+   *  supplied as the connection's secrets (the connect step), not here. */
+  envVars: Schema.optional(Schema.Array(Schema.String)),
+  /** One-shot secret env values (programmatic). The UI sends `envVars`. */
   env: Schema.optional(StringMap),
   cwd: Schema.optional(Schema.String),
   slug: Schema.optional(Schema.String),

@@ -48,7 +48,11 @@ import {
 } from "../plugins/use-effective-oauth-client";
 import { cn } from "../lib/utils";
 import { buildUsageMap, connectionsUsingClient } from "../lib/oauth-client-usage";
-import { OAuthClientForm, type OAuthClientFormPrefill } from "./oauth-client-form";
+import {
+  OAuthClientForm,
+  registrationScopes,
+  type OAuthClientFormPrefill,
+} from "./oauth-client-form";
 import { RemoveOAuthAppDialog } from "./remove-oauth-app-dialog";
 import { AddCustomMethodForm, type CreateCustomMethod } from "./add-custom-method-modal";
 import { PlacementLine, type AuthMethod } from "../lib/auth-placements";
@@ -147,20 +151,60 @@ function isOnePasswordRegistered(
 function PasteCredentialInputs(props: {
   readonly inputs: readonly CredentialInput[];
   readonly singleInput: boolean;
+  /** Force the per-input label even for a single input (env vars name their
+   *  field rather than relying on a generic "value / token" placeholder). */
+  readonly showLabels?: boolean;
   readonly values: Readonly<Record<string, string>>;
   readonly onChange: (values: Record<string, string>) => void;
 }) {
+  if (!props.singleInput) {
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {props.inputs.map((input) => (
+          <div key={input.variable} className="min-w-0 space-y-1.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <Label
+                htmlFor={`credential-input-${input.variable}`}
+                className="min-w-0 truncate font-mono text-xs font-medium text-muted-foreground"
+              >
+                {input.label}
+              </Label>
+            </div>
+            <Input
+              id={`credential-input-${input.variable}`}
+              type="password"
+              autoComplete="new-password"
+              placeholder={`paste ${input.label}`}
+              value={props.values[input.variable] ?? ""}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                props.onChange({
+                  ...props.values,
+                  [input.variable]: e.target.value,
+                })
+              }
+              className="h-9 font-mono text-sm"
+              data-ph-block
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Past the multi-input grid above, singleInput is always true, so labelled
+  // reduces to showLabels: env vars opt in to naming their single field.
+  const labelled = props.showLabels ?? false;
   return (
     <div className="space-y-2">
       {props.inputs.map((input) => (
         <div key={input.variable} className="space-y-1">
-          {!props.singleInput && (
-            <Label className="text-xs text-muted-foreground">{input.label}</Label>
+          {labelled && (
+            <Label className="font-mono text-xs text-muted-foreground">{input.label}</Label>
           )}
           <Input
             type="password"
             autoComplete="new-password"
-            placeholder={props.singleInput ? "paste the value / token" : `paste ${input.label}`}
+            placeholder={labelled ? "secret value" : "paste the value / token"}
             value={props.values[input.variable] ?? ""}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               props.onChange({
@@ -247,6 +291,13 @@ function OnePasswordItemSelect(props: {
 function CredentialValueFields(props: {
   readonly inputs: readonly CredentialInput[];
   readonly singleInput: boolean;
+  readonly showLabels?: boolean;
+  /** Allow an external provider (1Password) origin. Off for env methods: the
+   *  wire's external `from` is keyed under the canonical `token` variable, but
+   *  an env credential must be keyed under its env var name, so a 1Password
+   *  origin would persist the secret under the wrong key and the subprocess
+   *  would launch without it. Paste stays correctly keyed per variable. */
+  readonly allowExternalProvider?: boolean;
   readonly values: Readonly<Record<string, string>>;
   readonly onValuesChange: (values: Record<string, string>) => void;
   readonly origin: CredentialOrigin;
@@ -255,7 +306,10 @@ function CredentialValueFields(props: {
   readonly onOnePasswordItemIdChange: (value: string) => void;
 }) {
   const providers = useAtomValue(providersAtom);
-  const onePasswordAvailable = props.singleInput && isOnePasswordRegistered(providers);
+  const onePasswordAvailable =
+    props.singleInput &&
+    (props.allowExternalProvider ?? true) &&
+    isOnePasswordRegistered(providers);
 
   return (
     <div className="space-y-3">
@@ -291,6 +345,7 @@ function CredentialValueFields(props: {
         <PasteCredentialInputs
           inputs={props.inputs}
           singleInput={props.singleInput}
+          showLabels={props.showLabels}
           values={props.values}
           onChange={props.onValuesChange}
         />
@@ -448,13 +503,17 @@ type DcrStartArgs = {
 
 /** Outcome of the DCR orchestration. `"started"` means the OAuth flow handed
  *  off (the popup/inline start ran); `"fallback"` means we could not auto-set-up
- *  (probe failed, or no registration endpoint) and the caller should fall back
- *  to the bring-your-own-app picker. */
+ *  — a failed probe, no registration endpoint, or a failed registration — and
+ *  the caller should fall back to the bring-your-own-app picker. A failed probe
+ *  carries no probe result; the other two reasons always carry the probe that
+ *  seeds the picker. */
 type DcrOutcome =
   | { readonly kind: "started" }
+  | { readonly kind: "fallback"; readonly reason: "probe-failed" }
   | {
       readonly kind: "fallback";
-      readonly reason: "probe-failed" | "no-registration-endpoint" | "registration-failed";
+      readonly reason: "no-registration-endpoint" | "registration-failed";
+      readonly probe: DcrProbeResult;
       /** A specific, user-facing reason to surface instead of the generic
        *  "register an app" copy (e.g. a server that rejects the DCR redirect
        *  URI). Absent when the fallback carries no actionable detail. */
@@ -477,6 +536,13 @@ type RunDcrConnectDeps = {
 
 type RunDcrConnectInput = {
   readonly discoveryUrl: string;
+  /** The integration's genuine protected-resource URL (the MCP discovery URL),
+   *  used as the RFC 8707 resource indicator when the server's PRM names no
+   *  `resource`. Distinct from `discoveryUrl`, which falls back to the token
+   *  endpoint for probing: the token endpoint is NOT a resource identifier, so
+   *  it must never become the indicator. Undefined for integrations with no
+   *  discovery URL (non-MCP DCR), collapsing the resource to null as before. */
+  readonly resourceFallback?: string;
   readonly owner: Owner;
   readonly integrationName: string;
   /** The owner's existing client slugs, so the minted slug stays unique. */
@@ -489,14 +555,19 @@ type RunDcrConnectInput = {
   readonly integration: IntegrationSlug;
 };
 
+export const dcrClientNameForIntegration = (integrationName: string): string => {
+  const trimmed = integrationName.trim();
+  return trimmed.length > 0 ? `Executor for ${trimmed}` : "Executor";
+};
+
 /**
  * Run the transparent DCR connect sequence: probe → register → start.
  *
  * - Probe failure → `{ kind: "fallback", reason: "probe-failed" }` (caller shows BYO).
- * - No registration endpoint → `{ kind: "fallback", reason: "no-registration-endpoint" }`.
- * - Register rejected with a message → `{ kind: "fallback", reason: "registration-failed", message }`
+ * - No registration endpoint → `{ kind: "fallback", reason: "no-registration-endpoint", probe }`.
+ * - Register rejected with a message → `{ kind: "fallback", reason: "registration-failed", probe, message }`
  *   so the caller can show why (e.g. a redirect-URI rejection) over the generic copy.
- * - Register failed without detail (null) → `{ kind: "fallback", reason: "registration-failed" }`.
+ * - Register failed without detail (null) → `{ kind: "fallback", reason: "registration-failed", probe }`.
  * - Success → registers, calls `start`, returns `{ kind: "started" }`.
  */
 export async function runDcrConnect(
@@ -506,31 +577,28 @@ export async function runDcrConnect(
   const probe = await deps.probe(input.discoveryUrl);
   if (probe === null) return { kind: "fallback", reason: "probe-failed" };
   const registrationEndpoint = probe.registrationEndpoint;
-  if (!registrationEndpoint) return { kind: "fallback", reason: "no-registration-endpoint" };
+  if (!registrationEndpoint) return { kind: "fallback", reason: "no-registration-endpoint", probe };
 
   const slug = uniqueClientSlug(input.integrationName, input.existingSlugs);
-  const scopes =
-    input.declaredScopes && input.declaredScopes.length > 0
-      ? input.declaredScopes
-      : (probe.scopesSupported ?? []);
+  const scopes = registrationScopes(input.declaredScopes ?? [], probe.scopesSupported ?? []);
   const minted = await deps.register({
     owner: input.owner,
     slug,
     registrationEndpoint,
     authorizationUrl: probe.authorizationUrl,
     tokenUrl: probe.tokenUrl,
-    resource: probe.resource ?? null,
+    resource: probe.resource ?? input.resourceFallback ?? null,
     scopes,
     tokenEndpointAuthMethodsSupported: probe.tokenEndpointAuthMethodsSupported,
-    clientName: input.integrationName,
+    clientName: dcrClientNameForIntegration(input.integrationName),
     redirectUri: input.redirectUri,
     originIntegration: input.integration,
   });
-  if (minted === null) return { kind: "fallback", reason: "registration-failed" };
+  if (minted === null) return { kind: "fallback", reason: "registration-failed", probe };
   // OAuthClientSlug is a branded string; an object return carries the failure
   // message (e.g. the server rejected the redirect URI) for the BYO fallback.
   if (typeof minted === "object") {
-    return { kind: "fallback", reason: "registration-failed", message: minted.error };
+    return { kind: "fallback", reason: "registration-failed", probe, message: minted.error };
   }
   deps.start({ client: minted, owner: input.owner });
   return { kind: "started" };
@@ -602,7 +670,7 @@ function OAuthAppRadioRow(props: {
   );
 }
 
-export function AddAccountModal(props: {
+interface AddAccountModalProps {
   readonly integration: IntegrationSlug;
   readonly integrationName: string;
   readonly methods: readonly AuthMethod[];
@@ -615,7 +683,20 @@ export function AddAccountModal(props: {
    *  plugin whose auth is fixed (MCP) omits this, hiding the row. */
   readonly createCustomMethod?: CreateCustomMethod;
   readonly removeCustomMethod?: (method: AuthMethod) => Promise<boolean>;
-}) {
+}
+
+/** The add-connection modal is self-contained: every transient bit of state
+ *  (form fields, the in-flight OAuth popup flow) lives in `AddAccountModalView`,
+ *  so closing the modal genuinely unmounts that view and React destroys all of
+ *  it, never hand-reset. Unmounting also runs `useOAuthPopupFlow`'s cleanup,
+ *  which cancels a dangling server OAuth session. That is why abandoning an
+ *  OAuth popup can't wedge a later open: the stuck flow died with its instance.
+ *  The parent owns only open/route intent (deep links, the reconnect handoff). */
+export function AddAccountModal(props: AddAccountModalProps) {
+  return props.open ? <AddAccountModalView {...props} /> : null;
+}
+
+function AddAccountModalView(props: AddAccountModalProps) {
   const {
     integration,
     integrationName,
@@ -669,6 +750,7 @@ export function AddAccountModal(props: {
   // the modal to the bring-your-own-app picker if auto setup is unavailable.
   const [dcrBusy, setDcrBusy] = useState(false);
   const [dcrFailed, setDcrFailed] = useState(false);
+  const [oauthFallbackProbe, setOAuthFallbackProbe] = useState<DcrProbeResult | null>(null);
   // FIX 3 escape hatch: when no registered app matched the integration's
   // endpoints, the unmatched apps are collapsed behind an opt-in expander.
   const [showOtherApps, setShowOtherApps] = useState(false);
@@ -733,6 +815,7 @@ export function AddAccountModal(props: {
     setCredentialOrigin("paste");
     setOnePasswordItemId("");
     setPickedApp(null);
+    setOAuthFallbackProbe(null);
     setDcrFailed(false);
   }, [initialState, allMethods, defaultOwner, ownerOptions]);
 
@@ -807,6 +890,13 @@ export function AddAccountModal(props: {
     }));
   }, [method]);
   const singleInput = credentialInputs.length <= 1;
+  // A stdio env method: every credential is injected as an environment variable
+  // (carrier "env"). These read as named secrets, not an HTTP placement, so we
+  // skip the `KEY=••••••` placement preview and label each field by its var.
+  const isEnvMethod =
+    method != null &&
+    method.placements.length > 0 &&
+    method.placements.every((p) => p.carrier === "env");
   // DCR-capable: the integration advertises dynamic registration (MCP oauth2),
   // OR carries a discovery URL we can probe at connect time. When DCR-capable
   // and not yet fallen back, we skip the app picker entirely (Option A).
@@ -824,8 +914,14 @@ export function AddAccountModal(props: {
     endpointMatched: oauthEndpointMatched,
     displayRegisterCTA: oauthDisplayRegisterCTA,
   } = useOAuthClientsForIntegration({
-    tokenUrl: method?.oauth?.tokenUrl,
-    authorizationUrl: method?.oauth?.authorizationUrl,
+    // MCP integrations declare no endpoints up front; once DCR has probed the
+    // server we match registered apps against the DISCOVERED endpoints. With no
+    // endpoints to match (a server-targeting MCP integration), require an
+    // explicit match so we surface the register CTA instead of auto-selecting an
+    // unrelated provider's app.
+    tokenUrl: method?.oauth?.tokenUrl ?? oauthFallbackProbe?.tokenUrl,
+    authorizationUrl: method?.oauth?.authorizationUrl ?? oauthFallbackProbe?.authorizationUrl,
+    requireEndpointMatch: isDcr,
   });
   const oauthPopup = useOAuthPopupFlow({
     popupName: "add-account-oauth",
@@ -869,27 +965,6 @@ export function AddAccountModal(props: {
   const showSavedToPicker = !oauthRegistering && savedToOptions.length > 1;
   const callableName = connectionNameFrom(label, savedToOwner, integrationName, organizationId);
 
-  const reset = () => {
-    setMethodId(methods[0]?.id ?? "");
-    setValues({});
-    setCredentialOrigin("paste");
-    setOnePasswordItemId("");
-    setLabel("");
-    setOwner(defaultOwner);
-    setSubmitting(false);
-    setPickedApp(null);
-    setRegisteringOAuthClient(false);
-    setCcBusy(false);
-    setDcrBusy(false);
-    setDcrFailed(false);
-    setShowOtherApps(false);
-    setEditingClient(null);
-    setRemovingClient(null);
-    setCreatedMethods([]);
-    setRemovedMethodIds(new Set());
-    setAddingMethod(false);
-  };
-
   // Build the picker row's Edit/Remove menu for an app, but only once its full
   // summary has loaded (the picker option lacks endpoints/resource). Until then
   // the row shows no actions menu rather than a broken one.
@@ -927,6 +1002,8 @@ export function AddAccountModal(props: {
     setValues({});
     setCredentialOrigin("paste");
     setOnePasswordItemId("");
+    setDcrFailed(false);
+    setOAuthFallbackProbe(null);
   };
 
   // A just-created custom method joins the in-session list and is auto-selected
@@ -967,10 +1044,10 @@ export function AddAccountModal(props: {
     }
   };
 
-  const close = () => {
-    onOpenChange(false);
-    reset();
-  };
+  // Just ask the parent to close. Reopening remounts this whole component (see
+  // AddAccountModal), so there is nothing to hand-reset: the form fields and the
+  // OAuth popup flow's busy state die with this instance.
+  const close = () => onOpenChange(false);
 
   const credentialPayloadOrigin = createCredentialPayloadOrigin({
     origin: credentialOrigin,
@@ -1097,8 +1174,9 @@ export function AddAccountModal(props: {
   };
 
   // Transparent DCR connect: probe → register → start, no app picker. On any
-  // failure (probe error or no registration endpoint) we flip `dcrFailed` so the
-  // bring-your-own-app picker renders as the recovery path with name/owner kept.
+  // failure (probe error, no registration endpoint, or registration failure) we
+  // flip `dcrFailed` so the bring-your-own-app picker renders as the recovery
+  // path with name/owner kept.
   const handleDcrConnect = async () => {
     const discoveryUrl = method?.oauth?.discoveryUrl ?? method?.oauth?.tokenUrl;
     if (!method || !discoveryUrl) {
@@ -1164,6 +1242,10 @@ export function AddAccountModal(props: {
       },
       {
         discoveryUrl,
+        // Only a genuine discovery URL (MCP) seeds the RFC 8707 resource
+        // indicator; the token-endpoint fallback baked into `discoveryUrl` must
+        // not, so pass the un-collapsed method value here.
+        resourceFallback: method.oauth?.discoveryUrl,
         owner: dcrOwner,
         integrationName,
         existingSlugs: [...oauthApps, ...oauthOtherApps].map((app: OAuthClientOption) =>
@@ -1183,19 +1265,17 @@ export function AddAccountModal(props: {
       ...(outcome.kind === "fallback" ? { dcr_fallback: true } : {}),
     });
     if (outcome.kind === "fallback") {
+      setOAuthFallbackProbe("probe" in outcome ? outcome.probe : null);
       setDcrFailed(true);
-      toast.error(outcome.message ?? "Automatic setup unavailable. Register an app instead.");
+      toast.error(
+        ("message" in outcome ? outcome.message : undefined) ??
+          "Automatic setup unavailable. Register an app instead.",
+      );
     }
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next: boolean) => {
-        if (!next) close();
-        else onOpenChange(true);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
           "max-h-[85vh] overflow-x-hidden overflow-y-auto",
@@ -1264,16 +1344,29 @@ export function AddAccountModal(props: {
                 )}
                 prefill={{
                   authorizationUrl:
-                    oauthHandoffPrefill?.authorizationUrl ?? method.oauth?.authorizationUrl,
-                  tokenUrl: oauthHandoffPrefill?.tokenUrl ?? method.oauth?.tokenUrl,
+                    oauthHandoffPrefill?.authorizationUrl ??
+                    method.oauth?.authorizationUrl ??
+                    oauthFallbackProbe?.authorizationUrl,
+                  tokenUrl:
+                    oauthHandoffPrefill?.tokenUrl ??
+                    method.oauth?.tokenUrl ??
+                    oauthFallbackProbe?.tokenUrl,
+                  resource:
+                    oauthHandoffPrefill?.resource ??
+                    oauthFallbackProbe?.resource ??
+                    method.oauth?.discoveryUrl ??
+                    null,
                   scopes: method.oauth?.scopes,
-                  registrationEndpoint: method.oauth?.registrationEndpoint,
+                  discoveredScopes: oauthFallbackProbe?.scopesSupported,
+                  registrationEndpoint:
+                    method.oauth?.registrationEndpoint ??
+                    oauthFallbackProbe?.registrationEndpoint ??
+                    undefined,
+                  tokenEndpointAuthMethodsSupported:
+                    oauthFallbackProbe?.tokenEndpointAuthMethodsSupported,
                   ...(oauthHandoffPrefill?.grant ? { grant: oauthHandoffPrefill.grant } : {}),
                   ...(oauthHandoffPrefill?.clientId
                     ? { clientId: oauthHandoffPrefill.clientId }
-                    : {}),
-                  ...(oauthHandoffPrefill?.resource != null
-                    ? { resource: oauthHandoffPrefill.resource }
                     : {}),
                 }}
                 fixedSlug={
@@ -1385,13 +1478,18 @@ export function AddAccountModal(props: {
                       value={methodId}
                       className="mt-0 min-w-0 space-y-5 rounded-md border border-border/60 bg-muted/15 p-4"
                     >
-                      {method?.placements && method.placements.length > 0 ? (
-                        <div className="flex flex-wrap gap-x-3.5 gap-y-1">
-                          {method.placements.map((placement, i: number) => (
-                            <PlacementLine key={i} placement={placement} />
-                          ))}
-                        </div>
-                      ) : null}
+                      {method?.placements && !isEnvMethod && singleInput
+                        ? (() => {
+                            const shown = method.placements.filter((p) => p.carrier !== "env");
+                            return shown.length > 0 ? (
+                              <div className="flex flex-wrap gap-x-3.5 gap-y-1">
+                                {shown.map((placement, i: number) => (
+                                  <PlacementLine key={i} placement={placement} />
+                                ))}
+                              </div>
+                            ) : null;
+                          })()
+                        : null}
 
                       {!isNoAuth && (
                         <div className="space-y-2">
@@ -1498,6 +1596,8 @@ export function AddAccountModal(props: {
                             <CredentialValueFields
                               inputs={credentialInputs}
                               singleInput={singleInput}
+                              showLabels={isEnvMethod}
+                              allowExternalProvider={!isEnvMethod}
                               values={values}
                               onValuesChange={setValues}
                               origin={credentialOrigin}
