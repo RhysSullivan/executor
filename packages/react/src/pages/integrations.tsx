@@ -14,6 +14,7 @@ import { detectIntegration, integrationsOptimisticAtom } from "../api/atoms";
 import { trackEvent } from "../api/analytics";
 import { McpInstallCard } from "../components/mcp-install-card";
 import { Button } from "../components/button";
+import { PageContainer, PageHeader } from "../components/page";
 import { Badge } from "../components/badge";
 import { Input } from "../components/input";
 import {
@@ -67,62 +68,56 @@ export function IntegrationsPage() {
   const [connectOpen, setConnectOpen] = useState(false);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
-        <div className="mb-8 flex items-end justify-between gap-4">
-          <div>
-            <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
-              Integrations
-            </h1>
-            <p className="mt-1.5 text-[14px] text-muted-foreground">
-              Tool providers available in this workspace.
-            </p>
-          </div>
+    <PageContainer>
+      <PageHeader
+        title="Integrations"
+        description="Tool providers available in this workspace."
+        actions={
           <Button
             onClick={() => {
               setConnectOpen(true);
               trackEvent("integration_connect_dialog_opened");
             }}
             size="sm"
-            className="shrink-0 gap-1.5"
+            className="gap-1.5"
           >
             <PlusIcon className="size-4" />
             Connect
           </Button>
-        </div>
+        }
+      />
 
-        <div className="mb-8">
-          <McpInstallCard />
-        </div>
-
-        <div className="mb-8 border-t border-border/50" />
-
-        {AsyncResult.match(integrations, {
-          onInitial: () => <IntegrationsGridSkeleton />,
-          onFailure: () => <p className="text-sm text-destructive">Failed to load integrations</p>,
-          onSuccess: ({ value }) => {
-            if (value.length === 0) {
-              return (
-                <EmptyIntegrations
-                  onConnect={() => {
-                    setConnectOpen(true);
-                    trackEvent("integration_connect_dialog_opened");
-                  }}
-                />
-              );
-            }
-
-            return (
-              <div className="mb-8 space-y-3">
-                <IntegrationGrid integrations={value} />
-              </div>
-            );
-          },
-        })}
+      <div className="mb-8">
+        <McpInstallCard />
       </div>
 
+      <div className="mb-8 border-t border-border/50" />
+
+      {AsyncResult.match(integrations, {
+        onInitial: () => <IntegrationsGridSkeleton />,
+        onFailure: () => <p className="text-sm text-destructive">Failed to load integrations</p>,
+        onSuccess: ({ value }) => {
+          if (value.length === 0) {
+            return (
+              <EmptyIntegrations
+                onConnect={() => {
+                  setConnectOpen(true);
+                  trackEvent("integration_connect_dialog_opened");
+                }}
+              />
+            );
+          }
+
+          return (
+            <div className="mb-8 space-y-3">
+              <IntegrationGrid integrations={value} />
+            </div>
+          );
+        },
+      })}
+
       <ConnectDialog open={connectOpen} onOpenChange={setConnectOpen} />
-    </div>
+    </PageContainer>
   );
 }
 

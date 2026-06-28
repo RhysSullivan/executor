@@ -102,6 +102,8 @@ export const OAuth2Preset = Schema.Struct({
   authorizationUrl: Schema.OptionFromOptional(Schema.String),
   /** Token endpoint to exchange the code / refresh. */
   tokenUrl: Schema.String,
+  /** RFC 8707 resource indicator discovered from protected-resource metadata. */
+  resource: Schema.OptionFromOptional(Schema.String),
   /** Optional refresh endpoint if the spec declares one separately. */
   refreshUrl: Schema.OptionFromOptional(Schema.String),
   /** Declared scopes for this flow: `{ scope: description }`. */
@@ -112,6 +114,8 @@ export const OAuth2Preset = Schema.Struct({
     Schema.Literal(false),
     Schema.Array(Schema.String),
   ]),
+  /** Provider metadata advertised Client ID Metadata Document support. */
+  supportsClientIdMetadataDocument: Schema.optional(Schema.Boolean),
 });
 export type OAuth2Preset = typeof OAuth2Preset.Type;
 
@@ -365,6 +369,7 @@ const buildOAuth2Presets = (schemes: readonly SecurityScheme[]): OAuth2Preset[] 
           flow: "authorizationCode",
           authorizationUrl: Option.some(flow.authorizationUrl),
           tokenUrl: flow.tokenUrl,
+          resource: Option.none(),
           refreshUrl: flow.refreshUrl,
           scopes: flow.scopes,
           identityScopes: "auto",
@@ -381,6 +386,7 @@ const buildOAuth2Presets = (schemes: readonly SecurityScheme[]): OAuth2Preset[] 
           flow: "clientCredentials",
           authorizationUrl: Option.none(),
           tokenUrl: flow.tokenUrl,
+          resource: Option.none(),
           refreshUrl: flow.refreshUrl,
           scopes: flow.scopes,
           identityScopes: false,

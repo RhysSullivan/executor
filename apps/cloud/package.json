@@ -67,7 +67,6 @@
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
     "@workos-inc/node": "^8.11.1",
-    "agents": "^0.10.0",
     "autumn-js": "^1.2.8",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",

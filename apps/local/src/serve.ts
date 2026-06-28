@@ -15,7 +15,7 @@ import { oauthClientIdMetadataDocumentFromRequest } from "@executor-js/api/serve
 import { loadOrMintLocalAuthToken } from "./auth";
 import { consumeOAuthResult, publishOAuthResult } from "./oauth-result-store";
 import { startIntegrationsRefresh } from "./integrations";
-import { getServerHandlers } from "./main";
+import { disposeServerHandlers, getServerHandlers } from "./main";
 import {
   DEFAULT_ALLOWED_HOSTS,
   hasFileExtension,
@@ -285,6 +285,16 @@ const withCorsHeaders = (
 const corsPreflightResponse = (req: Request, allowedHosts: ReadonlySet<string>): Response =>
   withCorsHeaders(req, new Response(null, { status: 204 }), allowedHosts);
 
+const closeProvidedHandlers = async (handlers: ServerHandlers): Promise<void> => {
+  await handlers.mcp.close();
+  await handlers.api.dispose();
+};
+
+const ignoreCleanupFailure = async (cleanup: () => Promise<unknown>): Promise<void> => {
+  // oxlint-disable-next-line executor/no-promise-catch -- boundary: startup cleanup is best-effort and must not mask the original startup failure
+  await cleanup().catch(() => {});
+};
+
 export async function startServer(opts: StartServerOptions = {}): Promise<ServerInstance> {
   const port = opts.port ?? parseInt(process.env.PORT ?? "4788", 10);
   const hostname = opts.hostname ?? "127.0.0.1";
@@ -303,164 +313,182 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
 
   startIntegrationsRefresh();
 
+  const ownsHandlers = opts.handlers === undefined;
   const handlers = opts.handlers ?? (await getServerHandlers(authToken));
-
-  // Mirror every OAuth callback completion into the local in-memory result
-  // store. The Electron desktop renderer polls /api/oauth/await/:sessionId
-  // for these when the user runs the flow in their system browser (no
-  // shared origin → no postMessage). Cloud doesn't register a listener;
-  // its same-origin web SPA receives results via postMessage directly.
-  setOAuthCompletionListener((result) => publishOAuthResult(result));
-
-  // Build static routes from either embedded assets, disk, or a spawned
-  // vite dev child (EXECUTOR_DEV=1). Vite mode takes precedence and
-  // disables the file-extension 404 short-circuit since vite serves
-  // hashed asset paths directly.
-  let staticRoutes: Record<string, StaticHandler> = {};
-  let serveIndex: StaticHandler;
   let viteChild: ViteChild | null = null;
 
-  const devMode = process.env.EXECUTOR_DEV === "1" && !opts.embeddedWebUI;
-  if (devMode) {
-    console.log("[executor] EXECUTOR_DEV=1 — spawning vite dev child for live UI");
-    viteChild = await startViteChild();
-    // Diagnostic only — this is the internal vite port the daemon proxies to.
-    // It must NOT read as a destination: the URL to open is the `Open:` line the
-    // CLI prints (the daemon port, with ?_token). Hitting the vite port directly
-    // skips that bootstrap and lands on the auth gate.
-    console.log(`[executor] (internal) vite dev child at ${viteChild.url} — don't open this`);
-    serveIndex = () =>
-      // Unused when viteChild is non-null; defined so the type checker
-      // can keep `serveIndex` non-nullable.
-      new Response("vite not ready", { status: 503 });
-  } else if (opts.embeddedWebUI) {
-    staticRoutes = embeddedToStaticRoutes(opts.embeddedWebUI);
-    const indexFile = Bun.file(opts.embeddedWebUI["index.html"] ?? join(clientDir, "index.html"));
-    serveIndex = () => htmlResponse(indexFile);
-  } else {
-    staticRoutes = collectStaticRoutes(clientDir);
-    const indexFile = Bun.file(join(clientDir, "index.html"));
-    serveIndex = () => htmlResponse(indexFile);
-  }
-
-  const server = Bun.serve({
-    port,
-    hostname,
-    // Disable Bun's default 10s idle timeout. MCP elicitation and pause/resume
-    // can idle longer during human approval; `0` disables the socket timeout.
-    idleTimeout: 0,
-    routes: { ...staticRoutes },
-    async fetch(req) {
-      const withCors = (response: Response): Response =>
-        withCorsHeaders(req, response, corsAllowedHosts);
-
-      if (req.method === "OPTIONS" && req.headers.has("origin")) {
-        return corsPreflightResponse(req, corsAllowedHosts);
-      }
-
-      const url = new URL(req.url);
-
-      // Unauthenticated liveness probe — carries no data, used by the CLI
-      // reachability check (which therefore never forwards a credential).
-      if (url.pathname === "/api/health" && req.method === "GET") {
-        return withCors(new Response("ok", { headers: { "content-type": "text/plain" } }));
-      }
-
-      // OAuth callbacks and CIMD documents are reached by the external
-      // provider, which cannot carry our local bearer. Everything else under
-      // /api and /mcp requires the bearer.
-      const skipAuth = isUnauthenticatedOAuthPath(url.pathname);
-      const isMcpPath = url.pathname === "/mcp" || url.pathname.startsWith("/mcp/");
-      const isGatedSurface = url.pathname.startsWith("/api") || isMcpPath;
-
-      if (isGatedSurface && !skipAuth && !isAuthorized(req)) {
-        return withCors(
-          new Response("Unauthorized", {
-            status: 401,
-            headers: { "www-authenticate": 'Bearer realm="executor"' },
-          }),
-        );
-      }
-
-      if (isUnauthenticatedOAuthClientMetadataPath(url.pathname) && req.method === "GET") {
-        return withCors(oauthClientMetadataResponse(`${url.pathname}${url.search}`, req));
-      }
-
-      if (isMcpPath) {
-        return withCors(await handlers.mcp.handleRequest(req));
-      }
-
-      if (url.pathname.startsWith("/api/mcp-sessions/")) {
-        // GET → paused-execution detail for the approval page; POST → record the
-        // decision. Both are bearer-gated above.
-        const handler =
-          req.method === "GET"
-            ? handlers.mcp.handlePausedRequest
-            : handlers.mcp.handleApprovalRequest;
-        return withCors(await handler(req));
-      }
-
-      // OAuth result polling — local-only, served outside the typed API
-      // because cloud (Cloudflare Workers, stateless) can't back the
-      // in-memory store. See setOAuthCompletionListener above.
-      const awaitMatch = /^\/api\/oauth\/await\/([^/?#]+)$/.exec(url.pathname);
-      if (awaitMatch && req.method === "GET") {
-        const result = consumeOAuthResult(awaitMatch[1]);
-        return withCors(
-          new Response(JSON.stringify(result), {
-            headers: { "content-type": "application/json" },
-          }),
-        );
-      }
-
-      if (url.pathname.startsWith("/api/") || url.pathname === "/api") {
-        url.pathname = url.pathname.slice("/api".length) || "/";
-        return withCors(await handlers.api.handler(new Request(url, req)));
-      }
-
-      // App-level routes the Effect app serves at root, OUTSIDE the `/api`
-      // prefix the shell strips (e.g. `/v1/app/npm/dist-tags`, which the web
-      // shell's update check fetches). Public, like `/api/health` above, so no
-      // bearer gate. Forward verbatim; without this they'd fall through to the
-      // vite/SPA fallback and answer 200-with-HTML, breaking the JSON parse.
-      if (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) {
-        return withCors(await handlers.api.handler(new Request(url, req)));
-      }
-
-      // Dev mode: forward everything else (SPA + hashed assets) to the
-      // vite child so source edits show up without a rebuild.
-      if (viteChild) {
-        return withCors(await proxyToVite(req, viteChild.url));
-      }
-
-      // If a path looks like a static asset (has a file extension), do not
-      // fall back to SPA HTML. Returning index.html here causes browser module
-      // MIME errors when hashed chunks are stale/missing.
-      if (hasFileExtension(url.pathname)) {
-        return withCors(new Response("Not Found", { status: 404 }));
-      }
-
-      // SPA fallback (unauthenticated — the browser loads the shell, then reads
-      // its token and sends the bearer on subsequent /api calls).
-      return withCors(await serveIndex());
-    },
-    error(error) {
-      console.error("Server error:", error);
-      return new Response("Internal Server Error", { status: 500 });
-    },
-  });
-
-  return {
-    port: server.port!,
-    authToken,
-    async stop() {
-      setOAuthCompletionListener(null);
-      server.stop(true);
-      await handlers.mcp.close();
-      await handlers.api.dispose();
-      if (viteChild) await viteChild.stop();
-    },
+  const disposeOwnedResources = async (): Promise<void> => {
+    setOAuthCompletionListener(null);
+    if (ownsHandlers) {
+      await disposeServerHandlers();
+    } else {
+      await closeProvidedHandlers(handlers);
+    }
+    if (viteChild) await viteChild.stop();
   };
+
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: after handlers boot, failed static/dev/Bun startup must release DB ownership before surfacing the startup error
+  try {
+    // Mirror every OAuth callback completion into the local in-memory result
+    // store. The Electron desktop renderer polls /api/oauth/await/:sessionId
+    // for these when the user runs the flow in their system browser (no
+    // shared origin → no postMessage). Cloud doesn't register a listener;
+    // its same-origin web SPA receives results via postMessage directly.
+    setOAuthCompletionListener((result) => publishOAuthResult(result));
+
+    // Build static routes from either embedded assets, disk, or a spawned
+    // vite dev child (EXECUTOR_DEV=1). Vite mode takes precedence and
+    // disables the file-extension 404 short-circuit since vite serves
+    // hashed asset paths directly.
+    let staticRoutes: Record<string, StaticHandler> = {};
+    let serveIndex: StaticHandler;
+
+    const devMode = process.env.EXECUTOR_DEV === "1" && !opts.embeddedWebUI;
+    if (devMode) {
+      console.log("[executor] EXECUTOR_DEV=1 — spawning vite dev child for live UI");
+      viteChild = await startViteChild();
+      // Diagnostic only — this is the internal vite port the daemon proxies to.
+      // It must NOT read as a destination: the URL to open is the `Open:` line the
+      // CLI prints (the daemon port, with ?_token). Hitting the vite port directly
+      // skips that bootstrap and lands on the auth gate.
+      console.log(`[executor] (internal) vite dev child at ${viteChild.url} — don't open this`);
+      serveIndex = () =>
+        // Unused when viteChild is non-null; defined so the type checker
+        // can keep `serveIndex` non-nullable.
+        new Response("vite not ready", { status: 503 });
+    } else if (opts.embeddedWebUI) {
+      staticRoutes = embeddedToStaticRoutes(opts.embeddedWebUI);
+      const indexFile = Bun.file(opts.embeddedWebUI["index.html"] ?? join(clientDir, "index.html"));
+      serveIndex = () => htmlResponse(indexFile);
+    } else {
+      staticRoutes = collectStaticRoutes(clientDir);
+      const indexFile = Bun.file(join(clientDir, "index.html"));
+      serveIndex = () => htmlResponse(indexFile);
+    }
+
+    const server = Bun.serve({
+      port,
+      hostname,
+      // Disable Bun's default 10s idle timeout. MCP elicitation and pause/resume
+      // can idle longer during human approval; `0` disables the socket timeout.
+      idleTimeout: 0,
+      routes: { ...staticRoutes },
+      async fetch(req) {
+        const withCors = (response: Response): Response =>
+          withCorsHeaders(req, response, corsAllowedHosts);
+
+        if (req.method === "OPTIONS" && req.headers.has("origin")) {
+          return corsPreflightResponse(req, corsAllowedHosts);
+        }
+
+        const url = new URL(req.url);
+
+        // Unauthenticated liveness probe — carries no data, used by the CLI
+        // reachability check (which therefore never forwards a credential).
+        if (url.pathname === "/api/health" && req.method === "GET") {
+          return withCors(new Response("ok", { headers: { "content-type": "text/plain" } }));
+        }
+
+        // OAuth callbacks and CIMD documents are reached by the external
+        // provider, which cannot carry our local bearer. Everything else under
+        // /api and /mcp requires the bearer.
+        const skipAuth = isUnauthenticatedOAuthPath(url.pathname);
+        const isMcpPath = url.pathname === "/mcp" || url.pathname.startsWith("/mcp/");
+        const isGatedSurface = url.pathname.startsWith("/api") || isMcpPath;
+
+        if (isGatedSurface && !skipAuth && !isAuthorized(req)) {
+          return withCors(
+            new Response("Unauthorized", {
+              status: 401,
+              headers: { "www-authenticate": 'Bearer realm="executor"' },
+            }),
+          );
+        }
+
+        if (isUnauthenticatedOAuthClientMetadataPath(url.pathname) && req.method === "GET") {
+          return withCors(oauthClientMetadataResponse(`${url.pathname}${url.search}`, req));
+        }
+
+        if (isMcpPath) {
+          return withCors(await handlers.mcp.handleRequest(req));
+        }
+
+        if (url.pathname.startsWith("/api/mcp-sessions/")) {
+          // GET → paused-execution detail for the approval page; POST → record the
+          // decision. Both are bearer-gated above.
+          const handler =
+            req.method === "GET"
+              ? handlers.mcp.handlePausedRequest
+              : handlers.mcp.handleApprovalRequest;
+          return withCors(await handler(req));
+        }
+
+        // OAuth result polling — local-only, served outside the typed API
+        // because cloud (Cloudflare Workers, stateless) can't back the
+        // in-memory store. See setOAuthCompletionListener above.
+        const awaitMatch = /^\/api\/oauth\/await\/([^/?#]+)$/.exec(url.pathname);
+        if (awaitMatch && req.method === "GET") {
+          const result = consumeOAuthResult(awaitMatch[1]);
+          return withCors(
+            new Response(JSON.stringify(result), {
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        }
+
+        if (url.pathname.startsWith("/api/") || url.pathname === "/api") {
+          url.pathname = url.pathname.slice("/api".length) || "/";
+          return withCors(await handlers.api.handler(new Request(url, req)));
+        }
+
+        // App-level routes the Effect app serves at root, OUTSIDE the `/api`
+        // prefix the shell strips (e.g. `/v1/app/npm/dist-tags`, which the web
+        // shell's update check fetches). Public, like `/api/health` above, so no
+        // bearer gate. Forward verbatim; without this they'd fall through to the
+        // vite/SPA fallback and answer 200-with-HTML, breaking the JSON parse.
+        if (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) {
+          return withCors(await handlers.api.handler(new Request(url, req)));
+        }
+
+        // Dev mode: forward everything else (SPA + hashed assets) to the
+        // vite child so source edits show up without a rebuild.
+        if (viteChild) {
+          return withCors(await proxyToVite(req, viteChild.url));
+        }
+
+        // If a path looks like a static asset (has a file extension), do not
+        // fall back to SPA HTML. Returning index.html here causes browser module
+        // MIME errors when hashed chunks are stale/missing.
+        if (hasFileExtension(url.pathname)) {
+          return withCors(new Response("Not Found", { status: 404 }));
+        }
+
+        // SPA fallback (unauthenticated — the browser loads the shell, then reads
+        // its token and sends the bearer on subsequent /api calls).
+        return withCors(await serveIndex());
+      },
+      error(error) {
+        console.error("Server error:", error);
+        return new Response("Internal Server Error", { status: 500 });
+      },
+    });
+
+    let stopped = false;
+    return {
+      port: server.port!,
+      authToken,
+      async stop() {
+        if (stopped) return;
+        stopped = true;
+        server.stop(true);
+        await disposeOwnedResources();
+      },
+    };
+  } catch (cause) {
+    await ignoreCleanupFailure(disposeOwnedResources);
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: async server start must reject with the original startup failure after cleanup
+    throw cause;
+  }
 }
 
 if (import.meta.main) {

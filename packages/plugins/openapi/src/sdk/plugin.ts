@@ -24,7 +24,14 @@ import { decodeOpenApiIntegrationConfig, type OpenApiIntegrationConfig } from ".
 import { OpenApiExtractionError, OpenApiOAuthError, OpenApiParseError } from "./errors";
 import { parse, resolveSpecText } from "./parse";
 import { extract } from "./extract";
-import { previewSpecText, type SpecPreview } from "./preview";
+import {
+  OAuth2AuthorizationCodeFlow,
+  OAuth2Flows,
+  OAuth2Preset,
+  SecurityScheme,
+  previewSpecText,
+  type SpecPreview,
+} from "./preview";
 import { deriveAuthenticationTemplateFromPreview, firstBaseUrlForPreview } from "./derive-auth";
 import { openApiPresets } from "./presets";
 import { makeDefaultOpenapiStore, type OpenapiStore } from "./store";
@@ -38,6 +45,7 @@ import {
   resolveOpenApiBackedAnnotations,
   resolveOpenApiBackedTools,
 } from "./backing";
+import { resolveServerUrl } from "./openapi-utils";
 
 // ---------------------------------------------------------------------------
 // Extension input shapes
@@ -197,6 +205,7 @@ const StaticPreviewOAuth2PresetSchema = Schema.Struct({
   flow: Schema.Literals(["authorizationCode", "clientCredentials"]),
   authorizationUrl: Schema.NullOr(Schema.String),
   tokenUrl: Schema.String,
+  resource: Schema.NullOr(Schema.String),
   refreshUrl: Schema.NullOr(Schema.String),
   scopes: Schema.Record(Schema.String, Schema.String),
   identityScopes: Schema.Union([
@@ -204,6 +213,7 @@ const StaticPreviewOAuth2PresetSchema = Schema.Struct({
     Schema.Literal(false),
     Schema.Array(Schema.String),
   ]),
+  supportsClientIdMetadataDocument: Schema.optional(Schema.Boolean),
 });
 const StaticPreviewSpecOutputSchema = Schema.Struct({
   title: Schema.NullOr(Schema.String),
@@ -235,7 +245,9 @@ const AuthenticationSchema = Schema.Union([
     kind: Schema.Literal("oauth2"),
     authorizationUrl: Schema.String,
     tokenUrl: Schema.String,
+    resource: Schema.optional(Schema.NullOr(Schema.String)),
     scopes: Schema.Array(Schema.String),
+    supportsClientIdMetadataDocument: Schema.optional(Schema.Boolean),
   }),
   // Credential methods are authored request-shaped - the ONE apikey input
   // dialect: `{ type: "apiKey", headers: { Authorization: ["Bearer ",
@@ -336,14 +348,169 @@ const staticPreviewOutput = (preview: SpecPreview): StaticPreviewSpecOutput => (
     flow: preset.flow,
     authorizationUrl: Option.getOrNull(preset.authorizationUrl),
     tokenUrl: preset.tokenUrl,
+    resource: Option.getOrNull(preset.resource),
     refreshUrl: Option.getOrNull(preset.refreshUrl),
     scopes: preset.scopes,
     identityScopes: preset.identityScopes,
+    supportsClientIdMetadataDocument: preset.supportsClientIdMetadataDocument,
   })),
 });
 
 const specInputToSourceUrl = (spec: OpenApiSpecInput): string | undefined =>
   spec.kind === "url" ? spec.url : undefined;
+
+const OAUTH_DISCOVERED_SCHEME_NAME = "DiscoveredOAuth2";
+const OPENAPI_HTTP_METHODS = new Set([
+  "get",
+  "put",
+  "post",
+  "delete",
+  "patch",
+  "head",
+  "options",
+  "trace",
+]);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const maybeUrl = (value: string): URL | null => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL parsing accepts user-pasted spec/base URLs
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+};
+
+const addProbeCandidate = (candidates: string[], value: string | undefined): void => {
+  const trimmed = value?.trim();
+  if (!trimmed) return;
+  const parsed = maybeUrl(trimmed);
+  if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) return;
+  const normalized = parsed.toString();
+  const origin = parsed.origin;
+  if (!candidates.includes(normalized)) candidates.push(normalized);
+  if (!candidates.includes(origin)) candidates.push(origin);
+};
+
+const oauthProbeCandidates = (
+  preview: SpecPreview,
+  sourceUrl: string | undefined,
+  baseUrl: string | undefined,
+): readonly string[] => {
+  const candidates: string[] = [];
+  addProbeCandidate(candidates, baseUrl);
+  for (const server of preview.servers) {
+    addProbeCandidate(
+      candidates,
+      resolveServerUrl(server.url, Option.getOrUndefined(server.variables), {}),
+    );
+  }
+  addProbeCandidate(candidates, sourceUrl);
+  return candidates;
+};
+
+const securityRequirementScopes = (
+  security: unknown,
+  targetSchemes: ReadonlySet<string>,
+): readonly string[] => {
+  if (!Array.isArray(security)) return [];
+  const scopes = new Set<string>();
+  for (const requirement of security) {
+    if (!isRecord(requirement)) continue;
+    for (const [scheme, rawScopes] of Object.entries(requirement)) {
+      if (targetSchemes.size > 0 && !targetSchemes.has(scheme)) continue;
+      if (!Array.isArray(rawScopes)) continue;
+      for (const scope of rawScopes) {
+        if (typeof scope === "string" && scope.trim().length > 0) scopes.add(scope.trim());
+      }
+    }
+  }
+  return [...scopes];
+};
+
+const collectDeclaredSecurityScopes = (doc: unknown, targetSchemes: ReadonlySet<string>) => {
+  const scopes = new Set<string>();
+  if (!isRecord(doc)) return [] as readonly string[];
+
+  for (const scope of securityRequirementScopes(doc.security, targetSchemes)) scopes.add(scope);
+
+  const paths = doc.paths;
+  if (!isRecord(paths)) return [...scopes].sort();
+  for (const pathItem of Object.values(paths)) {
+    if (!isRecord(pathItem)) continue;
+    for (const [method, operation] of Object.entries(pathItem)) {
+      if (!OPENAPI_HTTP_METHODS.has(method.toLowerCase()) || !isRecord(operation)) continue;
+      for (const scope of securityRequirementScopes(operation.security, targetSchemes)) {
+        scopes.add(scope);
+      }
+    }
+  }
+  return [...scopes].sort();
+};
+
+const nonOAuthSecuritySchemeNames = (preview: SpecPreview): ReadonlySet<string> =>
+  new Set(
+    preview.securitySchemes
+      .filter((scheme) => scheme.type === "http" || scheme.type === "apiKey")
+      .map((scheme) => scheme.name),
+  );
+
+const discoveredOAuthPreview = (input: {
+  readonly preview: SpecPreview;
+  readonly authorizationUrl: string;
+  readonly tokenUrl: string;
+  readonly resource?: string | null;
+  readonly scopes: readonly string[];
+  readonly supportsClientIdMetadataDocument?: boolean;
+}): SpecPreview => {
+  const scopes = Object.fromEntries(input.scopes.map((scope) => [scope, ""]));
+  const flow = OAuth2AuthorizationCodeFlow.make({
+    authorizationUrl: input.authorizationUrl,
+    tokenUrl: input.tokenUrl,
+    refreshUrl: Option.none(),
+    scopes,
+  });
+  const flows = OAuth2Flows.make({
+    authorizationCode: Option.some(flow),
+    clientCredentials: Option.none(),
+  });
+  return {
+    ...input.preview,
+    securitySchemes: [
+      ...input.preview.securitySchemes,
+      SecurityScheme.make({
+        name: OAUTH_DISCOVERED_SCHEME_NAME,
+        type: "oauth2",
+        scheme: Option.none(),
+        bearerFormat: Option.none(),
+        in: Option.none(),
+        headerName: Option.none(),
+        description: Option.some("Discovered from OAuth authorization-server metadata"),
+        flows: Option.some(flows),
+        openIdConnectUrl: Option.none(),
+      }),
+    ],
+    oauth2Presets: [
+      ...input.preview.oauth2Presets,
+      OAuth2Preset.make({
+        label: `OAuth2 Authorization Code · ${OAUTH_DISCOVERED_SCHEME_NAME}`,
+        securitySchemeName: OAUTH_DISCOVERED_SCHEME_NAME,
+        flow: "authorizationCode",
+        authorizationUrl: Option.some(input.authorizationUrl),
+        tokenUrl: input.tokenUrl,
+        resource: input.resource ? Option.some(input.resource) : Option.none(),
+        refreshUrl: Option.none(),
+        scopes,
+        identityScopes: "auto",
+        ...(input.supportsClientIdMetadataDocument === true
+          ? { supportsClientIdMetadataDocument: true }
+          : {}),
+      }),
+    ],
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Declared auth methods - project the stored `authenticationTemplate` into the
@@ -369,7 +536,9 @@ export const describeOpenApiAuthMethods = (
           oauth: {
             authorizationUrl: template.authorizationUrl,
             tokenUrl: template.tokenUrl,
+            resource: template.resource ?? null,
             scopes: template.scopes,
+            supportsClientIdMetadataDocument: template.supportsClientIdMetadataDocument,
           },
         };
       }
@@ -427,6 +596,51 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
     extension: (ctx: PluginCtx<OpenapiStore>) => {
       const httpClientLayer = options?.httpClientLayer ?? ctx.httpClientLayer;
 
+      const enrichPreviewWithDiscoveredOAuth = (input: {
+        readonly specText: string;
+        readonly preview: SpecPreview;
+        readonly sourceUrl?: string;
+        readonly baseUrl?: string;
+      }): Effect.Effect<SpecPreview, OpenApiParseError | OpenApiExtractionError> =>
+        Effect.gen(function* () {
+          if (input.preview.oauth2Presets.length > 0) return input.preview;
+
+          const candidates = oauthProbeCandidates(input.preview, input.sourceUrl, input.baseUrl);
+          if (candidates.length === 0) return input.preview;
+
+          for (const candidate of candidates) {
+            const oauth = yield* ctx.oauth.probe({ url: candidate }).pipe(
+              Effect.map((result) => ({ ok: true as const, result })),
+              Effect.catch(() => Effect.succeed({ ok: false as const, result: null })),
+            );
+            if (!oauth.ok) continue;
+
+            const doc = yield* parse(input.specText);
+            const declaredScopes = collectDeclaredSecurityScopes(
+              doc,
+              nonOAuthSecuritySchemeNames(input.preview),
+            );
+            const supportedScopes =
+              oauth.result.scopesSupported && oauth.result.scopesSupported.length > 0
+                ? new Set(oauth.result.scopesSupported)
+                : null;
+            const scopes = supportedScopes
+              ? declaredScopes.filter((scope) => supportedScopes.has(scope))
+              : declaredScopes;
+            return discoveredOAuthPreview({
+              preview: input.preview,
+              authorizationUrl: oauth.result.authorizationUrl,
+              tokenUrl: oauth.result.tokenUrl,
+              resource: oauth.result.resource ?? null,
+              scopes,
+              supportsClientIdMetadataDocument:
+                oauth.result.clientIdMetadataDocumentSupported === true,
+            });
+          }
+
+          return input.preview;
+        });
+
       const addSpec = (config: OpenApiSpecConfig) =>
         Effect.gen(function* () {
           // Resolve URL → text and parse BEFORE opening a transaction. Holding
@@ -451,7 +665,16 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           const needsDerivedAuth = config.authenticationTemplate == null;
           const preview =
             needsDerivedBaseUrl || needsDerivedAuth
-              ? yield* previewSpecText(resolved.specText)
+              ? yield* previewSpecText(resolved.specText).pipe(
+                  Effect.flatMap((rawPreview) =>
+                    enrichPreviewWithDiscoveredOAuth({
+                      specText: resolved.specText,
+                      preview: rawPreview,
+                      sourceUrl: specInputToSourceUrl(config.spec),
+                      baseUrl: config.baseUrl,
+                    }),
+                  ),
+                )
               : undefined;
           const derivedBaseUrl =
             needsDerivedBaseUrl && preview ? firstBaseUrlForPreview(preview) : undefined;
@@ -632,7 +855,12 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
             const specText = yield* resolveSpecText(previewInput.spec).pipe(
               Effect.provide(httpClientLayer),
             );
-            return yield* previewSpecText(specText);
+            const preview = yield* previewSpecText(specText);
+            return yield* enrichPreviewWithDiscoveredOAuth({
+              specText,
+              preview,
+              sourceUrl: maybeUrl(previewInput.spec.trim()) ? previewInput.spec.trim() : undefined,
+            });
           }),
 
         addSpec,

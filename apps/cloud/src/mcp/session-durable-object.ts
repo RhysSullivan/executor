@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
 // Cloud MCP Session Durable Object — the cloud binding of the shared
-// `McpSessionDOBase` (@executor-js/cloudflare). All session lifecycle (cold
-// restore, the inactivity alarm, owner validation, transport upgrade, the
-// browser-approval store, the per-request span bridge) lives in the base; cloud
+// `McpAgentSessionDOBase` (@executor-js/cloudflare). Hibernatable transport
+// serving, cold restore, the inactivity alarm, owner validation, browser
+// approval storage, and the per-request span bridge live in the base. Cloud
 // supplies ONLY its injected dependencies:
 //   - openSessionDb     → a long-lived postgres.js handle
 //   - resolveSessionMeta → WorkOS/UserStore organization resolution
@@ -24,12 +24,12 @@ import postgres, { type Sql } from "postgres";
 import { createExecutorMcpServer } from "@executor-js/host-mcp/tool-server";
 import { buildResumeApprovalUrl } from "@executor-js/host-mcp/browser-approval";
 import {
-  McpSessionDOBase,
+  McpAgentSessionDOBase,
   type BuiltMcpServer,
   type IncomingTraceHeaders,
   type McpSessionInit,
   type SessionMeta,
-} from "@executor-js/cloudflare/mcp/durable-object";
+} from "@executor-js/cloudflare/mcp/agent-durable-object";
 import { buildExecuteDescription } from "@executor-js/execution";
 
 // The DO meters executions just like the HTTP `/api/*` plane: it builds its
@@ -67,7 +67,7 @@ export type {
   McpSessionResumeApprovalResult,
   McpSessionInit,
   IncomingTraceHeaders,
-} from "@executor-js/cloudflare/mcp/durable-object";
+} from "@executor-js/cloudflare/mcp/agent-durable-object";
 
 // ---------------------------------------------------------------------------
 // Cloud DB handle — one postgres.js client per session runtime
@@ -157,7 +157,7 @@ const makeSessionServices = (dbHandle: CloudSessionDbHandle) => {
 // Durable Object
 // ---------------------------------------------------------------------------
 
-export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
+export class McpSessionDO extends McpAgentSessionDOBase<Env, CloudSessionDbHandle> {
   protected override openSessionDb(): CloudSessionDbHandle {
     return makeDbHandle({
       idleTimeout: LONG_LIVED_DB_IDLE_TIMEOUT_SECONDS,
@@ -221,6 +221,7 @@ export class McpSessionDO extends McpSessionDOBase<CloudSessionDbHandle> {
         parentSpan: () => self.currentParentSpan(),
         debug: env.EXECUTOR_MCP_DEBUG === "true",
         browserApprovalStore: self.browserApprovalStore,
+        pausedExecutionHooks: self.pausedExecutionHooks,
         elicitationMode:
           sessionElicitationMode === "browser"
             ? {

@@ -17,7 +17,9 @@ describe("authMethodsFromConfig", () => {
         kind: "oauth2",
         authorizationUrl: "https://x.example/auth",
         tokenUrl: "https://x.example/token",
+        resource: "https://api.example",
         scopes: ["read"],
+        supportsClientIdMetadataDocument: true,
       },
     ]);
     expect(methods[0]).toMatchObject({
@@ -27,7 +29,9 @@ describe("authMethodsFromConfig", () => {
       oauth: {
         authorizationUrl: "https://x.example/auth",
         tokenUrl: "https://x.example/token",
+        resource: "https://api.example",
         scopes: ["read"],
+        supportsClientIdMetadataDocument: true,
       },
     });
   });
@@ -73,13 +77,17 @@ describe("editor round-trip", () => {
         kind: "oauth2",
         authorizationUrl: "https://x.example/auth",
         tokenUrl: "https://x.example/token",
+        resource: "https://api.example",
         scopes: ["a", "b"],
+        supportsClientIdMetadataDocument: true,
       }),
     ).toEqual({
       kind: "oauth",
       authorizationUrl: "https://x.example/auth",
       tokenUrl: "https://x.example/token",
+      resource: "https://api.example",
       scopes: ["a", "b"],
+      supportsClientIdMetadataDocument: true,
     });
   });
 

@@ -4,11 +4,11 @@ import { createExecutorMcpServer } from "@executor-js/host-mcp/tool-server";
 import { buildResumeApprovalUrl } from "@executor-js/host-mcp/browser-approval";
 import type { ExecutorDbHandle } from "@executor-js/api/server";
 import {
-  McpSessionDOBase,
+  McpAgentSessionDOBase,
   type BuiltMcpServer,
   type McpSessionInit,
   type SessionMeta,
-} from "@executor-js/cloudflare/mcp/durable-object";
+} from "@executor-js/cloudflare/mcp/agent-durable-object";
 
 import { loadConfig, type CloudflareConfig, type CloudflareEnv } from "../config";
 import { createD1ExecutorDb } from "../db/d1";
@@ -17,7 +17,7 @@ import { preloadQuickJs } from "../quickjs";
 
 // ---------------------------------------------------------------------------
 // Cloudflare (self-host) MCP Session Durable Object — the host-cloudflare
-// binding of the shared `McpSessionDOBase` (@executor-js/cloudflare). Identical
+// binding of the shared `McpAgentSessionDOBase` (@executor-js/cloudflare). Identical
 // base to cloud; the ONLY differences are the injected dependencies:
 //   - openSessionDb     → a long-lived D1 `ExecutorDbHandle` (same FumaDB
 //                         assembly the HTTP path uses), adapted to the base's
@@ -35,14 +35,14 @@ import { preloadQuickJs } from "../quickjs";
 // own lifecycle (the binding is the connection), so `end` is `close` — a no-op.
 type CfSessionDbHandle = ExecutorDbHandle & { readonly end: () => Promise<void> };
 
-export class McpSessionDO extends McpSessionDOBase<CfSessionDbHandle> {
+export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSessionDbHandle> {
   private readonly cfEnv: CloudflareEnv;
   private readonly cfConfig: CloudflareConfig;
 
-  // `ctx`'s type is taken from the base constructor so it tracks whichever
-  // `@cloudflare/workers-types` the shared package resolves (avoids a
-  // cross-version `DurableObjectState` mismatch at the `super` call).
-  constructor(ctx: ConstructorParameters<typeof McpSessionDOBase>[0], env: CloudflareEnv) {
+  constructor(
+    ctx: ConstructorParameters<typeof McpAgentSessionDOBase<CloudflareEnv, CfSessionDbHandle>>[0],
+    env: CloudflareEnv,
+  ) {
     super(ctx, env);
     this.cfEnv = env;
     this.cfConfig = loadConfig(env);
@@ -90,6 +90,7 @@ export class McpSessionDO extends McpSessionDOBase<CfSessionDbHandle> {
       const mcpServer = yield* createExecutorMcpServer({
         engine,
         browserApprovalStore: self.browserApprovalStore,
+        pausedExecutionHooks: self.pausedExecutionHooks,
         elicitationMode:
           elicitationMode === "browser"
             ? {

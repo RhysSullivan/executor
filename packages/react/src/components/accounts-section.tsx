@@ -22,6 +22,7 @@ import {
   connectionNeedsReconsent,
   oauthReconnectPayload,
   reconnectMode,
+  reconsentRequiredScopes,
 } from "../plugins/oauth-reconnect";
 import { useOAuthPopupFlow } from "../plugins/oauth-sign-in";
 import { AddAccountModal } from "./add-account-modal";
@@ -91,7 +92,7 @@ function AccountRow(props: {
         ) : null}
         {needsReconsent ? (
           <CardStackEntryDescription className="mt-1 text-xs text-muted-foreground">
-            This integration now needs access this connection wasn't granted.
+            This connection wasn't granted all the access this integration now needs.
           </CardStackEntryDescription>
         ) : null}
       </CardStackEntryContent>
@@ -326,7 +327,14 @@ export function AccountsSection(props: {
   // The integration's declared oauth scopes — what connections need granted. A
   // connection granted fewer is flagged to reconnect (e.g. after a service was
   // added widened the consent).
-  const declaredScopes = methods.find((m: AuthMethod) => m.kind === "oauth")?.oauth?.scopes;
+  //
+  // Spec-derived oauth scopes are the full per-operation catalog union (e.g. an
+  // OpenAPI source like PostHog declares hundreds of scopes). Those are requested
+  // broadly but not individually required: a provider that narrows the grant to
+  // the user's actual access is healthy, not in need of reconnect. So only treat
+  // CUSTOM (user-configured) scopes as required here; never the spec catalog.
+  const oauthMethod = methods.find((m: AuthMethod) => m.kind === "oauth");
+  const declaredScopes = reconsentRequiredScopes(oauthMethod);
 
   // Read both owners to decide between the grouped view and the empty CTA. The
   // grouped sub-components re-read these (effect-atom dedupes) and self-hide.
@@ -347,6 +355,21 @@ export function AccountsSection(props: {
   }, [orgConnections, userConnections]);
 
   const loading = !AsyncResult.isSuccess(orgConnections) && !AsyncResult.isSuccess(userConnections);
+
+  // When there are zero connections the dashed empty-state card below carries
+  // its own "Add connection" CTA, so the header button would be a redundant
+  // second copy of the same action. Show the header button only outside that
+  // state (populated, or still loading).
+  const showEmptyState = !loading && totalCount === 0;
+
+  const openAddConnection = () => {
+    trackEvent("connection_add_opened", {
+      integration_slug: String(integration),
+      has_oauth_method: methods.some((m: AuthMethod) => m.kind === "oauth"),
+      has_api_key_method: methods.some((m: AuthMethod) => m.kind !== "oauth" && m.kind !== "none"),
+    });
+    setAdding(true);
+  };
 
   const modalState = reconnectHandoff ?? accountHandoff;
   const modal = (
@@ -371,24 +394,17 @@ export function AccountsSection(props: {
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Connections
         </h3>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            trackEvent("connection_add_opened", {
-              integration_slug: String(integration),
-              has_oauth_method: methods.some((m: AuthMethod) => m.kind === "oauth"),
-              has_api_key_method: methods.some(
-                (m: AuthMethod) => m.kind !== "oauth" && m.kind !== "none",
-              ),
-            });
-            setAdding(true);
-          }}
-          disabled={!canAddConnection}
-        >
-          Add connection
-        </Button>
+        {!showEmptyState ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={openAddConnection}
+            disabled={!canAddConnection}
+          >
+            Add connection
+          </Button>
+        ) : null}
       </div>
 
       {loading ? (
@@ -396,7 +412,7 @@ export function AccountsSection(props: {
           <div className="size-1.5 animate-pulse rounded-full bg-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">Loading accounts…</p>
         </div>
-      ) : totalCount === 0 ? (
+      ) : showEmptyState ? (
         <div className="rounded-lg border border-dashed border-border/60 px-6 py-8 text-center">
           <p className="text-sm font-medium text-foreground">No connections yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -406,19 +422,10 @@ export function AccountsSection(props: {
             type="button"
             className="mt-4"
             size="sm"
-            onClick={() => {
-              trackEvent("connection_add_opened", {
-                integration_slug: String(integration),
-                has_oauth_method: methods.some((m: AuthMethod) => m.kind === "oauth"),
-                has_api_key_method: methods.some(
-                  (m: AuthMethod) => m.kind !== "oauth" && m.kind !== "none",
-                ),
-              });
-              setAdding(true);
-            }}
+            onClick={openAddConnection}
             disabled={!canAddConnection}
           >
-            Add a connection
+            Add connection
           </Button>
         </div>
       ) : (

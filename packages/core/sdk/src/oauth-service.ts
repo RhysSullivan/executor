@@ -64,6 +64,7 @@ import {
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
   exchangeClientCredentials,
+  isLoopbackHttpUrl,
   rebindTokenEndpointHostToCallbackDomain,
   type OAuth2TokenResponse,
   type OAuthEndpointUrlPolicy,
@@ -178,6 +179,15 @@ const refreshItemIdFor = (accessId: string): string => `${accessId}:refresh`;
 
 /** Order-preserving de-duplication of a scope list. */
 const dedupeScopes = (scopes: readonly string[]): readonly string[] => [...new Set(scopes)];
+
+const intersectScopes = (
+  requested: readonly string[],
+  supported: readonly string[] | undefined,
+): readonly string[] => {
+  if (!supported || supported.length === 0) return requested;
+  const supportedSet = new Set(supported);
+  return requested.filter((scope) => supportedSet.has(scope));
+};
 
 const recordedOAuthScope = (
   token: OAuth2TokenResponse,
@@ -353,6 +363,28 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
   // EXPLICIT — no localhost default. `null` means this executor has no OAuth
   // callback; redirect-requiring flows fail loudly via `requireRedirectUri`.
   const redirectUri = deps.redirectUri;
+  const discoveryOptions = { endpointUrlPolicy: deps.endpointUrlPolicy };
+
+  const filterAuthorizationCodeScopes = (
+    client: LoadedOAuthClient,
+    requestedScopes: readonly string[],
+  ): Effect.Effect<readonly string[], never> =>
+    Effect.gen(function* () {
+      if (requestedScopes.length === 0) return requestedScopes;
+      const resource = client.resource
+        ? yield* discoverProtectedResourceMetadata(client.resource, discoveryOptions).pipe(
+            Effect.catch(() => Effect.succeed(null)),
+            Effect.provide(httpClientLayer),
+          )
+        : null;
+      const issuer =
+        resource?.metadata.authorization_servers?.[0] ?? new URL(client.authorizationUrl).origin;
+      const as = yield* discoverAuthorizationServerMetadata(issuer, discoveryOptions).pipe(
+        Effect.catch(() => Effect.succeed(null)),
+        Effect.provide(httpClientLayer),
+      );
+      return intersectScopes(requestedScopes, as?.metadata.scopes_supported);
+    }).pipe(Effect.catch(() => Effect.succeed(requestedScopes)));
 
   // Caps on server-controlled discovery input — a hostile or buggy server must
   // not be able to hang `oauth.start` or overflow the authorize URL.
@@ -573,13 +605,24 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         },
         { httpClientLayer, endpointUrlPolicy: deps.endpointUrlPolicy },
       ).pipe(
-        Effect.mapError(
-          (cause) =>
-            new OAuthRegisterDynamicError({
-              // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: OAuthDiscoveryError carries a typed `message` field
-              message: `Dynamic Client Registration failed: ${cause.message}`,
-            }),
-        ),
+        Effect.mapError((cause) => {
+          // Some authorization servers (Vercel, and others that follow RFC 8252
+          // strictly) reject anonymous Dynamic Client Registration unless the
+          // redirect URI is loopback (http://localhost or http://127.0.0.1).
+          // Executor registers its browser origin, so any hosted, tailnet, or
+          // LAN origin trips `invalid_redirect_uri`. Turn that opaque RFC code
+          // into guidance the user can act on instead of the raw error.
+          // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: OAuthDiscoveryError carries a typed `message`
+          const rawMessage = cause.message;
+          const message =
+            cause.error === "invalid_redirect_uri" && !isLoopbackHttpUrl(flowRedirectUri)
+              ? `Automatic OAuth setup failed: this server only approves loopback redirect ` +
+                `URLs (http://localhost or http://127.0.0.1) for automatic registration, but ` +
+                `Executor is using ${flowRedirectUri}. Register an OAuth app manually with that ` +
+                `redirect URL approved by the server, or run Executor on http://localhost.`
+              : `Dynamic Client Registration failed: ${rawMessage}`;
+          return new OAuthRegisterDynamicError({ message });
+        }),
       );
 
       // Persist the minted client. DCR-minted public clients have no secret; we
@@ -806,6 +849,14 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
           message: REDIRECT_URI_REQUIRED_MESSAGE,
         });
       }
+      // Prune stale DECLARED scopes against the AS's advertised set, but leave
+      // resource-discovered scopes untouched: an RFC 9728 `scopes_supported`
+      // list is already authoritative (§7.2) and must not be re-narrowed by a
+      // divergent authorization server.
+      const authorizationRequestedScopes =
+        scopePolicy.kind === "discover"
+          ? requestedScopes
+          : yield* filterAuthorizationCodeScopes(client, requestedScopes);
 
       // authorization_code: persist a session + build the authorize URL.
       const verifier = createPkceCodeVerifier();
@@ -831,11 +882,15 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
           redirect_url: flowRedirectUri,
           pkce_verifier: verifier,
           identity_label: input.identityLabel ?? null,
-          // Persist the requested scope set (the integration's declared or
-          // discovered scopes) so `complete`'s recorded-scope fallback reflects
-          // exactly what was requested when the AS omits `scope`, without
-          // re-resolving it at completion.
-          payload: { owner: input.owner, clientOwner: input.clientOwner, requestedScopes },
+          // Persist the requested scope set (declared ∪ client, filtered to the
+          // authorization-code flow) so `complete`'s recorded-scope fallback
+          // reflects exactly what was requested when the AS omits `scope`,
+          // without re-resolving the integration's declared scopes at completion.
+          payload: {
+            owner: input.owner,
+            clientOwner: input.clientOwner,
+            requestedScopes: authorizationRequestedScopes,
+          },
           expires_at: expiresAt,
           created_at: now,
         }),
@@ -847,7 +902,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
             authorizationUrl: client.authorizationUrl,
             clientId: client.clientId,
             redirectUrl: flowRedirectUri,
-            scopes: requestedScopes,
+            scopes: authorizationRequestedScopes,
             state: providerState,
             codeChallenge: challenge,
             resource: client.resource ?? undefined,
@@ -1115,6 +1170,8 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         scopesSupported: resource?.metadata.scopes_supported ?? as.metadata.scopes_supported,
         registrationEndpoint: as.metadata.registration_endpoint ?? null,
         tokenEndpointAuthMethodsSupported: as.metadata.token_endpoint_auth_methods_supported,
+        clientIdMetadataDocumentSupported:
+          as.metadata.client_id_metadata_document_supported === true,
       } satisfies OAuthProbeResult;
     }).pipe(Effect.provide(httpClientLayer));
 

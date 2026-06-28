@@ -131,7 +131,11 @@ const oauthTemplateFromPreset = (
     baseUrl,
   ),
   tokenUrl: resolveOAuthUrl(preset.tokenUrl, baseUrl),
+  resource: Option.getOrUndefined(preset.resource) ?? null,
   scopes: [...scopes],
+  ...(preset.supportsClientIdMetadataDocument === true
+    ? { supportsClientIdMetadataDocument: true }
+    : {}),
 });
 
 // ---------------------------------------------------------------------------

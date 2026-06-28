@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
+import { Schema } from "effect";
 import { unstable_dev, type Unstable_DevWorker } from "wrangler";
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,28 @@ const SPEC = JSON.stringify({
     },
   },
 });
+
+const decodeUnknownJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
+
+interface JsonReadableResponse {
+  readonly headers: { get(name: string): string | null };
+  json(): Promise<unknown>;
+  text(): Promise<string>;
+}
+
+const readMcpJson = async <A>(response: JsonReadableResponse): Promise<A> => {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return (await response.json()) as A;
+  }
+  const text = await response.text();
+  const data = text
+    .split("\n")
+    .find((line) => line.startsWith("data: "))
+    ?.slice("data: ".length);
+  expect(data).toBeTruthy();
+  return decodeUnknownJson(data!) as A;
+};
 
 describe("cloudflare host e2e (workerd/miniflare)", () => {
   let worker: Unstable_DevWorker;
@@ -209,11 +232,53 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
       method: "tools/list",
     });
     expect(list.status).toBe(200);
-    const listed = (await list.json()) as {
+    const listed = await readMcpJson<{
       result?: { tools?: ReadonlyArray<{ name: string }> };
-    };
+    }>(list);
     const toolNames = listed.result?.tools?.map((t) => t.name) ?? [];
     expect(toolNames).toContain("execute");
+  }, 60_000);
+
+  it("serves streamable HTTP GET only for initialized sessions", async () => {
+    const missing = await worker.fetch("/mcp", {
+      method: "GET",
+      headers: { accept: "text/event-stream" },
+    });
+    expect(missing.status).toBe(400);
+    await missing.text();
+
+    const init = await worker.fetch("/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "test", version: "1" },
+        },
+      }),
+    });
+    expect(init.status).toBe(200);
+    const sessionId = init.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+    await init.text();
+
+    const stream = await worker.fetch("/mcp", {
+      method: "GET",
+      headers: {
+        accept: "text/event-stream",
+        "mcp-session-id": sessionId!,
+      },
+    });
+    expect(stream.status).toBe(200);
+    expect(stream.headers.get("content-type")).toContain("text/event-stream");
+    await stream.body?.cancel();
   }, 60_000);
 
   it("invokes the execute tool over MCP (initialize → tools/call → QuickJS)", async () => {
@@ -255,9 +320,9 @@ describe("cloudflare host e2e (workerd/miniflare)", () => {
       params: { name: "execute", arguments: { code: "export default 6 * 7" } },
     });
     expect(call.status).toBe(200);
-    const result = (await call.json()) as {
+    const result = await readMcpJson<{
       result?: { structuredContent?: { result?: number } };
-    };
+    }>(call);
     expect(result.result?.structuredContent?.result).toBe(42);
   }, 60_000);
 });

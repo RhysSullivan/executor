@@ -209,6 +209,7 @@ const ProbeResponse = Schema.Struct({
   scopesSupported: Schema.optional(Schema.Array(Schema.String)),
   registrationEndpoint: Schema.optional(Schema.NullOr(Schema.String)),
   tokenEndpointAuthMethodsSupported: Schema.optional(Schema.Array(Schema.String)),
+  clientIdMetadataDocumentSupported: Schema.optional(Schema.Boolean),
 });
 
 // ---------------------------------------------------------------------------

@@ -38,6 +38,8 @@ const makeStubEngine = <E extends Cause.YieldableError = never>(overrides: {
     (() => Effect.succeed({ status: "completed", result: { result: "default" } })),
   resume: overrides.resume ?? (() => Effect.succeed(null)),
   getPausedExecution: () => Effect.succeed(null),
+  pausedExecutionCount: () => Effect.succeed(0),
+  hasPausedExecutions: () => Effect.succeed(false),
   getDescription: Effect.succeed(overrides.description ?? "test executor"),
 });
 
@@ -46,7 +48,10 @@ const withClient = async <E extends Cause.YieldableError>(
   engine: ExecutionEngine<E>,
   capabilities: ClientCapabilities,
   fn: (client: Client) => Promise<void>,
-  config?: Pick<ExecutorMcpServerConfig<E>, "debug" | "elicitationMode" | "browserApprovalStore">,
+  config?: Pick<
+    ExecutorMcpServerConfig<E>,
+    "debug" | "elicitationMode" | "browserApprovalStore" | "pausedExecutionHooks"
+  >,
 ) => {
   const mcpServer = await Effect.runPromise(createExecutorMcpServer({ engine, ...config }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -1116,6 +1121,49 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         expect(result.isError).toBeFalsy();
       },
       { elicitationMode: { mode: "model" } },
+    );
+  });
+
+  it("reports pause and resume lifecycle boundaries", async () => {
+    const events: string[] = [];
+    const approval = FormElicitation.make({ message: "Approve", requestedSchema: {} });
+    const engine = makeStubEngine({
+      executeWithPause: () => Effect.succeed(makePausedResult("exec_1", approval)),
+      resume: () => Effect.succeed(makePausedResult("exec_2", approval)),
+    });
+
+    await withClient(
+      engine,
+      NO_CAPS,
+      async (client) => {
+        await client.callTool({
+          name: "execute",
+          arguments: { code: "pause" },
+        });
+        expect(events).toEqual(["pause:exec_1"]);
+
+        await client.callTool({
+          name: "resume",
+          arguments: { executionId: "exec_1", action: "accept", content: "{}" },
+        });
+        expect(events).toEqual([
+          "pause:exec_1",
+          "resume-start:exec_1",
+          "resume-settle:exec_1",
+          "pause:exec_2",
+        ]);
+      },
+      {
+        elicitationMode: { mode: "model" },
+        pausedExecutionHooks: {
+          onExecutionPaused: (executionId) =>
+            Effect.sync(() => events.push(`pause:${executionId}`)),
+          onResumeStarted: (executionId) =>
+            Effect.sync(() => events.push(`resume-start:${executionId}`)),
+          onResumeSettled: (executionId) =>
+            Effect.sync(() => events.push(`resume-settle:${executionId}`)),
+        },
+      },
     );
   });
 

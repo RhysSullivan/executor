@@ -18,12 +18,10 @@ import type { McpPluginExtension } from "@executor-js/plugin-mcp";
 
 import executorConfig from "../executor.config";
 import { localDataMigrations } from "./db/data-migrations";
-import { createSqliteFumaDb } from "./db/sqlite-fumadb";
-import { migrateLocalV1ToV2IfNeeded } from "./db/v1-v2-migration";
+import { openOwnedLocalDatabase } from "./db/owned-database";
 
 interface ResolvedStorage {
   readonly dataDir: string;
-  readonly sqlitePath: string;
 }
 
 const localNamespace = "executor_local";
@@ -36,10 +34,7 @@ const LOCAL_SUBJECT = "local";
 const resolveStorage = (): ResolvedStorage => {
   const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
   fs.mkdirSync(dataDir, { recursive: true });
-  return {
-    dataDir,
-    sqlitePath: join(dataDir, "data.db"),
-  };
+  return { dataDir };
 };
 
 // Hash suffix disambiguates same-basename folders so two projects with
@@ -151,28 +146,14 @@ const createLocalExecutorLayer = (options: LocalExecutorOptions = {}) => {
       const tenantId = makeTenantId(cwd);
       const tables = collectTables();
 
-      const migration = yield* Effect.tryPromise({
-        try: () =>
-          migrateLocalV1ToV2IfNeeded({
-            sqlitePath: storage.sqlitePath,
-            tables,
-            namespace: localNamespace,
-            tenantId,
-          }),
-        catch: (cause) =>
-          new LocalExecutorCreateError({
-            message: CREATE_SQLITE_ERROR_MESSAGE,
-            cause,
-          }),
-      });
-
-      const sqlite = yield* Effect.acquireRelease(
+      const owned = yield* Effect.acquireRelease(
         Effect.tryPromise({
           try: () =>
-            createSqliteFumaDb({
+            openOwnedLocalDatabase({
+              dataDir: storage.dataDir,
               tables,
               namespace: localNamespace,
-              path: storage.sqlitePath,
+              tenantId,
             }),
           catch: (cause) =>
             new LocalExecutorCreateError({
@@ -180,8 +161,10 @@ const createLocalExecutorLayer = (options: LocalExecutorOptions = {}) => {
               cause,
             }),
         }),
-        (db) => Effect.promise(() => db.close()).pipe(Effect.ignore),
+        (database) => Effect.promise(() => database.close()).pipe(Effect.ignore),
       );
+      const sqlite = owned.db;
+      const migration = owned.migration;
 
       // Boot-time data migrations: each registry entry runs once and is
       // stamped in the `data_migration` ledger; stamped entries are skipped
@@ -270,15 +253,47 @@ export const createExecutorHandle = async (options: LocalExecutorOptions = {}) =
   };
 };
 
+class SharedHandleCreateError extends Data.TaggedError("SharedHandleCreateError")<{
+  readonly cause: unknown;
+}> {}
+
 export type ExecutorHandle = Awaited<ReturnType<typeof createExecutorHandle>>;
 
 let sharedHandlePromise: ReturnType<typeof createExecutorHandle> | null = null;
+let sharedHandleLifecycle: Promise<void> = Promise.resolve();
 
-const loadSharedHandle = () => {
-  if (!sharedHandlePromise) {
-    sharedHandlePromise = createExecutorHandle();
+const loadSharedHandle = (): Promise<ExecutorHandle> => {
+  if (sharedHandlePromise) {
+    return sharedHandlePromise;
   }
-  return sharedHandlePromise;
+
+  // Capture the lifecycle tail at call time so creation stays ordered behind
+  // in-flight dispose
+  const lifecycle = sharedHandleLifecycle;
+
+  // Identity token the heal closure compares against. Using a `let` declared
+  // up front avoids any reference-before-init ambiguity in the closure.
+  let slot: Promise<ExecutorHandle>;
+
+  const acquire = Effect.tryPromise({
+    try: () => lifecycle.then(() => createExecutorHandle()),
+    catch: (cause) => new SharedHandleCreateError({ cause }),
+  }).pipe(
+    // Self-heal: a failed creation must not poison the memo. Clear the slot on
+    // any non-success outcome so the next getExecutor() retries, but only if a
+    // dispose/reload hasn't already swapped in a newer promise (identity guard).
+    Effect.onError(() =>
+      Effect.sync(() => {
+        if (sharedHandlePromise === slot) {
+          sharedHandlePromise = null;
+        }
+      }),
+    ),
+  );
+
+  slot = Effect.runPromise(acquire);
+  sharedHandlePromise = slot;
+  return slot;
 };
 
 export const getExecutor = () => loadSharedHandle().then((handle) => handle.executor);
@@ -288,13 +303,22 @@ export const disposeExecutor = async (): Promise<void> => {
   const currentHandlePromise = sharedHandlePromise;
   sharedHandlePromise = null;
 
-  const handle = currentHandlePromise ? await handleOrNull(currentHandlePromise) : null;
-  if (handle) {
-    await ignorePromiseFailure("disposeExecutor", () => handle.dispose());
-  }
+  const disposeCurrent = async (): Promise<void> => {
+    const handle = currentHandlePromise ? await handleOrNull(currentHandlePromise) : null;
+    if (handle) {
+      await ignorePromiseFailure("disposeExecutor", () => handle.dispose());
+    }
+  };
+
+  const nextLifecycle = sharedHandleLifecycle.then(disposeCurrent, disposeCurrent);
+  sharedHandleLifecycle = nextLifecycle.then(
+    () => undefined,
+    () => undefined,
+  );
+  await nextLifecycle;
 };
 
-export const reloadExecutor = () => {
-  disposeExecutor();
+export const reloadExecutor = async () => {
+  await disposeExecutor();
   return getExecutor();
 };

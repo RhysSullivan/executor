@@ -28,7 +28,6 @@
     "./public-origin": "./src/public-origin.ts"
   },
   "publishConfig": {
-    "access": "public",
     "exports": {
       ".": {
         "import": {
@@ -84,7 +83,8 @@
           "default": "./dist/public-origin.js"
         }
       }
-    }
+    },
+    "access": "public"
   },
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",

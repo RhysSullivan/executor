@@ -21,7 +21,7 @@ import { CardStack, CardStackContent } from "@executor-js/react/components/card-
 import { FieldLabel } from "@executor-js/react/components/field";
 import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Textarea } from "@executor-js/react/components/textarea";
-import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
+import { IOSSpinner } from "@executor-js/react/components/spinner";
 import {
   addIntegrationErrorMessage,
   errorMessageFromExit,
@@ -63,6 +63,14 @@ const specInputForAdd = (input: string) => {
   return Exit.isSuccess(parsed)
     ? { kind: "url" as const, url: value }
     : { kind: "blob" as const, value };
+};
+
+export const baseUrlFromSpecInput = (input: string): string => {
+  const value = input.trim();
+  if (!URL.canParse(value)) return "";
+  const parsed = new URL(value);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+  return parsed.origin;
 };
 
 // ---------------------------------------------------------------------------
@@ -220,7 +228,7 @@ export default function AddOpenApiSource(props: {
     }
     const result = exit.value;
     setPreview(result);
-    setBaseUrl("");
+    setBaseUrl(result.servers.length === 0 ? baseUrlFromSpecInput(specUrl) : "");
     setAnalyzing(false);
   };
 
@@ -368,9 +376,8 @@ export default function AddOpenApiSource(props: {
           Cancel
         </Button>
         {preview && (
-          <Button onClick={() => void handleAdd()} disabled={!canAdd || adding}>
-            {adding && <Spinner className="size-3.5" />}
-            {adding ? "Adding..." : "Add integration"}
+          <Button onClick={() => void handleAdd()} disabled={!canAdd} loading={adding}>
+            Add integration
           </Button>
         )}
       </FloatActions>

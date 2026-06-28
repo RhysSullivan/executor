@@ -108,3 +108,24 @@ export function connectionNeedsReconsent(
   if (connection.oauthClient == null) return false;
   return missingScopes(declaredScopes, connectionGrantedScopes(connection)).length > 0;
 }
+
+/** The scopes that count as REQUIRED for a connection to be considered fully
+ *  granted, given the integration's oauth auth method.
+ *
+ *  Spec-derived oauth scopes are the full per-operation catalog union (an OpenAPI
+ *  source like PostHog declares hundreds): requested broadly to unlock as many
+ *  tools as possible, but none individually required. A provider that narrows the
+ *  grant to the user's actual access is healthy, so the spec catalog must NOT
+ *  drive a reconnect prompt. Custom (user-configured) scopes are intentional and
+ *  stay required. Feed the result to `connectionNeedsReconsent`. */
+export function reconsentRequiredScopes(
+  method:
+    | {
+        readonly source: "spec" | "custom";
+        readonly oauth?: { readonly scopes?: readonly string[] };
+      }
+    | undefined,
+): readonly string[] | undefined {
+  if (method == null || method.source === "spec") return undefined;
+  return method.oauth?.scopes;
+}

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { acquireDataDirOwnership } from "./db/data-dir-ownership";
 import { startServer, type ServerInstance } from "./serve";
 
 let clientDir: string;
@@ -40,8 +41,9 @@ const startTestServer = async (
 beforeEach(() => {
   clientDir = mkdtempSync(join(tmpdir(), "exec-local-serve-"));
   dataDir = mkdtempSync(join(tmpdir(), "exec-local-data-"));
-  // Isolate auth.json writes from the real ~/.executor.
+  // Isolate auth.json writes and dynamic plugin lookup from the real ~/.executor/workspace.
   process.env.EXECUTOR_DATA_DIR = dataDir;
+  process.env.EXECUTOR_SCOPE_DIR = dataDir;
   mkdirSync(join(clientDir, "assets"), { recursive: true });
   writeFileSync(
     join(clientDir, "index.html"),
@@ -56,6 +58,7 @@ afterEach(async () => {
     server = null;
   }
   delete process.env.EXECUTOR_DATA_DIR;
+  delete process.env.EXECUTOR_SCOPE_DIR;
   rmSync(clientDir, { recursive: true, force: true });
   rmSync(dataDir, { recursive: true, force: true });
 });
@@ -78,6 +81,52 @@ describe("startServer static/SPA routing (unauthenticated)", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(await response.text()).toContain("index-shell");
+  });
+});
+
+describe("startServer startup cleanup", () => {
+  it("releases the owned DB when a default-handler server stops", async () => {
+    server = await startServer({ port: 0, clientDir, authToken: TOKEN });
+    await server.stop();
+    server = null;
+
+    const ownership = await acquireDataDirOwnership(dataDir);
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- test boundary: release the proof lock even if the assertion fails
+    try {
+      expect(ownership.lockPath).toContain("data.db.owner-lock");
+    } finally {
+      await ownership.release();
+    }
+  });
+
+  it("releases the owned DB if Bun.serve fails after handler boot", async () => {
+    const blocker = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response("busy"),
+    });
+
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- test boundary: keep the busy-port blocker alive only for this assertion and always stop it
+    try {
+      await expect(
+        startServer({
+          port: blocker.port,
+          hostname: "127.0.0.1",
+          clientDir,
+          authToken: TOKEN,
+        }),
+      ).rejects.toThrow();
+
+      const ownership = await acquireDataDirOwnership(dataDir);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- test boundary: release the proof lock even if the assertion fails
+      try {
+        expect(ownership.lockPath).toContain("data.db.owner-lock");
+      } finally {
+        await ownership.release();
+      }
+    } finally {
+      blocker.stop(true);
+    }
   });
 });
 

@@ -55,8 +55,16 @@ export type ExtractionResult = typeof ExtractionResult.Type;
 export const OperationBinding = Schema.Struct({
   kind: GraphqlOperationKind,
   fieldName: Schema.String,
-  /** The full GraphQL query/mutation string */
+  /** The full GraphQL query/mutation string, with the default scalar-leaf
+   *  selection. Sent when the caller does not supply a custom `select`. */
   operationString: Schema.String,
+  /** Operation text up to (not including) the field's selection set, e.g.
+   *  `query Op($a: T) { field(a: $a)`. With `operationSuffix`, lets `invoke`
+   *  splice a caller-supplied `select` as `{ <select> }` without re-introspecting.
+   *  Optional so bindings persisted before this field still decode. */
+  operationPrefix: Schema.optional(Schema.String),
+  /** Closes the operation (` }`); pairs with `operationPrefix`. */
+  operationSuffix: Schema.optional(Schema.String),
   /** Ordered variable names for mapping */
   variableNames: Schema.Array(Schema.String),
 });

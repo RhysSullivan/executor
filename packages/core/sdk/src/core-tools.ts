@@ -293,6 +293,7 @@ const OAuthProbeOutput = Schema.Struct({
   scopesSupported: Schema.optional(Schema.Array(Schema.String)),
   registrationEndpoint: Schema.optional(Schema.NullOr(Schema.String)),
   tokenEndpointAuthMethodsSupported: Schema.optional(Schema.Array(Schema.String)),
+  clientIdMetadataDocumentSupported: Schema.optional(Schema.Boolean),
 });
 const OAuthStartInput = Schema.Struct({
   client: Schema.String,
@@ -794,6 +795,7 @@ export const coreToolsPlugin = definePlugin((options: CoreToolsPluginOptions = {
               scopesSupported: result.scopesSupported,
               registrationEndpoint: result.registrationEndpoint ?? null,
               tokenEndpointAuthMethodsSupported: result.tokenEndpointAuthMethodsSupported,
+              clientIdMetadataDocumentSupported: result.clientIdMetadataDocumentSupported,
             })),
         }),
         tool({

@@ -21,6 +21,25 @@ export const endpointForTelemetry = (endpoint: string): string => {
   return url.toString();
 };
 
+/** The operation string to send for a call. A caller-supplied `select` overrides
+ *  the default scalar-leaf selection: it is spliced into the field's selection
+ *  set (`field { <select> }`) so nested/list data can be requested per call. Falls
+ *  back to the stored default operation when `select` is absent or the binding
+ *  predates the prefix/suffix split. `select` is a control input, never a GraphQL
+ *  variable. Shared with plugin.invokeTool so the validated string matches the
+ *  sent string exactly. */
+export const effectiveOperationString = (
+  operation: OperationBinding,
+  args: Record<string, unknown>,
+): string => {
+  const customSelect = typeof args.select === "string" ? args.select.trim() : "";
+  return customSelect.length > 0 &&
+    operation.operationPrefix != null &&
+    operation.operationSuffix != null
+    ? `${operation.operationPrefix} { ${customSelect} }${operation.operationSuffix}`
+    : operation.operationString;
+};
+
 // ---------------------------------------------------------------------------
 // Response helpers
 // ---------------------------------------------------------------------------
@@ -71,10 +90,15 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
     Object.assign(variables, args.variables);
   }
 
+  // `select` (a control input, not a GraphQL variable) is applied here and never
+  // enters `variables`. plugin.invokeTool validates this same string before we
+  // reach the network.
+  const operationString = effectiveOperationString(operation, args);
+
   let request = HttpClientRequest.post(requestEndpoint).pipe(
     HttpClientRequest.setHeader("Content-Type", "application/json"),
     HttpClientRequest.bodyJsonUnsafe({
-      query: operation.operationString,
+      query: operationString,
       variables: Object.keys(variables).length > 0 ? variables : undefined,
     }),
   );

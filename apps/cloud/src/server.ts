@@ -10,6 +10,8 @@ import * as Sentry from "@sentry/cloudflare";
 import handler from "@tanstack/react-start/server-entry";
 
 import { isAppOwnedPath } from "./app-paths";
+import { makeCloudMcpAgentHandler } from "./mcp/agent-handler";
+import { classifyMcpPath, prepareMcpOrgScope } from "./mcp/mount";
 import { McpSessionDO as McpSessionDOBase } from "./mcp/session-durable-object";
 import { browserTracesResponse } from "./observability/browser-traces";
 import { flushTracerProvider, installTracerProvider } from "./observability/telemetry";
@@ -77,6 +79,7 @@ const fetchHandler = handler.fetch as (
 ) => Response | Promise<Response>;
 
 const tracer = trace.getTracer("executor-cloud-worker");
+const mcpAgentHandler = makeCloudMcpAgentHandler();
 
 const cloudflareHandler: ExportedHandler<Env> = {
   fetch: async (request, env, ctx) => {
@@ -89,6 +92,18 @@ const cloudflareHandler: ExportedHandler<Env> = {
       return fetchHandler(request, env, ctx);
     }
     const url = new URL(request.url);
+    const mcpRoute = classifyMcpPath(url.pathname);
+    if (mcpRoute?.kind === "mcp") {
+      // The Cloudflare Agents MCP bridge needs the platform ExecutionContext
+      // to pass authenticated session props into the hibernatable DO.
+      // Discovery docs still flow through the app-level MCP envelope.
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- adapter boundary; keep trace export alive after the Agents bridge resolves or rejects
+      try {
+        return await mcpAgentHandler(prepareMcpOrgScope(request), env, ctx);
+      } finally {
+        ctx.waitUntil(flushTracerProvider());
+      }
+    }
     // Effect-served paths bring their own http.server span (with traceparent
     // join) — opening one here too would duplicate it. See the header note.
     if (isAppOwnedPath(url.pathname)) {

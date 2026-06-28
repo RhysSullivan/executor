@@ -28,6 +28,7 @@ import { endpointForTelemetry } from "./invoke";
 import { introspect } from "./introspect";
 import type { IntrospectionResult } from "./introspect";
 import {
+  makeGitlab1146Schema,
   makeGreetingGraphqlSchema,
   serveGraphqlFailureTestServer,
   serveGraphqlTestServer,
@@ -882,6 +883,135 @@ describe("graphqlPlugin detect URL-token fallback", () => {
       const executor = yield* makeExecutor();
       const results = yield* executor.integrations.detect("http://127.0.0.1:1/api/v1");
       expect(results.find((r) => r.kind === "graphql")).toBeUndefined();
+    }),
+  );
+});
+
+// Issue #1146: against a large, real-world schema (GitLab) the auto-generated
+// operations were invalid GraphQL and every call against a rich object type
+// failed validation. The plugin now defaults to a scalar-leaf selection (always
+// valid, always cheap) and lets the caller pass an explicit `select` for nested
+// or list data. These drive the real plugin (live introspection -> generation ->
+// invocation) against a GitLab-shaped graphql-yoga server, which validates with
+// graphql-js exactly like the @emulators/gitlab surface, so a clean `ok: true`
+// proves the operation that went over the wire is valid GraphQL.
+describe("graphqlPlugin generates valid operations against rich schemas (#1146)", () => {
+  const gitlabServer = serveGraphqlTestServer({ schema: makeGitlab1146Schema() });
+
+  const lastQuery = (requests: { readonly payload: { readonly query?: string } }[]): string =>
+    requests[requests.length - 1]?.payload.query ?? "";
+
+  const setup = (slug: string) =>
+    Effect.gen(function* () {
+      const server = yield* gitlabServer;
+      const executor = yield* makeExecutor();
+      yield* executor.graphql.addIntegration({ endpoint: server.endpoint, slug });
+      yield* createOrgConnection(executor, {
+        integration: slug,
+        name: "main",
+        template: "none",
+        value: "unused",
+      });
+      yield* server.clearRequests;
+      return { server, executor };
+    });
+
+  it.effect("default selection is scalar leaves only: valid, and never bare composites", () =>
+    Effect.gen(function* () {
+      const { server, executor } = yield* setup("gitlab_default");
+
+      // metadata: scalar leaves only. `featureFlags` (required arg) and `kas`
+      // (composite) are omitted rather than emitted invalidly.
+      const meta = yield* executor.execute(
+        toolAddr("gitlab_default", "main", "query.metadata"),
+        {},
+      );
+      expect(meta).toMatchObject({ ok: true });
+      const metaQuery = lastQuery(yield* server.requests);
+      expect(metaQuery).toContain("version");
+      expect(metaQuery).not.toContain("featureFlags");
+      expect(metaQuery).not.toContain("kas");
+
+      // currentUser: scalar leaves only. No `mergeRequests` (composite) bare.
+      yield* server.clearRequests;
+      const user = yield* executor.execute(
+        toolAddr("gitlab_default", "main", "query.currentUser"),
+        {},
+      );
+      expect(user).toMatchObject({ ok: true });
+      const userQuery = lastQuery(yield* server.requests);
+      expect(userQuery).toContain("active");
+      expect(userQuery).not.toContain("mergeRequests");
+    }),
+  );
+
+  it.effect("a caller-supplied `select` fetches nested/list data and stays valid", () =>
+    Effect.gen(function* () {
+      const { server, executor } = yield* setup("gitlab_select");
+
+      const result = yield* executor.execute(
+        toolAddr("gitlab_select", "main", "query.currentUser"),
+        { select: "active mergeRequests { count nodes { id title author { name } } }" },
+      );
+
+      expect(result).toMatchObject({ ok: true });
+      const query = lastQuery(yield* server.requests);
+      expect(query).toContain("nodes {");
+      expect(query).toContain("author {");
+    }),
+  );
+
+  it.effect("`select` can supply a nested field's required argument", () =>
+    Effect.gen(function* () {
+      const { server, executor } = yield* setup("gitlab_ff");
+
+      const result = yield* executor.execute(toolAddr("gitlab_ff", "main", "query.metadata"), {
+        select: 'version featureFlags(names: ["flag_a"]) { name enabled }',
+      });
+
+      expect(result).toMatchObject({ ok: true });
+      expect(lastQuery(yield* server.requests)).toContain("featureFlags(names:");
+    }),
+  );
+
+  it.effect("an invalid `select` surfaces the server's validation error verbatim", () =>
+    Effect.gen(function* () {
+      const { executor } = yield* setup("gitlab_bad");
+
+      // `author` is a composite emitted bare: the plugin passes the selection
+      // through and surfaces the server's rejection rather than silently fixing
+      // or swallowing it.
+      const result = yield* executor.execute(toolAddr("gitlab_bad", "main", "query.currentUser"), {
+        select: "mergeRequests { nodes { id author } }",
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "graphql_errors" },
+      });
+    }),
+  );
+
+  it.effect("rejects a malformed `select` locally, before any network call", () =>
+    Effect.gen(function* () {
+      const { server, executor } = yield* setup("gitlab_syntax");
+      // Warm the binding cache (the first invoke introspects to materialize
+      // bindings) so the malformed call below has no legitimate reason to hit the
+      // wire: if it does, validation failed to short-circuit.
+      yield* executor.execute(toolAddr("gitlab_syntax", "main", "query.currentUser"), {});
+      yield* server.clearRequests;
+
+      const result = yield* executor.execute(
+        toolAddr("gitlab_syntax", "main", "query.currentUser"),
+        { select: "active mergeRequests { nodes {" },
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "graphql_invalid_selection" },
+      });
+      // Parse-check happens before the request is built, so nothing reached the server.
+      expect((yield* server.requests).length).toBe(0);
     }),
   );
 });

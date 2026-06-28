@@ -6,25 +6,33 @@ import type { CloudflareEnv } from "./config";
 export { McpSessionDO } from "./mcp";
 
 // ---------------------------------------------------------------------------
-// The Worker fetch entry. `ExecutorApp.make`'s `toWebHandler()` produces a
-// `(Request) => Promise<Response>` — exactly a Worker handler — so the entry is
-// thin: build the app ONCE per isolate (memoized; the build runs the D1 schema
-// bring-up), then forward every request to its handler. `env` (the D1 binding +
-// Access vars) arrives with the request and is captured at build time.
+// The Worker fetch entry. Most requests go to `ExecutorApp.make`'s Effect web
+// handler. `/mcp` stays at this edge boundary because `McpAgent.serve()` needs
+// the Cloudflare `ExecutionContext` to pass authenticated session props into the
+// hibernatable Durable Object bridge.
 // ---------------------------------------------------------------------------
 
-let handlerPromise: Promise<(request: Request) => Promise<Response>> | null = null;
+let handlerPromise: Promise<{
+  readonly app: (request: Request) => Promise<Response>;
+  readonly mcp: (request: Request, env: CloudflareEnv, ctx: ExecutionContext) => Promise<Response>;
+}> | null = null;
 
-const resolveHandler = (env: CloudflareEnv): Promise<(request: Request) => Promise<Response>> => {
+const resolveHandler = (env: CloudflareEnv) => {
   if (!handlerPromise) {
-    handlerPromise = makeCloudflareApp(env).then(({ toWebHandler }) => toWebHandler().handler);
+    handlerPromise = makeCloudflareApp(env).then(({ toWebHandler, mcpAgentHandler }) => ({
+      app: toWebHandler().handler,
+      mcp: mcpAgentHandler,
+    }));
   }
   return handlerPromise;
 };
 
 export default {
-  fetch: async (request: Request, env: CloudflareEnv): Promise<Response> => {
+  fetch: async (request: Request, env: CloudflareEnv, ctx: ExecutionContext): Promise<Response> => {
     const serve = await resolveHandler(env);
-    return serve(request);
+    if (new URL(request.url).pathname === "/mcp") {
+      return serve.mcp(request, env, ctx);
+    }
+    return serve.app(request);
   },
 };

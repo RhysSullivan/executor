@@ -13,9 +13,9 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Predicate, Schema } from "effect";
+import { Effect, Option, Predicate, Schema } from "effect";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpServerRequest } from "effect/unstable/http";
+import { FetchHttpClient, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import {
   createExecutor,
@@ -33,6 +33,7 @@ import {
   makeTestConfig,
   makeTestWorkspaceHarness,
   memoryCredentialsPlugin,
+  serveTestHttpApp,
   typeCheckOutputTypeScript,
 } from "@executor-js/sdk/testing";
 
@@ -273,6 +274,63 @@ const oauthTemplate: AuthenticationInput = {
   scopes: ["read"],
 };
 
+const serveOAuthDiscoverableOpenApiSpec = () =>
+  Effect.gen(function* () {
+    let baseUrl = "";
+    const server = yield* serveTestHttpApp((request) => {
+      if (request.url.includes("/api/schema")) {
+        return Effect.succeed(
+          HttpServerResponse.jsonUnsafe({
+            openapi: "3.0.0",
+            info: { title: "PostHog-like API", version: "1.0.0" },
+            paths: {
+              "/api/projects/": {
+                get: {
+                  operationId: "projects_list",
+                  security: [{ PersonalAPIKeyAuth: ["project:read", "wizard_session:write"] }],
+                  responses: { "200": { description: "OK" } },
+                },
+              },
+            },
+            components: {
+              securitySchemes: {
+                PersonalAPIKeyAuth: { type: "http", scheme: "bearer" },
+              },
+            },
+          }),
+        );
+      }
+      if (request.url.includes("/.well-known/oauth-protected-resource")) {
+        return Effect.succeed(
+          HttpServerResponse.jsonUnsafe({
+            resource: baseUrl,
+            authorization_servers: [baseUrl],
+            scopes_supported: ["project:read"],
+          }),
+        );
+      }
+      if (request.url.includes("/.well-known/oauth-authorization-server")) {
+        return Effect.succeed(
+          HttpServerResponse.jsonUnsafe({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/oauth/authorize/`,
+            token_endpoint: `${baseUrl}/oauth/token/`,
+            registration_endpoint: `${baseUrl}/oauth/register/`,
+            client_id_metadata_document_supported: true,
+            response_types_supported: ["code"],
+            grant_types_supported: ["authorization_code"],
+            code_challenge_methods_supported: ["S256"],
+            token_endpoint_auth_methods_supported: ["none"],
+            scopes_supported: ["project:read"],
+          }),
+        );
+      }
+      return Effect.succeed(HttpServerResponse.text("not found", { status: 404 }));
+    });
+    baseUrl = server.baseUrl;
+    return server;
+  });
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -289,6 +347,57 @@ describe("OpenAPI Plugin", () => {
 
         expect(preview.operationCount).toBeGreaterThanOrEqual(2);
         expect(preview.servers).toBeDefined();
+      }),
+    ),
+  );
+
+  it.effect("previewSpec discovers OAuth metadata from a URL-hosted bearer spec", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = yield* serveOAuthDiscoverableOpenApiSpec();
+        const executor = yield* createExecutor(
+          makeTestConfig({ plugins: testPlugins(server.httpClientLayer) }),
+        );
+
+        const preview = yield* executor.openapi.previewSpec(server.url("/api/schema/"));
+
+        expect(preview.headerPresets.map((preset) => preset.label)).toContain("Bearer Token");
+        expect(preview.oauth2Presets).toHaveLength(1);
+        const oauth = preview.oauth2Presets[0]!;
+        expect(oauth.securitySchemeName).toBe("DiscoveredOAuth2");
+        expect(oauth.flow).toBe("authorizationCode");
+        expect(oauth.tokenUrl).toBe(`${server.baseUrl}/oauth/token/`);
+        expect(Option.getOrNull(oauth.resource)).toBe(server.baseUrl);
+        expect(oauth.supportsClientIdMetadataDocument).toBe(true);
+        expect(oauth.scopes).toEqual({ "project:read": "" });
+
+        yield* executor.openapi.addSpec({
+          spec: { kind: "url", url: server.url("/api/schema/") },
+          slug: "posthog_like",
+          baseUrl: server.baseUrl,
+        });
+        const config = yield* executor.openapi.getConfig("posthog_like");
+        expect(
+          (config?.authenticationTemplate ?? []).map((template) => ({
+            slug: String(template.slug),
+            kind: template.kind,
+            ...(template.kind === "oauth2"
+              ? {
+                  resource: template.resource ?? null,
+                  supportsClientIdMetadataDocument:
+                    template.supportsClientIdMetadataDocument === true,
+                }
+              : {}),
+          })),
+        ).toEqual([
+          { slug: "apikey-0", kind: "apikey" },
+          {
+            slug: "oauth-DiscoveredOAuth2",
+            kind: "oauth2",
+            resource: server.baseUrl,
+            supportsClientIdMetadataDocument: true,
+          },
+        ]);
       }),
     ),
   );

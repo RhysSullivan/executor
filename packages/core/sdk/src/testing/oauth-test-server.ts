@@ -53,6 +53,11 @@ export interface OAuthTestServerOptions {
   readonly scopes?: readonly string[];
   readonly omitTokenResponseScopes?: readonly string[];
   readonly supportRefresh?: boolean;
+  /** Gate Dynamic Client Registration on the requested redirect URIs. When set,
+   *  `/register` returns `400 invalid_redirect_uri` unless every requested
+   *  `redirect_uris` entry is approved. Mirrors authorization servers (e.g.
+   *  Vercel) that only accept loopback redirect URIs for anonymous DCR. */
+  readonly approveRedirectUri?: (uri: string) => boolean;
 }
 
 export interface OAuthTestServerShape {
@@ -503,6 +508,16 @@ export const serveOAuthTestServer = (
               ? `secret_${randomUUID()}`
               : null;
           const redirectUris = new Set(arrayOfStrings(json.redirect_uris));
+          if (
+            options.approveRedirectUri &&
+            [...redirectUris].some((uri) => !options.approveRedirectUri!(uri))
+          ) {
+            return oauthError(
+              400,
+              "invalid_redirect_uri",
+              "The provided redirect URIs are not approved for use by this authorization server.",
+            );
+          }
           clients.set(clientId, {
             clientSecret,
             redirectUris,

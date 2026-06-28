@@ -15,6 +15,7 @@ import {
   DialogClose,
 } from "../components/dialog";
 import { Button } from "../components/button";
+import { PageContainer, PageHeader } from "../components/page";
 import { Badge } from "../components/badge";
 import { Input } from "../components/input";
 import { Label } from "../components/label";
@@ -213,210 +214,206 @@ export function OrgPage(props: {
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
-        <div className="mb-8">
-          <h1 className="font-display text-[2rem] tracking-tight text-foreground">Organization</h1>
-        </div>
+    <PageContainer>
+      <PageHeader title="Organization" />
 
-        <section className="mb-10">
-          <div className="flex items-end gap-3">
-            <div className="min-w-0 flex-1">
-              <Label htmlFor="org-name" className="text-sm font-medium text-foreground">
-                Organization name
-              </Label>
-              <Input
-                id="org-name"
-                value={editName}
-                onChange={(e) => setEditName((e.target as HTMLInputElement).value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSaveName();
-                }}
-                className="mt-1.5 h-9 text-sm"
-              />
-            </div>
-            {editName.trim() !== organizationName && editName.trim() !== "" && (
-              <Button size="sm" onClick={handleSaveName} disabled={savingName}>
-                {savingName ? "Saving…" : "Save"}
-              </Button>
-            )}
+      <section className="mb-10">
+        <div className="flex items-end gap-3">
+          <div className="min-w-0 flex-1">
+            <Label htmlFor="org-name" className="text-sm font-medium text-foreground">
+              Organization name
+            </Label>
+            <Input
+              id="org-name"
+              value={editName}
+              onChange={(e) => setEditName((e.target as HTMLInputElement).value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveName();
+              }}
+              className="mt-1.5 h-9 text-sm"
+            />
           </div>
-        </section>
-        {props.domainsSection && props.domainsSection}
-
-        <section className="mb-10">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-sm font-medium text-foreground">Members</h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                People with access to this Executor instance.
-                {seats && !seats.unlimited && ` ${seats.used} of ${seats.granted} seats used.`}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              className="min-w-32"
-              onClick={() => (showUpgradeOnInvite ? setUpgradeOpen(true) : setInviteOpen(true))}
-            >
-              Invite member
+          {editName.trim() !== organizationName && editName.trim() !== "" && (
+            <Button size="sm" onClick={handleSaveName} disabled={savingName}>
+              {savingName ? "Saving…" : "Save"}
             </Button>
+          )}
+        </div>
+      </section>
+      {props.domainsSection && props.domainsSection}
+
+      <section className="mb-10">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-sm font-medium text-foreground">Members</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              People with access to this Executor instance.
+              {seats && !seats.unlimited && ` ${seats.used} of ${seats.granted} seats used.`}
+            </p>
           </div>
-          <Input
-            type="text"
-            placeholder="Search by name or email..."
-            value={search}
-            onChange={(e) => setSearch((e.target as HTMLInputElement).value)}
-            className="mb-3 h-9 text-sm"
-          />
+          <Button
+            size="sm"
+            className="min-w-32"
+            onClick={() => (showUpgradeOnInvite ? setUpgradeOpen(true) : setInviteOpen(true))}
+          >
+            Invite member
+          </Button>
+        </div>
+        <Input
+          type="text"
+          placeholder="Search by name or email..."
+          value={search}
+          onChange={(e) => setSearch((e.target as HTMLInputElement).value)}
+          className="mb-3 h-9 text-sm"
+        />
 
-          {AsyncResult.match(membersResult, {
-            onInitial: () => (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
-                ))}
-              </div>
-            ),
-            onFailure: () => (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-                <p className="text-sm text-destructive">Failed to load members</p>
-              </div>
-            ),
-            onSuccess: ({ value }) => {
-              const members = value.members;
-              const filtered = search
-                ? members.filter(
-                    (m: MemberData) =>
-                      m.email.toLowerCase().includes(search.toLowerCase()) ||
-                      (m.name?.toLowerCase().includes(search.toLowerCase()) ?? false),
-                  )
-                : members;
+        {AsyncResult.match(membersResult, {
+          onInitial: () => (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
+              ))}
+            </div>
+          ),
+          onFailure: () => (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+              <p className="text-sm text-destructive">Failed to load members</p>
+            </div>
+          ),
+          onSuccess: ({ value }) => {
+            const members = value.members;
+            const filtered = search
+              ? members.filter(
+                  (m: MemberData) =>
+                    m.email.toLowerCase().includes(search.toLowerCase()) ||
+                    (m.name?.toLowerCase().includes(search.toLowerCase()) ?? false),
+                )
+              : members;
 
-              if (filtered.length === 0) {
-                return (
-                  <p className="py-8 text-center text-sm text-muted-foreground">
-                    {search ? "No matching members" : "No members yet"}
-                  </p>
-                );
-              }
-
+            if (filtered.length === 0) {
               return (
-                <div className="space-y-px">
-                  {filtered.map((member: MemberData) => (
-                    <div
-                      key={member.id}
-                      className="group relative grid grid-cols-[2rem_1fr_6rem_5rem_2rem] items-center gap-3 rounded-lg border border-transparent px-4 py-3 transition-all hover:bg-muted/30"
-                    >
-                      {member.avatarUrl ? (
-                        <img src={member.avatarUrl} alt="" className="size-8 rounded-full" />
-                      ) : (
-                        <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                          {member.name
-                            ? member.name
-                                .split(" ")
-                                .map((n: string) => n[0])
-                                .join("")
-                                .slice(0, 2)
-                                .toUpperCase()
-                            : member.email[0]!.toUpperCase()}
-                        </div>
-                      )}
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  {search ? "No matching members" : "No members yet"}
+                </p>
+              );
+            }
 
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium text-foreground leading-none">
-                            {member.name ?? member.email}
-                          </p>
-                          {member.isCurrentUser && (
-                            <Badge className="bg-muted text-muted-foreground">You</Badge>
-                          )}
-                          {member.status === "pending" && (
-                            <Badge className="bg-muted text-muted-foreground">Invited</Badge>
-                          )}
-                        </div>
-                        {member.name && (
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground leading-none">
-                            {member.email}
-                          </p>
+            return (
+              <div className="space-y-px">
+                {filtered.map((member: MemberData) => (
+                  <div
+                    key={member.id}
+                    className="group relative grid grid-cols-[2rem_1fr_6rem_5rem_2rem] items-center gap-3 rounded-lg border border-transparent px-4 py-3 transition-all hover:bg-muted/30"
+                  >
+                    {member.avatarUrl ? (
+                      <img src={member.avatarUrl} alt="" className="size-8 rounded-full" />
+                    ) : (
+                      <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                        {member.name
+                          ? member.name
+                              .split(" ")
+                              .map((n: string) => n[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase()
+                          : member.email[0]!.toUpperCase()}
+                      </div>
+                    )}
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium text-foreground leading-none">
+                          {member.name ?? member.email}
+                        </p>
+                        {member.isCurrentUser && (
+                          <Badge className="bg-muted text-muted-foreground">You</Badge>
+                        )}
+                        {member.status === "pending" && (
+                          <Badge className="bg-muted text-muted-foreground">Invited</Badge>
                         )}
                       </div>
-
-                      <p className="text-sm text-muted-foreground capitalize leading-none">
-                        {member.role}
-                      </p>
-
-                      <p className="text-xs text-muted-foreground leading-none">
-                        {formatLastActive(member.lastActiveAt)}
-                      </p>
-
-                      {!member.isCurrentUser ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <svg viewBox="0 0 16 16" className="size-3">
-                                <circle cx="8" cy="3" r="1.2" fill="currentColor" />
-                                <circle cx="8" cy="8" r="1.2" fill="currentColor" />
-                                <circle cx="8" cy="13" r="1.2" fill="currentColor" />
-                              </svg>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            {roles.length > 0 && (
-                              <>
-                                <DropdownMenuSub>
-                                  <DropdownMenuSubTrigger className="text-xs">
-                                    Change role
-                                  </DropdownMenuSubTrigger>
-                                  <DropdownMenuSubContent>
-                                    {roles.map((role: RoleData) => (
-                                      <DropdownMenuItem
-                                        key={role.slug}
-                                        className="text-xs"
-                                        disabled={role.slug === member.role}
-                                        onClick={() =>
-                                          handleChangeRole(member.id, role.slug, role.name)
-                                        }
-                                      >
-                                        {role.name}
-                                      </DropdownMenuItem>
-                                    ))}
-                                  </DropdownMenuSubContent>
-                                </DropdownMenuSub>
-                                <DropdownMenuSeparator />
-                              </>
-                            )}
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive text-sm"
-                              onClick={() => handleRemove(member.id, member.name ?? member.email)}
-                            >
-                              Remove member
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : (
-                        <div />
+                      {member.name && (
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground leading-none">
+                          {member.email}
+                        </p>
                       )}
                     </div>
-                  ))}
-                </div>
-              );
-            },
-          })}
-        </section>
 
-        <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={roles} />
-        <UpgradeDialog
-          open={upgradeOpen}
-          onOpenChange={setUpgradeOpen}
-          granted={seats?.granted ?? 0}
-          upgradeAction={props.upgradeAction}
-        />
-      </div>
-    </div>
+                    <p className="text-sm text-muted-foreground capitalize leading-none">
+                      {member.role}
+                    </p>
+
+                    <p className="text-xs text-muted-foreground leading-none">
+                      {formatLastActive(member.lastActiveAt)}
+                    </p>
+
+                    {!member.isCurrentUser ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <svg viewBox="0 0 16 16" className="size-3">
+                              <circle cx="8" cy="3" r="1.2" fill="currentColor" />
+                              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+                              <circle cx="8" cy="13" r="1.2" fill="currentColor" />
+                            </svg>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          {roles.length > 0 && (
+                            <>
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger className="text-xs">
+                                  Change role
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  {roles.map((role: RoleData) => (
+                                    <DropdownMenuItem
+                                      key={role.slug}
+                                      className="text-xs"
+                                      disabled={role.slug === member.role}
+                                      onClick={() =>
+                                        handleChangeRole(member.id, role.slug, role.name)
+                                      }
+                                    >
+                                      {role.name}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive text-sm"
+                            onClick={() => handleRemove(member.id, member.name ?? member.email)}
+                          >
+                            Remove member
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : (
+                      <div />
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          },
+        })}
+      </section>
+
+      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={roles} />
+      <UpgradeDialog
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        granted={seats?.granted ?? 0}
+        upgradeAction={props.upgradeAction}
+      />
+    </PageContainer>
   );
 }
 
