@@ -8,7 +8,6 @@ export const OAUTH_CLIENT_ID_METADATA_DOCUMENT_TARGET_PATH_PREFIX =
   `${OAUTH_CLIENT_ID_METADATA_DOCUMENT_BASE_PATH}/` as const;
 export const OAUTH_CLIENT_ID_METADATA_DOCUMENT_DEFAULT_TARGET = "default" as const;
 export const OAUTH_CLIENT_ID_METADATA_DOCUMENT_LOCAL_TARGET = "local" as const;
-const OAUTH_CALLBACK_ORG_QUERY_PARAM = "executor_org" as const;
 
 type MetadataTarget =
   | typeof OAUTH_CLIENT_ID_METADATA_DOCUMENT_DEFAULT_TARGET
@@ -80,17 +79,6 @@ const metadataTargetFromPath = ({
   return target ? target : undefined;
 };
 
-const orgSlugFromMetadataTarget = (target: MetadataTarget | undefined): string | undefined => {
-  if (!target) return undefined;
-  if (
-    target === OAUTH_CLIENT_ID_METADATA_DOCUMENT_DEFAULT_TARGET ||
-    target === OAUTH_CLIENT_ID_METADATA_DOCUMENT_LOCAL_TARGET
-  ) {
-    return undefined;
-  }
-  return target;
-};
-
 export const oauthClientIdMetadataDocumentUrlFromRequest = ({
   requestUrl,
   webRequest,
@@ -148,11 +136,14 @@ export const oauthClientIdMetadataDocumentFromRequest = ({
     };
   }
 
+  // The org selector travels in the OAuth `state` (see #1147 and apps/cloud
+  // start.ts, which reads it back from state on the callback), never as a
+  // provider-facing query param on redirect_uri. Org targets get a distinct
+  // `client_id` URL, but all targets register the SAME bare callback so the
+  // redirect_uri the client sends matches this document exactly. Providers
+  // (e.g. PostHog) compare redirect_uri as an exact string, so an extra query
+  // param here would fail with "Mismatching redirect URI".
   const redirectUri = new URL(callbackPathWithMountPrefix(mountPrefix), url.origin);
-  const orgSlug =
-    orgSlugFromMetadataTarget(target) ??
-    url.searchParams.get(OAUTH_CALLBACK_ORG_QUERY_PARAM)?.trim();
-  if (orgSlug) redirectUri.searchParams.set(OAUTH_CALLBACK_ORG_QUERY_PARAM, orgSlug);
 
   return {
     client_id: url.toString(),

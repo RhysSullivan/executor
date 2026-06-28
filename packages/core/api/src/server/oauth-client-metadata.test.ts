@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { oauthClientIdMetadataDocumentFromRequest } from "./oauth-client-metadata";
 
 describe("OAuth client ID metadata document", () => {
-  it("builds an org-scoped hosted document from a target path", () => {
+  it("builds an org-scoped hosted document with a bare callback redirect_uri", () => {
     const metadata = oauthClientIdMetadataDocumentFromRequest({
       requestUrl: "/api/oauth/client-id-metadata/acme.json",
       webRequest: new Request("http://127.0.0.1:42384/api/oauth/client-id-metadata/acme.json", {
@@ -12,12 +12,13 @@ describe("OAuth client ID metadata document", () => {
       mountPrefix: "/api",
     });
 
+    // The org is identified by the per-org client_id URL, not by a query param
+    // on redirect_uri (which the client never sends, and the callback reads
+    // from `state`). redirect_uri must stay bare for exact-match providers.
     expect(metadata.client_id).toBe(
       "http://100.81.219.45:42384/api/oauth/client-id-metadata/acme.json",
     );
-    expect(metadata.redirect_uris).toEqual([
-      "http://100.81.219.45:42384/api/oauth/callback?executor_org=acme",
-    ]);
+    expect(metadata.redirect_uris).toEqual(["http://100.81.219.45:42384/api/oauth/callback"]);
     expect(metadata.token_endpoint_auth_method).toBe("none");
     expect(metadata.application_type).toBe("web");
   });
@@ -65,7 +66,7 @@ describe("OAuth client ID metadata document", () => {
     expect(metadata.application_type).toBe("native");
   });
 
-  it("still reads the org selector from the legacy query form", () => {
+  it("ignores a legacy executor_org query param when building redirect_uri", () => {
     const metadata = oauthClientIdMetadataDocumentFromRequest({
       requestUrl: "/api/oauth/client-id-metadata.json?executor_org=acme",
       webRequest: new Request("http://127.0.0.1:42384/api/oauth/client-id-metadata.json", {
@@ -74,11 +75,11 @@ describe("OAuth client ID metadata document", () => {
       mountPrefix: "/api",
     });
 
+    // A stray executor_org query param is inert: it stays on the client_id URL
+    // (which is just the request URL) but never leaks into redirect_uri.
     expect(metadata.client_id).toBe(
       "http://100.81.219.45:42384/api/oauth/client-id-metadata.json?executor_org=acme",
     );
-    expect(metadata.redirect_uris).toEqual([
-      "http://100.81.219.45:42384/api/oauth/callback?executor_org=acme",
-    ]);
+    expect(metadata.redirect_uris).toEqual(["http://100.81.219.45:42384/api/oauth/callback"]);
   });
 });
