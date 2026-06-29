@@ -18,13 +18,15 @@ const MARKETING_PATHS = [
   "/setup",
   "/privacy",
   "/terms",
+  "/blog",
+  "/llms.txt",
   "/api/detect",
   "/_astro",
   "/og-image.png",
   "/pattern-graph-paper.svg",
 ];
 
-const isMarketingPath = (pathname: string) =>
+export const isMarketingPath = (pathname: string) =>
   MARKETING_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 const getMarketingWorker = () => env.MARKETING as { fetch: typeof fetch } | undefined;
