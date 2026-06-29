@@ -366,6 +366,22 @@ describe("mcpPlugin", () => {
     }),
   );
 
+  it.effect("reports a clear stdio startup failure message", () =>
+    Effect.gen(function* () {
+      const error = yield* createMcpConnector({
+        transport: "stdio",
+        command: "__executor_missing_stdio_command__",
+        args: ["--flag"],
+      }).pipe(Effect.flip);
+
+      expect(error).toMatchObject({
+        _tag: "McpConnectionError",
+        message:
+          'Could not connect to stdio MCP server using "__executor_missing_stdio_command__ --flag"',
+      });
+    }),
+  );
+
   it.effect("integration catalog has no configured MCP integrations initially", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
@@ -615,6 +631,11 @@ describe("mcpPlugin", () => {
           }),
         );
         expect(Result.isFailure(result)).toBe(true);
+        const failure = Result.isFailure(result) ? result.failure : null;
+        expect(failure).toMatchObject({
+          _tag: "McpToolDiscoveryError",
+          message: `Failed connecting to MCP server: Could not connect to stdio MCP server using "${Path.join(fixture.dir, "missing-command")}"`,
+        });
 
         const integration = yield* executor.mcp.getServer("stdio_invalid");
         expect(integration?.config).toMatchObject({
