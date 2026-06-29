@@ -35,6 +35,7 @@ import {
 import { stripMcpOrgSegment } from "./mcp/org-path";
 
 const distDir = fileURLToPath(new URL("../dist/", import.meta.url));
+const assetsDir = fileURLToPath(new URL("../dist/assets/", import.meta.url));
 
 // Rewrite `/<org>/mcp` (and its OAuth discovery path) to the bare path before
 // routing, so the "Connect an agent" card's org-pinned URL reaches the real
@@ -71,14 +72,32 @@ export const startServer = async (): Promise<void> => {
   const config = loadConfig();
   const { AppLayer, betterAuth } = await makeSelfHostApp();
 
-  // Serve the built SPA. Specific API/docs/auth/mcp routes take precedence;
-  // `spa: true` falls back to index.html for any other path (client routing).
-  const StaticLive = HttpStaticServer.layer({ root: distDir, spa: true }).pipe(
-    Layer.provide(BunFileSystem.layer),
-    Layer.provide(BunPath.layer),
-  );
+  // Serve the built SPA, split by cacheability so a redeploy is picked up at
+  // once instead of stranding browsers on a stale shell:
+  //   - `/assets/*` are Vite content-hashed (a new build emits new filenames),
+  //     so they're safe to cache forever.
+  //   - index.html (and the SPA fallback for client routes) is the mutable
+  //     entry point that references those hashes; it must always revalidate, or
+  //     a browser keeps an old index.html plus its old hashed bundles (still in
+  //     cache) and renders a stale UI until a hard refresh.
+  // Without explicit headers `HttpStaticServer` sends no Cache-Control at all,
+  // so browsers heuristically cache index.html across deploys. The hashed
+  // `/assets` route is the more specific match, so it wins over the SPA
+  // catch-all. Other built-in API/docs/auth/mcp routes still take precedence;
+  // `spa: true` falls back to index.html for any remaining path (client routing).
+  const AssetsLive = HttpStaticServer.layer({
+    root: assetsDir,
+    prefix: "/assets",
+    cacheControl: "public, max-age=31536000, immutable",
+  }).pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunPath.layer));
 
-  const ServerLive = HttpRouter.serve(Layer.mergeAll(AppLayer, StaticLive), {
+  const SpaLive = HttpStaticServer.layer({
+    root: distDir,
+    spa: true,
+    cacheControl: "no-cache",
+  }).pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunPath.layer));
+
+  const ServerLive = HttpRouter.serve(Layer.mergeAll(AppLayer, AssetsLive, SpaLive), {
     middleware: selfHostHttpMiddleware(betterAuth),
   }).pipe(
     Layer.provide(
