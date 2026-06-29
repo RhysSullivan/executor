@@ -2794,6 +2794,16 @@ const servicePortOption = () =>
     .pipe(Options.withDefault(DEFAULT_SERVICE_PORT))
     .pipe(Options.withDescription("Port the supervised daemon binds (loopback only)."));
 
+const serviceBootOption = () =>
+  Options.boolean("boot")
+    .pipe(Options.withDefault(false))
+    .pipe(
+      Options.withDescription(
+        "Windows only: start the daemon at boot before any login (needs an Administrator shell). " +
+          "Default installs a per-user login task that needs no elevation.",
+      ),
+    );
+
 const serviceManagerName = (platform: ReturnType<typeof getServiceBackend>["platform"]): string => {
   switch (platform) {
     case "darwin":
@@ -2807,7 +2817,7 @@ const serviceManagerName = (platform: ReturnType<typeof getServiceBackend>["plat
   }
 };
 
-const installService = (port: number, commandName: string) =>
+const installService = (port: number, commandName: string, boot = false) =>
   Effect.gen(function* () {
     const command = `${cliPrefix} ${commandName}`;
     if (isDevMode) {
@@ -2824,7 +2834,12 @@ const installService = (port: number, commandName: string) =>
     const backend = getServiceBackend();
     if (!backend.automated) {
       // Unsupported platforms surface their manual steps via the install error.
-      yield* backend.install({ executablePath: process.execPath, port, version: CLI_VERSION });
+      yield* backend.install({
+        executablePath: process.execPath,
+        port,
+        version: CLI_VERSION,
+        boot,
+      });
       return;
     }
 
@@ -2881,7 +2896,7 @@ const installService = (port: number, commandName: string) =>
     // The unit carries no secret: the supervised daemon mints/loads its bearer
     // from auth.json (under EXECUTOR_DATA_DIR) on first boot, and clients read
     // the same file — so reachability is the credential-free /api/health probe.
-    yield* backend.install({ executablePath: process.execPath, port, version: CLI_VERSION });
+    yield* backend.install({ executablePath: process.execPath, port, version: CLI_VERSION, boot });
 
     console.log(`Waiting for Executor to publish its service manifest at ${origin}...`);
     const reachable = yield* waitForReachable({
@@ -2904,7 +2919,11 @@ const installService = (port: number, commandName: string) =>
     }
 
     console.log(`Executor is now running as a background service at ${origin}.`);
-    console.log("It keeps serving after you quit the app and restarts on login.");
+    console.log(
+      boot && backend.platform === "win32"
+        ? "It keeps serving after you quit the app and starts at boot, before login."
+        : "It keeps serving after you quit the app and restarts on login.",
+    );
     console.log(`Open it in your browser, already signed in, with:  ${cliPrefix} web`);
   });
 
@@ -2912,8 +2931,9 @@ const serviceInstallCommand = Command.make(
   "install",
   {
     port: servicePortOption(),
+    boot: serviceBootOption(),
   },
-  ({ port }) => installService(port, "service install"),
+  ({ port, boot }) => installService(port, "service install", boot),
 ).pipe(
   Command.withDescription("Install and start Executor as an OS-supervised background service"),
 );
@@ -2996,8 +3016,9 @@ const installCommand = Command.make(
   "install",
   {
     port: servicePortOption(),
+    boot: serviceBootOption(),
   },
-  ({ port }) => installService(port, "install"),
+  ({ port, boot }) => installService(port, "install", boot),
 ).pipe(
   Command.withDescription("Install and start Executor as an OS-supervised background service"),
 );
