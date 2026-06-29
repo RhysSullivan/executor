@@ -81,15 +81,24 @@ export const parseStdioEnv = (raw: string): StdioEnvParseResult => {
   return { ok: true, env: Object.keys(env).length > 0 ? env : undefined };
 };
 
-const formatStdioEnvValue = (value: string): string => {
-  if (value.length === 0) return "";
-  if (value.trim() === value && !/[\n\r\t"\\]/.test(value)) return value;
-  return `"${value
+const formatDoubleQuotedStdioEnvValue = (value: string): string =>
+  `"${value
     .replace(/\\/g, "\\\\")
     .replace(/\n/g, "\\n")
     .replace(/\r/g, "\\r")
     .replace(/\t/g, "\\t")
     .replace(/"/g, '\\"')}"`;
+
+const canFormatStdioEnvValueBare = (value: string): boolean => {
+  if (/[\n\r\t"\\]/.test(value)) return false;
+  const parsed = parseStdioEnv(`A=${value}`);
+  return parsed.ok && parsed.env?.A === value;
+};
+
+const formatStdioEnvValue = (value: string): string => {
+  if (value.length === 0) return "";
+  if (canFormatStdioEnvValueBare(value)) return value;
+  return formatDoubleQuotedStdioEnvValue(value);
 };
 
 export const stdioEnvToText = (env: Record<string, string> | undefined): string => {

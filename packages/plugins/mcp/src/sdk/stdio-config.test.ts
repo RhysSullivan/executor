@@ -80,7 +80,13 @@ describe("stdio config helpers", () => {
 
   it.effect("serializes env text that round trips through the parser", () =>
     Effect.sync(() => {
-      const env = { A: " value ", B: "line\nnext", C: "plain" };
+      const env = {
+        A: " value ",
+        B: "line\nnext",
+        C: "plain",
+        D: "'hello'",
+        E: '"hello"',
+      };
       expect(parseStdioEnv(stdioEnvToText(env))).toEqual({ ok: true, env });
     }),
   );
