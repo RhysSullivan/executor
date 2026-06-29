@@ -6,8 +6,14 @@ import { SelfHostContactModal } from "../components/self-host-contact-modal";
 // Imported so Vite emits it as a hashed build asset (served from /_astro/...);
 // the deploy pipeline does not pick up newly added /public files.
 import ycBackedBy from "../assets/yc-backed-by.svg?url";
+import { getStars, formatStars } from "../lib/github";
 
 const GH = "https://github.com/RhysSullivan/executor";
+// Cloud sign-in. Same origin in prod: the cloud Worker owns executor.sh and
+// /api/* is app-owned (apps/cloud/src/app-paths.ts), so this hits the WorkOS
+// login flow directly. Returning users land here; new users use Get started.
+const SIGN_IN = "/api/auth/login";
+const stars = await getStars();
 
 // Copied to the clipboard by the "Set up with your agent" hero CTA. A visitor
 // pastes it into their coding agent (Claude, Cursor, ...) and the agent picks
@@ -63,7 +69,7 @@ Source (and the place to start if something breaks): https://github.com/RhysSull
 
     <div class="relative z-10">
       {/* ─── NAV ─── */}
-      <nav>
+      <nav class="border-b border-rule bg-surface">
         <div
           class="max-w-[1200px] mx-auto px-6 sm:px-10 h-14 flex items-center justify-between"
         >
@@ -73,28 +79,49 @@ Source (and the place to start if something breaks): https://github.com/RhysSull
               >executor</span
             >
           </a>
-          <div class="flex items-center gap-5">
-            <a
-              href="#pricing"
-              class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors hidden sm:inline"
-              >Pricing</a
-            >
-            <a
-              href="https://executor.sh/docs"
-              class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors hidden sm:inline"
-              >Docs</a
-            >
-            <a
-              href="/blog"
-              class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors hidden sm:inline"
-              >Blog</a
-            >
-            <a
-              href={GH}
-              class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors"
-              >GitHub</a
-            >
-            <a href="#install" class="btn-primary">Get started →</a>
+          <div class="flex items-center gap-6 sm:gap-7">
+            <div class="flex items-center gap-5">
+              <a
+                href={GH}
+                target="_blank"
+                rel="noopener"
+                class="gh-star"
+                aria-label="Star Executor on GitHub"
+              >
+                <svg
+                  class="gh-star__ico"
+                  width="13"
+                  height="13"
+                  viewBox="0 0 16 16"
+                  aria-hidden="true"
+                >
+                  <path
+                    fill="#e3b341"
+                    d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"
+                  ></path>
+                </svg>
+                <span class="hidden sm:inline">star on github</span>
+                {stars != null && <span class="gh-star__n">{formatStars(stars)}</span>}
+              </a>
+              <a
+                href="https://executor.sh/docs"
+                class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors hidden sm:inline"
+                >Docs</a
+              >
+              <a
+                href="/blog"
+                class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors hidden sm:inline"
+                >Blog</a
+              >
+            </div>
+            <div class="flex items-center gap-4">
+              <a
+                href={SIGN_IN}
+                class="text-[14px] font-medium text-ink-2 hover:text-ink transition-colors hidden sm:inline"
+                >Sign in</a
+              >
+              <a href="#install" class="btn-primary btn-primary--nav">Get started →</a>
+            </div>
           </div>
         </div>
       </nav>

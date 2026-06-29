@@ -138,6 +138,16 @@ body {
   background: #1f1f24;
 }
 
+/* Compact nav variant: height matched to the gh-star pill (and its 7px radius)
+   so the right cluster reads as one even row. */
+.btn-primary--nav {
+  display: inline-flex;
+  align-items: center;
+  height: 31px;
+  padding: 0 0.95rem;
+  border-radius: 7px;
+}
+
 /* Light, bordered counterpart to .btn-primary, a real secondary CTA. Sized to
    match .btn-primary--hero so it balances under the hero's primary button. */
 .btn-secondary {
@@ -180,6 +190,38 @@ body {
 }
 .btn-link:hover {
   color: var(--color-ink);
+}
+
+/* GitHub "star on github" pill (nav), matching integrations.sh: a gold star,
+   a lowercase mono label, and the count behind a hairline divider. All mono,
+   the metadata voice. The star is the one bit of color, kept to the icon. */
+.gh-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid var(--color-rule);
+  border-radius: 7px;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.gh-star:hover {
+  color: var(--color-ink);
+  border-color: var(--color-rule-strong);
+}
+.gh-star__ico {
+  flex-shrink: 0;
+}
+.gh-star__n {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-3);
+  padding-left: 8px;
+  border-left: 1px solid var(--color-rule);
 }
 
 .copy-icons {
