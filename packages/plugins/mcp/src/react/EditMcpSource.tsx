@@ -13,10 +13,12 @@ import {
   type AuthMethodRow,
   type AuthMethodSeed,
 } from "@executor-js/react/components/auth-method-list-editor";
-import { Badge } from "@executor-js/react/components/badge";
-import { FormErrorAlert } from "@executor-js/react/lib/integration-add";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
+import { Textarea } from "@executor-js/react/components/textarea";
+import { errorMessageFromExit, FormErrorAlert } from "@executor-js/react/lib/integration-add";
 
-import { configureMcpAuth, mcpServerAtom } from "./atoms";
+import { configureMcpAuth, configureMcpServer, mcpServerAtom } from "./atoms";
 import type {
   McpAuthMethod,
   McpCanonicalAuthMethodInput,
@@ -27,6 +29,15 @@ import {
   mcpAuthMethodInputFromEditorValue,
   mcpWireAuthInput,
 } from "./auth-method-config";
+import {
+  canonicalizeStdioConfig,
+  canonicalizeStdioDraft,
+  parseStdioArgs,
+  parseStdioEnv,
+  sameCanonicalStdioConfig,
+  stdioEnvParseErrorMessage,
+  stdioEnvToText,
+} from "../sdk/stdio-config";
 
 type McpServer = {
   readonly slug: IntegrationSlug;
@@ -174,30 +185,176 @@ function RemoteEdit(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Stdio read-only view
+// Stdio edit
 // ---------------------------------------------------------------------------
 
-function StdioReadOnly(props: {
+function StdioEdit(props: {
   server: McpServer & { config: Extract<McpIntegrationConfig, { transport: "stdio" }> };
+  onPendingChange?: EditSheetSectionProps["onPendingChange"];
 }) {
-  const { command, args } = props.server.config;
+  const { server } = props;
+  const doConfigure = useAtomSet(configureMcpServer, { mode: "promiseExit" });
+
+  const [commandDraft, setCommandDraft] = useState(server.config.command);
+  const [argsDraft, setArgsDraft] = useState((server.config.args ?? []).join(" "));
+  const [cwdDraft, setCwdDraft] = useState(server.config.cwd ?? "");
+  const [envDraft, setEnvDraft] = useState(stdioEnvToText(server.config.env));
+  const [error, setError] = useState<string | null>(null);
+
+  const lastResetSlug = useRef<IntegrationSlug | null>(null);
+  useEffect(() => {
+    if (lastResetSlug.current === server.slug) return;
+    lastResetSlug.current = server.slug;
+    setCommandDraft(server.config.command);
+    setArgsDraft((server.config.args ?? []).join(" "));
+    setCwdDraft(server.config.cwd ?? "");
+    setEnvDraft(stdioEnvToText(server.config.env));
+    setError(null);
+  }, [
+    server.config.args,
+    server.config.command,
+    server.config.cwd,
+    server.config.env,
+    server.slug,
+  ]);
+
+  const stdioDraftChanged = useMemo(
+    () =>
+      commandDraft !== server.config.command ||
+      argsDraft !== (server.config.args ?? []).join(" ") ||
+      cwdDraft !== (server.config.cwd ?? "") ||
+      envDraft !== stdioEnvToText(server.config.env),
+    [argsDraft, commandDraft, cwdDraft, envDraft, server.config],
+  );
+
+  const parsedEnvForComparison = useMemo(() => parseStdioEnv(envDraft), [envDraft]);
+  const processConfigChanged = useMemo(() => {
+    if (!parsedEnvForComparison.ok) return false;
+    return !sameCanonicalStdioConfig(
+      canonicalizeStdioConfig(server.config),
+      canonicalizeStdioDraft({
+        command: commandDraft,
+        args: parseStdioArgs(argsDraft),
+        env: parsedEnvForComparison.env,
+        cwd: cwdDraft,
+      }),
+    );
+  }, [argsDraft, commandDraft, cwdDraft, parsedEnvForComparison, server.config]);
+
+  const applyStaged = useCallback(async (): Promise<EditSheetApplyResult> => {
+    setError(null);
+    const command = commandDraft.trim();
+    if (command.length === 0) {
+      setError("Command is required.");
+      return { ok: false };
+    }
+
+    const parsedEnv = parseStdioEnv(envDraft);
+    if (!parsedEnv.ok) {
+      setError(stdioEnvParseErrorMessage(parsedEnv.error));
+      return { ok: false };
+    }
+
+    const args = parseStdioArgs(argsDraft);
+    const cwd = cwdDraft.trim();
+    const nextConfig: Extract<McpIntegrationConfig, { transport: "stdio" }> = {
+      transport: "stdio",
+      command,
+      ...(args.length > 0 ? { args } : {}),
+      ...(parsedEnv.env !== undefined ? { env: parsedEnv.env } : {}),
+      ...(cwd.length > 0 ? { cwd } : {}),
+      ...(server.config.authenticationTemplate !== undefined
+        ? { authenticationTemplate: server.config.authenticationTemplate }
+        : {}),
+    };
+
+    if (
+      sameCanonicalStdioConfig(
+        canonicalizeStdioConfig(server.config),
+        canonicalizeStdioConfig(nextConfig),
+      )
+    ) {
+      return { ok: true, summary: null };
+    }
+
+    const exit = await doConfigure({
+      params: { slug: server.slug },
+      payload: { config: nextConfig },
+      reactivityKeys: integrationWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      setError(errorMessageFromExit(exit, "Failed to update command settings"));
+      return { ok: false };
+    }
+    return { ok: true, summary: "Command settings updated." };
+  }, [argsDraft, commandDraft, cwdDraft, doConfigure, envDraft, server.config, server.slug]);
+
+  const onPendingChangeRef = useRef(props.onPendingChange);
+  onPendingChangeRef.current = props.onPendingChange;
+  useEffect(() => {
+    onPendingChangeRef.current?.(stdioDraftChanged ? applyStaged : null);
+    return () => onPendingChangeRef.current?.(null);
+  }, [stdioDraftChanged, applyStaged]);
+
   return (
-    <div className="space-y-3 border-t border-border/60 pt-5">
+    <div className="space-y-4 border-t border-border/60 pt-5">
       <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">Server command</p>
-        <p className="text-xs text-muted-foreground">
-          Stdio MCP sources cannot be edited. Remove and recreate the source with the updated
-          command.
-        </p>
+        <p className="text-sm font-medium text-foreground">Command settings</p>
+        <p className="text-xs text-muted-foreground">Changes apply when you save.</p>
       </div>
-      <div className="flex items-center gap-3 rounded-md border border-border/60 bg-muted/40 px-3 py-2">
-        <p className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
-          {command} {(args ?? []).join(" ")}
-        </p>
-        <Badge variant="secondary" className="text-xs">
-          stdio
-        </Badge>
+
+      <div className="space-y-3">
+        <Label className="block space-y-1.5">
+          <span className="text-xs font-medium text-foreground">Command</span>
+          <Input
+            value={commandDraft}
+            onChange={(e) => setCommandDraft((e.target as HTMLInputElement).value)}
+            placeholder="npx"
+            className="font-mono text-sm"
+          />
+        </Label>
+
+        <Label className="block space-y-1.5">
+          <span className="text-xs font-medium text-foreground">Arguments</span>
+          <Input
+            value={argsDraft}
+            onChange={(e) => setArgsDraft((e.target as HTMLInputElement).value)}
+            placeholder="-y chrome-devtools-mcp@latest"
+            className="font-mono text-sm"
+          />
+        </Label>
+
+        <Label className="block space-y-1.5">
+          <span className="text-xs font-medium text-foreground">Working directory</span>
+          <Input
+            value={cwdDraft}
+            onChange={(e) => setCwdDraft((e.target as HTMLInputElement).value)}
+            placeholder="/path/to/project"
+            className="font-mono text-sm"
+            data-ph-block
+          />
+        </Label>
+
+        <Label className="block space-y-1.5">
+          <span className="text-xs font-medium text-foreground">Environment variables</span>
+          <Textarea
+            value={envDraft}
+            onChange={(e) => setEnvDraft((e.target as HTMLTextAreaElement).value)}
+            placeholder={"DEBUG=true\nAPI_BASE_URL=https://example.com"}
+            className="font-mono text-sm"
+            data-ph-block
+          />
+        </Label>
       </div>
+
+      {processConfigChanged && (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          Saving these command settings will rediscover tools and reset policies scoped to this
+          source.
+        </p>
+      )}
+
+      {error && <FormErrorAlert message={error} />}
     </div>
   );
 }
@@ -216,10 +373,11 @@ export default function EditMcpSource({ sourceId, onPendingChange }: EditSheetSe
 
   if (server.config.transport === "stdio") {
     return (
-      <StdioReadOnly
+      <StdioEdit
         server={
           server as McpServer & { config: Extract<McpIntegrationConfig, { transport: "stdio" }> }
         }
+        {...(onPendingChange ? { onPendingChange } : {})}
       />
     );
   }

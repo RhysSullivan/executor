@@ -17,7 +17,7 @@ import {
 } from "@executor-js/react/components/card-stack";
 import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Input } from "@executor-js/react/components/input";
-import { TagInput } from "@executor-js/react/components/tag-input";
+import { Textarea } from "@executor-js/react/components/textarea";
 import {
   integrationDisplayNameFromStdio,
   integrationDisplayNameFromUrl,
@@ -39,6 +39,7 @@ import { probeMcpEndpoint, addMcpServer } from "./atoms";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
 import { mcpAuthMethodInputFromEditorValue, mcpWireAuthInput } from "./auth-method-config";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
+import { parseStdioArgs, parseStdioEnv, stdioEnvParseErrorMessage } from "../sdk/stdio-config";
 
 // The remote add flow REGISTERS the server's declared auth methods through the
 // shared `AuthMethodListEditor` — accounts (the API key value / OAuth sign-in)
@@ -55,19 +56,6 @@ import { mcpPresets, type McpPreset } from "../sdk/presets";
 function findPreset(id: string | undefined): McpPreset | undefined {
   if (!id) return undefined;
   return mcpPresets.find((p) => p.id === id);
-}
-
-// Splits the raw args field into tokens, honoring double-quoted groups so an
-// argument with spaces stays intact.
-function parseStdioArgs(raw: string): string[] {
-  if (!raw.trim()) return [];
-  const args: string[] = [];
-  const regex = /[^\s"]+|"([^"]*)"/g;
-  let match;
-  while ((match = regex.exec(raw)) !== null) {
-    args.push(match[1] ?? match[0]);
-  }
-  return args;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +173,8 @@ export default function AddMcpSource(props: {
   const [stdioArgs, setStdioArgs] = useState(
     isStdioPreset && preset.args ? preset.args.join(" ") : "",
   );
-  const [stdioEnvVars, setStdioEnvVars] = useState<string[]>([]);
+  const [stdioEnvText, setStdioEnvText] = useState("");
+  const [stdioCwd, setStdioCwd] = useState("");
   const stdioIdentity = useIntegrationIdentity({
     fallbackName: isStdioPreset
       ? preset.name
@@ -352,18 +341,26 @@ export default function AddMcpSource(props: {
   const handleAddStdio = useCallback(async () => {
     const cmd = stdioCommand.trim();
     if (!cmd) return;
+    const parsedEnv = parseStdioEnv(stdioEnvText);
+    if (!parsedEnv.ok) {
+      setStdioError(stdioEnvParseErrorMessage(parsedEnv.error));
+      return;
+    }
     setStdioAdding(true);
     setStdioError(null);
     const displayName = stdioIdentity.name.trim() || cmd;
     const slug = slugifyNamespace(stdioIdentity.namespace) || undefined;
+    const parsedArgs = parseStdioArgs(stdioArgs);
+    const trimmedCwd = stdioCwd.trim();
     const exit = await doAddServer({
       payload: {
         transport: "stdio" as const,
         name: displayName,
         ...(slug ? { slug } : {}),
         command: cmd,
-        args: parseStdioArgs(stdioArgs),
-        envVars: stdioEnvVars.length > 0 ? stdioEnvVars : undefined,
+        ...(parsedArgs.length > 0 ? { args: parsedArgs } : {}),
+        ...(parsedEnv.env !== undefined ? { env: parsedEnv.env } : {}),
+        ...(trimmedCwd.length > 0 ? { cwd: trimmedCwd } : {}),
       },
       reactivityKeys: integrationWriteKeys,
     });
@@ -373,7 +370,7 @@ export default function AddMcpSource(props: {
       return;
     }
     props.onComplete(exit.value.slug);
-  }, [stdioCommand, stdioArgs, stdioEnvVars, stdioIdentity, doAddServer, props]);
+  }, [stdioCommand, stdioArgs, stdioEnvText, stdioCwd, stdioIdentity, doAddServer, props]);
 
   // ---- Render ----
 
@@ -508,13 +505,28 @@ export default function AddMcpSource(props: {
               </CardStackEntryField>
 
               <CardStackEntryField
-                label="Environment variables"
-                description="- Names only; secret values are entered when you connect."
+                label="Working directory"
+                description="Optional directory to run the command from."
               >
-                <TagInput
-                  values={stdioEnvVars}
-                  onChange={setStdioEnvVars}
-                  placeholder="Add an env var, e.g. GITHUB_TOKEN"
+                <Input
+                  value={stdioCwd}
+                  onChange={(e) => setStdioCwd((e.target as HTMLInputElement).value)}
+                  placeholder="/path/to/project"
+                  className="font-mono text-sm"
+                  data-ph-block
+                />
+              </CardStackEntryField>
+
+              <CardStackEntryField
+                label="Environment variables"
+                description="Additional variables, one KEY=value per line."
+              >
+                <Textarea
+                  value={stdioEnvText}
+                  onChange={(e) => setStdioEnvText((e.target as HTMLTextAreaElement).value)}
+                  placeholder={"DEBUG=true\nAPI_BASE_URL=https://example.com"}
+                  className="font-mono text-sm"
+                  data-ph-block
                 />
               </CardStackEntryField>
             </CardStackContent>

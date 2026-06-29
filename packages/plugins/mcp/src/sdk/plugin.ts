@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Result, Schema } from "effect";
+import { Effect, Layer, Option, Predicate, Result, Schema } from "effect";
 import type { HttpClient } from "effect/unstable/http";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -11,6 +11,7 @@ import {
   ConnectionName,
   definePlugin,
   IntegrationAlreadyExistsError,
+  IntegrationNotFoundError,
   IntegrationSlug,
   mergeAuthTemplates,
   OAuthClientSlug,
@@ -49,6 +50,7 @@ import { invokeMcpTool } from "./invoke";
 import { deriveMcpNamespace, type McpToolManifestEntry } from "./manifest";
 import { mcpPresets } from "./presets";
 import { probeMcpEndpointShape, type McpShapeProbeResult } from "./probe-shape";
+import { canonicalizeStdioConfig, sameCanonicalStdioConfig } from "./stdio-config";
 import {
   McpAuthMethodInput,
   McpAuthShorthand,
@@ -171,13 +173,10 @@ const McpStdioServerInputSchema = Schema.Struct({
   description: Schema.optional(Schema.String),
   command: Schema.String,
   args: Schema.optional(Schema.Array(Schema.String)),
-  /** DECLARE the secret env vars this server needs, by NAME. Their values are
-   *  supplied as the connection's secret credentials, not here — so the UI
-   *  defines what env vars exist and the connect step provides the secrets. */
+  /** Declare secret env vars this server needs, by name. Their values are
+   *  supplied as the connection's secret credentials. */
   envVars: Schema.optional(Schema.Array(Schema.String)),
-  /** Provide secret env values directly (programmatic / agent one-shot): the
-   *  add then auto-creates the connection holding them. The UI uses `envVars`
-   *  instead and leaves the values to the connect step. */
+  /** Static, non-credential environment variables injected into the subprocess. */
   env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   cwd: Schema.optional(Schema.String),
   slug: Schema.optional(Schema.String),
@@ -310,23 +309,20 @@ const STDIO_ENV_TEMPLATE = "env";
 /** The secret env var NAMES a stdio add declares: the explicit `envVars`
  *  declaration plus the keys of any one-shot `env` values, de-duplicated and
  *  order-preserving. */
-const stdioEnvVarNames = (input: McpStdioServerInput): readonly string[] => {
-  const names = new Set<string>(input.envVars ?? []);
-  for (const key of Object.keys(input.env ?? {})) names.add(key);
-  return [...names];
-};
+const stdioEnvVarNames = (input: McpStdioServerInput): readonly string[] => [
+  ...new Set(input.envVars ?? []),
+];
 
 const toIntegrationConfig = (input: McpServerInput): McpIntegrationConfigType => {
   if (input.transport === "stdio") {
-    // The config only DECLARES the secret env vars by NAME (a `stdio_env`
-    // method); their values are credentials and live on the connection, never
-    // in this blob. Names come from the explicit `envVars` declaration and/or
-    // the keys of any one-shot `env` values.
+    // Static env values live on the integration config. Secret env names are
+    // declared as a `stdio_env` method, and their values live on the connection.
     const vars = stdioEnvVarNames(input);
     return {
       transport: "stdio",
       command: input.command,
       args: input.args ? [...input.args] : undefined,
+      env: input.env && Object.keys(input.env).length > 0 ? { ...input.env } : undefined,
       cwd: input.cwd,
       authenticationTemplate:
         vars.length > 0
@@ -841,26 +837,19 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             );
 
           // Auto-create the stdio server's default connection so its tools are
-          // discovered immediately (without it the integration lands with zero
-          // connections and therefore zero tools — the fresh-install "no tools
-          // detected" report). Two cases connect on add:
-          //   • one-shot `env` VALUES were supplied (agent path) → bind them as
-          //     the connection's secrets.
-          //   • the server needs NO secret env at all → a no-auth connection.
-          // When the server only DECLARES env var names (the UI path), the
-          // secrets are still missing, so we leave the connection to the connect
-          // step where the user enters one masked value per declared var.
+          // discovered immediately when it does not need secret env credentials.
+          // When the server declares env var names, the secrets are still
+          // missing, so the connection is left to the connect step.
           if (input.transport === "stdio") {
-            const hasValues = input.env != null && Object.keys(input.env).length > 0;
             const declaresSecrets = stdioEnvVarNames(input).length > 0;
-            if (hasValues || !declaresSecrets) {
+            if (!declaresSecrets) {
               yield* ctx.connections
                 .create({
                   owner: "org",
                   name: ConnectionName.make("default"),
                   integration: slugFrom(slug),
-                  template: AuthTemplateSlug.make(hasValues ? STDIO_ENV_TEMPLATE : "none"),
-                  values: hasValues ? { ...input.env } : {},
+                  template: AuthTemplateSlug.make("none"),
+                  values: {},
                 })
                 .pipe(
                   // These can't arise right after a successful register with
@@ -934,29 +923,21 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
               });
               if (connections.length > 0) return; // already connectable — nothing to heal.
 
-              const inlineEnv = config.env ?? {};
-              const envVars = Object.keys(inlineEnv);
-              const hasEnv = envVars.length > 0;
-
               yield* ctx.connections.create({
                 owner: "org",
                 name: ConnectionName.make("default"),
                 integration: integration.slug,
-                template: AuthTemplateSlug.make(hasEnv ? STDIO_ENV_TEMPLATE : "none"),
-                values: hasEnv ? { ...inlineEnv } : {},
+                template: AuthTemplateSlug.make("none"),
+                values: {},
               });
 
-              // The secret is now on the connection: canonicalize this legacy
-              // config (declare the var names as a stdio_env method, dropping the
-              // inline plaintext values; or `none` for a no-secret server).
               const nextConfig: McpIntegrationConfigType = {
                 transport: "stdio",
                 command: config.command,
                 args: config.args,
+                env: config.env,
                 cwd: config.cwd,
-                authenticationTemplate: hasEnv
-                  ? [{ slug: STDIO_ENV_TEMPLATE, kind: "stdio_env", vars: envVars }]
-                  : [{ slug: "none", kind: "none" }],
+                authenticationTemplate: [{ slug: "none", kind: "none" }],
               };
               yield* ctx.core.integrations.update(integration.slug, { config: nextConfig });
             }).pipe(
@@ -1055,8 +1036,120 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           }),
         );
 
+      const preflightStdioConfig = (config: McpIntegrationConfigType) =>
+        Effect.gen(function* () {
+          const connectorInput = yield* buildConnectorInput(
+            config,
+            {},
+            null,
+            allowStdio,
+            httpClientLayer,
+          );
+          yield* discoverTools(createMcpConnector(connectorInput));
+        });
+
+      const removePoliciesScopedToIntegration = (integration: IntegrationSlug) =>
+        Effect.gen(function* () {
+          const prefix = `${String(integration)}.`;
+          const policies = yield* ctx.core.policies.list();
+          for (const policy of policies) {
+            if (policy.pattern === String(integration) || policy.pattern.startsWith(prefix)) {
+              yield* ctx.core.policies.remove({ id: String(policy.id), owner: policy.owner });
+            }
+          }
+        });
+
+      const refreshStdioConnections = (integration: IntegrationSlug) =>
+        Effect.gen(function* () {
+          const connections = yield* ctx.connections.list({ integration });
+          if (connections.length === 0) {
+            yield* ctx.connections
+              .create({
+                owner: "org",
+                name: ConnectionName.make("default"),
+                integration,
+                template: AuthTemplateSlug.make("none"),
+                values: {},
+              })
+              .pipe(
+                Effect.catchTags({
+                  IntegrationNotFoundError: (cause) =>
+                    Effect.fail(
+                      new McpConnectionError({ transport: "stdio", message: cause.message }),
+                    ),
+                  CredentialProviderNotRegisteredError: (cause) =>
+                    Effect.fail(
+                      new McpConnectionError({ transport: "stdio", message: cause.message }),
+                    ),
+                  InvalidConnectionInputError: (cause) =>
+                    Effect.fail(
+                      new McpConnectionError({ transport: "stdio", message: cause.message }),
+                    ),
+                }),
+              );
+            return;
+          }
+
+          const failedNames = yield* Effect.forEach(connections, (connection) =>
+            ctx.connections.refresh(connection).pipe(
+              Effect.as(null),
+              Effect.catch(() => Effect.succeed(String(connection.name))),
+            ),
+          );
+          const failures = failedNames.filter(Predicate.isNotNull);
+          if (failures.length > 0) {
+            return yield* new McpToolDiscoveryError({
+              stage: "list_tools",
+              message: `MCP tools refreshed with failures for connection(s): ${failures.join(", ")}`,
+            });
+          }
+        });
+
       const configureServer = (slug: string, config: McpIntegrationConfigType) =>
-        ctx.core.integrations.update(slugFrom(slug), { config }).pipe(
+        Effect.gen(function* () {
+          const integration = slugFrom(slug);
+          const record = yield* ctx.core.integrations.get(integration);
+          const current = record ? parseMcpIntegrationConfig(record.config) : null;
+          if (record === null || current === null) {
+            return yield* new IntegrationNotFoundError({ slug: integration });
+          }
+          if (current.transport !== config.transport) {
+            return yield* new McpConnectionError({
+              transport: "auto",
+              message: "MCP transport cannot be changed. Remove and recreate the source.",
+            });
+          }
+
+          if (current.transport !== "stdio") {
+            yield* ctx.core.integrations.update(integration, { config });
+            return;
+          }
+
+          if (config.transport !== "stdio") {
+            return yield* new McpConnectionError({
+              transport: "auto",
+              message: "MCP transport cannot be changed. Remove and recreate the source.",
+            });
+          }
+
+          const processConfigChanged = !sameCanonicalStdioConfig(
+            canonicalizeStdioConfig(current),
+            canonicalizeStdioConfig(config),
+          );
+          if (!processConfigChanged) {
+            yield* ctx.core.integrations.update(integration, { config });
+            return;
+          }
+
+          yield* preflightStdioConfig(config);
+          yield* ctx.transaction(
+            Effect.gen(function* () {
+              yield* removePoliciesScopedToIntegration(integration);
+              yield* ctx.core.integrations.update(integration, { config });
+            }),
+          );
+          yield* refreshStdioConnections(integration);
+        }).pipe(
           Effect.withSpan("mcp.plugin.configure_server", {
             attributes: { "mcp.integration.slug": slug },
           }),
@@ -1460,7 +1553,7 @@ export interface McpPluginExtension {
   readonly configureServer: (
     slug: string,
     config: McpIntegrationConfigType,
-  ) => Effect.Effect<void, McpExtensionFailure>;
+  ) => Effect.Effect<void, McpExtensionFailure | IntegrationNotFoundError>;
   readonly configureAuth: (
     slug: string,
     input: McpConfigureAuthInput,

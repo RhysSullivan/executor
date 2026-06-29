@@ -4,6 +4,7 @@ import {
   IntegrationSlug,
   InternalError,
   IntegrationAlreadyExistsError,
+  IntegrationNotFoundError,
 } from "@executor-js/sdk/shared";
 
 import { McpConnectionError, McpToolDiscoveryError } from "../sdk/errors";
@@ -21,6 +22,7 @@ import {
 const SlugParams = { slug: IntegrationSlug };
 
 const StringMap = Schema.Record(Schema.String, Schema.String);
+const IntegrationNotFound = IntegrationNotFoundError.annotate({ httpApiStatus: 404 });
 
 // ---------------------------------------------------------------------------
 // Add server — discriminated union on transport. An MCP server is registered
@@ -52,9 +54,9 @@ const AddStdioServerPayload = Schema.Struct({
   command: Schema.String,
   args: Schema.optional(Schema.Array(Schema.String)),
   /** Declare the secret env vars this server needs, by name. Their values are
-   *  supplied as the connection's secrets (the connect step), not here. */
+   *  supplied as the connection's secrets. */
   envVars: Schema.optional(Schema.Array(Schema.String)),
-  /** One-shot secret env values (programmatic). The UI sends `envVars`. */
+  /** Static, non-credential environment variables injected into the subprocess. */
   env: Schema.optional(StringMap),
   cwd: Schema.optional(Schema.String),
   slug: Schema.optional(Schema.String),
@@ -171,7 +173,7 @@ export const McpGroup = HttpApiGroup.make("mcp")
       params: SlugParams,
       payload: ConfigureServerPayload,
       success: ConfigureServerResponse,
-      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+      error: [InternalError, McpConnectionError, McpToolDiscoveryError, IntegrationNotFound],
     }),
   )
   .add(
