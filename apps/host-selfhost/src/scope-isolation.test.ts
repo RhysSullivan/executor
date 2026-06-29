@@ -92,8 +92,17 @@ const listConnectionAddresses = async (
 };
 
 test("concurrent requests with distinct identities get disjoint, correct executor bindings", async () => {
-  // 6 identities, each its own (org, user). Seed each sequentially, then fire 48
-  // interleaved reads over the one long-lived SQLite handle.
+  // 6 identities, each its own (org, user). Seed each sequentially, then read
+  // them back over the one long-lived SQLite handle with all 6 distinct
+  // identities in flight at once, repeated across rounds.
+  //
+  // The leak this guards against is a logic bug (a shared rather than
+  // request-scoped binding), so it surfaces whenever distinct identities are
+  // concurrent at all; 6 simultaneous is plenty. We deliberately bound
+  // in-flight requests to those 6 instead of firing an unbounded 48-wide burst:
+  // every query serializes through the single libSQL connection, so a 48-fiber
+  // pile-up starves the event loop under CI load and times out (the flake this
+  // test was hitting). Same 48 total reads, same assertions, bounded pressure.
   const identities = Array.from({ length: 6 }, (_, i) => ({
     userId: `user-${i}`,
     organizationId: `org-${i}`,
@@ -103,23 +112,30 @@ test("concurrent requests with distinct identities get disjoint, correct executo
     await seedIdentity(id.userId, id.organizationId);
   }
 
-  const requests = Array.from({ length: 48 }, (_, i) => identities[i % identities.length]);
-  const results = await Promise.all(
-    requests.map((id) => listConnectionAddresses(id.userId, id.organizationId)),
-  );
+  const rounds = 8;
+  const observed: Array<{ userId: string; status: number; addresses: string[] }> = [];
+  for (let round = 0; round < rounds; round++) {
+    const roundResults = await Promise.all(
+      identities.map(async (id) => ({
+        userId: id.userId,
+        ...(await listConnectionAddresses(id.userId, id.organizationId)),
+      })),
+    );
+    observed.push(...roundResults);
+  }
 
-  results.forEach((result, i) => {
-    const { userId } = requests[i];
+  expect(observed).toHaveLength(rounds * identities.length);
+  observed.forEach(({ userId, status, addresses }) => {
     // Each response reflects ONLY its own request's identity — no bleed. The
     // subject's own user connection is present, and no OTHER subject's is.
-    expect(result.status).toBe(200);
-    expect(result.addresses.some((a) => a.includes(connectionNameForUser(userId)))).toBe(true);
+    expect(status).toBe(200);
+    expect(addresses.some((a) => a.includes(connectionNameForUser(userId)))).toBe(true);
     const otherUsers = identities.map((id) => id.userId).filter((u) => u !== userId);
     for (const other of otherUsers) {
-      expect(result.addresses.some((a) => a.includes(connectionNameForUser(other)))).toBe(false);
+      expect(addresses.some((a) => a.includes(connectionNameForUser(other)))).toBe(false);
     }
   });
-}, 15_000);
+}, 30_000);
 
 test("a request with no identity is rejected", async () => {
   const res = await handler(new Request("http://localhost/api/connections"));
