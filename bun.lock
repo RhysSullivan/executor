@@ -344,7 +344,7 @@
       "version": "0.0.21",
       "dependencies": {
         "@executor-js/api": "workspace:*",
-        "@executor-js/emulate": "^0.8.1",
+        "@executor-js/emulate": "^0.9.0",
         "@executor-js/mcporter": "^0.11.4",
         "@executor-js/plugin-graphql": "workspace:*",
         "@executor-js/plugin-mcp": "workspace:*",
@@ -1742,7 +1742,7 @@
 
     "@executor-js/e2e": ["@executor-js/e2e@workspace:e2e"],
 
-    "@executor-js/emulate": ["@executor-js/emulate@0.8.1", "", { "dependencies": { "@aws-sdk/client-s3": "^3.1031.0", "@aws-sdk/client-sqs": "^3.1075.0", "@azure/msal-node": "^5.3.0", "@clerk/backend": "^3.8.4", "@octokit/rest": "^22.0.1", "@okta/okta-auth-js": "^8.0.1", "@slack/web-api": "^7.16.0", "@vercel/sdk": "^1.28.4", "@workos-inc/node": "^8.13.0", "atlas-api-client": "^0.3.0", "autumn-js": "^1.2.8", "commander": "^14", "googleapis": "^173.0.0", "graphql": "^16.9.0", "graphql-request": "^7.4.0", "openid-client": "^6.8.4", "picocolors": "^1.1.1", "resend": "^6.16.0", "spotify-web-api-node": "^5.0.2", "stripe": "^22.3.0", "twitter-api-v2": "^1.29.0", "yaml": "^2" }, "bin": { "emulate": "dist/index.js" } }, "sha512-cHOu/mjoYGa7Qm0M9+pc/NBIiN8RFePfQE5f2mxVHcc81+vcVdsuMk7oOrUrNns1sav2u3UF0VLqb86kJDf07w=="],
+    "@executor-js/emulate": ["@executor-js/emulate@0.9.0", "", { "dependencies": { "@aws-sdk/client-s3": "^3.1031.0", "@aws-sdk/client-sqs": "^3.1075.0", "@azure/msal-node": "^5.3.0", "@clerk/backend": "^3.8.4", "@octokit/rest": "^22.0.1", "@okta/okta-auth-js": "^8.0.1", "@slack/web-api": "^7.16.0", "@vercel/sdk": "^1.28.4", "@workos-inc/node": "^8.13.0", "atlas-api-client": "^0.3.0", "autumn-js": "^1.2.8", "commander": "^14", "googleapis": "^173.0.0", "graphql": "^16.9.0", "graphql-request": "^7.4.0", "openid-client": "^6.8.4", "picocolors": "^1.1.1", "resend": "^6.16.0", "spotify-web-api-node": "^5.0.2", "stripe": "^22.3.0", "twitter-api-v2": "^1.29.0", "yaml": "^2" }, "bin": { "emulate": "dist/index.js" } }, "sha512-0YgBi82vD2q0yUoy3OKEGPCveFbbKctBqeGecS2LZ3UGPUPg9y5DVi+SOZmkZEkd5Wy+iqQo1XBAt90sHB7SPQ=="],
 
     "@executor-js/example-all-plugins": ["@executor-js/example-all-plugins@workspace:examples/all-plugins"],
 
@@ -5951,6 +5951,8 @@
     "@executor-js/e2e/@types/node": ["@types/node@25.9.2", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-G05zqtJhcDLb8uslf5EjCxXg9G1KQxiV8OS0R26IC//Eoyitzqe8z37I7cqvnZlrlSfgocQRfSn/AHBZJJFyGw=="],
 
     "@executor-js/emulate/commander": ["commander@14.0.3", "", {}, "sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw=="],
+
+    "@executor-js/emulate/yaml": ["yaml@2.9.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA=="],
 
     "@executor-js/example-all-plugins/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
