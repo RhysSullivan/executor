@@ -1722,186 +1722,184 @@ function AddAccountModalView(props: AddAccountModalProps) {
                     </div>
                   </TabsList>
 
-                  {dcrActive ? null : (
-                    <TabsContent
-                      value={methodId}
-                      className={cn(
-                        "mt-0 min-w-0 space-y-5",
-                        // No-auth renders no fields, so skip the framed box that
-                        // would otherwise show up as an empty bordered panel.
-                        // Otherwise the panel attaches to the tab header above
-                        // (square top, rounded bottom).
-                        isNoAuth
-                          ? null
-                          : "rounded-b-md rounded-t-none border border-border/60 bg-muted/15 p-4",
-                      )}
-                    >
-                      {method?.placements && !isEnvMethod && singleInput && !singleCredentialAffix
-                        ? (() => {
-                            const shown = method.placements.filter((p) => p.carrier !== "env");
-                            return shown.length > 0 ? (
-                              <div className="flex flex-wrap gap-x-3.5 gap-y-1">
-                                {shown.map((placement, i: number) => (
-                                  <PlacementLine key={i} placement={placement} />
-                                ))}
-                              </div>
-                            ) : null;
-                          })()
-                        : null}
+                  <TabsContent
+                    value={methodId}
+                    className={cn(
+                      "mt-0 min-w-0 space-y-5",
+                      // No-auth renders no fields, so skip the framed box that
+                      // would otherwise show up as an empty bordered panel.
+                      // Otherwise the panel attaches to the tab header above
+                      // (square top, rounded bottom).
+                      isNoAuth
+                        ? null
+                        : "rounded-b-md rounded-t-none border border-border/60 bg-muted/15 p-4",
+                    )}
+                  >
+                    {method?.placements && !isEnvMethod && singleInput && !singleCredentialAffix
+                      ? (() => {
+                          const shown = method.placements.filter((p) => p.carrier !== "env");
+                          return shown.length > 0 ? (
+                            <div className="flex flex-wrap gap-x-3.5 gap-y-1">
+                              {shown.map((placement, i: number) => (
+                                <PlacementLine key={i} placement={placement} />
+                              ))}
+                            </div>
+                          ) : null;
+                        })()
+                      : null}
 
-                      {!isNoAuth && (
-                        <div className="space-y-2">
-                          <StepHeader index={2} label={authStepLabel} />
+                    {!isNoAuth && (
+                      <div className="space-y-2">
+                        <StepHeader index={2} label={authStepLabel} />
 
-                          {isOAuth && method ? (
-                            cimdActive ? (
-                              <div className="space-y-2 rounded-lg border border-ring/40 bg-accent/30 px-3 py-3">
-                                <p className="text-sm font-medium">No app registration</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {cimdConnecting
-                                    ? `Connecting to ${integrationName}…`
-                                    : `${integrationName} supports Client ID Metadata Document OAuth. We'll use this Executor host's public client metadata document and sign you in.`}
-                                </p>
-                              </div>
-                            ) : dcrActive ? (
-                              // Transparent DCR: no picker. We register an app for you and run
-                              // the OAuth flow with a single Connect click.
-                              <div className="space-y-2 rounded-lg border border-ring/40 bg-accent/30 px-3 py-3">
-                                <p className="text-sm font-medium">No app to choose</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {dcrConnecting
-                                    ? `Connecting to ${integrationName}…`
-                                    : `${integrationName} supports automatic setup. We register an app for you and sign you in — no client ID or app to pick.`}
-                                </p>
-                              </div>
-                            ) : oauthLoading ? (
-                              <p className="text-xs text-muted-foreground">Loading OAuth apps…</p>
-                            ) : (
-                              <div className="space-y-3">
-                                {dcrFallbackMessage ? (
-                                  <div
-                                    role="alert"
-                                    className="space-y-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-3"
-                                  >
-                                    <p className="text-sm font-medium text-destructive">
-                                      Couldn&apos;t set up {integrationName} automatically
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {dcrFallbackMessage}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      Register an app below to connect.
-                                    </p>
-                                  </div>
-                                ) : null}
-                                {/* No registered app matched the integration's endpoint:
+                        {isOAuth && method ? (
+                          cimdActive ? (
+                            <div className="space-y-2 rounded-lg border border-ring/40 bg-accent/30 px-3 py-3">
+                              <p className="text-sm font-medium">No app registration</p>
+                              <p className="text-xs text-muted-foreground">
+                                {cimdConnecting
+                                  ? `Connecting to ${integrationName}…`
+                                  : `${integrationName} supports Client ID Metadata Document OAuth. We'll use this Executor host's public client metadata document and sign you in.`}
+                              </p>
+                            </div>
+                          ) : dcrActive ? (
+                            // Transparent DCR: no picker. We register an app for you and run
+                            // the OAuth flow with a single Connect click.
+                            <div className="space-y-2 rounded-lg border border-ring/40 bg-accent/30 px-3 py-3">
+                              <p className="text-sm font-medium">No app to choose</p>
+                              <p className="text-xs text-muted-foreground">
+                                {dcrConnecting
+                                  ? `Connecting to ${integrationName}…`
+                                  : `${integrationName} supports automatic setup. We register an app for you and sign you in — no client ID or app to pick.`}
+                              </p>
+                            </div>
+                          ) : oauthLoading ? (
+                            <p className="text-xs text-muted-foreground">Loading OAuth apps…</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {dcrFallbackMessage ? (
+                                <div
+                                  role="alert"
+                                  className="space-y-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-3"
+                                >
+                                  <p className="text-sm font-medium text-destructive">
+                                    Couldn&apos;t set up {integrationName} automatically
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {dcrFallbackMessage}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Register an app below to connect.
+                                  </p>
+                                </div>
+                              ) : null}
+                              {/* No registered app matched the integration's endpoint:
                         empty state + a prominent register CTA, and an opt-in
                         collapsed "use a different registered app" escape hatch. */}
-                                {oauthDisplayRegisterCTA && (
-                                  <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3">
-                                    <p className="text-sm font-medium">
-                                      No app for {integrationName} yet
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      None of your registered apps target this integration's OAuth
-                                      endpoint. Register one to connect.
-                                    </p>
-                                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        onClick={() => setRegisteringOAuthClient(true)}
-                                      >
-                                        {dcrFallbackMessage
-                                          ? "Manually register an app"
-                                          : "Register app"}
-                                      </Button>
-                                      {oauthOtherApps.length > 0 && !showOtherApps ? (
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => setShowOtherApps(true)}
-                                        >
-                                          Use another app
-                                        </Button>
-                                      ) : null}
-                                    </div>
-                                    {oauthOtherApps.length > 0 && showOtherApps ? (
-                                      <RadioGroup
-                                        value={selectedApp}
-                                        onValueChange={setPickedApp}
-                                        className="gap-2 pt-1"
-                                      >
-                                        {oauthOtherApps.map((app: OAuthClientOption) => (
-                                          <OAuthAppRadioRow
-                                            key={String(app.slug)}
-                                            app={app}
-                                            idPrefix="other-app"
-                                            variant="other"
-                                            showOwnerLabel={ownerDisplay.showOwnerLabels}
-                                            onManage={manageHandlersFor(app)}
-                                          />
-                                        ))}
-                                      </RadioGroup>
-                                    ) : null}
-                                  </div>
-                                )}
-
-                                {oauthApps.length > 0 && (
-                                  <RadioGroup
-                                    value={selectedApp}
-                                    onValueChange={setPickedApp}
-                                    className="gap-2"
-                                  >
-                                    {oauthApps.map((app: OAuthClientOption) => (
-                                      <OAuthAppRadioRow
-                                        key={String(app.slug)}
-                                        app={app}
-                                        idPrefix="app"
-                                        variant="matched"
-                                        showOwnerLabel={ownerDisplay.showOwnerLabels}
-                                        onManage={manageHandlersFor(app)}
-                                      />
-                                    ))}
+                              {oauthDisplayRegisterCTA && (
+                                <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3">
+                                  <p className="text-sm font-medium">
+                                    No app for {integrationName} yet
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    None of your registered apps target this integration's OAuth
+                                    endpoint. Register one to connect.
+                                  </p>
+                                  <div className="flex flex-wrap items-center gap-2 pt-1">
                                     <Button
                                       type="button"
-                                      variant="outline"
-                                      className="h-auto justify-start gap-3 rounded-lg border-dashed border-border/60 px-3 py-2.5 text-sm font-normal text-muted-foreground hover:text-foreground"
+                                      size="sm"
                                       onClick={() => setRegisteringOAuthClient(true)}
                                     >
-                                      <PlusIcon className="size-4" />
-                                      Register a new app
+                                      {dcrFallbackMessage
+                                        ? "Manually register an app"
+                                        : "Register app"}
                                     </Button>
-                                  </RadioGroup>
-                                )}
-                              </div>
-                            )
-                          ) : (
-                            <CredentialValueFields
-                              inputs={credentialInputs}
-                              singleInput={singleInput}
-                              showLabels={isEnvMethod}
-                              affix={singleCredentialAffix}
-                              allowExternalProvider={!isEnvMethod}
-                              values={values}
-                              onValuesChange={setValues}
-                              origin={credentialOrigin}
-                              onOriginChange={(next) => {
-                                setCredentialOrigin(next);
-                                if (next === "paste") setOnePasswordItemId("");
-                              }}
-                              onePasswordItemId={onePasswordItemId}
-                              onOnePasswordItemIdChange={setOnePasswordItemId}
-                            />
-                          )}
-                          {isOAuth && oauthPopup.error ? (
-                            <p className="text-xs text-destructive">{oauthPopup.error}</p>
-                          ) : null}
-                        </div>
-                      )}
-                    </TabsContent>
-                  )}
+                                    {oauthOtherApps.length > 0 && !showOtherApps ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setShowOtherApps(true)}
+                                      >
+                                        Use another app
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                  {oauthOtherApps.length > 0 && showOtherApps ? (
+                                    <RadioGroup
+                                      value={selectedApp}
+                                      onValueChange={setPickedApp}
+                                      className="gap-2 pt-1"
+                                    >
+                                      {oauthOtherApps.map((app: OAuthClientOption) => (
+                                        <OAuthAppRadioRow
+                                          key={String(app.slug)}
+                                          app={app}
+                                          idPrefix="other-app"
+                                          variant="other"
+                                          showOwnerLabel={ownerDisplay.showOwnerLabels}
+                                          onManage={manageHandlersFor(app)}
+                                        />
+                                      ))}
+                                    </RadioGroup>
+                                  ) : null}
+                                </div>
+                              )}
+
+                              {oauthApps.length > 0 && (
+                                <RadioGroup
+                                  value={selectedApp}
+                                  onValueChange={setPickedApp}
+                                  className="gap-2"
+                                >
+                                  {oauthApps.map((app: OAuthClientOption) => (
+                                    <OAuthAppRadioRow
+                                      key={String(app.slug)}
+                                      app={app}
+                                      idPrefix="app"
+                                      variant="matched"
+                                      showOwnerLabel={ownerDisplay.showOwnerLabels}
+                                      onManage={manageHandlersFor(app)}
+                                    />
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-auto justify-start gap-3 rounded-lg border-dashed border-border/60 px-3 py-2.5 text-sm font-normal text-muted-foreground hover:text-foreground"
+                                    onClick={() => setRegisteringOAuthClient(true)}
+                                  >
+                                    <PlusIcon className="size-4" />
+                                    Register a new app
+                                  </Button>
+                                </RadioGroup>
+                              )}
+                            </div>
+                          )
+                        ) : (
+                          <CredentialValueFields
+                            inputs={credentialInputs}
+                            singleInput={singleInput}
+                            showLabels={isEnvMethod}
+                            affix={singleCredentialAffix}
+                            allowExternalProvider={!isEnvMethod}
+                            values={values}
+                            onValuesChange={setValues}
+                            origin={credentialOrigin}
+                            onOriginChange={(next) => {
+                              setCredentialOrigin(next);
+                              if (next === "paste") setOnePasswordItemId("");
+                            }}
+                            onePasswordItemId={onePasswordItemId}
+                            onOnePasswordItemIdChange={setOnePasswordItemId}
+                          />
+                        )}
+                        {isOAuth && oauthPopup.error ? (
+                          <p className="text-xs text-destructive">{oauthPopup.error}</p>
+                        ) : null}
+                      </div>
+                    )}
+                  </TabsContent>
                 </Tabs>
               )}
 
