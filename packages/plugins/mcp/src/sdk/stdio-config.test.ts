@@ -6,18 +6,38 @@ import {
   parseStdioArgs,
   parseStdioEnv,
   sameCanonicalStdioConfig,
+  stdioArgsToText,
   stdioEnvToText,
 } from "./stdio-config";
 
 describe("stdio config helpers", () => {
-  it.effect("preserves current argument parsing behavior", () =>
+  it.effect("parses shell-like argument text", () =>
     Effect.sync(() => {
       expect(parseStdioArgs('  -y "package with spaces" --flag=value  ')).toEqual([
         "-y",
         "package with spaces",
         "--flag=value",
       ]);
+      expect(parseStdioArgs("'single quoted' escaped\\ space C:\\tools\\bin")).toEqual([
+        "single quoted",
+        "escaped space",
+        "C:\\tools\\bin",
+      ]);
       expect(parseStdioArgs("   ")).toEqual([]);
+    }),
+  );
+
+  it.effect("serializes argument text that round trips through the parser", () =>
+    Effect.sync(() => {
+      const args = [
+        "-y",
+        "package with spaces",
+        "--flag=value",
+        "C:\\Program Files\\Executor\\tool.js",
+        "line\nnext",
+        "",
+      ];
+      expect(parseStdioArgs(stdioArgsToText(args))).toEqual(args);
     }),
   );
 
@@ -86,8 +106,10 @@ describe("stdio config helpers", () => {
         C: "plain",
         D: "'hello'",
         E: '"hello"',
+        F: "\\bar",
       };
       expect(parseStdioEnv(stdioEnvToText(env))).toEqual({ ok: true, env });
+      expect(stdioEnvToText({ F: "\\bar" })).toBe("F=\\bar");
     }),
   );
 

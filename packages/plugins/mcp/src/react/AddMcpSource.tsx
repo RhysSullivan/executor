@@ -39,7 +39,12 @@ import { probeMcpEndpoint, addMcpServer } from "./atoms";
 import { McpRemoteSourceFields } from "./McpRemoteSourceFields";
 import { mcpAuthMethodInputFromEditorValue, mcpWireAuthInput } from "./auth-method-config";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
-import { parseStdioArgs, parseStdioEnv, stdioEnvParseErrorMessage } from "../sdk/stdio-config";
+import {
+  parseStdioArgs,
+  parseStdioEnv,
+  stdioArgsToText,
+  stdioEnvParseErrorMessage,
+} from "../sdk/stdio-config";
 
 // The remote add flow REGISTERS the server's declared auth methods through the
 // shared `AuthMethodListEditor` — accounts (the API key value / OAuth sign-in)
@@ -171,7 +176,7 @@ export default function AddMcpSource(props: {
   // --- Stdio state ---
   const [stdioCommand, setStdioCommand] = useState(isStdioPreset ? preset.command : "");
   const [stdioArgs, setStdioArgs] = useState(
-    isStdioPreset && preset.args ? preset.args.join(" ") : "",
+    isStdioPreset && preset.args ? stdioArgsToText(preset.args) : "",
   );
   const [stdioEnvText, setStdioEnvText] = useState("");
   const [stdioCwd, setStdioCwd] = useState("");

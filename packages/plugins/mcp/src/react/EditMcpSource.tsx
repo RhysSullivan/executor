@@ -35,6 +35,7 @@ import {
   parseStdioArgs,
   parseStdioEnv,
   sameCanonicalStdioConfig,
+  stdioArgsToText,
   stdioEnvParseErrorMessage,
   stdioEnvToText,
 } from "../sdk/stdio-config";
@@ -196,9 +197,9 @@ function StdioEdit(props: {
   const doConfigure = useAtomSet(configureMcpServer, { mode: "promiseExit" });
 
   const [commandDraft, setCommandDraft] = useState(server.config.command);
-  const [argsDraft, setArgsDraft] = useState((server.config.args ?? []).join(" "));
+  const [argsDraft, setArgsDraft] = useState(() => stdioArgsToText(server.config.args));
   const [cwdDraft, setCwdDraft] = useState(server.config.cwd ?? "");
-  const [envDraft, setEnvDraft] = useState(stdioEnvToText(server.config.env));
+  const [envDraft, setEnvDraft] = useState(() => stdioEnvToText(server.config.env));
   const [error, setError] = useState<string | null>(null);
 
   const lastResetSlug = useRef<IntegrationSlug | null>(null);
@@ -206,7 +207,7 @@ function StdioEdit(props: {
     if (lastResetSlug.current === server.slug) return;
     lastResetSlug.current = server.slug;
     setCommandDraft(server.config.command);
-    setArgsDraft((server.config.args ?? []).join(" "));
+    setArgsDraft(stdioArgsToText(server.config.args));
     setCwdDraft(server.config.cwd ?? "");
     setEnvDraft(stdioEnvToText(server.config.env));
     setError(null);
@@ -218,13 +219,24 @@ function StdioEdit(props: {
     server.slug,
   ]);
 
+  const storedArgsText = useMemo(() => stdioArgsToText(server.config.args), [server.config.args]);
+  const storedEnvText = useMemo(() => stdioEnvToText(server.config.env), [server.config.env]);
   const stdioDraftChanged = useMemo(
     () =>
       commandDraft !== server.config.command ||
-      argsDraft !== (server.config.args ?? []).join(" ") ||
+      argsDraft !== storedArgsText ||
       cwdDraft !== (server.config.cwd ?? "") ||
-      envDraft !== stdioEnvToText(server.config.env),
-    [argsDraft, commandDraft, cwdDraft, envDraft, server.config],
+      envDraft !== storedEnvText,
+    [
+      argsDraft,
+      commandDraft,
+      cwdDraft,
+      envDraft,
+      server.config.command,
+      server.config.cwd,
+      storedArgsText,
+      storedEnvText,
+    ],
   );
 
   const parsedEnvForComparison = useMemo(() => parseStdioEnv(envDraft), [envDraft]);

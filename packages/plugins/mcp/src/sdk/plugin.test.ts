@@ -750,6 +750,45 @@ describe("mcpPlugin", () => {
     ),
   );
 
+  it.effect("configureServer preflights stdio auth template changes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio auth-only edit",
+          slug: "stdio_auth_only_edit",
+          command: process.execPath,
+          args: [fixture.script, "one"],
+        });
+
+        const result = yield* Effect.result(
+          executor.mcp.configureServer("stdio_auth_only_edit", {
+            transport: "stdio",
+            command: process.execPath,
+            args: [fixture.script, "one"],
+            authenticationTemplate: [{ slug: "env", kind: "stdio_env", vars: ["STDIO_SECRET"] }],
+          }),
+        );
+
+        expect(Result.isFailure(result)).toBe(true);
+        const integration = yield* executor.mcp.getServer("stdio_auth_only_edit");
+        expect(integration?.config).toMatchObject({
+          authenticationTemplate: [{ slug: "none", kind: "none" }],
+        });
+      }),
+    ),
+  );
+
   it.effect("configureServer reports missing stdio secret values before preflight", () =>
     Effect.scoped(
       Effect.gen(function* () {

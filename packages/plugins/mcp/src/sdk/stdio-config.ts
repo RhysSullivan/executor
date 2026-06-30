@@ -20,16 +20,105 @@ export type CanonicalStdioConfig = {
 
 const STDIO_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+const decodeDoubleQuotedEscape = (escaped: string): string => {
+  if (escaped === "n") return "\n";
+  if (escaped === "r") return "\r";
+  if (escaped === "t") return "\t";
+  return escaped;
+};
+
 export const parseStdioArgs = (raw: string): string[] => {
-  if (!raw.trim()) return [];
   const args: string[] = [];
-  const regex = /[^\s"]+|"([^"]*)"/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(raw)) !== null) {
-    args.push(match[1] ?? match[0]);
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let inToken = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw.charAt(index);
+
+    if (quote === "'") {
+      if (char === "'") {
+        quote = null;
+      } else {
+        current += char;
+      }
+      inToken = true;
+      continue;
+    }
+
+    if (quote === '"') {
+      if (char === '"') {
+        quote = null;
+      } else if (char === "\\") {
+        const next = raw[index + 1];
+        if (next === undefined) {
+          current += "\\";
+        } else if (["\\", '"', "n", "r", "t"].includes(next)) {
+          current += decodeDoubleQuotedEscape(next);
+          index += 1;
+        } else {
+          current += `\\${next}`;
+          index += 1;
+        }
+      } else {
+        current += char;
+      }
+      inToken = true;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (inToken) {
+        args.push(current);
+        current = "";
+        inToken = false;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      quote = char;
+      inToken = true;
+      continue;
+    }
+
+    if (char === "\\") {
+      const next = raw[index + 1];
+      if (
+        next !== undefined &&
+        (/\s/.test(next) || next === "'" || next === '"' || next === "\\")
+      ) {
+        current += next;
+        index += 1;
+      } else {
+        current += char;
+      }
+      inToken = true;
+      continue;
+    }
+
+    current += char;
+    inToken = true;
   }
+
+  if (inToken) args.push(current);
   return args;
 };
+
+const canFormatStdioArgBare = (value: string): boolean => /^[^\s'"\\]+$/.test(value);
+
+export const stdioArgsToText = (args: readonly string[] | undefined): string =>
+  (args ?? [])
+    .map((value) => {
+      if (canFormatStdioArgBare(value)) return value;
+      return `"${value
+        .replace(/\\/g, "\\\\")
+        .replace(/\n/g, "\\n")
+        .replace(/\r/g, "\\r")
+        .replace(/\t/g, "\\t")
+        .replace(/"/g, '\\"')}"`;
+    })
+    .join(" ");
 
 const parseStdioEnvValue = (raw: string): string => {
   const trimmed = raw.trim();
@@ -39,12 +128,9 @@ const parseStdioEnvValue = (raw: string): string => {
   if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
     return trimmed
       .slice(1, -1)
-      .replace(/\\([\\nrt"])/g, (_match: string, escaped: string): string => {
-        if (escaped === "n") return "\n";
-        if (escaped === "r") return "\r";
-        if (escaped === "t") return "\t";
-        return escaped;
-      });
+      .replace(/\\([\\nrt"])/g, (_match: string, escaped: string): string =>
+        decodeDoubleQuotedEscape(escaped),
+      );
   }
   return trimmed;
 };
@@ -90,7 +176,7 @@ const formatDoubleQuotedStdioEnvValue = (value: string): string =>
     .replace(/"/g, '\\"')}"`;
 
 const canFormatStdioEnvValueBare = (value: string): boolean => {
-  if (/[\n\r\t"\\]/.test(value)) return false;
+  if (/[\n\r\t"]/.test(value)) return false;
   const parsed = parseStdioEnv(`A=${value}`);
   return parsed.ok && parsed.env?.A === value;
 };

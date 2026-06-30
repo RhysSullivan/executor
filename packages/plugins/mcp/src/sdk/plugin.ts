@@ -890,15 +890,12 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
       // adding a stdio server registered only the integration, so it landed with
       // zero connections and therefore zero tools (the "no tools detected"
       // report). For each such integration with no connection, create the
-      // default one — and move any legacy inline `env` (then stored plaintext in
-      // the config blob) into the connection's secret store, rewriting the
-      // config to the canonical shape that only declares the var NAMES.
+      // default no-auth connection and preserve any inline `env` as static
+      // subprocess environment on the config.
       //
       // Idempotent and order-safe: once a connection exists the integration is
-      // skipped; the secret is persisted (connection.create) BEFORE the config
-      // is stripped, so a failure between the two leaves the env recoverable
-      // (the connection has it, and the still-inline config env also works). A
-      // single bad integration is logged and skipped, never failing the caller.
+      // skipped. A single bad integration is logged and skipped, never failing
+      // the caller.
       const reconcileStdioConnections = () =>
         Effect.gen(function* () {
           const integrations = yield* ctx.core.integrations.list();
@@ -1048,6 +1045,17 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         requiredVars: readonly string[],
         values: Record<string, string | null>,
       ): readonly string[] => requiredVars.filter((variable) => values[variable] == null);
+
+      const sameStdioEnvVars = (
+        left: McpStdioIntegrationConfig,
+        right: McpStdioIntegrationConfig,
+      ): boolean => {
+        const leftVars = new Set(requiredStdioEnvVars(left));
+        const rightVars = new Set(requiredStdioEnvVars(right));
+        return (
+          leftVars.size === rightVars.size && [...leftVars].every((name) => rightVars.has(name))
+        );
+      };
 
       const preflightStdioConfig = (
         integration: IntegrationSlug,
@@ -1216,10 +1224,11 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             });
           }
 
-          const processConfigChanged = !sameCanonicalStdioConfig(
-            canonicalizeStdioConfig(current),
-            canonicalizeStdioConfig(config),
-          );
+          const processConfigChanged =
+            !sameCanonicalStdioConfig(
+              canonicalizeStdioConfig(current),
+              canonicalizeStdioConfig(config),
+            ) || !sameStdioEnvVars(current, config);
           if (!processConfigChanged) {
             yield* ctx.core.integrations.update(integration, { config });
             return { config, toolsRefreshFailed: false } satisfies McpConfigureServerResult;
