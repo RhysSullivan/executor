@@ -12,7 +12,11 @@
 
 import { Cause, Effect } from "effect";
 
-import { OAUTH_POPUP_MESSAGE_TYPE, type OAuthPopupResult } from "@executor-js/sdk";
+import {
+  decodeOAuthCallbackState,
+  OAUTH_POPUP_MESSAGE_TYPE,
+  type OAuthPopupResult,
+} from "@executor-js/sdk";
 
 export { OAUTH_POPUP_MESSAGE_TYPE, isOAuthPopupResult } from "@executor-js/sdk";
 export type { OAuthPopupResult } from "@executor-js/sdk";
@@ -178,11 +182,13 @@ export const runOAuthCallback = <TAuth, E, R>(
   input: RunOAuthCallbackInput<TAuth, E, R>,
 ): Effect.Effect<string, never, R> => {
   const providerError = providerErrorMessage(input.urlParams);
+  const callbackState = decodeOAuthCallbackState(input.urlParams.state);
+  const sessionId = callbackState?.state ?? input.urlParams.state;
   const result =
     providerError == null
       ? input
           .complete({
-            state: input.urlParams.state,
+            state: sessionId,
             code: input.urlParams.code ?? null,
             error: null,
             callbackDomain: input.urlParams.domain ?? input.urlParams.site ?? null,
@@ -192,7 +198,7 @@ export const runOAuthCallback = <TAuth, E, R>(
               (auth): OAuthPopupResult<TAuth> => ({
                 type: OAUTH_POPUP_MESSAGE_TYPE,
                 ok: true,
-                sessionId: input.urlParams.state,
+                sessionId,
                 ...auth,
               }),
             ),
@@ -200,7 +206,7 @@ export const runOAuthCallback = <TAuth, E, R>(
       : Effect.succeed<OAuthPopupResult<TAuth>>({
           type: OAUTH_POPUP_MESSAGE_TYPE,
           ok: false,
-          sessionId: input.urlParams.state ?? null,
+          sessionId,
           error: providerError.short,
           ...(providerError.details ? { errorDetails: providerError.details } : {}),
         });
@@ -211,7 +217,7 @@ export const runOAuthCallback = <TAuth, E, R>(
       return Effect.succeed<OAuthPopupResult<TAuth>>({
         type: OAUTH_POPUP_MESSAGE_TYPE,
         ok: false,
-        sessionId: input.urlParams.state ?? null,
+        sessionId,
         error: short,
         ...(details && details !== short ? { errorDetails: details } : {}),
       });
