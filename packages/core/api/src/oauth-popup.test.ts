@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Data, Effect, Schema } from "effect";
+import { encodeOAuthCallbackState } from "@executor-js/sdk";
 
 import {
   OAUTH_POPUP_MESSAGE_TYPE,
@@ -201,6 +202,31 @@ describe("runOAuthCallback", () => {
     expect(received).toEqual([
       { state: "s1", code: "code1", error: null, callbackDomain: "us5.datadoghq.com" },
     ]);
+  });
+
+  it("completes wrapped callback state with the raw OAuth session state", async () => {
+    const providerState = encodeOAuthCallbackState({ state: "session-raw", orgSlug: "default" });
+    const received: Array<{ state: string }> = [];
+
+    const html = await Effect.runPromise(
+      runOAuthCallback<GoogleAuth, never, never>({
+        complete: (params) => {
+          received.push({ state: params.state });
+          return Effect.succeed({
+            kind: "oauth2",
+            accessTokenSecretId: "s",
+            refreshTokenSecretId: null,
+          });
+        },
+        urlParams: { state: providerState, code: "code1" },
+        toErrorMessage: () => ({ short: "" }),
+        channelName: "c",
+      }),
+    );
+
+    expect(received).toEqual([{ state: "session-raw" }]);
+    expect(html).toContain('"sessionId":"session-raw"');
+    expect(html).not.toContain(`"sessionId":"${providerState}"`);
   });
 
   it("falls back to `site` for the regional domain and defaults to null", async () => {
