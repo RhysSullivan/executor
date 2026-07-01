@@ -1,5 +1,11 @@
 # @executor-js/desktop
 
+## 1.5.27
+
+### Patch Changes
+
+- [#1236](https://github.com/RhysSullivan/executor/pull/1236) [`c7ab1e2`](https://github.com/RhysSullivan/executor/commit/c7ab1e2d56884e0453af85f6399fd25a39f04785) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Bind Cmd+[ and Cmd+] to navigate back and forward in the desktop app.
+
 ## 1.5.26
 
 ## 1.5.25

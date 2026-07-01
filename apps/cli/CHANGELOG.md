@@ -1,5 +1,15 @@
 # executor
 
+## 1.5.27
+
+### Patch Changes
+
+- Updated dependencies [[`c7ab1e2`](https://github.com/RhysSullivan/executor/commit/c7ab1e2d56884e0453af85f6399fd25a39f04785)]:
+  - @executor-js/api@1.4.47
+  - @executor-js/local@1.4.4
+  - @executor-js/sdk@1.5.27
+  - @executor-js/runtime-quickjs@1.5.27
+
 ## 1.5.26
 
 ### Patch Changes

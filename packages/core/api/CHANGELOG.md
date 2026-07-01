@@ -1,5 +1,16 @@
 # @executor-js/api
 
+## 1.4.47
+
+### Patch Changes
+
+- [#1236](https://github.com/RhysSullivan/executor/pull/1236) [`c7ab1e2`](https://github.com/RhysSullivan/executor/commit/c7ab1e2d56884e0453af85f6399fd25a39f04785) Thanks [@RhysSullivan](https://github.com/RhysSullivan)! - Fix self-hosted OAuth popup callbacks failing with "OAuth session expired or not found". When a flow starts from an organization context, the state token is wrapped with the org slug before it is sent to the provider. The shared popup callback now unwraps that state and uses the raw token for both session lookup and popup result correlation, while raw (unwrapped) callback state continues to pass through unchanged.
+
+- Updated dependencies []:
+  - @executor-js/sdk@1.5.27
+  - @executor-js/execution@1.5.27
+  - @executor-js/host-mcp@1.4.4
+
 ## 1.4.46
 
 ### Patch Changes

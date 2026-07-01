@@ -1,5 +1,14 @@
 # @executor-js/plugin-toolkits
 
+## 1.5.19
+
+### Patch Changes
+
+- Updated dependencies [[`c7ab1e2`](https://github.com/RhysSullivan/executor/commit/c7ab1e2d56884e0453af85f6399fd25a39f04785)]:
+  - @executor-js/api@1.4.47
+  - @executor-js/react@1.4.47
+  - @executor-js/sdk@1.5.27
+
 ## 1.5.18
 
 ### Patch Changes
