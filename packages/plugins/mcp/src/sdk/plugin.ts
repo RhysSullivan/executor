@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Result, Schema } from "effect";
+import { Cause, Effect, Layer, Option, Predicate, Result, Schema } from "effect";
 import type { HttpClient } from "effect/unstable/http";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -11,6 +11,7 @@ import {
   ConnectionName,
   definePlugin,
   IntegrationAlreadyExistsError,
+  IntegrationNotFoundError,
   IntegrationSlug,
   mergeAuthTemplates,
   OAuthClientSlug,
@@ -49,6 +50,7 @@ import { invokeMcpTool } from "./invoke";
 import { deriveMcpNamespace, type McpToolManifestEntry } from "./manifest";
 import { mcpPresets } from "./presets";
 import { probeMcpEndpointShape, type McpShapeProbeResult } from "./probe-shape";
+import { canonicalizeStdioConfig, sameCanonicalStdioConfig } from "./stdio-config";
 import {
   McpAuthMethodInput,
   McpAuthShorthand,
@@ -171,13 +173,10 @@ const McpStdioServerInputSchema = Schema.Struct({
   description: Schema.optional(Schema.String),
   command: Schema.String,
   args: Schema.optional(Schema.Array(Schema.String)),
-  /** DECLARE the secret env vars this server needs, by NAME. Their values are
-   *  supplied as the connection's secret credentials, not here — so the UI
-   *  defines what env vars exist and the connect step provides the secrets. */
+  /** Declare secret env vars this server needs, by name. Their values are
+   *  supplied as the connection's secret credentials. */
   envVars: Schema.optional(Schema.Array(Schema.String)),
-  /** Provide secret env values directly (programmatic / agent one-shot): the
-   *  add then auto-creates the connection holding them. The UI uses `envVars`
-   *  instead and leaves the values to the connect step. */
+  /** Static, non-credential environment variables injected into the subprocess. */
   env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   cwd: Schema.optional(Schema.String),
   slug: Schema.optional(Schema.String),
@@ -310,23 +309,20 @@ const STDIO_ENV_TEMPLATE = "env";
 /** The secret env var NAMES a stdio add declares: the explicit `envVars`
  *  declaration plus the keys of any one-shot `env` values, de-duplicated and
  *  order-preserving. */
-const stdioEnvVarNames = (input: McpStdioServerInput): readonly string[] => {
-  const names = new Set<string>(input.envVars ?? []);
-  for (const key of Object.keys(input.env ?? {})) names.add(key);
-  return [...names];
-};
+const stdioEnvVarNames = (input: McpStdioServerInput): readonly string[] => [
+  ...new Set(input.envVars ?? []),
+];
 
 const toIntegrationConfig = (input: McpServerInput): McpIntegrationConfigType => {
   if (input.transport === "stdio") {
-    // The config only DECLARES the secret env vars by NAME (a `stdio_env`
-    // method); their values are credentials and live on the connection, never
-    // in this blob. Names come from the explicit `envVars` declaration and/or
-    // the keys of any one-shot `env` values.
+    // Static env values live on the integration config. Secret env names are
+    // declared as a `stdio_env` method, and their values live on the connection.
     const vars = stdioEnvVarNames(input);
     return {
       transport: "stdio",
       command: input.command,
       args: input.args ? [...input.args] : undefined,
+      env: input.env && Object.keys(input.env).length > 0 ? { ...input.env } : undefined,
       cwd: input.cwd,
       authenticationTemplate:
         vars.length > 0
@@ -841,26 +837,19 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             );
 
           // Auto-create the stdio server's default connection so its tools are
-          // discovered immediately (without it the integration lands with zero
-          // connections and therefore zero tools — the fresh-install "no tools
-          // detected" report). Two cases connect on add:
-          //   • one-shot `env` VALUES were supplied (agent path) → bind them as
-          //     the connection's secrets.
-          //   • the server needs NO secret env at all → a no-auth connection.
-          // When the server only DECLARES env var names (the UI path), the
-          // secrets are still missing, so we leave the connection to the connect
-          // step where the user enters one masked value per declared var.
+          // discovered immediately when it does not need secret env credentials.
+          // When the server declares env var names, the secrets are still
+          // missing, so the connection is left to the connect step.
           if (input.transport === "stdio") {
-            const hasValues = input.env != null && Object.keys(input.env).length > 0;
             const declaresSecrets = stdioEnvVarNames(input).length > 0;
-            if (hasValues || !declaresSecrets) {
+            if (!declaresSecrets) {
               yield* ctx.connections
                 .create({
                   owner: "org",
                   name: ConnectionName.make("default"),
                   integration: slugFrom(slug),
-                  template: AuthTemplateSlug.make(hasValues ? STDIO_ENV_TEMPLATE : "none"),
-                  values: hasValues ? { ...input.env } : {},
+                  template: AuthTemplateSlug.make("none"),
+                  values: {},
                 })
                 .pipe(
                   // These can't arise right after a successful register with
@@ -901,15 +890,12 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
       // adding a stdio server registered only the integration, so it landed with
       // zero connections and therefore zero tools (the "no tools detected"
       // report). For each such integration with no connection, create the
-      // default one — and move any legacy inline `env` (then stored plaintext in
-      // the config blob) into the connection's secret store, rewriting the
-      // config to the canonical shape that only declares the var NAMES.
+      // default no-auth connection and preserve any inline `env` as static
+      // subprocess environment on the config.
       //
       // Idempotent and order-safe: once a connection exists the integration is
-      // skipped; the secret is persisted (connection.create) BEFORE the config
-      // is stripped, so a failure between the two leaves the env recoverable
-      // (the connection has it, and the still-inline config env also works). A
-      // single bad integration is logged and skipped, never failing the caller.
+      // skipped. A single bad integration is logged and skipped, never failing
+      // the caller.
       const reconcileStdioConnections = () =>
         Effect.gen(function* () {
           const integrations = yield* ctx.core.integrations.list();
@@ -934,29 +920,21 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
               });
               if (connections.length > 0) return; // already connectable — nothing to heal.
 
-              const inlineEnv = config.env ?? {};
-              const envVars = Object.keys(inlineEnv);
-              const hasEnv = envVars.length > 0;
-
               yield* ctx.connections.create({
                 owner: "org",
                 name: ConnectionName.make("default"),
                 integration: integration.slug,
-                template: AuthTemplateSlug.make(hasEnv ? STDIO_ENV_TEMPLATE : "none"),
-                values: hasEnv ? { ...inlineEnv } : {},
+                template: AuthTemplateSlug.make("none"),
+                values: {},
               });
 
-              // The secret is now on the connection: canonicalize this legacy
-              // config (declare the var names as a stdio_env method, dropping the
-              // inline plaintext values; or `none` for a no-secret server).
               const nextConfig: McpIntegrationConfigType = {
                 transport: "stdio",
                 command: config.command,
                 args: config.args,
+                env: config.env,
                 cwd: config.cwd,
-                authenticationTemplate: hasEnv
-                  ? [{ slug: STDIO_ENV_TEMPLATE, kind: "stdio_env", vars: envVars }]
-                  : [{ slug: "none", kind: "none" }],
+                authenticationTemplate: [{ slug: "none", kind: "none" }],
               };
               yield* ctx.core.integrations.update(integration.slug, { config: nextConfig });
             }).pipe(
@@ -1055,9 +1033,241 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           }),
         );
 
+      const requiredStdioEnvVars = (config: McpStdioIntegrationConfig): readonly string[] => [
+        ...new Set(
+          (config.authenticationTemplate ?? []).flatMap((method: McpAuthMethod) =>
+            method.kind === "stdio_env" ? method.vars : [],
+          ),
+        ),
+      ];
+
+      const missingStdioEnvVars = (
+        requiredVars: readonly string[],
+        values: Record<string, string | null>,
+      ): readonly string[] => requiredVars.filter((variable) => values[variable] == null);
+
+      const sameStdioEnvVars = (
+        left: McpStdioIntegrationConfig,
+        right: McpStdioIntegrationConfig,
+      ): boolean => {
+        const leftVars = new Set(requiredStdioEnvVars(left));
+        const rightVars = new Set(requiredStdioEnvVars(right));
+        return (
+          leftVars.size === rightVars.size && [...leftVars].every((name) => rightVars.has(name))
+        );
+      };
+
+      const preflightStdioConfig = (
+        integration: IntegrationSlug,
+        config: McpStdioIntegrationConfig,
+      ) =>
+        Effect.gen(function* () {
+          const requiredVars = requiredStdioEnvVars(config);
+          if (requiredVars.length === 0) {
+            const connectorInput = yield* buildConnectorInput(
+              config,
+              {},
+              null,
+              allowStdio,
+              httpClientLayer,
+            );
+            yield* discoverTools(createMcpConnector(connectorInput));
+            return;
+          }
+
+          const connections = yield* ctx.connections.list({ integration });
+          for (const connection of connections) {
+            const template = String(connection.template);
+            const method = selectAuthMethod(config, template);
+            if (method?.kind !== "stdio_env") continue;
+
+            const values = yield* ctx.connections.resolveValues(connection);
+            if (missingStdioEnvVars(method.vars, values).length > 0) continue;
+
+            const connectorInput = yield* buildConnectorInput(
+              config,
+              values,
+              template,
+              allowStdio,
+              httpClientLayer,
+            );
+            yield* discoverTools(createMcpConnector(connectorInput));
+            return;
+          }
+
+          return yield* new McpConnectionError({
+            transport: "stdio",
+            message: `Cannot validate this command because no visible connection has values for required environment variables: ${requiredVars.join(", ")}.`,
+          });
+        });
+
+      const removePoliciesScopedToIntegration = (integration: IntegrationSlug) =>
+        Effect.gen(function* () {
+          const prefix = `${String(integration)}.`;
+          const policies = yield* ctx.core.policies.list();
+          for (const policy of policies) {
+            if (policy.pattern === String(integration) || policy.pattern.startsWith(prefix)) {
+              yield* ctx.core.policies.remove({ id: String(policy.id), owner: policy.owner });
+            }
+          }
+        });
+
+      const refreshStdioConnections = (integration: IntegrationSlug) =>
+        Effect.gen(function* () {
+          const record = yield* ctx.core.integrations.get(integration);
+          const config = record ? parseMcpIntegrationConfig(record.config) : null;
+          if (!config || config.transport !== "stdio") {
+            return yield* new McpConnectionError({
+              transport: "stdio",
+              message: `Cannot refresh tools for MCP integration ${integration}: stdio config not found.`,
+            });
+          }
+
+          const connections = yield* ctx.connections.list({ integration });
+          if (connections.length === 0) {
+            const requiredVars = requiredStdioEnvVars(config);
+            if (requiredVars.length > 0) {
+              return yield* new McpConnectionError({
+                transport: "stdio",
+                message: `Cannot refresh tools because no visible connection has values for required environment variables: ${requiredVars.join(", ")}.`,
+              });
+            }
+
+            yield* ctx.connections
+              .create({
+                owner: "org",
+                name: ConnectionName.make("default"),
+                integration,
+                template: AuthTemplateSlug.make("none"),
+                values: {},
+              })
+              .pipe(
+                Effect.catchTags({
+                  IntegrationNotFoundError: (cause) =>
+                    Effect.fail(
+                      new McpConnectionError({ transport: "stdio", message: cause.message }),
+                    ),
+                  CredentialProviderNotRegisteredError: (cause) =>
+                    Effect.fail(
+                      new McpConnectionError({ transport: "stdio", message: cause.message }),
+                    ),
+                  InvalidConnectionInputError: (cause) =>
+                    Effect.fail(
+                      new McpConnectionError({ transport: "stdio", message: cause.message }),
+                    ),
+                }),
+              );
+            return;
+          }
+
+          const failedNames = yield* Effect.forEach(connections, (connection) =>
+            Effect.gen(function* () {
+              const values = yield* ctx.connections.resolveValues(connection);
+              const connectorInput = yield* buildConnectorInput(
+                config,
+                values,
+                String(connection.template),
+                allowStdio,
+                httpClientLayer,
+              );
+              yield* discoverTools(createMcpConnector(connectorInput));
+              yield* ctx.connections.refresh(connection);
+            }).pipe(
+              Effect.as(null),
+              Effect.catch(() => Effect.succeed(String(connection.name))),
+            ),
+          );
+          const failures = failedNames.filter(Predicate.isNotNull);
+          if (failures.length > 0) {
+            return yield* new McpToolDiscoveryError({
+              stage: "list_tools",
+              message: `MCP tools refreshed with failures for connection(s): ${failures.join(", ")}`,
+            });
+          }
+        });
+
+      const refreshStdioToolsBestEffort = (integration: IntegrationSlug) =>
+        refreshStdioConnections(integration).pipe(
+          Effect.as(false),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("stdio tools refresh failed after config commit").pipe(
+              Effect.annotateLogs("cause", Cause.pretty(cause)),
+              Effect.as(true),
+            ),
+          ),
+        );
+
       const configureServer = (slug: string, config: McpIntegrationConfigType) =>
-        ctx.core.integrations.update(slugFrom(slug), { config }).pipe(
+        Effect.gen(function* () {
+          const integration = slugFrom(slug);
+          const record = yield* ctx.core.integrations.get(integration);
+          const current = record ? parseMcpIntegrationConfig(record.config) : null;
+          if (record === null || current === null) {
+            return yield* new IntegrationNotFoundError({ slug: integration });
+          }
+          if (current.transport !== config.transport) {
+            return yield* new McpConnectionError({
+              transport: "auto",
+              message: "MCP transport cannot be changed. Remove and recreate the source.",
+            });
+          }
+
+          if (current.transport !== "stdio") {
+            yield* ctx.core.integrations.update(integration, { config });
+            return { config, toolsRefreshFailed: false } satisfies McpConfigureServerResult;
+          }
+
+          if (config.transport !== "stdio") {
+            return yield* new McpConnectionError({
+              transport: "auto",
+              message: "MCP transport cannot be changed. Remove and recreate the source.",
+            });
+          }
+
+          const processConfigChanged =
+            !sameCanonicalStdioConfig(
+              canonicalizeStdioConfig(current),
+              canonicalizeStdioConfig(config),
+            ) || !sameStdioEnvVars(current, config);
+          if (!processConfigChanged) {
+            yield* ctx.core.integrations.update(integration, { config });
+            return { config, toolsRefreshFailed: false } satisfies McpConfigureServerResult;
+          }
+
+          yield* preflightStdioConfig(integration, config);
+          yield* ctx.transaction(
+            Effect.gen(function* () {
+              yield* removePoliciesScopedToIntegration(integration);
+              yield* ctx.core.integrations.update(integration, { config });
+            }),
+          );
+          const toolsRefreshFailed = yield* refreshStdioToolsBestEffort(integration);
+          return { config, toolsRefreshFailed } satisfies McpConfigureServerResult;
+        }).pipe(
           Effect.withSpan("mcp.plugin.configure_server", {
+            attributes: { "mcp.integration.slug": slug },
+          }),
+        );
+
+      const refreshServerTools = (slug: string) =>
+        Effect.gen(function* () {
+          const integration = slugFrom(slug);
+          const record = yield* ctx.core.integrations.get(integration);
+          const current = record ? parseMcpIntegrationConfig(record.config) : null;
+          if (record === null || current === null) {
+            return yield* new IntegrationNotFoundError({ slug: integration });
+          }
+          if (current.transport !== "stdio") {
+            return yield* new McpConnectionError({
+              transport: "auto",
+              message:
+                "MCP tool refresh through the MCP server API is only supported for stdio servers.",
+            });
+          }
+          const toolsRefreshFailed = yield* refreshStdioToolsBestEffort(integration);
+          return { toolsRefreshFailed } satisfies McpRefreshServerToolsResult;
+        }).pipe(
+          Effect.withSpan("mcp.plugin.refresh_server_tools", {
             attributes: { "mcp.integration.slug": slug },
           }),
         );
@@ -1107,6 +1317,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         reconcileStdioConnections,
         getServer,
         configureServer,
+        refreshServerTools,
         configureAuth,
       };
     },
@@ -1437,6 +1648,15 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
 
 export type McpExtensionFailure = McpConnectionError | McpToolDiscoveryError | StorageFailure;
 
+export interface McpConfigureServerResult {
+  readonly config: McpIntegrationConfigType;
+  readonly toolsRefreshFailed: boolean;
+}
+
+export interface McpRefreshServerToolsResult {
+  readonly toolsRefreshFailed: boolean;
+}
+
 export interface McpPluginExtension {
   readonly probeEndpoint: (
     input: string | McpProbeEndpointInput,
@@ -1460,7 +1680,10 @@ export interface McpPluginExtension {
   readonly configureServer: (
     slug: string,
     config: McpIntegrationConfigType,
-  ) => Effect.Effect<void, McpExtensionFailure>;
+  ) => Effect.Effect<McpConfigureServerResult, McpExtensionFailure | IntegrationNotFoundError>;
+  readonly refreshServerTools: (
+    slug: string,
+  ) => Effect.Effect<McpRefreshServerToolsResult, McpExtensionFailure | IntegrationNotFoundError>;
   readonly configureAuth: (
     slug: string,
     input: McpConfigureAuthInput,

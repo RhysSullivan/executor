@@ -595,8 +595,8 @@ const windowsTaskUserId = (): string => {
  *
  * - `boot: true` (requires an elevated/Administrator shell): a BootTrigger + an
  *   S4U principal at HighestAvailable. Runs the daemon AS THE USER at boot, with
- *   no stored password and no interactive logon — survives a real reboot with no
- *   login on a headless host. Task Scheduler only lets an elevated shell create
+ *   no stored password and no interactive logon. This survives a real reboot with
+ *   no login on a headless host. Task Scheduler only lets an elevated shell create
  *   a boot/S4U task, which is why this path costs the UAC prompt.
  *
  * We register via `schtasks.exe` rather than the PowerShell `*-ScheduledTask`
@@ -668,7 +668,7 @@ export const generateWindowsHiddenLauncherVbs = (wrapperPath: string): string =>
 const runSchtasks = (args: ReadonlyArray<string>): Effect.Effect<CommandResult, Error> =>
   runCommand("schtasks.exe", args);
 
-/** Write a UTF-16LE (BOM-prefixed) file — the encoding schtasks expects for XML. */
+/** Write a UTF-16LE (BOM-prefixed) file, the encoding schtasks expects for XML. */
 const writeUtf16File = (
   path: string,
   contents: string,
@@ -680,7 +680,7 @@ const writeUtf16File = (
   });
 
 /**
- * SCHED_S_TASK_RUNNING — the Task Scheduler HRESULT a task reports as its "Last
+ * SCHED_S_TASK_RUNNING is the Task Scheduler HRESULT a task reports as its "Last
  * Result" while it is currently running (0x00041301 == 267009). schtasks prints
  * this in the verbose listing as a decimal; some Windows builds/locales print the
  * hex form. The numeric code is locale-invariant even though the surrounding
@@ -810,7 +810,7 @@ const makeWindowsBackend = (): ServiceBackend => {
           const detail = (create.stderr.trim() || create.stdout.trim()).replace(/\.\s*$/, "");
           // The default (logon) task needs no elevation. Only the --boot path
           // registers a boot/S4U task, which Task Scheduler refuses without
-          // Administrator — so point access-denial at the relevant fix.
+          // Administrator, so point access-denial at the relevant fix.
           const hint = /denied|0x80070005|administrator|elevat/i.test(detail)
             ? descriptor.boot
               ? " `--boot` registers a boot task, which needs an Administrator shell. Re-run elevated, or drop `--boot` to install a no-elevation login task."

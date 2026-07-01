@@ -177,19 +177,25 @@ const connectionFromClient = (client: Client): McpConnection => ({
   close: () => client.close(),
 });
 
-const connectionFailure = (
-  transport: string,
-  message: string,
-  cause: unknown,
-): McpConnectionError | McpOAuthReauthorizationRequired => {
-  if (Predicate.isTagged(cause, "McpOAuthReauthorizationRequired")) {
+const connectionFailure = (input: {
+  readonly transport: string;
+  readonly message: string;
+  readonly cause: unknown;
+  readonly command?: string;
+}): McpConnectionError | McpOAuthReauthorizationRequired => {
+  if (Predicate.isTagged(input.cause, "McpOAuthReauthorizationRequired")) {
     return new McpOAuthReauthorizationRequired({ message: "MCP OAuth re-authorization required" });
   }
-  return new McpConnectionError({ transport, message });
+  const message =
+    input.transport === "stdio" && input.command !== undefined
+      ? `Could not connect to stdio MCP server using "${input.command}"`
+      : input.message;
+  return new McpConnectionError({ transport: input.transport, message });
 };
 
 const connectClient = (input: {
   transport: string;
+  command?: string;
   createTransport: () => Parameters<Client["connect"]>[0];
 }): Effect.Effect<McpConnection, McpConnectionError | McpOAuthReauthorizationRequired> =>
   Effect.gen(function* () {
@@ -199,7 +205,12 @@ const connectClient = (input: {
     yield* Effect.tryPromise({
       try: () => client.connect(transportInstance),
       catch: (cause) =>
-        connectionFailure(input.transport, `Failed connecting via ${input.transport}`, cause),
+        connectionFailure({
+          transport: input.transport,
+          command: input.command,
+          message: `Failed connecting via ${input.transport}`,
+          cause,
+        }),
     }).pipe(
       Effect.withSpan("plugin.mcp.connection.handshake", {
         attributes: { "plugin.mcp.transport": input.transport },
@@ -239,6 +250,7 @@ export const createMcpConnector = (input: ConnectorInput): McpConnector => {
 
       return yield* connectClient({
         transport: "stdio",
+        command: [command, ...(input.args ?? [])].join(" "),
         createTransport: () =>
           createStdioTransport({
             command,

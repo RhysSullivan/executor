@@ -1,5 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer, Option, Predicate, Schema } from "effect";
+import { Effect, Layer, Option, Predicate, Result, Schema } from "effect";
+import * as Fs from "node:fs/promises";
+import * as Path from "node:path";
 import {
   HttpClient,
   HttpClientRequest,
@@ -10,6 +12,7 @@ import {
 import {
   AuthTemplateSlug,
   ConnectionName,
+  definePlugin,
   IntegrationSlug,
   OAuthClientSlug,
   ToolAddress,
@@ -38,6 +41,22 @@ import { makeAnnotationsMcpServer, serveMcpServer } from "../testing";
 // elicitation.test.ts + owner-isolation.test.ts.
 
 const TEMPLATE = AuthTemplateSlug.make("none");
+
+const malformedMcpConfigSeedPlugin = definePlugin(() => ({
+  id: "malformedMcpConfigSeed" as const,
+  storage: () => ({}),
+  extension: (ctx) => ({
+    seedMalformedMcpConfig: (slug: string) =>
+      ctx.core.integrations.register({
+        slug: IntegrationSlug.make(slug),
+        name: "Malformed MCP config",
+        description: "Malformed MCP config",
+        config: { transport: "stdio", command: 123 },
+        canRemove: true,
+        canRefresh: true,
+      }),
+  }),
+}));
 
 const JsonRpcId = Schema.Union([Schema.String, Schema.Number, Schema.Null]);
 const JsonRpcRequest = Schema.Struct({
@@ -118,6 +137,44 @@ const jsonRpcErrorCallTool =
       id: rpc.id ?? null,
       error: { code, message: "application-level do-not-leak" },
     });
+
+const withStdioFixtureScript = Effect.acquireRelease(
+  Effect.gen(function* () {
+    const root = Path.join(process.cwd(), ".tmp");
+    yield* Effect.promise(() => Fs.mkdir(root, { recursive: true }));
+    const dir = yield* Effect.promise(() => Fs.mkdtemp(Path.join(root, "mcp-stdio-")));
+    const script = Path.join(dir, "server.mjs");
+    yield* Effect.promise(() =>
+      Fs.writeFile(
+        script,
+        `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";\nimport { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";\nconst toolName = process.argv[2] ?? "one";\nconst requiredEnv = process.argv[3];\nif (requiredEnv && process.env[requiredEnv] == null) process.exit(1);\nconst server = new McpServer({ name: "stdio-fixture", version: "1.0.0" }, { capabilities: {} });\nserver.registerTool(toolName, { description: "Stdio fixture tool", inputSchema: {} }, async () => ({ content: [{ type: "text", text: process.env.STDIO_VALUE ?? process.env.STDIO_SECRET ?? "ok" }] }));\nawait server.connect(new StdioServerTransport());\n`,
+      ),
+    );
+    return { dir, script } as const;
+  }),
+  ({ dir }) => Effect.promise(() => Fs.rm(dir, { recursive: true, force: true })),
+);
+
+const withFlakyStdioRefreshScript = Effect.acquireRelease(
+  Effect.gen(function* () {
+    const root = Path.join(process.cwd(), ".tmp");
+    yield* Effect.promise(() => Fs.mkdir(root, { recursive: true }));
+    const dir = yield* Effect.promise(() => Fs.mkdtemp(Path.join(root, "mcp-stdio-flaky-")));
+    const script = Path.join(dir, "server.mjs");
+    const counter = Path.join(dir, "attempts.txt");
+    yield* Effect.promise(() =>
+      Fs.writeFile(
+        script,
+        `import fs from "node:fs";\nimport { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";\nimport { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";\nconst toolName = process.argv[2] ?? "two";\nconst counter = process.argv[3];\nconst previous = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;\nconst attempt = previous + 1;\nfs.writeFileSync(counter, String(attempt));\nif (attempt === 2) process.exit(1);\nconst server = new McpServer({ name: "stdio-flaky-fixture", version: "1.0.0" }, { capabilities: {} });\nserver.registerTool(toolName, { description: "Stdio flaky fixture tool", inputSchema: {} }, async () => ({ content: [{ type: "text", text: "ok" }] }));\nawait server.connect(new StdioServerTransport());\n`,
+      ),
+    );
+    return { dir, script, counter } as const;
+  }),
+  ({ dir }) => Effect.promise(() => Fs.rm(dir, { recursive: true, force: true })),
+);
+
+const readStdioAttemptCount = (counter: string) =>
+  Effect.promise(() => Fs.readFile(counter, "utf8")).pipe(Effect.map((value) => Number(value)));
 
 const seedCallToolExecutor = (input: { slug: string; callTool: CallToolResponder }) =>
   Effect.acquireRelease(
@@ -330,6 +387,22 @@ describe("mcpPlugin", () => {
     }),
   );
 
+  it.effect("reports a clear stdio startup failure message", () =>
+    Effect.gen(function* () {
+      const error = yield* createMcpConnector({
+        transport: "stdio",
+        command: "__executor_missing_stdio_command__",
+        args: ["--flag"],
+      }).pipe(Effect.flip);
+
+      expect(error).toMatchObject({
+        _tag: "McpConnectionError",
+        message:
+          'Could not connect to stdio MCP server using "__executor_missing_stdio_command__ --flag"',
+      });
+    }),
+  );
+
   it.effect("integration catalog has no configured MCP integrations initially", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
@@ -500,6 +573,437 @@ describe("mcpPlugin", () => {
       });
 
       expect(merged.map((method) => method.slug)).toEqual(["oauth2", "header"]);
+    }),
+  );
+
+  it.effect("configureServer edits stdio config, refreshes tools, and stores static env", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio edit",
+          slug: "stdio_edit",
+          command: process.execPath,
+          args: [fixture.script, "one"],
+          env: { STDIO_VALUE: "first" },
+        });
+        let tools = yield* executor.tools.list({ integration: IntegrationSlug.make("stdio_edit") });
+        expect(tools.map((tool) => String(tool.name))).toContain("one");
+
+        yield* executor.mcp.configureServer("stdio_edit", {
+          transport: "stdio",
+          command: process.execPath,
+          args: [fixture.script, "two"],
+          env: { STDIO_VALUE: "second" },
+          cwd: fixture.dir,
+          authenticationTemplate: [{ slug: "none", kind: "none" }],
+        });
+
+        const integration = yield* executor.mcp.getServer("stdio_edit");
+        expect(integration?.config).toMatchObject({
+          command: process.execPath,
+          args: [fixture.script, "two"],
+          env: { STDIO_VALUE: "second" },
+          cwd: fixture.dir,
+        });
+        tools = yield* executor.tools.list({ integration: IntegrationSlug.make("stdio_edit") });
+        expect(tools.map((tool) => String(tool.name))).toContain("two");
+        expect(tools.map((tool) => String(tool.name))).not.toContain("one");
+      }),
+    ),
+  );
+
+  it.effect(
+    "configureServer preflights stdio secret env sources with existing connection values",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fixture = yield* withStdioFixtureScript;
+          const executor = yield* createExecutor(
+            makeTestConfig({
+              plugins: [
+                memoryCredentialsPlugin(),
+                mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+              ] as const,
+            }),
+          );
+
+          yield* executor.mcp.addServer({
+            transport: "stdio",
+            name: "Stdio secret edit",
+            slug: "stdio_secret_edit",
+            command: process.execPath,
+            args: [fixture.script, "one", "STDIO_SECRET"],
+            envVars: ["STDIO_SECRET"],
+          });
+          yield* executor.connections.create({
+            owner: "org",
+            name: ConnectionName.make("default"),
+            integration: IntegrationSlug.make("stdio_secret_edit"),
+            template: AuthTemplateSlug.make("env"),
+            values: { STDIO_SECRET: "secret-value" },
+          });
+
+          yield* executor.mcp.configureServer("stdio_secret_edit", {
+            transport: "stdio",
+            command: process.execPath,
+            args: [fixture.script, "two", "STDIO_SECRET"],
+            authenticationTemplate: [{ slug: "env", kind: "stdio_env", vars: ["STDIO_SECRET"] }],
+          });
+
+          const tools = yield* executor.tools.list({
+            integration: IntegrationSlug.make("stdio_secret_edit"),
+          });
+          expect(tools.map((tool) => String(tool.name))).toContain("two");
+          expect(tools.map((tool) => String(tool.name))).not.toContain("one");
+        }),
+      ),
+  );
+
+  it.effect("configureServer reports post-commit stdio refresh failure as a warning result", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const flaky = yield* withFlakyStdioRefreshScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio refresh warning",
+          slug: "stdio_refresh_warning",
+          command: process.execPath,
+          args: [fixture.script, "one"],
+        });
+
+        const result: unknown = yield* executor.mcp.configureServer("stdio_refresh_warning", {
+          transport: "stdio",
+          command: process.execPath,
+          args: [flaky.script, "two", flaky.counter],
+          authenticationTemplate: [{ slug: "none", kind: "none" }],
+        });
+
+        expect(result).toMatchObject({ toolsRefreshFailed: true });
+        expect(yield* readStdioAttemptCount(flaky.counter)).toBe(2);
+
+        const integration = yield* executor.mcp.getServer("stdio_refresh_warning");
+        expect(integration?.config).toMatchObject({
+          command: process.execPath,
+          args: [flaky.script, "two", flaky.counter],
+        });
+      }),
+    ),
+  );
+
+  it.effect("refreshServerTools retries stdio tool refresh after a warning result", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const flaky = yield* withFlakyStdioRefreshScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+        const config = {
+          transport: "stdio" as const,
+          command: process.execPath,
+          args: [flaky.script, "two", flaky.counter],
+          authenticationTemplate: [{ slug: "none" as const, kind: "none" as const }],
+        };
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio refresh retry",
+          slug: "stdio_refresh_retry",
+          command: process.execPath,
+          args: [fixture.script, "one"],
+        });
+
+        const configureResult = yield* executor.mcp.configureServer("stdio_refresh_retry", config);
+        expect(configureResult).toMatchObject({ toolsRefreshFailed: true });
+        expect(yield* readStdioAttemptCount(flaky.counter)).toBe(2);
+
+        const refreshResult = yield* executor.mcp.refreshServerTools("stdio_refresh_retry");
+        expect(refreshResult).toMatchObject({ toolsRefreshFailed: false });
+        expect(yield* readStdioAttemptCount(flaky.counter)).toBe(4);
+      }),
+    ),
+  );
+
+  it.effect("configureServer preflights stdio auth template changes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio auth-only edit",
+          slug: "stdio_auth_only_edit",
+          command: process.execPath,
+          args: [fixture.script, "one"],
+        });
+
+        const result = yield* Effect.result(
+          executor.mcp.configureServer("stdio_auth_only_edit", {
+            transport: "stdio",
+            command: process.execPath,
+            args: [fixture.script, "one"],
+            authenticationTemplate: [{ slug: "env", kind: "stdio_env", vars: ["STDIO_SECRET"] }],
+          }),
+        );
+
+        expect(Result.isFailure(result)).toBe(true);
+        const integration = yield* executor.mcp.getServer("stdio_auth_only_edit");
+        expect(integration?.config).toMatchObject({
+          authenticationTemplate: [{ slug: "none", kind: "none" }],
+        });
+      }),
+    ),
+  );
+
+  it.effect("configureServer reports missing stdio secret values before preflight", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio secret missing",
+          slug: "stdio_secret_missing",
+          command: process.execPath,
+          args: [fixture.script, "one", "STDIO_SECRET"],
+          envVars: ["STDIO_SECRET"],
+        });
+
+        const result = yield* Effect.result(
+          executor.mcp.configureServer("stdio_secret_missing", {
+            transport: "stdio",
+            command: process.execPath,
+            args: [fixture.script, "two", "STDIO_SECRET"],
+            authenticationTemplate: [{ slug: "env", kind: "stdio_env", vars: ["STDIO_SECRET"] }],
+          }),
+        );
+
+        expect(Result.isFailure(result)).toBe(true);
+        const failure = Result.isFailure(result) ? result.failure : null;
+        expect(failure).toMatchObject({
+          _tag: "McpConnectionError",
+          message:
+            "Cannot validate this command because no visible connection has values for required environment variables: STDIO_SECRET.",
+        });
+      }),
+    ),
+  );
+
+  it.effect("configureServer blocks invalid stdio configs without updating", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio invalid",
+          slug: "stdio_invalid",
+          command: process.execPath,
+          args: [fixture.script, "one"],
+        });
+
+        const result = yield* Effect.result(
+          executor.mcp.configureServer("stdio_invalid", {
+            transport: "stdio",
+            command: Path.join(fixture.dir, "missing-command"),
+            authenticationTemplate: [{ slug: "none", kind: "none" }],
+          }),
+        );
+        expect(Result.isFailure(result)).toBe(true);
+        const failure = Result.isFailure(result) ? result.failure : null;
+        expect(failure).toMatchObject({
+          _tag: "McpToolDiscoveryError",
+          message: `Failed connecting to MCP server: Could not connect to stdio MCP server using "${Path.join(fixture.dir, "missing-command")}"`,
+        });
+
+        const integration = yield* executor.mcp.getServer("stdio_invalid");
+        expect(integration?.config).toMatchObject({
+          command: process.execPath,
+          args: [fixture.script, "one"],
+        });
+      }),
+    ),
+  );
+
+  it.effect("configureServer removes source-scoped policies after valid stdio edits", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio policies",
+          slug: "stdio_policies",
+          command: process.execPath,
+          args: [fixture.script, "one"],
+        });
+        yield* executor.policies.create({
+          owner: "org",
+          pattern: "stdio_policies.*",
+          action: "require_approval",
+        });
+        yield* executor.policies.create({
+          owner: "user",
+          pattern: "stdio_policies.org.default.one",
+          action: "block",
+        });
+        yield* executor.policies.create({
+          owner: "org",
+          pattern: "stdio_policies_extra.*",
+          action: "block",
+        });
+        yield* executor.policies.create({ owner: "org", pattern: "*", action: "approve" });
+
+        yield* executor.mcp.configureServer("stdio_policies", {
+          transport: "stdio",
+          command: process.execPath,
+          args: [fixture.script, "two"],
+          authenticationTemplate: [{ slug: "none", kind: "none" }],
+        });
+
+        const policies = yield* executor.policies.list();
+        expect(policies.map((policy) => policy.pattern).sort()).toEqual([
+          "*",
+          "stdio_policies_extra.*",
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("configureServer preserves policies when stdio preflight fails", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* withStdioFixtureScript;
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              memoryCredentialsPlugin(),
+              mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+            ] as const,
+          }),
+        );
+
+        yield* executor.mcp.addServer({
+          transport: "stdio",
+          name: "Stdio failed policies",
+          slug: "stdio_failed_policies",
+          command: process.execPath,
+          args: [fixture.script, "one"],
+        });
+        yield* executor.policies.create({
+          owner: "org",
+          pattern: "stdio_failed_policies.*",
+          action: "require_approval",
+        });
+
+        const result = yield* Effect.result(
+          executor.mcp.configureServer("stdio_failed_policies", {
+            transport: "stdio",
+            command: Path.join(fixture.dir, "missing-command"),
+            authenticationTemplate: [{ slug: "none", kind: "none" }],
+          }),
+        );
+        expect(Result.isFailure(result)).toBe(true);
+
+        const policies = yield* executor.policies.list();
+        expect(policies.map((policy) => policy.pattern)).toContain("stdio_failed_policies.*");
+      }),
+    ),
+  );
+
+  it.effect("configureServer returns IntegrationNotFoundError for missing integrations", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
+      const result = yield* Effect.result(
+        executor.mcp.configureServer("missing_mcp", {
+          transport: "remote",
+          endpoint: "https://example.com/mcp",
+          remoteTransport: "auto",
+          authenticationTemplate: [{ slug: "none", kind: "none" }],
+        }),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+      const failure = Result.isFailure(result) ? result.failure : undefined;
+      expect(Predicate.isTagged(failure, "IntegrationNotFoundError")).toBe(true);
+    }),
+  );
+
+  it.effect("configureServer returns IntegrationNotFoundError for malformed stored configs", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [malformedMcpConfigSeedPlugin(), mcpPlugin()] as const }),
+      );
+      yield* executor.malformedMcpConfigSeed.seedMalformedMcpConfig("malformed_mcp");
+
+      const result = yield* Effect.result(
+        executor.mcp.configureServer("malformed_mcp", {
+          transport: "stdio",
+          command: process.execPath,
+          authenticationTemplate: [{ slug: "none", kind: "none" }],
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      const failure = Result.isFailure(result) ? result.failure : undefined;
+      expect(Predicate.isTagged(failure, "IntegrationNotFoundError")).toBe(true);
     }),
   );
 
