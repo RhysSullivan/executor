@@ -135,7 +135,12 @@ test("concurrent requests with distinct identities get disjoint, correct executo
       expect(addresses.some((a) => a.includes(connectionNameForUser(other)))).toBe(false);
     }
   });
-}, 30_000);
+  // 120s, not the 30s this kept timing out at: seeding alone is 6 sequential
+  // addSpec calls, and each one is 0.5–15s under fork-pool CPU oversubscription
+  // (every test file boots a full app; all queries serialize through the one
+  // libSQL connection). The assertions are about isolation, not latency — a
+  // real regression fails on correctness, not the clock.
+}, 120_000);
 
 test("a request with no identity is rejected", async () => {
   const res = await handler(new Request("http://localhost/api/connections"));
