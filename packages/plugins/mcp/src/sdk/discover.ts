@@ -2,7 +2,7 @@
 // MCP tool discovery — connect to an MCP server and list its tools
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 
 import type { McpConnector } from "./connection";
 import { McpToolDiscoveryError } from "./errors";
@@ -26,18 +26,18 @@ export const discoverTools = (
   Effect.gen(function* () {
     // Acquire connection
     const connection = yield* connector.pipe(
-      Effect.mapError(
-        (error) =>
-          new McpToolDiscoveryError({
-            stage: "connect",
-            message: `Failed connecting to MCP server: ${error.message}`,
-            // Preserve the handshake HTTP status (401/403 = auth wall) so the
-            // liveness health check can classify structurally.
-            ...(error._tag === "McpConnectionError" && error.httpStatus !== undefined
-              ? { httpStatus: error.httpStatus }
-              : {}),
-          }),
-      ),
+      Effect.mapError((failure) => {
+        // Preserve the handshake HTTP status (401/403 = auth wall) so the
+        // liveness health check can classify structurally.
+        const httpStatus = Predicate.isTagged(failure, "McpConnectionError")
+          ? failure.httpStatus
+          : undefined;
+        return new McpToolDiscoveryError({
+          stage: "connect",
+          message: `Failed connecting to MCP server: ${failure.message}`,
+          ...(httpStatus !== undefined ? { httpStatus } : {}),
+        });
+      }),
     );
 
     // List tools

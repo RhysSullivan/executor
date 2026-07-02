@@ -73,13 +73,13 @@ const MCP_PLUGIN_ID = "mcp" as const;
  *  re-authorization, servers whose auth rejection isn't an HTTP status).
  *  Anything else (server down, wrong transport) is degraded, not a credential
  *  problem. */
-const mcpLivenessFailureStatus = (error: {
+const mcpLivenessFailureStatus = (failure: {
   readonly message: string;
   readonly httpStatus?: number;
 }): "expired" | "degraded" => {
-  if (error.httpStatus === 401 || error.httpStatus === 403) return "expired";
-  if (error.httpStatus !== undefined) return "degraded";
-  const lower = error.message.toLowerCase();
+  if (failure.httpStatus === 401 || failure.httpStatus === 403) return "expired";
+  if (failure.httpStatus !== undefined) return "degraded";
+  const lower = failure.message.toLowerCase();
   const authWalled =
     lower.includes("oauth re-authorization") ||
     lower.includes("unauthorized") ||
