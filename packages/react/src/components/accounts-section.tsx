@@ -2,18 +2,26 @@ import { useEffect, useMemo, useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
-import { IntegrationSlug, type Connection, type Owner } from "@executor-js/sdk/shared";
+import {
+  IntegrationSlug,
+  type Connection,
+  type HealthCheckResult,
+  type HealthStatus,
+  type Owner,
+} from "@executor-js/sdk/shared";
 import type { IntegrationAccountHandoff } from "@executor-js/sdk/client";
 import { toast } from "sonner";
 
 import {
   addConnectionOptimistic,
+  checkConnectionHealth,
   connectionsForIntegrationAtom,
   refreshConnection,
   removeConnectionOptimistic,
   startOAuth,
 } from "../api/atoms";
 import { connectionWriteKeys } from "../api/reactivity-keys";
+import { HEALTH_INDICATOR_COLOR, HEALTH_STATUS_LABEL } from "../lib/health-display";
 import { messageFromExit } from "../api/error-reporting";
 import { ownerLabel, useOwnerDisplay } from "../api/owner-display";
 import { trackEvent } from "../api/analytics";
@@ -69,16 +77,75 @@ function AccountRow(props: {
   readonly onRemove: () => void;
 }) {
   const { connection, needsReconsent } = props;
-  const displayLabel =
-    connection.identityLabel && connection.identityLabel.length > 0
+  // A live probe result, once "Check now" has run, overrides the persisted one.
+  const [liveProbe, setLiveProbe] = useState<HealthCheckResult | null>(null);
+  const [checking, setChecking] = useState(false);
+  const doCheck = useAtomSet(checkConnectionHealth, { mode: "promiseExit" });
+
+  // The status renders WITHOUT any clicking: every checkHealth run persists its
+  // verdict on the connection row, so the list answers "has this expired?" at a
+  // glance. A live "Check now" from this session takes precedence. We
+  // deliberately do NOT derive expiry from the stored `expiresAt`: that's the
+  // access-token lifetime, which refreshes, so a passive countdown means nothing.
+  const probe = liveProbe ?? connection.lastHealth ?? null;
+  const status: HealthStatus = probe?.status ?? "unknown";
+  const indicator = HEALTH_INDICATOR_COLOR[status];
+
+  // Prefer a probed identity (the live account), then the stored label, then the
+  // connection name. The probe is the whole point: it shows WHICH account this is.
+  const identity =
+    (probe?.identity && probe.identity.length > 0 ? probe.identity : null) ??
+    (connection.identityLabel && connection.identityLabel.length > 0
       ? connection.identityLabel
-      : String(connection.name);
+      : null);
+  const displayLabel = identity ?? String(connection.name);
+
+  const expired = status === "expired";
+
+  const handleCheck = async () => {
+    if (checking) return;
+    setChecking(true);
+    const exit = await doCheck({
+      params: {
+        owner: connection.owner,
+        integration: connection.integration,
+        name: connection.name,
+      },
+    });
+    setChecking(false);
+    if (Exit.isFailure(exit)) {
+      toast.error(messageFromExit(exit, "Health check failed"));
+      return;
+    }
+    setLiveProbe(exit.value);
+    if (exit.value.status === "healthy") {
+      toast.success(
+        exit.value.identity ? `Healthy — ${exit.value.identity}` : "Connection is healthy",
+      );
+    } else if (exit.value.status === "expired") {
+      toast.error("Connection expired — reconnect to restore access");
+    } else if (exit.value.status === "degraded") {
+      toast.warning(exit.value.detail ?? "Connection check returned an error");
+    } else {
+      toast.message("No health check is configured for this integration");
+    }
+  };
 
   return (
     <CardStackEntry className="flex-wrap items-start">
       <CardStackEntryContent>
         <CardStackEntryTitle className="flex min-w-0 items-center gap-2">
+          <span
+            aria-label={`Status: ${HEALTH_STATUS_LABEL[status]}`}
+            title={HEALTH_STATUS_LABEL[status]}
+            className={`size-2 shrink-0 rounded-full ${indicator.dot}`}
+          />
           <span className="truncate">{displayLabel}</span>
+          {expired ? (
+            <Badge variant="destructive" className="shrink-0">
+              Expired
+            </Badge>
+          ) : null}
           {needsReconsent ? (
             <Badge variant="outline" className="shrink-0 border-border text-muted-foreground">
               Reconnect to grant access
@@ -115,6 +182,13 @@ function AccountRow(props: {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem
+              className="text-sm"
+              disabled={checking}
+              onClick={() => void handleCheck()}
+            >
+              {checking ? "Checking…" : "Check now"}
+            </DropdownMenuItem>
             <DropdownMenuItem className="text-sm" onClick={props.onEdit}>
               Edit
             </DropdownMenuItem>

@@ -7,6 +7,16 @@ import {
   ToolName,
   ToolResult,
   authToolFailure,
+  classifyHttpStatus,
+  compareHealthCheckCandidates,
+  extractIdentity,
+  extractResponseFields,
+  projectResponseFields,
+  type HealthCheckCandidate,
+  type HealthCheckResponseField,
+  type HealthCheckResult,
+  type HealthCheckSpec,
+  type IntegrationRecord,
   type PluginCtx,
   type ResolveToolsResult,
   type StorageFailure,
@@ -28,7 +38,7 @@ import {
   streamOperationBindingsFromStructure,
 } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
-import { annotationsForOperation, buildRequest, invokeWithLayer } from "./invoke";
+import { annotationsForOperation, buildRequest, invokeWithLayer, REQUIRE_APPROVAL } from "./invoke";
 import { parse, type ParsedDocument } from "./parse";
 import { parseEntry, structuralSplit, type KeepPathItem, type SpecStructure } from "./split";
 import { type OpenapiStore, type StoredOperation } from "./store";
@@ -682,4 +692,230 @@ export const resolveOpenApiBackedAnnotations = (input: {
       );
     }
     return out;
+  });
+
+// ---------------------------------------------------------------------------
+// Health checks — the declared liveness/identity probe for a connection.
+// ---------------------------------------------------------------------------
+
+/** Resolve the invocation binding for a health-check operation. Unlike the tool
+ *  invoke path we do not need `responseBody` (the probe reads the raw response),
+ *  so the stored binding is enough; only recompile the spec when it is missing
+ *  (e.g. an operation added to the spec but not yet persisted). */
+const resolveHealthCheckBinding = (
+  ctx: PluginCtx<OpenapiStore>,
+  integration: string,
+  operation: string,
+  config: OpenApiIntegrationConfig | null,
+): Effect.Effect<OperationBinding | undefined, StorageFailure> =>
+  Effect.gen(function* () {
+    const stored = (yield* ctx.storage.getOperation(integration, operation))?.binding;
+    if (stored) return stored;
+    if (!config) return undefined;
+    const specText = yield* loadOpenApiSpecText(ctx.storage, config).pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
+    if (specText == null) return undefined;
+    const compiled = yield* compileOpenApiSpec(specText).pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
+    if (!compiled) return undefined;
+    return openApiStoredOperationsFromCompiled(integration, compiled).find(
+      (op) => op.toolName === operation,
+    )?.binding;
+  });
+
+/** Run the given probe against a resolved credential and classify the outcome.
+ *  The spec is resolved by CORE (its own storage) and passed in — this never
+ *  reads it from the plugin config. Never fails for credential/upstream
+ *  reasons: a rejected credential is a `HealthCheckResult` with
+ *  `status: "expired"`, not an error. */
+export const checkHealthOpenApi = (input: {
+  readonly ctx: PluginCtx<OpenapiStore>;
+  readonly integration: IntegrationRecord;
+  readonly credential: ToolInvocationCredential;
+  readonly spec?: HealthCheckSpec;
+  readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient, never, never>;
+}): Effect.Effect<HealthCheckResult, StorageFailure> =>
+  Effect.gen(function* () {
+    const checkedAt = Date.now();
+    const config = decodeOpenApiIntegrationConfig(input.integration.config);
+    const spec = input.spec;
+    if (!spec) {
+      return {
+        status: "unknown",
+        checkedAt,
+        detail: "No health check configured.",
+      } satisfies HealthCheckResult;
+    }
+
+    const integration = String(input.integration.slug);
+    const binding = yield* resolveHealthCheckBinding(
+      input.ctx,
+      integration,
+      spec.operation,
+      config,
+    );
+    if (!binding) {
+      return {
+        status: "unknown",
+        checkedAt,
+        detail: `Health check operation "${spec.operation}" not found on "${integration}".`,
+      } satisfies HealthCheckResult;
+    }
+
+    // HARD block, not just a ranking hint: a health check runs unattended and
+    // repeatedly, so a mutating operation must never execute through it — the
+    // normal tool path gates these behind approval, and this path has no
+    // approval step. The candidate list labels these "(writes)"; refusing here
+    // is the enforcement.
+    if (REQUIRE_APPROVAL.has(binding.method.toLowerCase())) {
+      return {
+        status: "unknown",
+        checkedAt,
+        detail: `Health check operation "${spec.operation}" is a ${binding.method.toUpperCase()} (mutating) — pick a read-only operation.`,
+      } satisfies HealthCheckResult;
+    }
+
+    const headers: Record<string, string> = { ...(config?.headers ?? {}) };
+    const queryParams: Record<string, string> = { ...(config?.queryParams ?? {}) };
+
+    const template = (config?.authenticationTemplate ?? []).find(
+      (entry) => String(entry.slug) === String(input.credential.template),
+    );
+    if (template) {
+      const missing = requiredTemplateVariables(template).filter((name) => {
+        const value = input.credential.values[name];
+        return value == null || value === "";
+      });
+      if (missing.length > 0) {
+        return {
+          status: "expired",
+          checkedAt,
+          detail: `Connection "${input.credential.connection}" has no resolvable credential value.`,
+        } satisfies HealthCheckResult;
+      }
+      const rendered = renderAuthTemplate(template, input.credential.values);
+      Object.assign(headers, rendered.headers);
+      Object.assign(queryParams, rendered.queryParams);
+    }
+
+    // `invokeWithLayer` fails only with the typed `OpenApiInvocationError`
+    // (transport / body-read failures before an HTTP status); fold it onto the
+    // success channel so a dead upstream reads as `degraded`, not a thrown error.
+    const probe = yield* invokeWithLayer(
+      binding,
+      { ...(spec.args ?? {}) } as Record<string, unknown>,
+      config?.baseUrl ?? "",
+      headers,
+      queryParams,
+      input.httpClientLayer,
+    ).pipe(
+      Effect.map((result) => ({ ok: true as const, result })),
+      Effect.catch((failure) => Effect.succeed({ ok: false as const, failure })),
+    );
+
+    // Upstream error text can echo the request back (URLs with query params,
+    // auth headers) — scrub every credential value out of anything that leaves
+    // as `detail` so a probe can never leak the secret it authenticated with.
+    const secretValues = Object.values(input.credential.values).filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
+    const scrubSecrets = (text: string): string =>
+      secretValues.reduce((out, secret) => out.split(secret).join("[redacted]"), text);
+
+    if (!probe.ok) {
+      return {
+        status: "degraded",
+        checkedAt,
+        detail: scrubSecrets(`Health check request failed: ${probe.failure.message}`),
+      } satisfies HealthCheckResult;
+    }
+
+    const status = classifyHttpStatus(probe.result.status);
+    const identity =
+      status === "healthy" ? extractIdentity(probe.result.data, spec.identityField) : undefined;
+    // Sample the returned body ONLY on a healthy probe: the sample exists to
+    // pick an identity field, and error bodies (upstream internals, auth error
+    // envelopes) have no business in the preview. Non-healthy runs carry the
+    // classified `detail` instead.
+    const responseSample = status === "healthy" ? extractResponseFields(probe.result.data) : [];
+    return {
+      status,
+      httpStatus: probe.result.status,
+      ...(identity !== undefined ? { identity } : {}),
+      checkedAt,
+      ...(responseSample.length > 0 ? { responseSample } : {}),
+      ...(status === "healthy"
+        ? {}
+        : {
+            detail: scrubSecrets(
+              extractOpenApiUpstreamMessage(probe.result.error, probe.result.status),
+            ),
+          }),
+    } satisfies HealthCheckResult;
+  });
+
+/** List the operations a user can pick as the health check, ranked
+ *  non-destructive-first then fewest-required-args so the obvious "GET /me"
+ *  identity endpoint floats to the top. Recompiles the spec once (best-effort)
+ *  to recover human summaries the stored binding does not keep. */
+export const listHealthCheckCandidatesOpenApi = (input: {
+  readonly ctx: PluginCtx<OpenapiStore>;
+  readonly integration: IntegrationRecord;
+}): Effect.Effect<readonly HealthCheckCandidate[], StorageFailure> =>
+  Effect.gen(function* () {
+    const integration = String(input.integration.slug);
+    const operations = yield* input.ctx.storage.listOperations(integration);
+    const config = decodeOpenApiIntegrationConfig(input.integration.config);
+
+    const summaries = new Map<string, string>();
+    const responseFieldsByTool = new Map<string, readonly HealthCheckResponseField[]>();
+    if (config) {
+      const specText = yield* loadOpenApiSpecText(input.ctx.storage, config).pipe(
+        Effect.catch(() => Effect.succeed(null)),
+      );
+      const compiled =
+        specText == null
+          ? null
+          : yield* compileOpenApiSpec(specText).pipe(Effect.catch(() => Effect.succeed(null)));
+      if (compiled) {
+        for (const def of compiled.definitions) {
+          const summary =
+            Option.getOrUndefined(def.operation.summary) ??
+            Option.getOrUndefined(def.operation.description);
+          if (summary) summaries.set(def.toolPath, summary);
+          // `outputSchema` is NOT pre-normalized; `hoistedDefs` ARE, so normalize
+          // the schema before walking refs against them.
+          const fields = projectResponseFields(
+            normalizeOpenApiRefs(Option.getOrUndefined(def.operation.outputSchema)),
+            compiled.hoistedDefs,
+          );
+          if (fields.length > 0) responseFieldsByTool.set(def.toolPath, fields);
+        }
+      }
+    }
+
+    const candidates = operations.map((op): HealthCheckCandidate => {
+      const method = op.binding.method.toLowerCase();
+      const parameters = op.binding.parameters.map((parameter) => ({
+        name: parameter.name,
+        location: parameter.location,
+        required: parameter.required,
+        ...(Option.isSome(parameter.description)
+          ? { description: parameter.description.value }
+          : {}),
+      }));
+      const responseFields = responseFieldsByTool.get(op.toolName);
+      return {
+        operation: op.toolName,
+        method,
+        requiredArgCount: op.binding.parameters.filter((parameter) => parameter.required).length,
+        destructive: REQUIRE_APPROVAL.has(method),
+        summary: summaries.get(op.toolName) ?? `${method.toUpperCase()} ${op.binding.pathTemplate}`,
+        ...(parameters.length > 0 ? { parameters } : {}),
+        ...(responseFields && responseFields.length > 0 ? { responseFields } : {}),
+      };
+    });
+    return [...candidates].sort(compareHealthCheckCandidates);
   });
