@@ -2271,69 +2271,6 @@ function AddAccountModalView(props: AddAccountModalProps) {
                                     clearKeyCheck();
                                   }}
                                 />
-                                {/* Check the key works before continuing. With a
-                              configured check it probes right here; with none
-                              the pick-a-call block expands INLINE below — the
-                              key stays visible and editable throughout. */}
-                                {canCheckKey ? (
-                                  <div className="flex flex-col gap-2">
-                                    <div className="flex items-center gap-3">
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        loading={validating}
-                                        disabled={credentialPayloadOrigin === null}
-                                        onClick={() => {
-                                          if (hasHealthCheck) {
-                                            void handleValidate();
-                                          } else {
-                                            setHcExpanded(true);
-                                          }
-                                        }}
-                                      >
-                                        Check the key works
-                                      </Button>
-                                      {/* The expanded pick block carries its own
-                                    verdict next to Run it — don't say it twice. */}
-                                      {hcExpanded ? null : (
-                                        <KeyValidationStatus
-                                          validating={validating}
-                                          result={validationResult}
-                                        />
-                                      )}
-                                    </div>
-                                    {/* Gated on the expansion alone: probing
-                                  healthy saves the spec, which flips
-                                  hasHealthCheck mid-flow — the block must
-                                  outlive its own success until the pick. */}
-                                    {hcExpanded ? (
-                                      <HealthCheckPickView
-                                        candidates={healthCheckCandidates}
-                                        selected={hcSelected}
-                                        operation={hcOperation}
-                                        onOperationChange={(next) => {
-                                          setHcOperation(next);
-                                          setHcArgs({});
-                                          clearKeyCheck();
-                                        }}
-                                        args={hcArgs}
-                                        onArgChange={(name, value) => {
-                                          setHcArgs((prev) => ({ ...prev, [name]: value }));
-                                          clearKeyCheck();
-                                        }}
-                                        ready={hcPickReady && !validating}
-                                        validating={validating}
-                                        result={validationResult}
-                                        onProbe={() => void handlePickModeProbe()}
-                                        onPickIdentity={(path, value) =>
-                                          void handlePickIdentity(path, value)
-                                        }
-                                        onDone={() => setHcExpanded(false)}
-                                      />
-                                    ) : null}
-                                  </div>
-                                ) : null}
                               </div>
                             )}
                             {isOAuth && oauthPopup.error ? (
@@ -2345,6 +2282,64 @@ function AddAccountModalView(props: AddAccountModalProps) {
                     )}
                   </Tabs>
                 )}
+
+              {/* Check the key works — OUTSIDE the tabs, always below them, so
+              the affordance doesn't move or vanish as methods switch. With a
+              configured check it probes directly; with none the pick-a-call
+              block expands inline and the key above stays editable. */}
+              {(!wizardActive || wizardStep === "validate") && canCheckKey ? (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      loading={validating}
+                      disabled={credentialPayloadOrigin === null}
+                      onClick={() => {
+                        if (hasHealthCheck) {
+                          void handleValidate();
+                        } else {
+                          setHcExpanded(true);
+                        }
+                      }}
+                    >
+                      Check the key works
+                    </Button>
+                    {/* The expanded pick block carries its own verdict next to
+                    Run it — don't say it twice. */}
+                    {hcExpanded ? null : (
+                      <KeyValidationStatus validating={validating} result={validationResult} />
+                    )}
+                  </div>
+                  {/* Gated on the expansion alone: probing healthy saves the
+                  spec, which flips hasHealthCheck mid-flow — the block must
+                  outlive its own success until the pick. */}
+                  {hcExpanded ? (
+                    <HealthCheckPickView
+                      candidates={healthCheckCandidates}
+                      selected={hcSelected}
+                      operation={hcOperation}
+                      onOperationChange={(next) => {
+                        setHcOperation(next);
+                        setHcArgs({});
+                        clearKeyCheck();
+                      }}
+                      args={hcArgs}
+                      onArgChange={(name, value) => {
+                        setHcArgs((prev) => ({ ...prev, [name]: value }));
+                        clearKeyCheck();
+                      }}
+                      ready={hcPickReady && !validating}
+                      validating={validating}
+                      result={validationResult}
+                      onProbe={() => void handlePickModeProbe()}
+                      onPickIdentity={(path, value) => void handlePickIdentity(path, value)}
+                      onDone={() => setHcExpanded(false)}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* Step 2 (credential wizard): a one-line recap of what step 1
               proved — the key's verdict travels with the user instead of
