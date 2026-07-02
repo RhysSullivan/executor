@@ -24,7 +24,7 @@ export const graphqlPresets: readonly GraphqlPreset[] = [
     summary: "Projects, merge requests, pipelines, and users.",
     url: "https://gitlab.com/api/graphql",
     endpoint: "https://gitlab.com/api/graphql",
-    icon: "https://gitlab.com/favicon.ico",
+    icon: "https://integrations.sh/logo/gitlab.com",
     featured: true,
   },
   {
@@ -33,7 +33,7 @@ export const graphqlPresets: readonly GraphqlPreset[] = [
     summary: "Issues, projects, teams, and cycles.",
     url: "https://api.linear.app/graphql",
     endpoint: "https://api.linear.app/graphql",
-    icon: "https://linear.app/favicon.ico",
+    icon: "https://integrations.sh/logo/linear.app",
     featured: true,
   },
   {
@@ -42,7 +42,7 @@ export const graphqlPresets: readonly GraphqlPreset[] = [
     summary: "Boards, items, columns, and workspace automation.",
     url: "https://api.monday.com/v2",
     endpoint: "https://api.monday.com/v2",
-    icon: "https://monday.com/favicon.ico",
+    icon: "https://integrations.sh/logo/monday.com",
   },
   {
     id: "anilist",
@@ -50,6 +50,6 @@ export const graphqlPresets: readonly GraphqlPreset[] = [
     summary: "Anime and manga database — no auth required.",
     url: "https://graphql.anilist.co",
     endpoint: "https://graphql.anilist.co",
-    icon: "https://anilist.co/img/icons/favicon-32x32.png",
+    icon: "https://integrations.sh/logo/anilist.co",
   },
 ];

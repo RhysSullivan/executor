@@ -27,7 +27,7 @@ export interface MicrosoftGraphScopePreset {
   readonly audience: MicrosoftGraphScopeAudience;
 }
 
-const MICROSOFT_ICON = "https://www.microsoft.com/favicon.ico";
+const MICROSOFT_ICON = "https://integrations.sh/logo/microsoft.com";
 const svglIcon = (name: string) => `https://svgl.app/library/${name}.svg`;
 
 export const MICROSOFT_GRAPH_OPENAPI_URL =

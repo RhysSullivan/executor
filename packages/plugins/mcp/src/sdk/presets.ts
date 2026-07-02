@@ -38,7 +38,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Search and read documentation from any GitHub repo.",
     url: "https://mcp.deepwiki.com/mcp",
     endpoint: "https://mcp.deepwiki.com/mcp",
-    icon: "https://deepwiki.com/favicon.ico",
+    icon: "https://integrations.sh/logo/deepwiki.com",
     featured: true,
   },
   {
@@ -47,7 +47,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Up-to-date docs and code examples for any library.",
     url: "https://mcp.context7.com/mcp",
     endpoint: "https://mcp.context7.com/mcp",
-    icon: "https://context7.com/favicon.ico",
+    icon: "https://integrations.sh/logo/context7.com",
     featured: true,
   },
   {
@@ -56,7 +56,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Cloud browser sessions for web scraping and automation.",
     url: "https://mcp.browserbase.com/mcp",
     endpoint: "https://mcp.browserbase.com/mcp",
-    icon: "https://www.browserbase.com/favicon.ico",
+    icon: "https://integrations.sh/logo/browserbase.com",
     featured: true,
   },
   {
@@ -65,7 +65,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Crawl and scrape websites into structured data.",
     url: "https://mcp.firecrawl.dev/mcp",
     endpoint: "https://mcp.firecrawl.dev/mcp",
-    icon: "https://www.firecrawl.dev/favicon.ico",
+    icon: "https://integrations.sh/logo/firecrawl.dev",
     featured: true,
   },
   {
@@ -74,7 +74,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Serverless Postgres — branches, queries, and management.",
     url: "https://mcp.neon.tech/mcp",
     endpoint: "https://mcp.neon.tech/mcp",
-    icon: "https://neon.tech/favicon/favicon.ico",
+    icon: "https://integrations.sh/logo/neon.tech",
     featured: true,
   },
   {
@@ -83,7 +83,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Query, analyze, and monitor your logs and event data.",
     url: "https://mcp.axiom.co/mcp",
     endpoint: "https://mcp.axiom.co/mcp",
-    icon: "https://axiom.co/favicon.ico",
+    icon: "https://integrations.sh/logo/axiom.co",
     featured: true,
   },
   {
@@ -92,7 +92,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Manage payments, subscriptions, and billing via MCP.",
     url: "https://mcp.stripe.com",
     endpoint: "https://mcp.stripe.com",
-    icon: "https://stripe.com/favicon.ico",
+    icon: "https://integrations.sh/logo/stripe.com",
     featured: true,
   },
   {
@@ -101,7 +101,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Issues, projects, teams, and cycles via MCP.",
     url: "https://mcp.linear.app/mcp",
     endpoint: "https://mcp.linear.app/mcp",
-    icon: "https://linear.app/favicon.ico",
+    icon: "https://integrations.sh/logo/linear.app",
     featured: true,
   },
   {
@@ -110,7 +110,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Databases, pages, blocks, and search via MCP.",
     url: "https://mcp.notion.com/mcp",
     endpoint: "https://mcp.notion.com/mcp",
-    icon: "https://www.notion.com/front-static/favicon.ico",
+    icon: "https://integrations.sh/logo/notion.com",
     featured: true,
   },
   {
@@ -127,7 +127,7 @@ export const mcpPresets: readonly McpPreset[] = [
     summary: "Workers, KV, D1, R2, and DNS management via MCP.",
     url: "https://mcp.cloudflare.com/mcp",
     endpoint: "https://mcp.cloudflare.com/mcp",
-    icon: "https://cloudflare.com/favicon.ico",
+    icon: "https://integrations.sh/logo/cloudflare.com",
   },
   {
     id: "chrome-devtools",
