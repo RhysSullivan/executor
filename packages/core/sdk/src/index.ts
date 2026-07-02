@@ -349,6 +349,11 @@ export {
   type GeneratedToolProxy,
   type GenerateToolProxyOptions,
 } from "./typegen";
+export {
+  generateOpenApiSpec,
+  type GeneratedOpenApiSpec,
+  type GenerateOpenApiSpecOptions,
+} from "./specgen";
 
 // Wire-level HTTP error schemas usable by plugin HttpApiGroup definitions.
 export { InternalError } from "./api-errors";

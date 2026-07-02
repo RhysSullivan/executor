@@ -317,18 +317,6 @@ const readEnvToken = (): string | undefined => {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const buildInvokeCode = (segments: readonly string[], input: unknown): string => {
-  const access = segments.map((segment) => \`[\${JSON.stringify(segment)}]\`).join("");
-  return [
-    \`const __args = \${JSON.stringify(input ?? {})};\`,
-    \`const __target = tools\${access};\`,
-    \`if (typeof __target !== "function") {\`,
-    \`  throw new Error(\${JSON.stringify(\`Tool not found: \${segments.join(".")}\`)});\`,
-    \`}\`,
-    \`return await __target(__args);\`,
-  ].join("\\n");
-};
-
 export interface ExecutorClientHandle {
   /** Invoke any tool by dotted path, untyped. */
   $call: (
@@ -345,6 +333,8 @@ export function ${clientName}(options: ExecutorClientOptions = {}): ExecutorClie
   const token = options.token ?? readEnvToken();
   const fetchImpl = options.fetch ?? globalThis.fetch;
 
+  // Calls go through the instance's REST invoke endpoint (the same
+  // operations the exported OpenAPI document describes).
   const invoke = async (
     segments: readonly string[],
     input: unknown,
@@ -359,22 +349,27 @@ export function ${clientName}(options: ExecutorClientOptions = {}): ExecutorClie
       throw new ExecutorRequestError("Tool input must be a JSON object", null, "");
     }
 
+    const path = segments.join(".");
     const autoApprove = callOptions?.autoApprove ?? options.autoApprove;
-    const response = await fetchImpl(\`\${origin}/api/executions\`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(token ? { authorization: \`Bearer \${token}\` }: {}),
-        ...options.headers,
+    const query = autoApprove ? "?autoApprove=true" : "";
+    const response = await fetchImpl(
+      \`\${origin}/api/tools/invoke/\${encodeURIComponent(path)}\${query}\`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: \`Bearer \${token}\` } : {}),
+          ...options.headers,
+        },
+        body: JSON.stringify(input ?? {}),
+        ...(callOptions?.signal ? { signal: callOptions.signal } : {}),
       },
-      body: JSON.stringify({
-        code: buildInvokeCode(segments, input),
-        ...(autoApprove !== undefined ? { autoApprove }: {}),
-      }),
-      ...(callOptions?.signal ? { signal: callOptions.signal }: {}),
-    });
+    );
 
     const bodyText = await response.text();
+    if (response.status === 404) {
+      throw new ExecutorRequestError(\`Tool not found: \${path}\`, 404, bodyText);
+    }
     if (!response.ok) {
       throw new ExecutorRequestError(
         \`Executor request failed with status \${response.status}\`,
@@ -389,37 +384,25 @@ export function ${clientName}(options: ExecutorClientOptions = {}): ExecutorClie
     } catch {
       throw new ExecutorRequestError("Executor returned a non-JSON response", null, bodyText);
     }
-    if (!isRecord(payload)) {
+    if (!isRecord(payload) || typeof payload.ok !== "boolean") {
       throw new ExecutorRequestError("Executor returned an unexpected response", null, bodyText);
     }
 
-    if (payload.status === "paused") {
-      const structured = isRecord(payload.structured) ? payload.structured: {};
+    // Approval-gated calls come back as an execution_paused error; surface
+    // them as a typed exception carrying the resume coordinates.
+    if (payload.ok === false && isRecord(payload.error) && payload.error.code === "execution_paused") {
       const executionId =
-        typeof structured.executionId === "string" ? structured.executionId: null;
+        typeof payload.error.executionId === "string" ? payload.error.executionId : null;
       throw new ExecutorPausedError(
-        typeof payload.text === "string" ? payload.text: "Execution paused awaiting approval",
+        typeof payload.error.message === "string"
+          ? payload.error.message
+          : "Execution paused awaiting approval",
         executionId,
-        executionId ? \`\${origin}/resume/\${encodeURIComponent(executionId)}\`: null,
+        executionId ? \`\${origin}/resume/\${encodeURIComponent(executionId)}\` : null,
       );
     }
 
-    if (payload.isError === true) {
-      throw new ExecutorRequestError(
-        typeof payload.text === "string" ? payload.text: "Tool execution failed",
-        null,
-        bodyText,
-      );
-    }
-
-    const structured = isRecord(payload.structured) ? payload.structured: {};
-    const result = structured.result;
-    // Dynamic tool results already arrive in the outcome envelope; anything
-    // else (static tools returning raw values) is wrapped as a success.
-    if (isRecord(result) && typeof result.ok === "boolean") {
-      return result as ExecutorToolOutcome<unknown>;
-    }
-    return { ok: true, data: result };
+    return payload as ExecutorToolOutcome<unknown>;
   };
 
   const callByPath = (

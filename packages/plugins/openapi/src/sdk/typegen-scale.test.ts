@@ -1,48 +1,65 @@
 // ---------------------------------------------------------------------------
-// `executor generate` at catalog scale: 10,000 tools from one OpenAPI spec.
+// `executor generate` at catalog scale: 10,000+ tools across MANY specs.
 //
-// The typed-proxy pipeline must hold up on instances with five-digit tool
-// counts, end to end through the REAL ingestion path (addSpec compiles the
-// spec, a connection persists the tool rows) rather than hand-built fixtures:
+// Real instances reach five-digit tool counts by accumulating integrations,
+// not from one giant spec. This suite builds that shape through the real
+// ingestion path (addSpec compiles each spec, a connection persists the tool
+// rows), mixing:
+//   - real service specs served by @executor-js/emulate emulators (github,
+//     stripe), exactly what a user adding those integrations gets,
+//   - a fleet of synthetic OpenAPI specs topping the catalog up past 10,000
+//     tools total.
+//
+// Then the full generate pipeline runs once over the combined catalog:
 //   - `tools.export` returns every tool in one read,
-//   - `generateToolProxySource` emits the file without blowing time or memory
-//     (chunked schema compilation: one whole-catalog compiler pass is
-//     super-linear and takes 30s+ at this size),
-//   - the generated source is valid strict TypeScript, verified with the real
-//     compiler, and spot-checked types resolve to the right shapes.
+//   - `generateOpenApiSpec` emits the OpenAPI 3.1 document (the primary
+//     artifact) and the REAL `openapi-typescript` generator accepts it,
+//     proving third-party client generators can consume the output,
+//   - `generateToolProxySource` emits the optional TypeScript client and it
+//     typechecks under strict mode.
 //
-// Budgets are deliberately loose (CI machines vary) but tight enough to catch
-// a regression to per-tool or whole-catalog compilation.
+// Time budgets are loose regression tripwires (CI machines vary), tight
+// enough to catch a regression to per-tool or whole-catalog compilation.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
+import openapiTS, { astToString } from "openapi-typescript";
 import * as ts from "typescript";
 
+import { createEmulator, type Emulator, type ServiceName } from "@executor-js/emulate";
 import {
   AuthTemplateSlug,
   ConnectionName,
   IntegrationSlug,
   createExecutor,
+  generateOpenApiSpec,
   generateToolProxySource,
 } from "@executor-js/sdk";
 import { makeTestConfig, memoryCredentialsPlugin } from "@executor-js/sdk/testing";
 
 import { openApiPlugin } from "./plugin";
 
-const TOOL_COUNT = 10_000;
+const TOTAL_TOOL_TARGET = 10_000;
+const SYNTHETIC_SPEC_COUNT = 8;
 
-// Build a 10k-operation spec with realistic shape variety: per-operation
-// parameter schemas, shared component refs, and enough distinct field names
-// that deduplication cannot collapse the work.
-const buildScaleSpec = (toolCount: number): string => {
+// Real service specs via local emulators. Two is enough to prove the
+// real-spec path; the synthetic fleet carries the volume.
+const EMULATED_SERVICES: readonly ServiceName[] = ["github", "stripe"];
+const EMULATOR_BASE_PORT = 4720;
+
+// ---------------------------------------------------------------------------
+// Synthetic spec fleet
+// ---------------------------------------------------------------------------
+
+const buildSyntheticSpec = (specIndex: number, toolCount: number): string => {
   const paths: Record<string, unknown> = {};
   for (let index = 0; index < toolCount; index += 1) {
-    paths[`/resources${index % 100}/r${index}`] = {
+    paths[`/resources${index % 50}/r${index}`] = {
       get: {
         operationId: `res.op${index}`,
-        summary: `Operation ${index}`,
+        summary: `Spec ${specIndex} operation ${index}`,
         parameters: [
           { name: "id", in: "query", required: true, schema: { type: "string" } },
           { name: `filter${index % 250}`, in: "query", schema: { type: "string" } },
@@ -71,8 +88,8 @@ const buildScaleSpec = (toolCount: number): string => {
   // @effect-diagnostics-next-line preferSchemaOverJson:off
   return JSON.stringify({
     openapi: "3.0.0",
-    info: { title: "Scale", version: "1.0.0" },
-    servers: [{ url: "https://scale.example.test" }],
+    info: { title: `Scale ${specIndex}`, version: "1.0.0" },
+    servers: [{ url: `https://scale${specIndex}.example.test` }],
     security: [{ apiKey: [] }],
     paths,
     components: {
@@ -97,6 +114,10 @@ const buildScaleSpec = (toolCount: number): string => {
     },
   });
 };
+
+// ---------------------------------------------------------------------------
+// Verification helpers
+// ---------------------------------------------------------------------------
 
 const typecheck = (source: string, extraSource: string): readonly string[] => {
   const fileName = "generated.ts";
@@ -127,9 +148,9 @@ const typecheck = (source: string, extraSource: string): readonly string[] => {
     .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
 };
 
-describe("typed proxy generation at 10k-tool scale", () => {
+describe("typed proxy generation at 10k-tool scale (multi-spec)", () => {
   it.effect(
-    "exports, generates, and typechecks a 10,000-tool catalog",
+    "ingests emulator + synthetic specs past 10k tools, exports, and generates both artifacts",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -142,59 +163,131 @@ describe("typed proxy generation at 10k-tool scale", () => {
             }),
           );
 
-          const added = yield* executor.openapi.addSpec({
-            spec: { kind: "blob", value: buildScaleSpec(TOOL_COUNT) },
-            slug: "scale",
-          });
-          expect(added.toolCount).toBe(TOOL_COUNT);
+          /** Register a spec and connect it using the first auth template the
+           *  spec derives (emulator specs carry real securitySchemes;
+           *  synthetic specs derive `apikey-0`). */
+          const addAndConnect = (input: {
+            slug: string;
+            spec: { kind: "url"; url: string } | { kind: "blob"; value: string };
+          }) =>
+            Effect.gen(function* () {
+              const added = yield* executor.openapi.addSpec({
+                spec: input.spec,
+                slug: input.slug,
+              });
+              const config = yield* executor.openapi.getConfig(input.slug);
+              const template = config?.authenticationTemplate?.[0];
+              yield* executor.connections.create({
+                owner: "org",
+                name: ConnectionName.make("main"),
+                integration: IntegrationSlug.make(input.slug),
+                template: AuthTemplateSlug.make(template ? String(template.slug) : "apikey-0"),
+                value: "scale-token",
+              });
+              return added.toolCount;
+            });
 
-          yield* executor.connections.create({
-            owner: "org",
-            name: ConnectionName.make("main"),
-            integration: IntegrationSlug.make("scale"),
-            template: AuthTemplateSlug.make("apikey-0"),
-            value: "token",
-          });
+          // Real service specs from local emulators, registered by URL the
+          // same way a user pointing Executor at a service would.
+          const emulators: Emulator[] = [];
+          yield* Effect.addFinalizer(() =>
+            Effect.promise(() => Promise.allSettled(emulators.map((emulator) => emulator.close()))),
+          );
+          let ingestedTools = 0;
+          for (const [index, service] of EMULATED_SERVICES.entries()) {
+            const emulator = yield* Effect.promise(() =>
+              createEmulator({ service, port: EMULATOR_BASE_PORT + index }),
+            );
+            emulators.push(emulator);
+            const count = yield* addAndConnect({
+              slug: `emu_${service}`,
+              spec: { kind: "url", url: emulator.openapiUrl },
+            });
+            expect(count).toBeGreaterThan(0);
+            ingestedTools += count;
+          }
 
+          // Synthetic fleet tops the catalog up past the target.
+          const remaining = TOTAL_TOOL_TARGET - ingestedTools;
+          const perSpec = Math.ceil(remaining / SYNTHETIC_SPEC_COUNT);
+          for (let specIndex = 0; specIndex < SYNTHETIC_SPEC_COUNT; specIndex += 1) {
+            const count = Math.min(perSpec, remaining - specIndex * perSpec);
+            if (count <= 0) break;
+            ingestedTools += yield* addAndConnect({
+              slug: `scale_${specIndex}`,
+              spec: { kind: "blob", value: buildSyntheticSpec(specIndex, count) },
+            });
+          }
+          expect(ingestedTools).toBeGreaterThanOrEqual(TOTAL_TOOL_TARGET);
+
+          // One bulk read for the whole catalog.
           const exportStart = performance.now();
-          const exported = yield* executor.tools.export({
-            integration: IntegrationSlug.make("scale"),
-          });
+          const exported = yield* executor.tools.export();
           const exportMs = performance.now() - exportStart;
           const exportedCount = exported.connections.reduce(
             (sum, connection) => sum + connection.tools.length,
             0,
           );
-          expect(exportedCount).toBe(TOOL_COUNT);
+          expect(exportedCount).toBeGreaterThanOrEqual(TOTAL_TOOL_TARGET);
+          expect(exported.connections.length).toBeGreaterThanOrEqual(
+            EMULATED_SERVICES.length + SYNTHETIC_SPEC_COUNT,
+          );
 
+          // Primary artifact: the OpenAPI document.
+          const specStart = performance.now();
+          const spec = generateOpenApiSpec(exported, {
+            serverUrl: "http://localhost:4788/api",
+          });
+          const specMs = performance.now() - specStart;
+          expect(spec.toolCount).toBe(exportedCount);
+          const paths = spec.document.paths as Record<string, unknown>;
+          expect(Object.keys(paths).length).toBe(exportedCount);
+          // Real-spec tools land beside synthetic ones in the same document.
+          expect(
+            Object.keys(paths).some((path) => path.startsWith("/tools/invoke/emu_github.")),
+          ).toBe(true);
+          expect(Object.keys(paths).some((path) => path.startsWith("/tools/invoke/scale_0."))).toBe(
+            true,
+          );
+
+          // Interop proof: the real openapi-typescript generator consumes the
+          // document and emits a paths interface covering the catalog.
+          const otsStart = performance.now();
+          const ast = yield* Effect.promise(() =>
+            openapiTS(
+              // oxlint-disable-next-line executor/no-double-cast -- test boundary: openapi-typescript's OpenAPI3 input type vs our Record document; the generator validates it at runtime
+              spec.document as unknown as Parameters<typeof openapiTS>[0],
+            ),
+          );
+          const otsSource = astToString(ast);
+          const otsMs = performance.now() - otsStart;
+          expect(otsSource).toContain("export interface paths");
+          const otsPathCount = (otsSource.match(/"\/tools\/invoke\//g) ?? []).length;
+          expect(otsPathCount).toBe(exportedCount);
+
+          // Secondary artifact: the self-contained TypeScript client.
           const generateStart = performance.now();
           const generated = generateToolProxySource(exported);
           const generateMs = performance.now() - generateStart;
-          expect(generated.toolCount).toBe(TOOL_COUNT);
+          expect(generated.toolCount).toBe(exportedCount);
 
           // Regression tripwires, not benchmarks: whole-catalog single-pass
-          // compilation measured 30s+ here and per-tool passes are far worse;
-          // the chunked path runs in well under a second. 15s/30s absorb slow
-          // CI machines while still failing on a complexity regression.
+          // schema compilation measured 30s+ at this size and per-tool passes
+          // are far worse; the chunked path runs in well under a second.
           expect(exportMs).toBeLessThan(15_000);
+          expect(specMs).toBeLessThan(15_000);
           expect(generateMs).toBeLessThan(30_000);
+          expect(otsMs).toBeLessThan(120_000);
 
-          // Every tool surfaced in the generated interface exactly once. The
-          // plugin derives paths from the URL (`/resources77/r7777` →
-          // `resources77.resOp7777`), so count the leaf entries.
-          const opMatches = generated.source.match(/resOp\d+: ExecutorToolFn</g) ?? [];
-          expect(opMatches.length).toBe(TOOL_COUNT);
-          // Shared component schemas stay named refs, not 10k inlined copies.
-          expect(generated.source).toContain("export type Item =");
-
-          // The whole 10k-tool file typechecks under strict mode, and a
-          // consumer gets real types out of an arbitrary tool in the middle.
+          // The full TypeScript client typechecks under strict mode, and a
+          // consumer gets real types out of a tool in the middle of the
+          // synthetic fleet.
           const diagnostics = typecheck(
             generated.source,
             `
               const client = createExecutorClient();
               async function main() {
-                const outcome = await client.scale.org.main.resources77.resOp7777({ id: "x" });
+                const outcome = await client.scale_3.org.main.resources7.resOp57({ id: "x" });
                 if (outcome.ok) {
                   const total: number | undefined = outcome.data.total;
                   const itemId: string | undefined = outcome.data.item?.id;
@@ -208,6 +301,6 @@ describe("typed proxy generation at 10k-tool scale", () => {
           expect(diagnostics).toEqual([]);
         }),
       ),
-    { timeout: 180_000 },
+    { timeout: 300_000 },
   );
 });

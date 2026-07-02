@@ -306,19 +306,14 @@ const makeFakeFetch = (respond: (call: FetchCall) => unknown) => {
 };
 
 describe("generated runtime client", { timeout: 60_000 }, () => {
-  it("invokes tools through /api/executions and unwraps the outcome", async () => {
+  it("invokes tools through /api/tools/invoke and unwraps the outcome", async () => {
     const generated = generateToolProxySource(catalog([githubConnection]));
     const module = await importGenerated(generated.source);
     const createClient = module.createExecutorClient as (
       options: Record<string, unknown>,
     ) => unknown;
 
-    const { calls, fetchImpl } = makeFakeFetch(() => ({
-      status: "completed",
-      text: "",
-      isError: false,
-      structured: { result: { ok: true, data: { number: 7 } } },
-    }));
+    const { calls, fetchImpl } = makeFakeFetch(() => ({ ok: true, data: { number: 7 } }));
 
     // oxlint-disable-next-line executor/no-double-cast -- test boundary: the client is a dynamically imported Proxy; the cast pins the path this test dials
     const client = createClient({
@@ -339,12 +334,11 @@ describe("generated runtime client", { timeout: 60_000 }, () => {
     expect(outcome).toEqual({ ok: true, data: { number: 7 } });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe("http://example.test:4788/api/executions");
+    expect(calls[0]!.url).toBe(
+      `http://example.test:4788/api/tools/invoke/${encodeURIComponent("github.org.main.issues.create")}`,
+    );
     expect(calls[0]!.init.headers.authorization).toBe("Bearer tok_123");
-    // oxlint-disable-next-line executor/no-json-parse -- test boundary: asserting on the raw request body the generated client produced
-    const body = JSON.parse(calls[0]!.init.body) as { code: string };
-    expect(body.code).toContain('["github"]["org"]["main"]["issues"]["create"]');
-    expect(body.code).toContain('{"title":"hi"}');
+    expect(calls[0]!.init.body).toBe('{"title":"hi"}');
   });
 
   it("throws ExecutorPausedError with the approval url on paused executions", async () => {
@@ -355,9 +349,13 @@ describe("generated runtime client", { timeout: 60_000 }, () => {
     };
 
     const { fetchImpl } = makeFakeFetch(() => ({
-      status: "paused",
-      text: "Approval required",
-      structured: { executionId: "exec_42" },
+      ok: false,
+      error: {
+        code: "execution_paused",
+        message: "Approval required",
+        executionId: "exec_42",
+        resumePath: "/executions/exec_42/resume",
+      },
     }));
 
     const client = createClient({ baseUrl: "http://example.test:4788", fetch: fetchImpl });
