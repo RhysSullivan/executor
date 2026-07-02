@@ -40,7 +40,7 @@ const coreApi = composePluginApi([] as const); // tools/integrations/connections
 
 scenario(
   "Tools · a fresh workspace advertises the built-in tools",
-  {}, // options: { timeout?: number }
+  {}, // options: { timeout?: number; skip?: string (reason — registers as skipped) }
   Effect.gen(function* () {
     const target = yield* Target;
     const { client } = yield* Api;
