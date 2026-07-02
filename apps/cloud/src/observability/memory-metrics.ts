@@ -87,8 +87,10 @@ const scriptVersionFromEnv = (env: Env): string => {
   );
 };
 
+const utf8ByteCounter = new TextEncoder();
+
 const byteLengthOf = (chunk: unknown): number => {
-  if (typeof chunk === "string") return chunk.length;
+  if (typeof chunk === "string") return utf8ByteCounter.encode(chunk).length;
   if (chunk instanceof ArrayBuffer) return chunk.byteLength;
   if (ArrayBuffer.isView(chunk)) return chunk.byteLength;
   return 0;
@@ -197,7 +199,12 @@ const sseHeaders = (headers: Headers): Headers => {
 };
 
 export const wrapMcpSseResponse = (request: Request, env: Env, response: Response): Response => {
-  if (request.method !== "GET" || response.body === null) return response;
+  if (
+    request.method !== "GET" ||
+    response.body === null ||
+    !(response.headers.get("content-type") ?? "").includes("text/event-stream")
+  )
+    return response;
 
   const now = Date.now();
   const connection: SseConnection = {
@@ -302,10 +309,13 @@ export class CountingSpanProcessor implements SpanProcessor {
   onEnd(span: ReadableSpan): void {
     otelMetrics.spansEnded += 1;
     if (this.estimatedQueuedSpans >= this.maxQueueSize) {
+      // At the bound the inner processor would drop this span anyway; drop it
+      // here instead of forwarding, so a dropped span is never also counted as
+      // exported (which would double-count and inflate the drop signal).
       otelMetrics.spansDropped += 1;
-    } else {
-      this.estimatedQueuedSpans += 1;
+      return;
     }
+    this.estimatedQueuedSpans += 1;
     this.inner.onEnd(span);
   }
 
