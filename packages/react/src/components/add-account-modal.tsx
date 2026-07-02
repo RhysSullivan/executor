@@ -849,27 +849,22 @@ export function AddAccountModal(props: AddAccountModalProps) {
 
 // ---------------------------------------------------------------------------
 // Key-check status: the inline line under the credential field that reports the
-// live probe result. `validating` shows a neutral "Checking..."; a result shows
-// the status dot + label, and any upstream detail for a non-healthy verdict.
+// live probe result. The line's height is RESERVED from the start (empty until
+// a verdict lands) so the reveal never shifts the layout below, and the
+// in-flight state lives only on the button's spinner — no second "checking"
+// text here.
 // ---------------------------------------------------------------------------
 function KeyValidationStatus(props: {
   readonly validating: boolean;
   readonly result: HealthCheckResult | null;
 }) {
-  if (props.validating) {
-    return (
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="size-2 shrink-0 animate-pulse rounded-full bg-muted-foreground/50" />
-        Checking the key...
-      </p>
-    );
-  }
-  if (!props.result) return null;
-  const { status, identity, detail } = props.result;
+  const result = props.validating ? null : props.result;
+  if (!result) return <div aria-hidden className="min-h-4" />;
+  const { status, identity, detail } = result;
   const indicator = HEALTH_INDICATOR_COLOR[status];
   const tone = status === "healthy" ? "text-muted-foreground" : "text-destructive";
   return (
-    <div className={`flex items-start gap-2 text-xs ${tone}`}>
+    <div className={`flex min-h-4 items-start gap-2 text-xs ${tone}`}>
       <span aria-hidden className={`mt-[3px] size-2 shrink-0 rounded-full ${indicator.dot}`} />
       <span className="min-w-0">
         <span className="font-medium">{HEALTH_STATUS_LABEL[status]}</span>
@@ -2204,14 +2199,11 @@ function AddAccountModalView(props: AddAccountModalProps) {
                                       type="button"
                                       variant="outline"
                                       size="sm"
-                                      disabled={
-                                        credentialPayloadOrigin === null ||
-                                        validating ||
-                                        !keyCheckReady
-                                      }
+                                      loading={validating}
+                                      disabled={credentialPayloadOrigin === null || !keyCheckReady}
                                       onClick={() => void handleValidate()}
                                     >
-                                      {validating ? "Checking..." : "Check the key works"}
+                                      Check the key works
                                     </Button>
                                     {!hasHealthCheck && hcSelected && !hcAdvanced ? (
                                       <span className="min-w-0 truncate text-xs text-muted-foreground">
