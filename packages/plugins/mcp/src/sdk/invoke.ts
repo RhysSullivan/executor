@@ -14,7 +14,12 @@
 import { Cause, Effect, Exit, Option, Predicate, Schema } from "effect";
 
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ElicitRequestSchema,
+  ErrorCode,
+  McpError,
+  ToolListChangedNotificationSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
 import {
   ElicitationId,
@@ -61,6 +66,31 @@ const statusFromStreamableHttpError = (cause: unknown): number | undefined => {
 
 const httpStatusFromCause = (cause: unknown): number | undefined =>
   statusFromStreamableHttpError(cause) ?? statusFromSsePostError(cause);
+
+// The spec answers `tools/call` for a tool the server no longer advertises
+// with a protocol error (`-32602 Invalid params`, example message
+// "Unknown tool: …"); the reference TypeScript SDK server instead catches that
+// error and returns it as an execution-error envelope (`isError: true`, text
+// "Tool <name> not found"). Both shapes mean the same thing — the persisted
+// catalog drifted — so both are detected, anchored to the exact tool name to
+// keep a domain error that merely mentions "not found" from matching. A miss
+// is benign (the catalog still heals via TTL or explicit refresh).
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export const isUnknownToolMessage = (message: string, toolName: string): boolean => {
+  const name = escapeRegExp(toolName);
+  return new RegExp(
+    `(?:unknown tool:?\\s*"?${name}"?|tool\\s+"?${name}"?\\s+(?:not found|is not available|does not exist))`,
+    "i",
+  ).test(message);
+};
+
+const isUnknownToolCause = (cause: unknown, toolName: string): boolean =>
+  // oxlint-disable-next-line executor/no-instanceof-tagged-error -- boundary: MCP SDK surfaces JSON-RPC protocol errors as this Error subclass
+  cause instanceof McpError &&
+  (cause.code === ErrorCode.InvalidParams || cause.code === ErrorCode.MethodNotFound) &&
+  // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: instanceof narrows to the SDK's McpError, whose message carries the only unknown-tool discriminator the protocol provides
+  isUnknownToolMessage(cause.message, toolName);
 
 // ---------------------------------------------------------------------------
 // Elicitation bridge — decode incoming MCP ElicitRequest, route through
@@ -128,7 +158,25 @@ const installElicitationHandler = (client: McpConnection["client"], elicit: Elic
 };
 
 // ---------------------------------------------------------------------------
-// Single tool call — install handler, callTool, return raw result
+// tools/list_changed bridge — while a connection is open (the call window),
+// listen for the spec's `notifications/tools/list_changed` and surface it to
+// the host so it can mark the persisted catalog stale. Registering the handler
+// is unconditional: it only fires if the server sends the notification, and a
+// server that never does costs nothing.
+// ---------------------------------------------------------------------------
+
+const installToolListChangedHandler = (
+  client: McpConnection["client"],
+  onToolListChanged: (() => void) | undefined,
+): void => {
+  if (!onToolListChanged) return;
+  client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    onToolListChanged();
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Single tool call — install handlers, callTool, return raw result
 // ---------------------------------------------------------------------------
 
 const useConnection = (
@@ -136,9 +184,11 @@ const useConnection = (
   toolName: string,
   args: Record<string, unknown>,
   elicit: Elicit,
+  onToolListChanged: (() => void) | undefined,
 ): Effect.Effect<unknown, McpInvocationError | McpOAuthReauthorizationRequired> =>
   Effect.gen(function* () {
     installElicitationHandler(connection.client, elicit);
+    installToolListChangedHandler(connection.client, onToolListChanged);
     return yield* Effect.tryPromise({
       try: () => connection.client.callTool({ name: toolName, arguments: args }),
       catch: (cause) => {
@@ -152,6 +202,7 @@ const useConnection = (
           toolName,
           message: `MCP tool call failed for ${toolName}`,
           ...(status === undefined ? {} : { status }),
+          ...(isUnknownToolCause(cause, toolName) ? { unknownTool: true } : {}),
         });
       },
     }).pipe(
@@ -174,6 +225,10 @@ export interface InvokeMcpToolInput {
   /** Dials a fresh connection. The connection is closed after the call. */
   readonly connector: McpConnector;
   readonly elicit: Elicit;
+  /** Fired when the server sends `notifications/tools/list_changed` during
+   *  the call window. Synchronous and non-throwing by contract; the caller
+   *  uses it to mark the persisted catalog stale. */
+  readonly onToolListChanged?: () => void;
 }
 
 export const invokeMcpTool = (
@@ -204,7 +259,13 @@ export const invokeMcpTool = (
         ),
     );
 
-    return yield* useConnection(connection, input.toolName, args, input.elicit);
+    return yield* useConnection(
+      connection,
+      input.toolName,
+      args,
+      input.elicit,
+      input.onToolListChanged,
+    );
   }).pipe(
     Effect.scoped,
     Effect.withSpan("plugin.mcp.invoke", {

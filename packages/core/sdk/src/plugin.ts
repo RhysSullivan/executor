@@ -219,6 +219,12 @@ export interface PluginCtx<TStore = unknown> {
       readonly Tool[],
       ConnectionNotFoundError | IntegrationNotFoundError | StorageFailure
     >;
+    /** Mark a connection's persisted tool catalog stale (clears its sync
+     *  stamp) without re-listing inline. The next tools read re-produces it.
+     *  For signals that arrive mid-invocation — e.g. an MCP server sending
+     *  `notifications/tools/list_changed` or rejecting a call as an unknown
+     *  tool — where an inline `refresh` would block the caller. */
+    readonly markToolsStale: (ref: ConnectionRef) => Effect.Effect<void, StorageFailure>;
     /** Resolve a connection's value through its provider (and OAuth refresh).
      *  null if the provider can't produce one. */
     readonly resolveValue: (ref: ConnectionRef) => Effect.Effect<string | null, StorageFailure>;
@@ -276,6 +282,13 @@ export interface ResolveToolsResult {
   readonly tools: readonly ToolDef[];
   /** Shared JSON-schema `$defs` reachable from the tools' `$ref`s. */
   readonly definitions?: Record<string, unknown>;
+  /** The source could not be (fully) enumerated: unreachable server, auth not
+   *  ready, listing aborted. The result is non-authoritative, so the executor
+   *  keeps the connection's existing persisted catalog instead of replacing it
+   *  (a transient outage must not wipe working tools). Omit / `false` when the
+   *  listing is authoritative, including a genuine "this source has zero
+   *  tools". */
+  readonly incomplete?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +530,14 @@ export interface PluginSpec<
   readonly resolveTools?: (
     input: ResolveToolsInput<TStore>,
   ) => Effect.Effect<ResolveToolsResult, StorageFailure>;
+
+  /** Declare that `resolveTools` lists a live remote catalog (an MCP server)
+   *  that can change without any executor-side config change. Core keeps such
+   *  connections fresh: their persisted tools are re-listed on a tools read
+   *  once older than the executor's `toolsSyncTtlMs`, in addition to the
+   *  config-revision and stale-mark triggers every plugin gets. Leave unset
+   *  for catalogs derived purely from stored state (specs, static config). */
+  readonly remoteToolCatalog?: boolean;
 
   /** Invoke a dynamic tool. Called when the static-handler map doesn't have the
    *  address. The plugin applies `input.credential` to the outbound request. */

@@ -45,7 +45,7 @@ import {
   McpOAuthReauthorizationRequired,
   McpToolDiscoveryError,
 } from "./errors";
-import { invokeMcpTool } from "./invoke";
+import { invokeMcpTool, isUnknownToolMessage } from "./invoke";
 import { deriveMcpNamespace, type McpToolManifestEntry } from "./manifest";
 import { mcpPresets } from "./presets";
 import { probeMcpEndpointShape, type McpShapeProbeResult } from "./probe-shape";
@@ -413,6 +413,22 @@ const extractMcpErrorMessage = (content: unknown): string => {
   return "MCP tool returned an error";
 };
 
+// The server no longer advertises this tool — the persisted catalog drifted.
+// Answered after marking the connection stale so the next tools read re-lists;
+// the message tells the caller to re-list instead of retrying blind.
+const unknownToolFailure = (
+  toolName: string,
+  credential: { readonly integration: unknown; readonly connection: unknown },
+) =>
+  ToolResult.fail({
+    code: "mcp_tool_unknown",
+    message: `The MCP server no longer provides tool "${toolName}". Its tool catalog changed; list tools again for the current set.`,
+    details: {
+      integration: String(credential.integration),
+      connection: String(credential.connection),
+    },
+  });
+
 /** Match `token` as a separator-bounded run inside a URL hostname or path,
  *  used as a low-confidence detection hint when wire-shape detection fails. */
 const urlMatchesToken = (url: URL, token: string): boolean => {
@@ -666,6 +682,9 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
   return {
     id: MCP_PLUGIN_ID,
     packageName: "@executor-js/plugin-mcp",
+    // MCP servers own their tool catalogs and change them server-side with no
+    // executor-visible signal — opt into core's freshness TTL re-listing.
+    remoteToolCatalog: true,
     integrationPresets: presetEntries,
     // Surfaced to the client bundle via the Vite plugin. The MCP `./client`
     // factory reads `allowStdio` and gates the stdio tab + presets.
@@ -1114,15 +1133,17 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
     // -----------------------------------------------------------------------
     // Per-connection tool production. Dial the server using the connection's
     // resolved value (rendered through the integration's auth template) and
-    // list its tools. The real MCP tool name + upstream annotations are
-    // stamped into each ToolDef's annotations so invokeTool can recover them.
-    // Discovery failures (auth not ready, server down) yield an empty tool set
-    // rather than failing — the connection still lands and can be refreshed.
+    // list its tools (following `nextCursor` pagination). The real MCP tool
+    // name + upstream annotations are stamped into each ToolDef's annotations
+    // so invokeTool can recover them. Discovery failures (auth not ready,
+    // server down) yield an `incomplete` empty result rather than failing —
+    // the connection still lands, and core keeps any previously persisted
+    // catalog instead of wiping it over a transient outage.
     // -----------------------------------------------------------------------
     resolveTools: ({ config, connection, template, getValues, httpClientLayer }) =>
       Effect.gen(function* () {
         const parsed = parseMcpIntegrationConfig(config);
-        if (!parsed) return { tools: [] as readonly ToolDef[] };
+        if (!parsed) return { tools: [] as readonly ToolDef[], incomplete: true };
 
         // Discovery tolerates unresolved credentials (an open server lists
         // tools unauthenticated; a bad value just yields zero tools).
@@ -1151,13 +1172,18 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             )
           : { ok: false as const, manifest: null };
 
-        const entries = manifest.ok && manifest.manifest ? manifest.manifest.tools : [];
-        return { tools: entries.map(toToolDef) };
+        if (!manifest.ok || !manifest.manifest) {
+          return { tools: [] as readonly ToolDef[], incomplete: true };
+        }
+        return { tools: manifest.manifest.tools.map(toToolDef) };
       }).pipe(
         Effect.withSpan("mcp.plugin.resolve_tools", {
           attributes: { "mcp.connection.name": String(connection.name) },
         }),
-      ) as Effect.Effect<{ readonly tools: readonly ToolDef[] }, StorageFailure>,
+      ) as Effect.Effect<
+        { readonly tools: readonly ToolDef[]; readonly incomplete?: boolean },
+        StorageFailure
+      >,
 
     invokeTool: ({ ctx, toolRow, credential, args, elicit }) =>
       Effect.gen(function* () {
@@ -1207,6 +1233,19 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           options?.httpClientLayer ?? ctx.httpClientLayer,
         ).pipe(Effect.map((ci) => createMcpConnector(ci)));
 
+        const connectionRef = {
+          owner: credential.owner,
+          integration: credential.integration,
+          name: credential.connection,
+        };
+
+        // Spec: a server whose tool list changed sends
+        // `notifications/tools/list_changed` on any open connection — the call
+        // window included. Record it here (the handler must be sync) and mark
+        // the persisted catalog stale after the call settles, so the next
+        // tools read re-lists instead of serving the drifted catalog.
+        let toolListChanged = false;
+
         const raw = yield* invokeMcpTool({
           toolId: String(toolRow.name),
           toolName: stamp.toolName,
@@ -1214,13 +1253,32 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           transport,
           connector,
           elicit,
-        });
+          onToolListChanged: () => {
+            toolListChanged = true;
+          },
+        }).pipe(
+          Effect.onExit(() =>
+            toolListChanged
+              ? ctx.connections.markToolsStale(connectionRef).pipe(Effect.ignore)
+              : Effect.void,
+          ),
+        );
 
         const envelope = Option.getOrUndefined(decodeMcpToolCallEnvelope(raw));
         if (envelope?.isError === true) {
+          const errorMessage = extractMcpErrorMessage(envelope.content);
+          // The reference TS SDK server reports an unknown tool as an
+          // execution-error envelope ("Tool <name> not found") rather than the
+          // spec's protocol error. Same meaning: the persisted catalog
+          // drifted. Mark it stale and answer with the typed drift failure.
+          if (isUnknownToolMessage(errorMessage, stamp.toolName)) {
+            return yield* ctx.connections
+              .markToolsStale(connectionRef)
+              .pipe(Effect.ignore, Effect.as(unknownToolFailure(String(toolRow.name), credential)));
+          }
           return ToolResult.fail({
             code: "mcp_tool_error",
-            message: extractMcpErrorMessage(envelope.content),
+            message: errorMessage,
             details: { content: envelope.content },
           });
         }
@@ -1253,6 +1311,15 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
                 connection: String(credential.connection),
               }),
             );
+          }
+          if (error.unknownTool === true) {
+            return ctx.connections
+              .markToolsStale({
+                owner: credential.owner,
+                integration: credential.integration,
+                name: credential.connection,
+              })
+              .pipe(Effect.ignore, Effect.as(unknownToolFailure(String(toolRow.name), credential)));
           }
           return Effect.fail(error);
         }),

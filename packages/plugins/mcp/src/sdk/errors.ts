@@ -28,6 +28,9 @@ export class McpInvocationError extends Data.TaggedError("McpInvocationError")<{
   readonly toolName: string;
   readonly message: string;
   readonly status?: number;
+  /** The server rejected the call as an unknown tool (protocol error), which
+   *  means the persisted catalog has drifted from the server's live tool set. */
+  readonly unknownTool?: boolean;
 }> {}
 
 export class McpOAuthReauthorizationRequired extends Data.TaggedError(

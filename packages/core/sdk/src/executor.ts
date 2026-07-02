@@ -389,7 +389,20 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
     readonly orgSlug?: string;
     readonly includeProviders?: boolean;
   };
+  /**
+   * How long a connection's persisted tool catalog stays fresh when its plugin
+   * lists a live remote catalog (`plugin.remoteToolCatalog`, e.g. MCP servers,
+   * whose tool sets change server-side with no executor-visible signal). Once
+   * older than this, the catalog is re-listed on the next tools read. Defaults
+   * to 15 minutes; pass `null` to disable time-based re-sync (stale-mark and
+   * config-revision re-sync still apply).
+   */
+  readonly toolsSyncTtlMs?: number | null;
 }
+
+/** Default freshness window for remote-catalog connections (see
+ *  `ExecutorConfig.toolsSyncTtlMs`). */
+export const DEFAULT_TOOLS_SYNC_TTL_MS = 15 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // collectTables — return the executor-owned Fuma table set. Plugins persist
@@ -1955,6 +1968,17 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             ),
           );
 
+        if (result.incomplete === true) {
+          // Non-authoritative listing (source unreachable, auth not ready).
+          // Keep the existing catalog — replacing it would wipe working tools
+          // over a transient outage — and stamp the sync time anyway so a down
+          // server isn't re-dialed on every read; the freshness TTL re-attempts
+          // later.
+          yield* stampSynced;
+          const keptRows = yield* core.findMany("tool", { where });
+          return keptRows.map((row) => rowToTool(row as ConnectionToolRow));
+        }
+
         const now = new Date();
         const toolRows = result.tools.map((tool: ToolDef) => ({
           tenant: keys.tenant,
@@ -2448,6 +2472,21 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         return yield* produceConnectionTools(integrationRow, ref);
       });
 
+    // Clear the sync stamp so the next tools read re-produces this connection's
+    // catalog. The deferred variant of `connectionsRefresh` for signals that
+    // arrive mid-invocation (an MCP `notifications/tools/list_changed`, an
+    // unknown-tool rejection) where re-listing inline would block the caller.
+    const connectionsMarkToolsStale = (ref: ConnectionRef): Effect.Effect<void, StorageFailure> =>
+      core.updateMany("connection", {
+        where: (b: AnyCb) =>
+          b.and(
+            byOwner(ref.owner)(b),
+            b("integration", "=", String(ref.integration)),
+            b("name", "=", String(ref.name)),
+          ),
+        set: { tools_synced_at: null },
+      });
+
     // ------------------------------------------------------------------
     // Active policy source.
     // ------------------------------------------------------------------
@@ -2561,31 +2600,86 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       return true;
     };
 
-    // Rebuild any visible connection whose tool catalog predates its
-    // integration's last tool-affecting config change. The change's author
-    // could only rewrite catalogs in their own partition (owner policy);
-    // every other subject converges here, on their own read, under their own
-    // binding. Best-effort: a failed rebuild leaves the stale-but-working
-    // catalog in place and retries on the next read.
+    // How long a remote-catalog connection's persisted tools stay fresh
+    // (`ExecutorConfig.toolsSyncTtlMs`; `null` disables time-based re-sync).
+    const toolsSyncTtlMs =
+      config.toolsSyncTtlMs === undefined ? DEFAULT_TOOLS_SYNC_TTL_MS : config.toolsSyncTtlMs;
+
+    // Rebuild any visible connection whose persisted tool catalog is stale.
+    // Three triggers:
+    //  - stale-marked: `tools_synced_at` is NULL (`connections.markToolsStale`
+    //    — an MCP `tools/list_changed` notification or unknown-tool rejection
+    //    cleared it mid-invocation);
+    //  - config-revised: the integration's last tool-affecting config change
+    //    postdates the connection's catalog. The change's author could only
+    //    rewrite catalogs in their own partition (owner policy); every other
+    //    subject converges here, on their own read, under their own binding;
+    //  - expired: the plugin lists a live remote catalog (an MCP server, whose
+    //    tool set can change with no executor-visible signal) and the catalog
+    //    is older than the freshness TTL.
+    // Best-effort: a failed rebuild leaves the stale-but-working catalog in
+    // place and retries on the next read.
     const syncStaleConnectionTools = Effect.gen(function* () {
-      const revised = yield* core.findMany("integration", {
-        where: (b: AnyCb) => b.isNotNull("config_revised_at"),
-      });
-      if (revised.length === 0) return;
-      const revisedAt = new Map(
-        revised.map((row) => [row.slug, Number(row.config_revised_at)] as const),
+      const integrations = yield* core.findMany("integration", {});
+      if (integrations.length === 0) return;
+      const integrationBySlug = new Map(integrations.map((row) => [row.slug, row] as const));
+      // The TTL only matters when a loaded plugin actually lists a live remote
+      // catalog; otherwise skip it so age alone never widens the stale query.
+      const anyRemoteCatalog = Array.from(runtimes.values()).some(
+        (runtime) => runtime.plugin.remoteToolCatalog === true,
       );
+      const cutoff =
+        toolsSyncTtlMs == null || !anyRemoteCatalog ? null : Date.now() - toolsSyncTtlMs;
+
+      // Bound the scan to potentially-stale rows: stale-marked (NULL stamp) or
+      // synced before the latest instant any trigger could fire at (the TTL
+      // cutoff / the newest config revision). Per-row trigger checks below
+      // re-verify against each row's own integration; in steady state this
+      // query returns nothing and the read pays one indexed lookup.
+      const latestRevision = integrations.reduce<number | null>(
+        (max, row) =>
+          row.config_revised_at == null
+            ? max
+            : Math.max(max ?? Number(row.config_revised_at), Number(row.config_revised_at)),
+        null,
+      );
+      const staleBefore =
+        cutoff === null && latestRevision === null
+          ? null
+          : Math.max(cutoff ?? Number.MIN_SAFE_INTEGER, latestRevision ?? Number.MIN_SAFE_INTEGER);
+
       const connections = yield* core.findMany("connection", {
-        where: (b: AnyCb) => b.or(...revised.map((row) => b("integration", "=", row.slug))),
+        where: (b: AnyCb) =>
+          staleBefore === null
+            ? b.isNull("tools_synced_at")
+            : b.or(b.isNull("tools_synced_at"), b("tools_synced_at", "<", staleBefore)),
       });
       for (const connection of connections) {
-        const revisedTime = revisedAt.get(connection.integration);
-        if (revisedTime === undefined) continue;
-        const syncedAt =
-          connection.tools_synced_at == null ? 0 : Number(connection.tools_synced_at);
-        if (syncedAt >= revisedTime) continue;
-        const integrationRow = revised.find((row) => row.slug === connection.integration);
+        const integrationRow = integrationBySlug.get(connection.integration);
         if (!integrationRow) continue;
+        const runtime = runtimes.get(integrationRow.plugin_id);
+        // Only re-produce catalogs this executor can actually re-list —
+        // rebuilding under an unloaded plugin would clear a working catalog.
+        // (A loaded plugin without `resolveTools` still flows through:
+        // `produceConnectionTools` runs its clear-and-stamp cleanup path.)
+        if (!runtime) continue;
+
+        const syncedAt =
+          connection.tools_synced_at == null ? null : Number(connection.tools_synced_at);
+        const revisedTime =
+          integrationRow.config_revised_at == null
+            ? null
+            : Number(integrationRow.config_revised_at);
+
+        const staleMarked = syncedAt === null;
+        const configRevised = revisedTime !== null && (syncedAt ?? 0) < revisedTime;
+        const expired =
+          cutoff !== null &&
+          runtime.plugin.remoteToolCatalog === true &&
+          syncedAt !== null &&
+          syncedAt < cutoff;
+        if (!staleMarked && !configRevised && !expired) continue;
+
         yield* produceConnectionTools(integrationRow, {
           owner: connection.owner as Owner,
           integration: IntegrationSlug.make(connection.integration),
@@ -3319,6 +3413,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           update: (ref, input) => connectionsUpdate(ref, input),
           remove: (ref) => connectionsRemove(ref),
           refresh: (ref) => connectionsRefresh(ref),
+          markToolsStale: (ref) => connectionsMarkToolsStale(ref),
           resolveValue: (ref) => resolveConnectionValueByRef(ref),
         },
         providers: {

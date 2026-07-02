@@ -44,16 +44,30 @@ const ListToolsResult = Schema.Struct({
   tools: Schema.Array(ListedTool),
 });
 
+// One page of a paginated `tools/list` response. Entries stay opaque here so a
+// page with foreign tool shapes still pages correctly; per-entry decoding
+// happens in `extractManifestFromListToolsResult` over the merged list.
+const ListToolsPage = Schema.Struct({
+  tools: Schema.Array(Schema.Unknown),
+  nextCursor: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+export interface McpListToolsPage {
+  readonly tools: readonly unknown[];
+  readonly nextCursor?: string | null;
+}
+
 const ServerInfo = Schema.Struct({
   name: Schema.optional(Schema.String),
   version: Schema.optional(Schema.String),
 });
 
 const decodeListToolsResult = Schema.decodeUnknownOption(ListToolsResult);
+const decodeListToolsPageOption = Schema.decodeUnknownOption(ListToolsPage);
 const decodeServerInfo = Schema.decodeUnknownOption(ServerInfo);
 
-export const isListToolsResult = (value: unknown): boolean =>
-  Option.isSome(decodeListToolsResult(value));
+export const decodeListToolsPage = (value: unknown): Option.Option<McpListToolsPage> =>
+  decodeListToolsPageOption(value);
 
 // ---------------------------------------------------------------------------
 // Tool ID sanitization

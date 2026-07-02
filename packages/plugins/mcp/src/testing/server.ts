@@ -454,6 +454,66 @@ export const makeElicitationMcpServer = () => {
   return server;
 };
 
+/**
+ * A server whose tool catalog mutates at runtime. `renameTool` renames the
+ * advertised tool from `initialToolName` to `renamedToolName` via the SDK's
+ * `RegisteredTool.update`, which sends `notifications/tools/list_changed` to
+ * connected sessions. Calling the retired name afterwards yields the spec's
+ * unknown-tool protocol error. The rename applies to every live session and
+ * to sessions created after it (one shared name across the factory), so a
+ * mutation made during one client's call window is visible to the next
+ * connection's `tools/list`. The `rename_greet` tool performs the rename
+ * mid-call, so a client with an open connection receives the notification
+ * inside its own call window.
+ */
+export const makeMutableCatalogMcpServer = (
+  options: {
+    readonly initialToolName?: string;
+    readonly renamedToolName?: string;
+  } = {},
+) => {
+  const initialToolName = options.initialToolName ?? "greet";
+  const renamedToolName = options.renamedToolName ?? "greet_v2";
+  const registrations = new Set<{ update: (updates: { name: string }) => void }>();
+  let currentToolName = initialToolName;
+
+  const renameTool = () => {
+    currentToolName = renamedToolName;
+    for (const registered of registrations) {
+      registered.update({ name: renamedToolName });
+    }
+  };
+
+  const factory = () => {
+    const server = new McpServer(
+      { name: "mutable-catalog-test-server", version: "1.0.0" },
+      { capabilities: {} },
+    );
+    const registered = server.registerTool(
+      currentToolName,
+      {
+        description: "Greets the caller",
+        inputSchema: { name: z.string() },
+      },
+      async ({ name }: { name: string }) => ({
+        content: [{ type: "text" as const, text: `greeting:${name}` }],
+      }),
+    );
+    registrations.add(registered);
+    server.registerTool(
+      "rename_greet",
+      { description: "Renames the greet tool", inputSchema: {} },
+      async () => {
+        renameTool();
+        return { content: [{ type: "text" as const, text: "renamed" }] };
+      },
+    );
+    return server;
+  };
+
+  return { factory, renameTool, initialToolName, renamedToolName };
+};
+
 export const makeAnnotationsMcpServer = () => {
   const server = new McpServer(
     { name: "annotations-test-server", version: "1.0.0" },
