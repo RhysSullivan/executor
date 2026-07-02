@@ -185,6 +185,7 @@ project + globalsetup per guest OS.
   ```sh
   vitest run --project desktop-macos      # or desktop-linux
   ```
+
 - **`desktop-windows`** — same scenario, but ATTACHES to a long-lived dockur
   Windows guest over an SSH jump instead of provisioning one (no bundle build).
 
