@@ -29,7 +29,14 @@ const FREE_MEMBER_SEATS = 3;
 
 scenario(
   "Billing · a free org fills its 3 member seats, then invites are blocked with a reason",
-  {},
+  {
+    // Blocked on @executor-js/emulate 0.9.1: 0.9.0's Autumn emulator omits the
+    // expanded `feature` object on customer balances, so autumn-js's
+    // useCustomer throws customerToFeatures into the app's error boundary on
+    // the org page. Fixed upstream (UsefulSoftwareCo/emulate#8); unskip after
+    // the 0.9.1 publish lands and the e2e dependency is bumped.
+    skip: "emulate 0.9.0's Autumn customer balances lack the expanded feature autumn-js asserts; fixed in 0.9.1 (pending publish)",
+  },
   Effect.gen(function* () {
     // Gate: billing limits are enforced on this target.
     yield* Billing;
