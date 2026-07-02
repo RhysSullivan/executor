@@ -14,6 +14,7 @@ import {
 } from "@executor-js/cloudflare/mcp/do-headers";
 import type { McpSessionProps } from "@executor-js/cloudflare/mcp/agent-durable-object";
 
+import { wrapMcpSseResponse } from "../observability/memory-metrics";
 import { cloudMcpAuth } from "./auth-provider";
 import { McpSessionDOSqlite } from "./session-durable-object";
 
@@ -158,6 +159,7 @@ export const makeCloudMcpAgentHandler = () => {
       },
       resource,
     );
-    return serve.fetch(forwarded, env, ctx);
+    const response = await serve.fetch(forwarded, env, ctx);
+    return wrapMcpSseResponse(request, env, response);
   };
 };
