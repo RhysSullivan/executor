@@ -16,6 +16,7 @@ import {
   InternalError,
   Owner,
   ToolAddress,
+  ToolCatalogExport,
   ToolNotFoundError,
   ToolSchemaView,
 } from "@executor-js/sdk/shared";
@@ -81,5 +82,16 @@ export const ToolsApi = HttpApiGroup.make("tools")
       query: SchemaQuery,
       success: ToolSchemaView,
       error: [InternalError, ToolNotFound],
+    }),
+  )
+  .add(
+    // Bulk schema-bearing read for codegen (`executor generate`): every
+    // visible tool's input/output JSON schema grouped per connection with the
+    // connection's shared `$defs`. One request regardless of catalog size —
+    // per-tool `schema` round trips do not scale to 10k-tool catalogs.
+    HttpApiEndpoint.get("export", "/tools/export", {
+      query: ListToolsQuery,
+      success: ToolCatalogExport,
+      error: InternalError,
     }),
   );

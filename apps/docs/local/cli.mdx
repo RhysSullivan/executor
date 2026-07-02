@@ -109,3 +109,28 @@ resume it:
 ```bash
 executor resume --execution-id exec_123
 ```
+
+## Generate a typed client
+
+`executor generate` writes a single self-contained TypeScript file with full
+input/output types for every tool in your catalog, plus a dependency-free
+runtime client. Drop it into any TypeScript project and every call is typed
+end to end, while still executing through Executor (auth, policies, and
+approvals included):
+
+```bash
+executor generate                      # writes executor.gen.ts
+executor generate -o src/executor.ts   # custom output path
+executor generate --integration github # only one integration
+```
+
+```ts
+import { createExecutorClient } from "./executor.gen";
+
+const executor = createExecutorClient(); // EXECUTOR_API_KEY / EXECUTOR_AUTH_TOKEN
+const created = await executor.github.org.main.issues.create({ title: "Hi" });
+if (created.ok) console.log(created.data.number);
+```
+
+Calls that pause for approval throw `ExecutorPausedError` with the approval
+URL. Re-run `executor generate` whenever your catalog changes.

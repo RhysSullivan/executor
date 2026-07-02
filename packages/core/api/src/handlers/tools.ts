@@ -49,5 +49,20 @@ export const ToolsHandlers = HttpApiBuilder.group(ExecutorApi, "tools", (handler
           return schema;
         }),
       ),
+    )
+    .handle("export", ({ query }) =>
+      capture(
+        Effect.gen(function* () {
+          const executor = yield* ExecutorService;
+          return yield* executor.tools.export({
+            integration: query.integration,
+            owner: query.owner,
+            connection: query.connection,
+            query: query.query,
+            includeAnnotations: query.includeAnnotations === "true",
+            includeBlocked: query.includeBlocked === "true",
+          });
+        }),
+      ),
     ),
 );
